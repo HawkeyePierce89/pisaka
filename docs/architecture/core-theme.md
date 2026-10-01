@@ -364,7 +364,8 @@ Three accessors, one table:
     `PlatformColor.dynamic(light:dark:alpha:)`, the primitive already in the
     tree (`SyntaxTheme`'s own colours are built the same way). This is why **no
     AppKit view in the chrome caches a resolved colour and none watches for a
-    *colour* change by hand**: the Theme preference is applied as
+    *colour* change by hand** (the terminal, a host that stores concrete
+    colours, is the stated exception — see the next bullet): the Theme preference is applied as
     `.preferredColorScheme` at each SwiftUI window root, which sets that window's
     `NSAppearance`; every `NSView` inside inherits it, and a dynamic colour asked
     to draw under the new appearance answers the new value. A view that resolved
@@ -392,7 +393,10 @@ Three accessors, one table:
   - `nsColor(_ role:in:)` — the **concrete** `NSColor` of one appearance, for the
     sites that are not drawing (the palette test reads components) or that have
     already been handed an appearance to resolve against. Drawing code asks the
-    dynamic form.
+    dynamic form — with the terminal as the stated exception (part five (h)):
+    SwiftTerm stores the colours it is given and never re-resolves them, so
+    `TerminalTheme` is handed concrete colours resolved by appearance and
+    re-applies them on every appearance change.
   - `color(_ role:in:)` — the SwiftUI `Color` of one appearance, composed from
     the same row rather than converted from an `NSColor`.
 
@@ -847,8 +851,10 @@ fifteen, then to sixteen with the review round's fix below.
     glyphs state `textSecondary` explicitly, because a borderless button would
     otherwise tint them itself. The no-session placeholder draws `bgPanel`
     rather than the platform's text background. The hosted terminal views, their
-    container and the terminal palette are **untouched**: they are the terminal
-    zone, not chrome. Full entry in `app-terminal.md`.
+    container and the terminal's ANSI-16 arrays are **untouched**: the ANSI-16
+    is the terminal zone, not chrome. The terminal's four chrome colours —
+    ground, text, caret, selection — were swept later, in part five (h). Full
+    entry in `app-terminal.md`.
 
 **Six tabs, not seven.** The design draws a seventh tab naming a panel this
 application does not have. A tab that does nothing when clicked is a defect, not
@@ -1800,7 +1806,7 @@ differed:
    console's rows have hover only. The zebra (`isTinted` and its `isMultiple`
    expression) is **deleted** from both, and no wash role replaces it: the
    design's tables read by selection and hover, and a twenty-second role for an
-   alternation the design does not draw would be the refusal's own case (rule
+   alternation the design does not draw would be a role of its own (rule
    forty-one).
 6. **The browser's rows follow `CommitRow`.** The platform `Table` became
    `ScrollView` + `ScrollViewReader` + `LazyVStack` under a `bgPanel` header row
@@ -1905,7 +1911,8 @@ changed.
   focusable row list.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
-- **The terminal's colours** stay `TerminalTheme`'s, as before.
+- **The terminal's ANSI-16** stays `TerminalTheme`'s, as before (its four
+  chrome colours were since swept, part five (h)).
 
 The spinner question part five (c) left open is **closed**.
 
@@ -2109,8 +2116,8 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the terminal's own palette, the caret
-readout, the lane hues, the unified diff's per-line checkbox glyph and
+stay named under *What is still waiting*: the terminal's own palette (its four
+chrome colours since swept, part five (h)), the caret readout, the lane hues, the unified diff's per-line checkbox glyph and
 changed-line text tint.
 
 #### Part five (g) — the project tree's drop-target wash
@@ -2150,13 +2157,98 @@ mutation-checked against `ProjectTreeView.swift`, red with the old line restored
 and green after (its entry, below). **The gap that remains** is the
 local-variable form, which needs data flow.
 
+#### Part five (h) — the terminal's four chrome colours
+
+One surface, the terminal pane, and one boundary redrawn. `TerminalTheme.swift`
+was exempt from the suite whole, because "an ANSI-16 palette is a protocol's
+vocabulary". **The boundary is drawn where the exemption's own reason puts
+it**: that reason is true of the two sixteen-entry arrays and of nothing else
+in the file. The other four colours of each palette — the ground, the default
+text, the caret and the selection — are chrome, and they become roles:
+
+| Terminal colour | Role | Dark | Light |
+|---|---|---|---|
+| ground | `bgCanvas` | `0x1E1F22` | `0xF5F5F7` |
+| default text | `textPrimary` | `0xDFE1E5` | `0x1D1D1F` |
+| caret | `accent` | `0x4F8DFF` | `0x2F6FE0` |
+| selection | `accentTintStrong` | accent hues at alpha `0x33` | accent hues at alpha `0x33` |
+
+**Pixels change on purpose.** The dark ground goes from black to `0x1E1F22` and
+the dark text from SwiftTerm's `#8A8A8A` to `0xDFE1E5`, taking its contrast from
+6.1:1 to 12.6:1; the light ground goes from white to `0xF5F5F7` and the light
+text from `#1E1E1E` to `0x1D1D1F`. The caret and the selection were the system
+accent's `selectedContentBackgroundColor` and `selectedTextBackgroundColor`;
+they are now `accent` and `accentTintStrong`, and **no terminal colour follows
+the system accent any more**. The text under a block caret stays the resolved
+ground, readable against the saturated `accent`.
+
+**Three light ANSI entries darkened**, each keeping its hue, because the new
+light ground is not white: ANSI 8 `0x757575` → `0x707070` (it measured 4.2:1 on
+`0xF5F5F7`), ANSI 11 `0x9A7000` → `0x926A00` (4.1:1) and ANSI 14 `0x00808F` →
+`0x007C8B` (4.3:1). The light array's floor is now stated as **at least 4.5:1
+against `0xF5F5F7`**, the ground it was measured on. The dark array stays
+SwiftTerm's sixteen defaults verbatim — no longer "so the dark theme looks
+exactly as before", but because it is the terminal's own vocabulary and the one
+thing the file still spells for itself.
+
+**The stated exception: a host that stores concrete colours is handed concrete
+colours.** Everywhere else in the AppKit chrome the rule is that a view asks
+for a *dynamic* colour and caches nothing (`ChromePalette`'s AppKit bridge,
+above). SwiftTerm cannot honour it: it stores its own `SwiftTerm.Color` structs
+and plain `NSColor`s for the caret and selection, and never re-resolves them.
+So `TerminalTheme` resolves the four roles at apply time through the concrete
+accessor `nsColor(_:in:)`, under the `ChromeAppearance` matched from the
+hosting `NSAppearance` (`.darkAqua` → `.dark`, anything else → `.light`), and
+the existing re-apply on every appearance change is what keeps the stored
+colours current. The `performAsCurrentDrawingAppearance` resolver, which
+existed only to resolve dynamic system colours, is gone. `ThemeKey` still
+fingerprints the four resolved colours' 16-bit components — ground, text,
+caret, selection — and its reason narrows to determinism: comparing components
+keeps the skip-if-unchanged guard (and the OSC 4/10/11/12 state it protects on
+a tab switch) exact.
+
+**The accent observer is removed.** `TerminalSessionsModel` subscribed to
+`systemColorsDidChangeNotification` only because an accent change altered the
+caret and selection without altering the appearance; with neither following
+the accent, the subscription, its `init`, its `deinit` removal and their doc
+comments went with it.
+
+**An open item, named rather than tuned.** The dark ANSI-16 set was tuned for
+black, and on `0x1E1F22` its weakest entries measure ANSI 4 at 1.3:1, ANSI 1 at
+1.8:1 and ANSI 12 at 1.9:1 — each *worse* than on the black it was tuned for
+(1.6:1, 2.3:1 and 2.4:1 there), so the new ground costs these entries
+contrast and nothing is fixed. Tuning the set is listed under *What is still
+waiting*.
+
+**Pinned twice.** Rule forty-four (below) narrows the exemption in `swift
+test`: outside the two arrays the file spells no `0x` literal, constructs no
+`NSColor` and no colour beyond its two converters, names no system colour or
+named-hue member such as `NSColor.magenta` (its
+`.…Color` members pinned by set equality), it names the four role tokens, and
+each array holds sixteen entries. The arrays are found through a new helper,
+`matchedBracketBodyRange(after:in:)`, beside the brace-matching one, because an
+array literal has no braces of its own. A new app-layer suite,
+`TerminalThemeTests`, asserts under both appearances and both high-contrast variants that
+`key(for:)` equals the
+palette's four roles' components by its own arithmetic (×65535, rounded — not
+the theme's converter, so the comparison is not a tautology), that every light
+ANSI entry clears 4.5:1 against the light `bgCanvas`, that each appearance
+installs its own array, and that both arrays have sixteen entries.
+
+**No new role**: `ChromeColorRole` stays at twenty-two, `currentLine` and
+`bracketMatch` stay the two unspent, and nothing in Core changes. The gated set
+stays at **sixty** files — `TerminalTheme.swift` stays one of the four
+exemptions, now narrowed — and the suite goes from forty-three rules to
+**forty-four**.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, the
 problem-catalog surfaces, the two served document pages, the alert accessory,
-the fold placeholder and the project tree's drop-target wash (part five (g)). No macOS surface is known to paint outside the roles —
+the fold placeholder, the project tree's drop-target wash (part five (g)) and
+the terminal's four chrome colours (part five (h)). No macOS surface is known to paint outside the roles —
 that is the bounded closure stated at the end of part five (f), and rule
 forty-three's live half is what would say otherwise the moment an ungated,
 non-exempt macOS file started to.
@@ -2166,13 +2258,17 @@ The dock's tab row is **no longer deferred** — part four (a) drew it, and
 deferred** — part five (a) drew them on `bgPopover` and replaced their
 `Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
 and `secondaryButtonHeight` are spent on the shared field. What stays deferred:
-the **terminal's own palette**, the **caret readout** beside the bar, which
-waits on a design decision rather than on a file, the **lane hues**, and the
-unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
-five (b)'s departures six and seven), all open design questions. Each follows the six-step guide at the end of this
-document, on its own. Two roles remain unspent — `currentLine` and
-`bracketMatch`, both code zone — after fifty-six surfaces, the same two and the
-same count `ChromeColorRole.swift`'s own doc comment states.
+the **caret readout** beside the bar, which waits on a design decision rather
+than on a file, the **lane hues**, and the unified diff's **per-line checkbox
+glyph** and **changed-line text tint** (part five (b)'s departures six and
+seven), all open design questions. The terminal's own palette is **no longer
+deferred** — part five (h) moved its four chrome colours onto the roles — but
+one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
+entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are as poor on
+`0x1E1F22` as they were on black. Each follows the six-step guide at the end of
+this document, on its own. Two roles remain unspent — `currentLine` and
+`bracketMatch`, both code zone — after fifty-seven surfaces, the same two roles
+`ChromeColorRole.swift`'s own doc comment names.
 
 ### The monochrome-icon decision
 
@@ -2218,7 +2314,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-three rules, each invisible to the compiler:
+The forty-four rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2248,7 +2344,9 @@ The forty-three rules, each invisible to the compiler:
    belongs to the *code* zone, which is the editor's own theme, not the chrome's
    design system), `TerminalTheme.swift` (an ANSI-16 palette is a protocol's
    vocabulary — the numbers mean what the escape sequences say, and a role cannot
-   stand in for one), `FileIcon.swift` (a Core semantic token iOS still
+   stand in for one; since part five (h) that exemption covers its two
+   sixteen-entry arrays and nothing else, the file's four chrome colours being
+   roles pinned by rule forty-four), `FileIcon.swift` (a Core semantic token iOS still
    paints, so it cannot move behind a macOS-only palette) and, since part four
    (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
    line is the same branch as that one" — not a chrome meaning; its eight hues
@@ -2751,8 +2849,9 @@ The forty-three rules, each invisible to the compiler:
     `performAsCurrentDrawingAppearance`. Since part five (g) the alpha clause
     has a second form: an `.opacity`/`.withAlphaComponent` chained onto **any**
     call is red when that call's own balanced argument list spells a role case —
-    a leading-dot raw value from `ChromeColorRole.allCases`, matched as a token
-    at nesting depth one, not inside a nested call — which catches the
+    a raw value from `ChromeColorRole.allCases`, after a leading dot or
+    qualified as `ChromeColorRole.accent`, matched as a token at nesting depth
+    one, not inside a nested call — which catches the
     helper-call form (`resolving(.accent).opacity(…)`) the first form could not
     see. **The depth-one scope is deliberate**: `ChromeControls.swift`'s two
     button-dimming chains, `.background(RoundedRectangle(…).fill(theme.color(.accent)))`
@@ -3028,6 +3127,34 @@ The forty-three rules, each invisible to the compiler:
     `PlatformColor.swift`'s sRGB initializer) is removed before the hue check,
     since it names no colour. Part five (d) and part five (e) each made the
     claim and neither was true; this is the measurement that would have said so.
+44. **The terminal's exemption shelters its two ANSI arrays and nothing else.**
+    `TerminalTheme.swift` stays in the four exemptions, but the exemption's
+    reason is true of its `darkANSIColors` and `lightANSIColors` alone. With
+    both array bodies carved out, the rest of the file (ordinary scanner) spells
+    no `0x` literal of any width — stricter than rule two's six digits, on
+    purpose — constructs no `NSColor` at all, calls `rgb8(` nowhere but its
+    definition and builds a `Color(` only inside `rgb8` and `terminalColor`, and
+    names no token of rule one's semantic list, none of `CGColor`, `black`,
+    `white`, `clear` or the greys, no `.system…` hue, and no named hue spelled
+    as a member — rule one's hues plus `magenta`, matched only after a `.`
+    because the converters' `red`/`green`/`blue` name channels — so
+    `NSColor.red` or `.magenta` fails; the `.…Color` members
+    it reaches are pinned by set equality, so `.controlAccentColor` fails; it
+    must name each of `.bgCanvas`, `.textPrimary`, `.accent`
+    and `.accentTintStrong`; and each array holds exactly sixteen top-level
+    `rgb8(` entries. The presence check is what catches a restored
+    `.selectedTextBackgroundColor` selection: that token is also SwiftTerm's
+    view property, so it is deliberately not on rule one's list, and restoring
+    it removes `.accentTintStrong` from the file. The arrays are found through
+    `matchedBracketBodyRange(after:in:)`, beside the brace-matching helper,
+    because an array literal has no braces and the first `{` after either
+    declaration belongs to a later function body; it searches for the `[` after
+    the `=`, past the type annotation's own. Either array going missing fails
+    loudly, naming the file and the declaration. Verified by mutation: the
+    caret put back to `NSColor.selectedContentBackgroundColor` turned it red
+    with "TerminalTheme.swift names a system colour outside its ANSI arrays:
+    selectedContentBackgroundColor" and "no longer names the role .accent",
+    green again once restored.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
@@ -3085,7 +3212,8 @@ convention every new rule is written to, because the rules that broke it are
 the ones that failed. A rule pins a **set** by equality (`gatedFiles`,
 `colorExemptions`, `diffWashReaders`, `sharedFieldConstructors`), or asserts
 the **presence or absence of a token** through `containsToken`, or takes a
-**brace-matched body** and does one of those two inside it. It does not
+**brace- or bracket-matched body** and does one of those two inside it, or in
+the text left once it is cut out (rule forty-four). It does not
 resolve types, evaluate conditionals or decide which of two branches runs.
 
 The evidence is three consecutive review rounds. Each found that a rule

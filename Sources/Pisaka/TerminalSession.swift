@@ -68,10 +68,7 @@ final class TerminalSession: Identifiable {
     /// SwiftTerm's own defaults.
     ///
     /// Keyed by the *resolved colors* (`TerminalTheme.ThemeKey`), not by
-    /// `NSAppearance.Name`: the caret and selection are semantic system colors that
-    /// follow the user's accent color, which changes them while the appearance name
-    /// stays `.aqua`/`.darkAqua` — a name-keyed guard would keep every live session
-    /// on the old accent indefinitely.
+    /// `NSAppearance.Name`: comparing components keeps the guard deterministic.
     private var appliedTheme: TerminalTheme.ThemeKey?
 
     /// Recolors this session for `appearance` (the built-in light/dark palettes in
@@ -94,8 +91,7 @@ final class TerminalSession: Identifiable {
     /// there the app theme deliberately wins.
     ///
     /// The guard compares the whole resolved `ThemeKey` rather than the appearance
-    /// name, so an accent-color change (which alters the caret and selection without
-    /// altering the name) is a real change and does re-apply.
+    /// name, so whatever the apply would install is exactly what is compared.
     func applyTheme(for appearance: NSAppearance) {
         let theme = TerminalTheme.key(for: appearance)
         guard appliedTheme != theme else { return }

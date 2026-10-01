@@ -23,8 +23,10 @@ import PisakaCore
 /// `Divider()` to the stack (gating rule fourteen) — the selected session tab is
 /// an `accentTintStrong` wash at `cornerRadiusMax`, and every glyph states its
 /// role, since a borderless button would otherwise tint it itself. The hosted
-/// terminal views, their container and the terminal palette are untouched: they
-/// are the terminal zone, not chrome.
+/// terminal views, their container and the terminal's ANSI-16 arrays are
+/// untouched: they are the terminal zone, not chrome. The terminal's four chrome
+/// colours — ground, text, caret, selection — are roles since part five (h);
+/// see `TerminalTheme`.
 struct TerminalPanelView: View {
     @ObservedObject var model: TerminalSessionsModel
 

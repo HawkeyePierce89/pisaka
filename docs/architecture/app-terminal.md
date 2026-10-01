@@ -3,72 +3,92 @@
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `TerminalTheme.swift` — the embedded terminal's built-in (not
-    user-configurable) light/dark color table, the `SyntaxTheme` precedent applied
-    to SwiftTerm so `PisakaCore` stays color-free. An `enum TerminalTheme` (statics
-    only) with an internal `Palette`
-    (`background`/`foreground`/`caret`/`selection` + a 16-entry `ansi`)
-    and two values: `light` (white background, near-black `#1E1E1E` text) and `dark`
-    (black background and SwiftTerm's exact `Color.defaultForeground`,
-    35389/65535 per channel — `#8A8A8A` rounded to 8 bits — so the dark theme
-    looks exactly as the terminal did before the feature); caret and selection are
-    the semantic `.selectedContentBackgroundColor`/`.selectedTextBackgroundColor`
-    so they follow the user's accent color. The caret is deliberately *not*
-    `.selectedControlColor`: that is byte-identical to
-    `.selectedTextBackgroundColor` in both appearances (`#B3D7FF`/`#3F638B`), so
-    caret and selection would be indistinguishable, and a block cursor filled with
-    the pale light-mode tint would render its `caretTextColor` glyph (the white
-    palette background) at 1.5:1.
-    `palette(for appearance:)` picks between them
-    via `appearance.bestMatch(from: [.aqua, .darkAqua])` (so a high-contrast or
-    accessibility variant still resolves to one of the two), and `apply(to view:
-    appearance:)` recolors a live `TerminalView`. `key(for appearance:) ->
-    ThemeKey` is the companion the *caller's* skip-if-unchanged guard compares
-    (`TerminalSession.applyTheme`): the four resolved colors as 16-bit sRGB
-    components, produced by the same private `resolvedColors(_:in:)` `apply` uses so
-    the guard can never judge a different set than the one installed. It fingerprints
-    the whole apply — the fixed background/foreground differ between the two palettes
-    (white/black) and so also encode the ANSI-16 set that goes with them — and it is
-    *components*, not the `NSColor`s, because a false negative would silently
-    reinstate the per-tab-switch color reset the guard exists to prevent. Unlike `SyntaxTheme`, which hands
-    dynamic `NSColor`s to AppKit and lets it resolve them *at draw time*, the
-    palette is resolved *at apply time* — SwiftTerm stores its own
-    `SwiftTerm.Color` structs (plus plain `NSColor`s for caret/selection) and never
-    re-resolves them — through a private `resolved(_:in:)` that wraps
-    `usingColorSpace(.sRGB)` in `appearance.performAsCurrentDrawingAppearance`:
-    without the explicit drawing appearance a dynamic color resolves against the
-    *current thread's* (the app's) appearance, so a window forced light by
-    `ThemePreference` while the system is dark would receive the dark variant. The
-    background/foreground go through the public `setBackgroundColor(source:color:)`/
+    user-configurable) light/dark color table, applied to SwiftTerm in the view
+    layer so `PisakaCore` stays color-free. An `enum TerminalTheme` (statics
+    only). **Only the two ANSI-16 arrays are spelled here**; the four colors
+    around them are chrome and are read from `ChromePalette` as roles since part
+    five (h) (`core-theme.md`): the ground is `bgCanvas` (`0x1E1F22` dark,
+    `0xF5F5F7` light — it was black and white), the default text `textPrimary`
+    (`0xDFE1E5` / `0x1D1D1F` — it was SwiftTerm's `#8A8A8A` and `#1E1E1E`), the
+    caret `accent` and the selection `accentTintStrong`. Before part five (h) the
+    caret and selection were the semantic
+    `.selectedContentBackgroundColor`/`.selectedTextBackgroundColor`, following
+    the user's accent color; **no terminal color follows the system accent any
+    more**. The caret is the saturated `accent`, never the pale
+    `accentTintStrong` wash, so the caret and a selected region stay
+    distinguishable and a block cursor's glyph — drawn in the ground color —
+    stays readable against it. `chromeAppearance(for:)` matches the hosting
+    `NSAppearance` via `bestMatch(from: [.aqua, .darkAqua])` (`.darkAqua` →
+    `.dark`, anything else → `.light`, so a high-contrast or accessibility
+    variant still resolves to one of the two), `ansiColors(for:)` picks the
+    ANSI set that goes with it, and `apply(to view: appearance:)` recolors a live
+    `TerminalView`. `key(for appearance:) -> ThemeKey` is the companion the
+    *caller's* skip-if-unchanged guard compares (`TerminalSession.applyTheme`):
+    the four resolved colors as 16-bit sRGB components, in the order ground,
+    text, caret, selection, produced by the same private `resolvedColors(in:)`
+    `apply` uses so the guard can never judge a different set than the one
+    installed. It fingerprints the whole apply — the ground differs between the
+    two appearances and so also encodes the ANSI-16 set — and it is
+    *components*, not the `NSColor`s, because comparing components keeps the
+    guard deterministic: a false negative would silently reinstate the
+    per-tab-switch color reset the guard exists to prevent. **The concrete
+    accessor is the chrome theme's stated exception for this file**: the rest of
+    the AppKit chrome hands AppKit a dynamic color and caches nothing, but
+    SwiftTerm stores its own `SwiftTerm.Color` structs (plus plain `NSColor`s for
+    caret/selection) and never re-resolves them, so the four roles are resolved
+    *at apply time* through `ChromePalette.nsColor(_:in:)` — a host that stores
+    concrete colors is handed concrete colors — and the existing re-apply on
+    every appearance change keeps them current. (The former private
+    `resolved(_:in:)`, which wrapped `usingColorSpace(.sRGB)` in
+    `performAsCurrentDrawingAppearance` to resolve dynamic system colors, is gone
+    with nothing dynamic left to resolve.) The background/foreground go through
+    the public `setBackgroundColor(source:color:)`/
     `setForegroundColor(source:color:)` pair rather than the direct
     `nativeBackgroundColor`/`nativeForegroundColor` setters, because on macOS only
     the former also call SwiftTerm's internal `colorsChanged()` (clearing the cached
     text attributes and forcing a full repaint) — writing the properties directly
     would leave every already-drawn cell in the old colors. It also sets
-    `caretTextColor` to the palette background (text under a block cursor stays
-    readable against the accent-colored caret), `selectedTextBackgroundColor`, and
+    `caretTextColor` to the resolved ground, `selectedTextBackgroundColor`, and
     `layer?.backgroundColor` (SwiftTerm assigns the layer background only once, in
     `setupOptions()`, so a later palette change must update it itself). The
     **ANSI-16 palette is themed too**, through the public `installColors(_:)`
     (which likewise resets the attribute cache and repaints): SwiftTerm's sixteen
     defaults are tuned for its black background and several are unreadable on a
-    white one — bright white `#E5E5E5` at 1.26:1, bright yellow 1.35:1, bright
-    cyan 1.57:1, ANSI 7 `#BFBFBF` at 1.84:1 — and because `useBrightColors`
+    light one — bright white `#E5E5E5` at 1.26:1 on white, bright yellow 1.35:1,
+    bright cyan 1.57:1, ANSI 7 `#BFBFBF` at 1.84:1 — and because `useBrightColors`
     defaults to `true`, *bold* text on colors 0–6 is remapped onto those brights,
-    so ordinary prompt/`ls`/`npm` output would vanish in the light theme. `light`
-    installs a darkened set (every entry ≥ 4.4:1 against white; "bright" reads as
-    more *saturated* rather than lighter, the only direction legible on a light
-    background) and `dark` reinstalls SwiftTerm's own
-    `Color.defaultInstalledColors` verbatim, spelled out locally so the install is
+    so ordinary prompt/`ls`/`npm` output would vanish in the light theme.
+    `lightANSIColors` is a darkened set, every entry at least 4.5:1 against the
+    light ground `0xF5F5F7` ("bright" reads as more *saturated* rather than
+    lighter, the only direction legible on a light background; ANSI 8, 11 and 14
+    were darkened to `0x707070`, `0x926A00` and `0x007C8B` in part five (h) to
+    hold that floor on the new ground), and `darkANSIColors` is SwiftTerm's own
+    `Color.defaultInstalledColors` verbatim — the terminal's own vocabulary and
+    the one thing this file still spells for itself — so the install is
     unconditional in both directions and dark → light → dark restores exactly what
-    the view started with. What remains out of scope is a *user-configurable*
-    palette. A private `NSColor → SwiftTerm.Color` converter does the sRGB×65535
-    mapping (SwiftTerm's own `getTerminalColor()` is module-internal); its
-    per-component helper *rounds* rather than truncates — which is what lets the
-    dark foreground reproduce `defaultForeground` as 35389 rather than 35388 —
-    clamps to 0…1 (an extended-range color space can report values outside it,
-    which would trap the `UInt16` conversion), and rejects a non-finite value in a
-    *separate* guard, since `min`/`max` propagate NaN and a clamp alone would still
-    trap. View layer, so untested like the rest.
+    the view started with. Both arrays are internal so the app bundle's
+    `TerminalThemeTests` can read them. **The chrome suite's exemption covers
+    those two arrays and nothing else**: rule forty-four refuses any `0x` literal,
+    `NSColor(` construction, colour construction beyond the two converters or
+    system colour name outside them (the `.…Color` members pinned by set
+    equality), and requires the four role tokens and exactly sixteen `rgb8(`
+    entries in each array. The dark set's contrast on the new `0x1E1F22` ground
+    (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) is worse than on black
+    (1.6:1, 2.3:1, 2.4:1); tuning it is an open item in `core-theme.md`. What remains out of scope is a
+    *user-configurable* palette. A private `NSColor → SwiftTerm.Color` converter
+    does the sRGB×65535 mapping (SwiftTerm's own `getTerminalColor()` is
+    module-internal); its per-component helper *rounds* rather than truncates —
+    which keeps an 8-bit palette value on the exact ×257 point of the 16-bit
+    scale — clamps to 0…1 (an extended-range color space can report values
+    outside it, which would trap the `UInt16` conversion), and rejects a
+    non-finite value in a *separate* guard, since `min`/`max` propagate NaN and a
+    clamp alone would still trap. `TerminalThemeTests` (app bundle) pins the key
+    against the palette's four roles under both appearances and both
+    high-contrast variants, with its own
+    component arithmetic, the light set's floor (every entry ≥ 4.5:1 on the light
+    `bgCanvas`, each failure naming the index and ratio), which set each
+    appearance installs, and both arrays' sixteen
+    entries.
   - `TerminalSession.swift` — one live shell session in the embedded terminal: a
     final class holding a stable `id` (UUID), a display `title`, and the SwiftTerm
     `LocalProcessTerminalView` that hosts the PTY-backed shell. Thin view-layer
@@ -131,11 +151,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     extension in this same file conforming it to `ZoomSurfaceProviding`) and not
     on the session: the pointer walk finds `NSView`s, and a session is not one.
     The key is the whole resolved
-    color set and deliberately **not** `NSAppearance.Name`: the caret and selection
-    are semantic accent-derived colors, so changing the accent changes them while the
-    appearance name stays `.aqua`/`.darkAqua` — a name-keyed guard would pin every
-    live session to the old accent (and, since nothing else re-applies, keep it there
-    indefinitely).
+    color set rather than `NSAppearance.Name`: comparing components keeps the
+    guard deterministic, and whatever the apply would install is exactly what is
+    compared. (It once also had to see an accent-color change, while the caret and
+    selection followed the system accent; since part five (h) they are the
+    `accent` and `accentTintStrong` roles and follow nothing but the appearance.)
   - `TerminalSessionsModel.swift` — `ObservableObject` owning the embedded
     terminal's sessions and active tab (thin view-layer state, like
     `WorkspaceModel` but with no pure logic to test beyond `TerminalLaunch`).
@@ -172,15 +192,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     surface the old theme on the next tab switch (idempotent, so the host may call
     it on mount and on every appearance change — each session drops a request whose
     resolved colors it already carries, which is what keeps the fan-out from
-    resetting OSC-set colors on every tab switch). Its `init` also observes
-    `NSColor.systemColorsDidChangeNotification` (token removed in `deinit`) and
-    re-applies the remembered appearance: the panel host's
-    `viewDidChangeEffectiveAppearance` hook covers a light/dark switch, but an
-    **accent-color** change — which the caret and selection are derived from — leaves
-    the effective appearance untouched and fires no such callback, so without it the
-    sessions would keep the old accent until the panel happened to be remounted. The
-    same `ThemeKey` guard is what makes subscribing safe: an unrelated system color
-    change resolves to the colors already installed and is dropped. Both creation sites — `newSession`
+    resetting OSC-set colors on every tab switch). The panel host's
+    `viewDidChangeEffectiveAppearance` hook is the only re-apply trigger: the
+    `NSColor.systemColorsDidChangeNotification` observer it once kept (with its
+    `init` and `deinit`) existed only to follow an accent-color change, and was
+    removed in part five (h) when no terminal color followed the system accent
+    any more. Both creation sites — `newSession`
     and the `runFile`/`testFile` `run` body, which builds its session directly —
     color the fresh session before it is ever drawn through a shared private
     `applyCurrentTheme(to:)` (`appearance ?? NSApp.effectiveAppearance`), so a new
@@ -263,6 +280,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the `+` and `xmark` glyphs state `textSecondary` explicitly, because a
     borderless button would otherwise tint them itself. The no-session
     placeholder draws `bgPanel` rather than the platform's `textBackgroundColor`.
-    `TerminalHostView`, the container view and the terminal palette
-    (`TerminalTheme`, one of the chrome suite's four exemptions) are
-    **untouched**: they are the terminal zone, not chrome.
+    `TerminalHostView` and the container view are **untouched**. The terminal's
+    ANSI-16 arrays (`TerminalTheme`, one of the chrome suite's four exemptions,
+    narrowed by rule forty-four to those two arrays) are the terminal zone, not
+    chrome; its four chrome colors — ground, text, caret, selection — have been
+    the `bgCanvas`, `textPrimary`, `accent` and `accentTintStrong` roles since
+    part five (h), resolved concretely by appearance (`TerminalTheme`'s entry).

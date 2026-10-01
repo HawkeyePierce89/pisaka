@@ -302,16 +302,17 @@ because nothing else states them.
 
 - **Colour reaches a gated chrome view only as a role** (macOS only, `core-theme.md`): the
   chrome — everything drawn *around* the code — is named in Core as a **closed** 22-case
-  `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site — `hairlineWidth` on an
-  AppKit code-zoom surface the one stated exception, drawn unscaled — and carrying
+  `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site, and carrying
   **no font size**, and coloured in the app layer by one table, `ChromePalette`, whose
   **exhaustive `switch`** makes a role without a value a compile error. The palette has
   **exactly two value sets and no third**. Two paths reach a view and no others: SwiftUI reads
   the injected environment at exactly the eight roots the interface scale already names, and
   AppKit asks for a **dynamic** colour — which is why no AppKit chrome view caches a resolved
-  colour. A **reader**: no writer gate either way, and it writes nothing.
+  colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
+  surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
+  therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
-  equality) and its forty-three rules, inventoried in that suite's own header and
+  equality) and its forty-four rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,
