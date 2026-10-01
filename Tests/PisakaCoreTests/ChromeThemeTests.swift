@@ -16,14 +16,14 @@ final class ChromeThemeTests: XCTestCase {
         "bgCanvas", "bgPanel", "bgEditor", "bgPopover",
         "textPrimary", "textSecondary", "onAccent",
         "hairline", "accent", "accentTint", "accentTintStrong",
-        "hoverTint", "selectionInactive", "currentLine", "bracketMatch",
+        "hoverTint", "dropTargetTint", "selectionInactive", "currentLine", "bracketMatch",
         "statusGreen", "statusRed", "statusYellow",
         "diffAddedBackground", "diffRemovedBackground", "conflictBackground",
     ]
 
     func testTheRoleSetIsExactlyTheDeclaredOne() {
         XCTAssertEqual(Set(ChromeColorRole.allCases.map(\.rawValue)), Self.declaredRoles)
-        XCTAssertEqual(ChromeColorRole.allCases.count, 21)
+        XCTAssertEqual(ChromeColorRole.allCases.count, 22)
     }
 
     func testEveryRoleHasADistinctRawValue() {

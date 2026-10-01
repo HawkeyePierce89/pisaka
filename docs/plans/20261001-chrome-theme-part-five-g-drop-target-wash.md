@@ -60,16 +60,16 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 - Modify: `Sources/PisakaCore/ChromeColorRole.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] Add `case dropTargetTint` to the "Row and line states" group, right after `hoverTint`. Its doc comment says two things:
+- [x] Add `case dropTargetTint` to the "Row and line states" group, right after `hoverTint`. Its doc comment says two things:
   - It is the wash a row takes while a drag hovers over it, when the only question being asked is whether the drop lands here.
   - It is stronger than `accentTintStrong` because hover, selection and drop are all true when a drag sits over a selected row. The drop wash is therefore the same hue at a heavier strength.
-- [ ] Rewrite the enum's doc comment so that it holds:
+- [x] Rewrite the enum's doc comment so that it holds:
   - The set has twenty-two roles.
   - The set is closed against *call sites*. It grew once, in part five (g), because the design states a value the table did not carry. A role whose only justification is a call site is still a case for the refusal.
   - `currentLine` and `bracketMatch` are still the two unspent roles.
   - Nothing in the file spells "21", "twenty-one" or "twenty-second" any more.
-- [ ] Update the `allCases.count` assertion in `ChromeThemeTests` to 22. Grep the Core test tree for any other pin that spells twenty-one for the role set. Leave the `TreeRowState` precedence tests untouched.
-- [ ] Run `swift test`; it must pass.
+- [x] Update the `allCases.count` assertion in `ChromeThemeTests` to 22. Grep the Core test tree for any other pin that spells twenty-one for the role set. Leave the `TreeRowState` precedence tests untouched.
+- [x] Run `swift test`; it must pass.
 
 ### Task 2: The palette row and its relation assertion
 
