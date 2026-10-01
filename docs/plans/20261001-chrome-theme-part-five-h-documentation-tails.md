@@ -201,5 +201,5 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 
 ### Task 7: Update documentation
 
-- [ ] `README.md`: no change (nothing user-facing).
-- [ ] `CLAUDE.md`: already updated in Task 5. No other internal pattern changes.
+- [x] `README.md`: no change (nothing user-facing).
+- [x] `CLAUDE.md`: already updated in Task 5. No other internal pattern changes.
