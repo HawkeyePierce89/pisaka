@@ -9,7 +9,7 @@ import PisakaCore
 /// **Drawn once, inside the dock's fixed-height slot.** `ContentView
 /// .panelContent(_:)` puts it above whichever panel is showing, so every panel
 /// gets it from one call site and the slot's pinned height, its top alignment,
-/// its clip, the divider above it and `BottomPanelHeightRule` are all untouched:
+/// the bottom bar's cover, the divider above it and `BottomPanelHeightRule` are all untouched:
 /// the row is part of the slot's content, not a second strip competing with it.
 /// It states no minimum height anywhere, for the slot's own reason
 /// (`BottomPanelSourceGatingTests`).

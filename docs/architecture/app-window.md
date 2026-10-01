@@ -407,18 +407,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than merely listed. Also pinned: the gesture
     naming `panelColumnSpace` with `minimumDistance: 0` and the column
     publishing the name it is handed; the top-leading pin in
-    `BottomDockColumn.swift`, **no `clipped(`, `clipShape(` or `mask(` anywhere in
-    that file**, and `bottomBar.zIndex(1)` in `ContentView.swift` — the source
+    `BottomDockColumn.swift`, **no `clipped(`, `clipShape(`, `mask(` or
+    `cornerRadius(` anywhere in that file, nor in `ContentView`'s `body`,
+    `mainArea` or `editorSplit`** — the split's other ancestors, so a clip that
+    moves one level up is refused too (a pane that needs one clips in its own
+    declaration, below the split, as the markdown split does) — and
+    `bottomBar.zIndex(1)` plus the bar's own `bgPanel` background in
+    `ContentView.swift` — the source
     rule that keeps the lost top row from coming back, since a clip is the most
     natural thing to add back to a column whose overflow must not reach the bar;
     and the slot's own `alignment: .top` — read out of exactly the modifiers
     between the `panelContent(panel)` call and the end of the column's `panel:`
     builder, so the column's `.topLeading` cannot satisfy it by accident. The
     layout itself — the top row's y identical with the dock open and closed and
-    at or below `contentLayoutRect`'s top, at interface scale 1.0 and 1.8 and
+    flush with `contentLayoutRect`'s top, at interface scale 1.0 and 1.8 and
     with the vertical-tabs split's three panes; the bar's frame unchanged; the
-    slot ending at or above the bar; an overflowing column landing under the bar,
-    whose pixels and clicks stay its own — is pinned by `BottomDockLayoutTests`
+    slot ending at or above the bar; an overflowing column keeping its top row
+    flush and landing under the bar, whose pixels and clicks stay its own,
+    measured only once the harness's layout has settled — is pinned by `BottomDockLayoutTests`
     in the app-layer bundle, the one gate that places views. All the string matches are made against
     whitespace-stripped source, so a reformat that wraps an argument list cannot
     fail the suite while the rule it guards is intact.

@@ -57,16 +57,18 @@ import XCTest
 ///   halves are read.
 /// - **The column is pinned to the area, top-leading, and carries no clip; the
 ///   bottom bar is drawn above it instead.** A clip of any spelling —
-///   `clipped(`, `clipShape(`, `mask(` — anywhere in `BottomDockColumn.swift`
-///   sits above the editor's `HSplitView`, and a clip above that split makes its
+///   `clipped(`, `clipShape(`, `mask(`, `cornerRadius(` — anywhere in
+///   `BottomDockColumn.swift`, or in `ContentView`'s `body`, `mainArea` or
+///   `editorSplit`, sits above the editor's `HSplitView`, and a clip above that split makes its
 ///   panes drop the window's top safe-area inset: the whole top row slides under
 ///   the transparent title bar with the dock open and sits correctly with it
 ///   closed. It compiles, it is invisible in every gate but a hosted window
 ///   (`BottomDockLayoutTests` measures it and records the bisection), and it is
 ///   the most natural thing to add back to a column whose overflow must not
 ///   reach the bottom bar. That guarantee is the root's instead: `bottomBar`
-///   carries `.zIndex(1)` in `ContentView.body`, on its own opaque ground, so
-///   anything spilling off `mainArea`'s bottom edge lands under it. The pin
+///   carries `.zIndex(1)` in `ContentView.body`, on its own opaque `bgPanel`
+///   ground — both halves read — so anything spilling off `mainArea`'s bottom
+///   edge lands under it. The pin
 ///   stays because the coordinate space is published on it and because its
 ///   top-leading alignment is what sends the surplus down and to the trailing
 ///   edge rather than up or over the project tree's leading edge.
@@ -243,7 +245,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             split's panes state minimum widths the `GeometryReader` erases) would push half the \
             surplus off the project tree's leading edge.
             """)
-        for clip in ["clipped(", "clipShape(", "mask("] {
+        for clip in ["clipped(", "clipShape(", "mask(", "cornerRadius("] {
             XCTAssertFalse(column.contains(clip), """
                 `BottomDockColumn` contains `\(clip)`. A clip above the editor's `HSplitView` makes \
                 the split's panes drop the window's top safe-area inset, so with the dock open the \
@@ -251,12 +253,44 @@ final class BottomPanelSourceGatingTests: XCTestCase {
                 guarantee is the bottom bar's `.zIndex(1)` in `ContentView.body`, not a clip here.
                 """)
         }
+        // The column is one ancestor of the split; `ContentView` holds the
+        // others — `body` wraps `mainArea`, `mainArea` wraps the column, and
+        // `editorSplit` is the split's own modifier chain — and a clip at any of
+        // them restores the bug just as one in the column would. A clip a pane
+        // needs belongs in that pane's own declaration, below the split, as the
+        // markdown split's does.
+        let contentView = try contentViewCode()
+        for name in ["body", "mainArea", "editorSplit"] {
+            let declaration = Self.whitespaceFree(try XCTUnwrap(
+                Self.declarationBody(after: name, in: contentView),
+                "ContentView no longer declares `\(name)` — update this suite deliberately"
+            ))
+            for clip in ["clipped(", "clipShape(", "mask(", "cornerRadius("] {
+                XCTAssertFalse(declaration.contains(clip), """
+                    `ContentView.\(name)` contains `\(clip)`. It is an ancestor of the editor's \
+                    `HSplitView`, and a clip there drops the panes' top safe-area inset exactly as \
+                    one in `BottomDockColumn` would (`BottomDockLayoutTests`).
+                    """)
+            }
+        }
         XCTAssertTrue(
-            Self.whitespaceFree(try contentViewCode()).contains("bottomBar.zIndex(1)"),
+            Self.whitespaceFree(contentView).contains("bottomBar.zIndex(1)"),
             """
             The bottom bar is no longer drawn above `mainArea` by an explicit `.zIndex(1)`. That \
             order — on the bar's own opaque ground — is the whole of "the panel never paints over \
             the bottom bar" now that the dock column carries no clip.
+            """
+        )
+        let bar = Self.whitespaceFree(try XCTUnwrap(
+            Self.declarationBody(after: "bottomBar", in: contentView),
+            "ContentView no longer declares `bottomBar` — update this suite deliberately"
+        ))
+        XCTAssertTrue(
+            bar.contains(Self.whitespaceFree("background(chromeColor(.bgPanel))")),
+            """
+            The bottom bar no longer paints its own opaque `bgPanel` ground. The `.zIndex(1)` \
+            above only orders the bar over `mainArea`; without the ground, whatever overflows the \
+            dock column shows through the bar.
             """
         )
     }

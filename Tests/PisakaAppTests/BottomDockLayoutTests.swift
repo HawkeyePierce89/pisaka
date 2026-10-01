@@ -59,18 +59,19 @@ import XCTest
 /// spelling in the column's file.
 ///
 /// **What this suite pins**: the top row's y is identical with the dock open and
-/// closed and sits at or below the title bar's bottom edge — with horizontal
+/// closed and sits flush below the title bar's bottom edge — with horizontal
 /// tabs, at interface scale 1.8 with every stub row and floor scaled, and with
 /// the vertical-tabs split's three panes; the bottom bar's frame is the same in
 /// both branches and the panel slot ends at or above its top edge; and with an
-/// editor that refuses to shrink, the overflow lands under the bar — the bar's
-/// pixels are its own colour and a click on it reaches it.
+/// editor that refuses to shrink, the top row still sits flush below the title
+/// bar and the overflow lands under the bar — the bar's pixels are its own
+/// colour and a click on it reaches it.
 @MainActor
 final class BottomDockLayoutTests: XCTestCase {
 
     func testTheHarnessHostsBothBranches() throws {
-        let closed = BottomDockHarness(panelOpen: false)
-        let open = BottomDockHarness(panelOpen: true)
+        let closed = harness(panelOpen: false)
+        let open = harness(panelOpen: true)
         for probe in [DockProbe.treeTop, .editorTop, .bottomBar] {
             XCTAssertNotNil(closed.recorder.views[probe], "the closed branch never built \(probe)")
             XCTAssertNotNil(open.recorder.views[probe], "the open branch never built \(probe)")
@@ -98,8 +99,8 @@ final class BottomDockLayoutTests: XCTestCase {
     }
 
     func testTheBottomBarIsUnchangedAndThePanelEndsAboveIt() throws {
-        let closed = BottomDockHarness(panelOpen: false)
-        let open = BottomDockHarness(panelOpen: true)
+        let closed = harness(panelOpen: false)
+        let open = harness(panelOpen: true)
         let closedBar = try closed.frame(of: .bottomBar)
         let openBar = try open.frame(of: .bottomBar)
         XCTAssertEqual(closedBar.minY, 0, "the bottom bar sits on the window's bottom edge")
@@ -112,13 +113,23 @@ final class BottomDockLayoutTests: XCTestCase {
     }
 
     func testAnOverflowingColumnLandsUnderTheBottomBar() throws {
-        let harness = BottomDockHarness(panelOpen: true, shape: DockHarnessShape(overflowing: true))
-        let bar = try harness.frame(of: .bottomBar)
+        let shape = DockHarnessShape(overflowing: true)
+        let overflowing = harness(panelOpen: true, shape: shape)
+        let bar = try overflowing.frame(of: .bottomBar)
         XCTAssertLessThan(
-            try harness.frame(of: .panelSlot).minY, bar.maxY,
+            try overflowing.frame(of: .panelSlot).minY, bar.maxY,
             "the stub editor no longer overflows the column — the case below is not being exercised"
         )
-        let content = try XCTUnwrap(harness.window.contentView)
+        // The worst case the clip produced: the overflowing column sent the
+        // tree's row past the window's top edge.
+        let titleBarBottom = overflowing.window.contentLayoutRect.maxY
+        for probe in shape.topRowProbes {
+            XCTAssertEqual(
+                try overflowing.frame(of: probe).maxY, titleBarBottom, accuracy: 0.5,
+                "\(probe) is not flush below the title bar with the column overflowing"
+            )
+        }
+        let content = try XCTUnwrap(overflowing.window.contentView)
         let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
         content.cacheDisplay(in: content.bounds, to: rep)
         let scale = CGFloat(rep.pixelsHigh) / content.bounds.height
@@ -133,10 +144,20 @@ final class BottomDockLayoutTests: XCTestCase {
             XCTAssertLessThan(color.greenComponent, 0.3, "the overflow painted over the bar at x \(x)")
             XCTAssertLessThan(color.blueComponent, 0.3, "the overflow painted over the bar at x \(x)")
             XCTAssertTrue(
-                content.hitTest(NSPoint(x: x, y: bar.midY)) === harness.recorder.views[.bottomBar],
+                content.hitTest(NSPoint(x: x, y: bar.midY)) === overflowing.recorder.views[.bottomBar],
                 "a click on the bar at x \(x) reaches the overflow instead of the bar"
             )
         }
+    }
+
+    /// A harness whose windows close when the test ends.
+    private func harness(
+        panelOpen: Bool,
+        shape: DockHarnessShape = DockHarnessShape()
+    ) -> BottomDockHarness {
+        let harness = BottomDockHarness(panelOpen: panelOpen, shape: shape)
+        addTeardownBlock { @MainActor in harness.window.close() }
+        return harness
     }
 
     /// The top-row probes' top edges, dock open versus closed, in one shape.
@@ -145,8 +166,8 @@ final class BottomDockLayoutTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let closed = BottomDockHarness(panelOpen: false, shape: shape)
-        let open = BottomDockHarness(panelOpen: true, shape: shape)
+        let closed = harness(panelOpen: false, shape: shape)
+        let open = harness(panelOpen: true, shape: shape)
         let titleBarBottom = closed.window.contentLayoutRect.maxY
         XCTAssertLessThan(
             titleBarBottom, closed.window.frame.height,
@@ -161,9 +182,11 @@ final class BottomDockLayoutTests: XCTestCase {
                 "\(probe) moves when the dock opens (\(shape))",
                 file: file, line: line
             )
-            XCTAssertLessThanOrEqual(
-                closedTop, titleBarBottom,
-                "\(probe) sits under the title bar with the dock closed (\(shape))",
+            // The positive anchor: without it, two branches that both failed to
+            // place their panes would agree and pass the equality above.
+            XCTAssertEqual(
+                closedTop, titleBarBottom, accuracy: 0.5,
+                "\(probe) is not flush below the title bar with the dock closed (\(shape))",
                 file: file, line: line
             )
             XCTAssertLessThanOrEqual(
@@ -238,12 +261,27 @@ final class BottomDockHarness {
         window.contentView = NSHostingView(
             rootView: DockHarnessRoot(panelOpen: panelOpen, shape: shape, recorder: recorder)
         )
-        // The panes of an `HSplitView` are placed on a later pass than their
-        // container, so one turn of the main run loop lets the split finish
-        // before anything is measured.
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        window.contentView?.layoutSubtreeIfNeeded()
+        settle()
+    }
+
+    /// The panes of an `HSplitView` are placed on a later pass than their
+    /// container, so the main run loop is turned until every probe that was
+    /// built has a frame that a further turn no longer changes — and the test
+    /// fails loudly if that never happens, rather than measuring an unplaced
+    /// split.
+    private func settle() {
+        let deadline = Date().addingTimeInterval(5)
+        var previous: [DockProbe: NSRect] = [:]
+        while Date() < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            let frames = recorder.views.mapValues { $0.convert($0.bounds, to: nil) }
+            if !frames.isEmpty, frames == previous, frames.values.allSatisfy({ !$0.isEmpty }) {
+                return
+            }
+            previous = frames
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTFail("the harness's layout never settled: \(previous)")
     }
 
     func frame(of probe: DockProbe) throws -> NSRect {
