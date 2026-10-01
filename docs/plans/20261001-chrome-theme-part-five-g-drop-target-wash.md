@@ -77,15 +77,15 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 - Modify: `Sources/Pisaka/ChromePalette.swift`
 - Modify: `Tests/PisakaAppTests/ChromePaletteTests.swift`
 
-- [ ] Add the `dropTargetTint` case to the palette's exhaustive `switch`: `0x4F8DFF` dark and `0x2F6FE0` light, both at alpha `0x66`. Its comment says it is the accent's hue at a third strength, above `accentTintStrong`, and names `ProjectTreeView.swift` as the file that uses it.
-- [ ] Update the palette's doc comment about "a twenty-second role added to Core without a pair here" so the count is right again: either say twenty-third, or drop the number.
-- [ ] Add `.dropTargetTint: (0x4F8DFF, 0x2F6FE0, 0x66)` to the palette suite's expected table. The existing every-role test then pins the new row in both appearances.
-- [ ] Add one relation test next to the inactive-selection one. In both appearances, reading the concrete AppKit colour:
+- [x] Add the `dropTargetTint` case to the palette's exhaustive `switch`: `0x4F8DFF` dark and `0x2F6FE0` light, both at alpha `0x66`. Its comment says it is the accent's hue at a third strength, above `accentTintStrong`, and names `ProjectTreeView.swift` as the file that uses it.
+- [x] Update the palette's doc comment about "a twenty-second role added to Core without a pair here" so the count is right again: either say twenty-third, or drop the number.
+- [x] Add `.dropTargetTint: (0x4F8DFF, 0x2F6FE0, 0x66)` to the palette suite's expected table. The existing every-role test then pins the new row in both appearances.
+- [x] Add one relation test next to the inactive-selection one. In both appearances, reading the concrete AppKit colour:
   - `dropTargetTint` has the same RGB as `accent`.
   - Its alpha is strictly greater than `accentTintStrong`'s and strictly less than `accent`'s.
   - Its alpha is exactly `0x66`, which is the no-pixel-change claim.
-- [ ] Confirm the existing "the two themes disagree about every role" test still passes with the new row, since its hue differs between the two themes.
-- [ ] Build the macOS app target, then run `swift test` and the app-layer bundle; both must pass.
+- [x] Confirm the existing "the two themes disagree about every role" test still passes with the new row, since its hue differs between the two themes.
+- [x] Build the macOS app target, then run `swift test` and the app-layer bundle; both must pass.
 
 ### Task 3: The tree composes no alpha
 
