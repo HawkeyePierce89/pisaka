@@ -318,6 +318,8 @@ struct ContentView: View {
 
     /// The name of the coordinate space the divider drag is measured in — the
     /// panel column itself, whose frame does not move while the divider does.
+    /// `BottomDockColumn` publishes it; the name lives here, beside the drag
+    /// that reads it.
     ///
     /// This is the whole fix for the drag: `DragGesture`'s default `.local` space
     /// is the *divider's*, and the divider is what the drag moves. Growing the
@@ -420,8 +422,8 @@ struct ContentView: View {
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
         // to hold is twice the size. On the split either floor reached the window
-        // only in the no-panel branch: with a panel shown the split sits inside a
-        // `GeometryReader`, which erases its children's minimum sizes on both
+        // only in the no-panel branch: with a panel shown the split sits inside
+        // `BottomDockColumn`'s `GeometryReader`, which erases its children's minimum sizes on both
         // axes. The height did worse than fail — it forced the column to overflow,
         // the editor refusing to render shorter than it while the panel took its
         // own height, and the surplus landing on the bottom bar. At the body root
@@ -525,80 +527,45 @@ struct ContentView: View {
     @ViewBuilder
     private var mainArea: some View {
         if let panel = visiblePanel {
-            // `GeometryReader` gives the available height, which is the one input
-            // `panelHeightRule` needs: it is what both upper bounds — half the
-            // area, and what is left after the divider and the editor's
-            // reservation — are measured against. Existing terminal sessions keep
-            // the directory they were started in — only `newSession` reads
-            // `projectRoot` — so a folder switch never moves a running shell.
-            GeometryReader { geo in
-                VStack(spacing: 0) {
-                    editorSplit
-                        .frame(maxHeight: .infinity)
-                    panelDivider(available: geo.size.height)
-                    // Top-aligned for the reason the column's own pin states,
-                    // one level in: a fixed frame reports the height it was
-                    // given, so a child that refuses the proposal overflows it
-                    // rather than growing it — and the default `.center`
-                    // alignment would split that surplus evenly, sending half
-                    // *up*, over the divider and into the editor, where the
-                    // column's clip cannot reach it (it is inside the clipped
-                    // rect). Top alignment puts the whole surplus below the
-                    // slot, which is the column's bottom edge, where the clip
-                    // does remove it. Nothing states such a minimum today —
-                    // `BottomPanelSourceGatingTests` pins that — but the clip is
-                    // here precisely because that precondition is a source rule
-                    // rather than a layout one, and this makes its failure mode
-                    // the same in both directions.
-                    panelContent(panel)
-                        .frame(
-                            height: CGFloat(panelHeightRule.height(
-                                proposed: Double(panelHeight),
-                                available: Double(geo.size.height)
-                            )),
-                            alignment: .top
-                        )
-                        // The dock's own ground, with no rule of its own: the
-                        // divider above carries the boundary (see
-                        // `panelDivider`).
-                        .background(chromeColor(.bgPanel))
-                }
-                // Pinned to the area before it is clipped, because `.clipped()`
-                // clips a view to the frame it *reported*, not to the one it was
-                // proposed. A column whose children refuse to shrink reports the
-                // oversized height, and a clip attached straight to it would then
-                // clip to the overflow — the very case it is here to catch. With
-                // the frame stated the rect is the `GeometryReader`'s own, and
-                // top alignment sends any surplus off the bottom edge, where the
-                // clip removes it. The alignment is *leading* as well as top:
-                // `.top` alone centers horizontally, and a column wider than the
-                // area — the split's own panes state minimum widths the
-                // `GeometryReader` erases, so in a narrow window it is — would
-                // then have the clip take half the surplus off each side,
-                // cutting the project tree's leading edge. Leading keeps the
-                // placement the `GeometryReader` gave it before the pin.
-                .frame(
-                    width: geo.size.width,
-                    height: geo.size.height,
-                    alignment: .topLeading
-                )
-                // The space the divider drag is measured in — see
-                // `panelColumnSpace`. Published on the column rather than on the
-                // `GeometryReader` so it names exactly the stack the drag moves,
-                // and after the frame so it is the pinned rect, which cannot move
-                // while the divider does.
-                .coordinateSpace(name: Self.panelColumnSpace)
-                // The guarantee behind requirement "never over the bottom bar".
-                // The rule's clamp is the *behavior* and the absence of any
-                // minimum inside the panel slot is its *precondition*; both rest
-                // on arithmetic and on every child honoring its proposal. The
-                // clip rests on neither, so no future layout edit, intrinsic
-                // minimum in the editor zone's fixed strips (breadcrumb, tab
-                // strip, consent banner, find bar) or arithmetic slip can paint
-                // outside `mainArea`. Nothing that must escape the window content
-                // passes through here: the completion panel, the hover popover
-                // and context menus are all separate windows.
-                .clipped()
+            // `BottomDockColumn`'s `GeometryReader` gives the available height,
+            // which is the one input `panelHeightRule` needs: it is what both
+            // upper bounds — half the area, and what is left after the divider
+            // and the editor's reservation — are measured against. The pin, the
+            // coordinate space and the clip are the column's; their reasons are
+            // stated there. Existing terminal sessions keep the directory they
+            // were started in — only `newSession` reads `projectRoot` — so a
+            // folder switch never moves a running shell.
+            BottomDockColumn(coordinateSpaceName: Self.panelColumnSpace) {
+                editorSplit
+            } divider: { available in
+                panelDivider(available: available)
+            } panel: { available in
+                // Top-aligned for the reason the column's own pin states,
+                // one level in: a fixed frame reports the height it was
+                // given, so a child that refuses the proposal overflows it
+                // rather than growing it — and the default `.center`
+                // alignment would split that surplus evenly, sending half
+                // *up*, over the divider and into the editor, where the
+                // column's clip cannot reach it (it is inside the clipped
+                // rect). Top alignment puts the whole surplus below the
+                // slot, which is the column's bottom edge, where the clip
+                // does remove it. Nothing states such a minimum today —
+                // `BottomPanelSourceGatingTests` pins that — but the clip is
+                // here precisely because that precondition is a source rule
+                // rather than a layout one, and this makes its failure mode
+                // the same in both directions.
+                panelContent(panel)
+                    .frame(
+                        height: CGFloat(panelHeightRule.height(
+                            proposed: Double(panelHeight),
+                            available: Double(available)
+                        )),
+                        alignment: .top
+                    )
+                    // The dock's own ground, with no rule of its own: the
+                    // divider above carries the boundary (see
+                    // `panelDivider`).
+                    .background(chromeColor(.bgPanel))
             }
         } else {
             editorSplit

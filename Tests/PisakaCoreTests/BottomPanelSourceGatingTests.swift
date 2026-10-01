@@ -2,10 +2,12 @@ import XCTest
 
 /// Static verification of the bottom dock panel's layout rules — the ones
 /// `swift test` cannot otherwise see because they live in the (untested by
-/// convention) macOS view layer, in `ContentView.swift`.
+/// convention) macOS view layer, in `ContentView.swift` and the dock container
+/// it delegates to, `BottomDockColumn.swift`.
 ///
 /// A repository-file suite in the `ZoomSourceGatingTests` mould: it reads
-/// `Sources/Pisaka/ContentView.swift` through `#filePath` with Foundation only
+/// `Sources/Pisaka/ContentView.swift` and `Sources/Pisaka/BottomDockColumn.swift`
+/// through `#filePath` with Foundation only
 /// and reuses `LSPSourceGatingTests`'s Swift scanner, so **comments and string
 /// literals are stripped before anything is matched**. That is load-bearing
 /// here for the usual reason and then some: the file documents every one of
@@ -49,23 +51,34 @@ import XCTest
 ///   `minimumDistance: 0`.** `DragGesture()` — the default — compiles and
 ///   type-checks identically while measuring against an origin the drag itself
 ///   moves, which oscillates instead of tracking. Nothing but a human dragging
-///   the divider can tell the two apart at runtime.
+///   the divider can tell the two apart at runtime. The drag is built in
+///   `ContentView`, the space is published by `BottomDockColumn`, and the name
+///   crosses the seam as the column's `coordinateSpaceName`, so all three
+///   halves are read.
 /// - **The column is pinned to the area and then clipped.** `.clipped()` clips a
 ///   view to the frame it *reported*, not the one it was proposed, so dropping
 ///   the `.frame(width:height:alignment:)` in front of it silently turns the
-///   guarantee into a no-op in precisely the overflow case it exists for.
+///   guarantee into a no-op in precisely the overflow case it exists for. Both
+///   live in `BottomDockColumn.swift`.
 /// - **The slot itself is top-aligned.** The same argument one level in, and the
 ///   other half of the same guarantee: `.frame(height:)` defaults to `.center`,
 ///   which splits an overflowing child's surplus evenly and sends half of it
 ///   *upwards*, over the divider and into the editor — inside the clipped rect,
 ///   where the clip cannot reach it. Deleting `alignment: .top` compiles, reads
 ///   as a harmless simplification, and leaves the guarantee covering the bottom
-///   bar alone.
+///   bar alone. The slot is built in `ContentView`'s `panel:` builder, so the
+///   rule reads the modifiers between `panelContent(panel)` and that builder's
+///   closing brace.
 final class BottomPanelSourceGatingTests: XCTestCase {
 
     /// `ContentView.swift`, comment- and literal-stripped.
     private func contentViewCode() throws -> String {
         try appSource(named: "ContentView.swift")
+    }
+
+    /// `BottomDockColumn.swift`, comment- and literal-stripped.
+    private func dockColumnCode() throws -> String {
+        try appSource(named: "BottomDockColumn.swift")
     }
 
     /// One file under `Sources/Pisaka/`, comment- and literal-stripped.
@@ -196,7 +209,12 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             """
         )
         XCTAssertTrue(
-            code.contains(Self.whitespaceFree("coordinateSpace(name: Self.panelColumnSpace)")),
+            code.contains(Self.whitespaceFree("BottomDockColumn(coordinateSpaceName: Self.panelColumnSpace)")),
+            "the dock column is no longer handed the space the divider drag is measured in"
+        )
+        XCTAssertTrue(
+            Self.whitespaceFree(try dockColumnCode())
+                .contains(Self.whitespaceFree("coordinateSpace(name: coordinateSpaceName)")),
             "the panel column no longer publishes the space its drag is measured in"
         )
     }
@@ -204,7 +222,7 @@ final class BottomPanelSourceGatingTests: XCTestCase {
     // MARK: - The clip is pinned to the area it must clip to
 
     func testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped() throws {
-        let code = Self.whitespaceFree(try contentViewCode())
+        let code = Self.whitespaceFree(try dockColumnCode())
         let pin = Self.whitespaceFree(
             "frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)"
         )
@@ -228,24 +246,23 @@ final class BottomPanelSourceGatingTests: XCTestCase {
 
     func testThePanelSlotIsTopAligned() throws {
         let code = Self.whitespaceFree(try contentViewCode())
+        let column = try XCTUnwrap(
+            code.range(of: "BottomDockColumn("),
+            "ContentView no longer builds the dock through BottomDockColumn — update this suite deliberately"
+        )
         let slot = try XCTUnwrap(
-            code.range(of: "panelContent(panel)"),
+            code.range(of: "panelContent(panel)", range: column.upperBound..<code.endIndex),
             "panelContent(_:) is no longer called with the selected panel — update this suite deliberately"
         )
-        let pin = try XCTUnwrap(
-            code.range(of: Self.whitespaceFree("frame(width: geo.size.width")),
-            "the panel column is no longer pinned to the area — see testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped"
+        // The `panel:` builder's closing brace. The slot's modifiers carry no
+        // brace of their own, so everything up to it is the fixed-height slot's
+        // modifiers and nothing else.
+        let builderEnd = try XCTUnwrap(
+            code.range(of: "}", range: slot.upperBound..<code.endIndex),
+            "the panel slot's builder is not closed — the scan is broken, not the code"
         )
-        XCTAssertLessThan(
-            slot.upperBound, pin.lowerBound,
-            "the slot must be inside the pinned column, or this suite is reading the wrong modifiers"
-        )
-        // Everything between the call and the column's own pin: the fixed-height
-        // slot's modifiers, and nothing else. The column pin's own
-        // `alignment: .topLeading` is past `pin.lowerBound` and so cannot satisfy
-        // this by accident.
         XCTAssertTrue(
-            code[slot.upperBound..<pin.lowerBound].contains("alignment:.top"),
+            code[slot.upperBound..<builderEnd.lowerBound].contains("alignment:.top"),
             """
             The fixed-height panel slot is no longer top-aligned. `.frame(height:)` defaults to \
             `.center`, so a child that refuses the proposal overflows *symmetrically*: the downward \

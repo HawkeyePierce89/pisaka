@@ -137,10 +137,10 @@ computed for an offscreen window), say so explicitly in the suite's doc comment.
 Keep the passing harness assertions, and carry the diagnosis through Task 2 with
 the live build instead.
 
-- [ ] extract the dock column container into its own file; `ContentView` uses it with identical behaviour and its guarantee comments move intact
-- [ ] build the headless harness and commit only assertions that pass on the unfixed container
-- [ ] run the open-versus-closed assertion locally (uncommitted), observe the failure, bisect to the single construct responsible, and record the failure and root cause in the suite's doc comment
-- [ ] run `swift test`, `swiftlint --strict` and the app-layer bundle; all gates green
+- [x] extract the dock column container into its own file; `ContentView` uses it with identical behaviour and its guarantee comments move intact
+- [x] build the headless harness and commit only assertions that pass on the unfixed container
+- [x] run the open-versus-closed assertion locally (uncommitted), observe the failure, bisect to the single construct responsible, and record the failure and root cause in the suite's doc comment
+- [x] run `swift test`, `swiftlint --strict` and the app-layer bundle; all gates green
 
 ### Task 2: Fix the root cause and commit the equality assertion
 
