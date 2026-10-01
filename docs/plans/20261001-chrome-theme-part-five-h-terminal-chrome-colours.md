@@ -207,13 +207,13 @@ Each entry should state the roles, the concrete-accessor exception and the narro
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run `swift test`: green, with the chrome suite at forty-four rules
-- [ ] Run `xcodegen generate`, then the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`): green, including the three `TerminalThemeTests` assertions
-- [ ] Run `swiftlint --strict` from the repository root: clean
-- [ ] Build macOS Release (`-configuration Release`) and iOS Debug (`-destination 'generic/platform=iOS'`): both green
-- [ ] `git grep -n 'systemColorsDidChangeNotification' Sources/` finds nothing
-- [ ] `git grep -n 'selectedContentBackgroundColor\|NSColor.selectedTextBackgroundColor\|srgbRed' Sources/Pisaka/TerminalTheme.swift` finds nothing
-- [ ] Coverage: the new behaviour is pinned by rule forty-four and `TerminalThemeTests`. SwiftUI and AppKit glue stays untested by convention, so there is no percentage gate
+- [x] Run `swift test`: green, with the chrome suite at forty-four rules
+- [x] Run `xcodegen generate`, then the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`): green, including the three `TerminalThemeTests` assertions
+- [x] Run `swiftlint --strict` from the repository root: clean
+- [x] Build macOS Release (`-configuration Release`) and iOS Debug (`-destination 'generic/platform=iOS'`): both green
+- [x] `git grep -n 'systemColorsDidChangeNotification' Sources/` finds nothing
+- [x] `git grep -n 'selectedContentBackgroundColor\|NSColor.selectedTextBackgroundColor\|srgbRed' Sources/Pisaka/TerminalTheme.swift` finds nothing
+- [x] Coverage: the new behaviour is pinned by rule forty-four and `TerminalThemeTests`. SwiftUI and AppKit glue stays untested by convention, so there is no percentage gate
 
 ### Task 5: Update documentation
 
