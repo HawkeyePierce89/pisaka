@@ -221,10 +221,10 @@ theme suite is untouched.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `swift test` clean
-- [ ] `swiftlint --strict` clean from the repository root
-- [ ] app-layer bundle passes: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData under `~/Library/Developer/Xcode/DerivedData/pisaka-<purpose>`, never inside the repository
-- [ ] macOS Release build and iOS build (`generic/platform=iOS`) succeed
+- [x] `swift test` clean
+- [x] `swiftlint --strict` clean from the repository root
+- [x] app-layer bundle passes: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`, with DerivedData under `~/Library/Developer/Xcode/DerivedData/pisaka-<purpose>`, never inside the repository
+- [x] macOS Release build and iOS build (`generic/platform=iOS`) succeed
 
 ### Task 5: Update documentation
 
