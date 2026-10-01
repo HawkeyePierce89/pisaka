@@ -3181,6 +3181,18 @@ second, competing ground being what a controller can commit); and
 comes from `CodePaneGround` (gated for rules one and two and the code-pane
 ground rule).
 
+A second **self-check** holds the header's stated-exceptions paragraph to the
+code (`testTheHeaderNamesEveryLiteralKeepingReading`, added in part five (h)).
+The `test…` names that paragraph spells must equal, by set equality, the test
+functions whose code calls `GitHubSourceGatingTests.strippingComments(_:)`, the
+literal-keeping scanner. The code is read with comments and literals stripped, so
+a doc comment that mentions the scanner, and the check's own needle, both drop
+out. A rule switching scanners in either direction fails here, and so does a
+rule renamed without its header entry. It gates no source file. It exists
+because `CLAUDE.md` calls each suite's doc comment the record of its
+literal-keeping readings, and a record nothing reads drifts the way both rule
+summaries already had.
+
 And, beside the rules rather than among them, a **cross-file count**: the suite
 counts its own numbered rule markers and asserts that both summaries of it — the
 list above and `CLAUDE.md`'s chrome-theme invariant — spell that number in the

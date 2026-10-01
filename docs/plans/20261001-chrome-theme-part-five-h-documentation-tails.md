@@ -88,6 +88,13 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 - **CRITICAL: every task MUST include new/updated tests.** For this
   documentation-only ticket that means re-running the existing gates; adding new
   tests is out of scope.
+- **Amendment (code review):** one test was adopted after all. Task 4's header
+  paragraph becomes the record `CLAUDE.md` points to, and an unread record
+  drifts. So `testTheHeaderNamesEveryLiteralKeepingReading` holds that
+  paragraph's `test…` names, by set equality, to the test functions whose code
+  calls the literal-keeping scanner. It is listed in `core-theme.md` beside the
+  suite's other self-check. It reads only the suite's own file and changes no
+  product behaviour.
 - **CRITICAL: all tests must pass before starting next task.**
 
 ## Implementation Steps
