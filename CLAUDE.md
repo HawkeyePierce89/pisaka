@@ -301,7 +301,7 @@ because nothing else states them.
   answer is spent before the network call.
 
 - **Colour reaches a gated chrome view only as a role** (macOS only, `core-theme.md`): the
-  chrome — everything drawn *around* the code — is named in Core as a **closed** 21-case
+  chrome — everything drawn *around* the code — is named in Core as a **closed** 22-case
   `ChromeColorRole` plus `ChromeGeometry`'s point tokens, scaled at the use site — `hairlineWidth` on an
   AppKit code-zoom surface the one stated exception, drawn unscaled — and carrying
   **no font size**, and coloured in the app layer by one table, `ChromePalette`, whose

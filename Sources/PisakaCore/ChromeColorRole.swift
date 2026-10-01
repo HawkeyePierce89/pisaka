@@ -8,19 +8,24 @@ import Foundation
 /// a meaning into a concrete colour. A chrome view therefore never spells a
 /// colour; it spells a role.
 ///
-/// **The set is closed.** These 21 roles are the whole vocabulary of the chrome,
-/// and the surface-by-surface sweep that follows adds *views*, never roles: a
-/// surface that appears to need a twenty-second role has instead found a design
-/// question, and the answer is to reuse one of these or to change the design —
-/// not to grow the table. Some roles are consequently still unused after the
-/// surfaces restyled so far — two of them (`currentLine`, `bracketMatch`),
-/// both waiting for the surface that means them: the code zone's two line
-/// overlays. `conflictBackground` was the third and is spent by the merge
-/// panes, through `mergeWashRole(for:)`, in part five (b); `bgPopover` was the
-/// fourth and is spent by the popovers — the completion panel, the hover
-/// popover, the two switcher popovers and the Log calendar — in part five (a);
-/// the two diff backgrounds are spent by the diff pane and the unified diff,
-/// through `diffWashRole(for:side:)` / `diffWashRole(for:)`.
+/// **The set is closed against call sites.** These twenty-two roles are the
+/// whole vocabulary of the chrome, and the surface-by-surface sweep adds
+/// *views*, never roles: a surface that appears to need a role of its own has
+/// instead found a design question, and the answer is to reuse one of these or
+/// to change the design — not to grow the table. The set grew once, in part
+/// five (g), when `dropTargetTint` joined it — because the design states a
+/// value the table did not carry, not because a call site asked. A role whose
+/// only justification is a call site is still a case for the refusal.
+///
+/// Some roles are consequently still unused after the surfaces restyled so
+/// far — two of them (`currentLine`, `bracketMatch`), both waiting for the
+/// surface that means them: the code zone's two line overlays.
+/// `conflictBackground` was the third and is spent by the merge panes, through
+/// `mergeWashRole(for:)`, in part five (b); `bgPopover` was the fourth and is
+/// spent by the popovers — the completion panel, the hover popover, the two
+/// switcher popovers and the Log calendar — in part five (a); the two diff
+/// backgrounds are spent by the diff pane and the unified diff, through
+/// `diffWashRole(for:side:)` / `diffWashRole(for:)`.
 /// They are declared here nonetheless, because the table is the design, not an
 /// inventory of today's call sites.
 ///
@@ -67,6 +72,12 @@ public enum ChromeColorRole: String, CaseIterable, Hashable, Sendable {
 
     /// The wash a row takes while the pointer is inside it.
     case hoverTint
+    /// The wash a row takes while a drag hovers over it, when the only question
+    /// being asked is whether the drop lands here. Stronger than
+    /// `accentTintStrong`, because hover, selection and drop are all true at
+    /// once when a drag sits over a selected row: the drop wash is the same hue
+    /// at a heavier strength, so it still reads above the selection.
+    case dropTargetTint
     /// A selected row in a window that is not key — selection without focus.
     case selectionInactive
     /// The line the caret is on, washed so it can be found at a glance.

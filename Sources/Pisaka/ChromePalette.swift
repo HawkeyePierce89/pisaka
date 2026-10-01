@@ -12,7 +12,7 @@ import PisakaCore
 /// its single, deliberately narrow exemption).
 ///
 /// **The `switch` below is exhaustive on purpose — there is no `default`.** A
-/// twenty-second role added to Core without a pair here is a *compile* error
+/// role added to Core without a pair here is a *compile* error
 /// rather than a colour that silently falls back to something plausible; a pair
 /// spelled wrongly is caught instead by `ChromePaletteTests`, which asserts every
 /// role's two values component by component.
@@ -78,6 +78,12 @@ enum ChromePalette {
 
         // Row and line states.
         case .hoverTint: return Entry(dark: 0xFFFFFF, light: 0x000000, alpha: 0x0A)
+        // The accent's own hue at a third strength, above `accentTintStrong`:
+        // a drag hovering a selected row makes hover, selection and drop all
+        // true at once, so the drop wash is the same hue drawn heavier. 0x66 is
+        // exactly 0.4 (102 ÷ 255). Its one consumer is `ProjectTreeView.swift`'s
+        // `TreeRowBackground.role(for:)`, on `case .dropTarget`.
+        case .dropTargetTint: return Entry(dark: 0x4F8DFF, light: 0x2F6FE0, alpha: 0x66)
         // Changed: this wash was once byte-identical to `currentLine` below,
         // and is now a deliberate step stronger, because the design states
         // that value. Its one consumer is `ProjectTreeView.swift`'s

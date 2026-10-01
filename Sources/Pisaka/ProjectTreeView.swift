@@ -875,7 +875,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
     }
 
     /// The row's background, asked of `TreeRowState` and painted through
-    /// `TreeRowBackground.color(for:theme:)` — the same two lines a file row
+    /// `TreeRowBackground.color(for:resolving:)` — the same two lines a file row
     /// runs, so the two row kinds cannot answer the question differently.
     ///
     /// A folder row passes `isSelected: false` unconditionally: selection here is
@@ -898,31 +898,28 @@ private struct FolderDisclosureRow<Menu: View>: View {
 /// restated at each row kind, a change to one would silently leave the other
 /// painting the old answer.
 enum TreeRowBackground {
-    /// The role a state paints itself in, where a role alone says it.
+    /// The role a state paints itself in — every state answers with a role or
+    /// with nothing.
     ///
-    /// `nil` twice, for two different reasons. `.plain` is the *absence* of a
-    /// background rather than a colour of its own — a row in no state paints
-    /// nothing. `.dropTarget` is a wash the closed role set does not name: the
-    /// drop highlight has to out-read the selection wash while the pointer is
-    /// inside the row (hover, selection and drop are all true at that moment),
-    /// and the design answers that with the accent at 40 % rather than with a
-    /// role of its own — `color(for:theme:)` below is where that is said.
+    /// `nil` has one reason only: `.plain` is the *absence* of a background
+    /// rather than a colour of its own, so a row in no state paints nothing.
+    /// `.dropTarget` answers `dropTargetTint`, whose strength — heavier than
+    /// the selection wash, so a drop over a selected row still reads — is the
+    /// palette's, not composed here.
     static func role(for state: TreeRowState) -> ChromeColorRole? {
         switch state {
-        case .plain, .dropTarget: return nil
+        case .plain: return nil
         case .hover: return .hoverTint
         case .selectedFocused: return .accentTintStrong
         case .selectedUnfocused: return .selectionInactive
+        case .dropTarget: return .dropTargetTint
         }
     }
 
-    /// The colour a row actually paints: the state's role where it has one, the
-    /// drop wash where it does not, and `.clear` for `.plain`.
-    ///
-    /// The drop wash is `accent` at **40 %** — deliberately stronger than
-    /// `accentTintStrong`, so a drop hovering a row that is also selected still
-    /// answers the only question a drag is asking. Both row kinds call this one
-    /// method, which is what keeps the two treatments from drifting apart.
+    /// The colour a row actually paints: the state's role where it has one, and
+    /// `.clear` for `.plain`. Nothing is composed on top — every wash's alpha is
+    /// the palette's. Both row kinds call this one method, which is what keeps
+    /// the two treatments from drifting apart.
     ///
     /// The theme arrives as `resolving`, a role-to-colour function the row hands
     /// over, rather than as the theme value itself: a view file that named the
@@ -933,7 +930,6 @@ enum TreeRowBackground {
         for state: TreeRowState,
         resolving: (ChromeColorRole) -> Color
     ) -> Color {
-        if state == .dropTarget { return resolving(.accent).opacity(0.4) }
         guard let role = role(for: state) else { return Color.clear }
         return resolving(role)
     }

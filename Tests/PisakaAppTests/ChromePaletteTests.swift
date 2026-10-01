@@ -38,6 +38,7 @@ final class ChromePaletteTests: XCTestCase {
         .accentTint: (0x4F8DFF, 0x2F6FE0, 0x22),
         .accentTintStrong: (0x4F8DFF, 0x2F6FE0, 0x33),
         .hoverTint: (0xFFFFFF, 0x000000, 0x0A),
+        .dropTargetTint: (0x4F8DFF, 0x2F6FE0, 0x66),
         .selectionInactive: (0x3C3F46, 0xE2E2E7, 0xFF),
         .currentLine: (0x34363B, 0xF0F0F2, 0xFF),
         .bracketMatch: (0x3D4A5C, 0xDBE6F5, 0xFF),
@@ -215,6 +216,37 @@ final class ChromePaletteTests: XCTestCase {
             XCTAssertFalse(
                 selection == line,
                 "selectionInactive and currentLine resolve to the same AppKit colour in \(appearance.rawValue)"
+            )
+        }
+    }
+
+    /// The drop-target wash is the accent's own hue at a third strength.
+    ///
+    /// A drag hovering a selected row makes hover, selection and drop all true at
+    /// once, so the drop wash must read as the same hue drawn heavier than the
+    /// strong accent tint and still lighter than the accent itself. The exact
+    /// `0x66` is the no-pixel-change claim: it is 102 ÷ 255 = 0.4, the alpha the
+    /// tree once composed at its use site.
+    func testTheDropTargetWashIsTheAccentAtAThirdStrength() throws {
+        for appearance in ChromeAppearance.allCases {
+            let drop = try components(ChromePalette.nsColor(.dropTargetTint, in: appearance))
+            let accent = try components(ChromePalette.nsColor(.accent, in: appearance))
+            let strong = try components(ChromePalette.nsColor(.accentTintStrong, in: appearance))
+            XCTAssertTrue(
+                drop.r == accent.r && drop.g == accent.g && drop.b == accent.b,
+                "dropTargetTint is not the accent's hue in \(appearance.rawValue)"
+            )
+            XCTAssertGreaterThan(
+                drop.alpha, strong.alpha,
+                "dropTargetTint is not stronger than accentTintStrong in \(appearance.rawValue)"
+            )
+            XCTAssertLessThan(
+                drop.alpha, accent.alpha,
+                "dropTargetTint is not lighter than the accent in \(appearance.rawValue)"
+            )
+            XCTAssertEqual(
+                drop.alpha, CGFloat(0x66) / 255, accuracy: 0.002,
+                "dropTargetTint's alpha is not 0x66 in \(appearance.rawValue)"
             )
         }
     }

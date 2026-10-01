@@ -40,8 +40,10 @@ the geometry tokens, the appearance resolution, the tree row's states and
 `diagnosticRole(for:)` — `ChromeRoleMappingTests` (`swift test`, since part four
 (b)) pins the per-feature answers beside it — the changed-file status's letter,
 word and role, the pull-request checks' glyph, words and role, and the diff
-wash and marker — verbatim over `allCases`, and `ChromePaletteTests` (app
-bundle) pins the values themselves.
+wash and marker — verbatim over `allCases`, `ChromePaletteTests` (app
+bundle) pins the values themselves, and `TreeRowBackgroundTests` (app bundle,
+since part five (g)) pins the project tree's state-to-role mapping and that it
+composes no alpha.
 
 The chrome theme is a **reader**: it takes no writer gate, is gated by none, and
 adds no write of any kind. Its only persisted input is the existing
@@ -50,20 +52,24 @@ adds no write of any kind. Its only persisted input is the existing
 ## Core
 
   - `ChromeColorRole.swift` — the closed role enumeration: a `public enum`,
-    `String`-raw-valued, `CaseIterable`, `Hashable`, `Sendable`, **twenty-one**
+    `String`-raw-valued, `CaseIterable`, `Hashable`, `Sendable`, **twenty-two**
     cases in six groups — backgrounds (`bgCanvas`, `bgPanel`, `bgEditor`,
     `bgPopover`), text (`textPrimary`, `textSecondary`, `onAccent`), lines and
     accent (`hairline`, `accent`, `accentTint`, `accentTintStrong`), row and
-    line states (`hoverTint`, `selectionInactive`, `currentLine`,
-    `bracketMatch`), status (`statusGreen`, `statusRed`, `statusYellow`) and
+    line states (`hoverTint`, `dropTargetTint`, `selectionInactive`,
+    `currentLine`, `bracketMatch`), status (`statusGreen`, `statusRed`, `statusYellow`) and
     diff and merge (the three backgrounds). A role names a **meaning**; it
     carries no colour at all, which is what keeps Core Foundation-only and
     portable, and is the same split `FileIconColor` already makes. **The set is
-    closed on purpose.** The sweep that follows adds *views*, never roles: a
-    surface that appears to need a twenty-second role has found a design
-    question, and the answer is to reuse an existing role or to change the
-    design — not to grow the table, which would end as one role per call site
-    and no design system at all. Several roles are consequently still
+    closed against call sites.** The sweep adds *views*, not roles: a surface
+    that appears to need a role of its own has found a design question, and the
+    answer is to reuse an existing role or to change the design — not to grow
+    the table, which would end as one role per call site and no design system at
+    all. The set has grown **once**, in part five (g), and for the other reason:
+    the design states three strengths of the accent wash and the table carried
+    two, so `dropTargetTint` is a value the design already stated, not a call
+    site's request. A role whose only justification is a call site is still a
+    case for the refusal. Several roles are consequently still
     *unused*: the first part left ten of them so (`bgCanvas`, `bgPopover`,
     `onAccent`, `accentTint`, `currentLine`, `bracketMatch`, `statusGreen`,
     `diffAddedBackground`, `diffRemovedBackground`, `conflictBackground`); the
@@ -209,7 +215,7 @@ two new geometry tokens) and each with its readers pinned by a gating
     `role(for: Field)` is the whole mapping, and `init(appearance:value:)` fills
     a value from it through a `(ChromeColorRole) -> String` the app supplies, so a
     page never names a colour of its own — only which role each of its meanings
-    takes. Seven page meanings map onto six existing roles, no twenty-second:
+    takes. Seven page meanings map onto six existing roles, no new one:
 
     | Page meaning | Role | dark | light |
     |---|---|---|---|
@@ -281,7 +287,7 @@ the translucent roles are *washes*, and a wash is the same wash over either
 background; two alphas would be two opinions about one design decision. The
 alpha is a `UInt8` defaulting to `0xFF`, the byte the design's eight-digit values
 carry in their last position, so the table spells the design's numbers verbatim
-(`0x22`, `0x33`, `0x0A`, `0x26`) rather than a fraction rounded away from them;
+(`0x22`, `0x33`, `0x0A`, `0x26`, `0x66`) rather than a fraction rounded away from them;
 each accessor divides by 255 where it builds a colour (`Entry.opacity`).
 
 `entry(for:)` is an **exhaustive `switch role` with no `default`**. That is the
@@ -335,6 +341,14 @@ row was being changed and was **already correct**
 (`dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26`), so it is untouched. No gating
 rule is added by any of this: `ChromeThemeSourceGatingTests`' rule count is
 unchanged, as is the sentence in `CLAUDE.md` that mirrors it.
+
+**One row has been added since.** `dropTargetTint` (part five (g)) is the
+accent's own hues, `dark: 0x4F8DFF, light: 0x2F6FE0`, at `0x66` (102 ÷ 255 =
+0.4) — the third strength of the accent wash, above `accentTintStrong`. Its one
+consumer is `ProjectTreeView.swift`'s `TreeRowBackground.role(for:)`, `case
+.dropTarget`. `testTheDropTargetWashIsTheAccentAtAThirdStrength` asserts in
+both appearances that it has `accent`'s RGB, an alpha strictly between
+`accentTintStrong`'s and `accent`'s, and exactly `0x66`.
 
 `textPrimary`, `textSecondary` and `accent` each carry a short comment
 recording that the **code zone's own theme states the same values** — for its
@@ -480,17 +494,17 @@ full entry; what is **not** listed here has not been swept.
     the sweep.
   - **The project tree rows** — `ProjectTreeView.swift` and
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
-    `app-window.md`. One row state is painted without a role of its own: a
-    `dropTarget` row takes `accent` at **40 % opacity**, resolved at the two row
-    sites through `TreeRowBackground.color(for:resolving:)`. The closed set names
-    no drop wash, and the design's answer is a stronger reading of the accent
-    rather than a twenty-second role: hover, selection and drop are all true at
-    the moment a drag sits over a selected row (the pointer is inside it), so the
-    drop treatment has to out-read `accentTintStrong`, which it does by being the
-    same hue at a heavier wash. An `.opacity(_:)` on a role colour breaks neither
-    gating rule — it spells no hex and names no system colour — and the mapping
-    takes the theme as a role-to-colour *function* so no view file names the
-    theme's type (rule five).
+    `app-window.md`. Every row state answers with a role or with nothing, through
+    the one mapping `TreeRowBackground.color(for:resolving:)` that both row kinds
+    read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
+    `accent` at a composed 40 % before), and only `plain` paints nothing. Hover,
+    selection and drop are all true at the moment a drag sits over a selected row
+    (the pointer is inside it), so the drop treatment has to out-read
+    `accentTintStrong`, which it does by being the same hue at a heavier wash —
+    a strength the palette now carries, so the mapping composes no alpha.
+    `TreeRowBackgroundTests` pins the mapping and that it composes none, and the
+    mapping takes the theme as a role-to-colour *function* so no view file names
+    the theme's type (rule five).
 
 #### Part two — the editor pane's own chrome
 
@@ -1995,7 +2009,7 @@ would read as a scar across a paragraph. The answer, in four parts:
    So `codeBackground` moving is invisible and the rule line moving is not.
 4. **The remedy, if it reads badly on screen**, is a change to `hairline`
    itself, which moves every swept surface — never a page-local override and
-   never a twenty-second role.
+   never a new role.
 
 `MarkdownPreviewPage` no longer emits `--table-border`, and `preview.css`'s
 table-cell rule reads `var(--border)` (`core-markdown-preview.md`).
@@ -2084,7 +2098,7 @@ was **rule twenty-nine**: its alpha clause sees an alpha chained directly onto
 does `ProjectTreeView.swift`'s drop-target `resolving(.accent).opacity(0.4)`.
 This part removes its own instance and records the gap on rule twenty-nine's
 entry; it does not change the rule and does not touch the tree (the drop-target
-is named under *What is still waiting*).
+was left waiting, and is settled in part five (g), below).
 
 **Rule forty-three, bounded.** It was verified live by mutation with the set
 empty: an `_ = NSColor.systemRed` added to `DefinitionPicker.swift` (ungated, not
@@ -2097,28 +2111,55 @@ from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
 stay named under *What is still waiting*: the terminal's own palette, the caret
 readout, the lane hues, the unified diff's per-line checkbox glyph and
-changed-line text tint, and now the tree's drop-target alpha.
+changed-line text tint.
+
+#### Part five (g) — the project tree's drop-target wash
+
+One surface, and one conflict settled: the project tree painted a drop-target
+row with `resolving(.accent).opacity(0.4)`, an alpha composed at the use site,
+which breaks rule twenty-nine ("a wash's alpha is the palette's") while slipping
+past its alpha clause, and the closed role set named no drop wash. Part five (f)
+measured it and left it waiting, because moving it onto `accentTint` (`0x22`)
+or `accentTintStrong` (`0x33`) would visibly change the highlight.
+
+**The table gives, by one row.** The design states three strengths of the
+accent wash — a marked surface, a selected row and a drop target — and the
+palette carried two. A value the design already states is not a call site's
+request, so the third becomes a role, `dropTargetTint`, in the row-and-line
+states group after `hoverTint`: the accent's own hues, `0x4F8DFF` dark and
+`0x2F6FE0` light, at alpha `0x66` — 102 ÷ 255, exactly 0.4, so **no pixel
+changes**. `ChromeColorRole` goes from twenty-one to **twenty-two** cases;
+`currentLine` and `bracketMatch` stay the two unspent; the set stays closed
+against call sites. The gated set stays at **sixty** files and the suite at
+**forty-three** rules.
+
+**The tree composes no alpha.** `TreeRowBackground.role(for:)` answers
+`.dropTargetTint` for `.dropTarget`, so only `.plain` answers `nil`, and
+`color(for:resolving:)` lost its special case: the state's role where there is
+one, `Color.clear` otherwise.
+
+**Pinned three ways.** The palette suite's expected table gains the row, and a
+relation test beside the inactive-selection one asserts in both appearances
+that `dropTargetTint` has `accent`'s RGB, an alpha strictly between
+`accentTintStrong`'s and `accent`'s, and exactly `0x66`. A new app-layer suite,
+`TreeRowBackgroundTests`, pins the state-to-role mapping and that the mapping
+composes no alpha (a recording resolver is asked exactly the state's role once,
+and its colour comes back unchanged; for `.plain` it is never asked). And rule
+twenty-nine's alpha clause now sees the helper-call form, at depth one —
+mutation-checked against `ProjectTreeView.swift`, red with the old line restored
+and green after (its entry, below). **The gap that remains** is the
+local-variable form, which needs data flow.
 
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
 commit dialog, the merge editor, every secondary window's ground, Preferences,
 the two pull-request sheets, the database viewer and its console, the
-problem-catalog surfaces, the two served document pages, the alert accessory and
-the fold placeholder. No macOS surface is known to paint outside the roles —
+problem-catalog surfaces, the two served document pages, the alert accessory,
+the fold placeholder and the project tree's drop-target wash (part five (g)). No macOS surface is known to paint outside the roles —
 that is the bounded closure stated at the end of part five (f), and rule
 forty-three's live half is what would say otherwise the moment an ungated,
 non-exempt macOS file started to.
-
-**One measured item waits for a part of its own**: the project tree's
-**drop-target** highlight in `ProjectTreeView.swift`,
-`resolving(.accent).opacity(0.4)` — an alpha composed onto a role's colour
-through a helper call, the form rule twenty-nine's alpha clause cannot see. It
-is not fixed with the placeholder because it is not a role swap: `accentTint`
-carries alpha `0x22` and `accentTintStrong` `0x33` against the `0.4` in use, so
-moving it onto either is a visible change to the drop-target highlight, and that
-is another surface's design question — this sweep's stated refusal is to stop at
-a design question rather than decide it under another part's heading.
 
 The dock's tab row is **no longer deferred** — part four (a) drew it, and
 `ChromeGeometry.dockTabRowHeight` is spent. The popovers are **no longer
@@ -2128,8 +2169,7 @@ and `secondaryButtonHeight` are spent on the shared field. What stays deferred:
 the **terminal's own palette**, the **caret readout** beside the bar, which
 waits on a design decision rather than on a file, the **lane hues**, and the
 unified diff's **per-line checkbox glyph** and **changed-line text tint** (part
-five (b)'s departures six and seven), all open design questions, plus the
-drop-target alpha above. Each follows the six-step guide at the end of this
+five (b)'s departures six and seven), all open design questions. Each follows the six-step guide at the end of this
 document, on its own. Two roles remain unspent — `currentLine` and
 `bracketMatch`, both code zone — after fifty-six surfaces, the same two and the
 same count `ChromeColorRole.swift`'s own doc comment states.
@@ -2708,13 +2748,26 @@ The forty-three rules, each invisible to the compiler:
     line breaks allowed — `MinimapView.swift`'s alpha on a syntax-table colour is
     code zone and outside the rule); part five (b)'s ten files spell
     `withAlphaComponent` nowhere; and `MergeView.swift` spells no
-    `performAsCurrentDrawingAppearance`. **Known gap, named rather than fixed**:
-    the alpha clause sees an alpha chained *directly* onto `nsColor(`,
-    `.color(` or `chromeColor(` only, so it misses the local-variable form (the
+    `performAsCurrentDrawingAppearance`. Since part five (g) the alpha clause
+    has a second form: an `.opacity`/`.withAlphaComponent` chained onto **any**
+    call is red when that call's own balanced argument list spells a role case —
+    a leading-dot raw value from `ChromeColorRole.allCases`, matched as a token
+    at nesting depth one, not inside a nested call — which catches the
+    helper-call form (`resolving(.accent).opacity(…)`) the first form could not
+    see. **The depth-one scope is deliberate**: `ChromeControls.swift`'s two
+    button-dimming chains, `.background(RoundedRectangle(…).fill(theme.color(.accent)))`
+    followed by `.opacity(isEnabled ? … : 0.5)`, are view modifiers fading a
+    whole button, not an alpha on a role's colour, and in both the role sits in
+    a nested call. The first form stays as it was, because it also catches a
+    role passed as a variable (`theme.color(role).opacity`). **Mutation-checked,
+    not assumed**: restoring `if state == .dropTarget { return
+    resolving(.accent).opacity(0.4) }` into `ProjectTreeView.swift`'s
+    `color(for:resolving:)` turned the rule red naming `ProjectTreeView.swift`
+    ("chains .opacity onto resolving(…), which spells a role"), and green again
+    once restored. **The one gap that remains is the local-variable form** (the
     fold placeholder's former `color.withAlphaComponent(0.5)`, removed in part
-    five (f) rather than caught) and the helper-call form (`ProjectTreeView.swift`'s
-    drop-target `resolving(.accent).opacity(0.4)`, which passes today and waits
-    under *What is still waiting*). The rule is not strengthened.
+    five (f) rather than caught): following a value through a `let` needs data
+    flow, which a text scan does not have.
 30. **One primary button, one secondary, one checkbox.** No gated file spells the
     tokens `Toggle`, `toggleStyle` (bare, because `containsToken` rejects a dotted
     needle after an identifier character; the token match is also what keeps
@@ -3099,7 +3152,10 @@ Each further surface is restyled on its own, in the same six steps:
    palette values plus whatever app-side suite that surface has).
 
 **When a surface seems to need a role that does not exist, it does not.** The
-set is closed. Either an existing role means what the surface is trying to say —
+set is closed against call sites. It has grown once, in part five (g), because
+the design states a value the table did not carry — a third strength of the
+accent wash — and a role whose only justification is a call site is still a
+case for this refusal. Either an existing role means what the surface is trying to say —
 which is usually the discovery, once the question is phrased as a meaning rather
 than as a colour — or the surface's design is making a distinction the chrome
 has decided not to make, and that is a design question to raise, not a table to

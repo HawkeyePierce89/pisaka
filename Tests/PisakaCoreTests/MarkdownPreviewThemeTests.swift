@@ -213,7 +213,7 @@ final class MarkdownPreviewThemeTests: XCTestCase {
     ///    not.
     /// 4. **The remedy, if it reads badly on screen,** is a change to `hairline`
     ///    itself, which moves every swept surface — never a page-local override
-    ///    and never a twenty-second role.
+    ///    and never a new role.
     func testTheThemeHasExactlyOneLineColour() {
         for theme in [MarkdownPreviewTheme.light, .dark] {
             XCTAssertEqual(DocumentPageChrome.role(for: .border), .hairline)

@@ -3100,15 +3100,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// what it applies to — a syntax-table colour, the code zone's, not a role's.
     /// This part's ten files, written against the rule, ban the token outright.
     ///
-    /// **Known gap, named rather than fixed.** The alpha clause sees an alpha
-    /// chained *directly* onto `nsColor(`, `.color(` or `chromeColor(` and
-    /// nothing else, so two forms pass while breaking what this comment says:
-    /// the local-variable form (the fold placeholder's former
-    /// `color.withAlphaComponent(0.5)`, removed in part five (f) rather than
-    /// caught) and the helper-call form (`ProjectTreeView.swift`'s drop-target
-    /// `resolving(.accent).opacity(0.4)`, which passes today). The rule is not
-    /// strengthened here; `core-theme.md` names that surface under *What is
-    /// still waiting*.
+    /// A second form of the clause covers the helper call: an alpha chained
+    /// onto *any* call whose own argument list spells a role case — a raw value
+    /// of `ChromeColorRole.allCases` after a leading dot or after
+    /// `ChromeColorRole.`, matched as a token at nesting depth one — is red, which is what catches
+    /// `ProjectTreeView.swift`'s former `resolving(.accent).opacity(0.4)`. The
+    /// first form stays as it was, because the second does not cover it: it
+    /// also refuses `theme.color(role).opacity`, whose role is a variable.
+    /// **Depth one, not anywhere inside the parentheses**, on purpose:
+    /// `ChromeControls.swift`'s two button bodies chain
+    /// `.background(RoundedRectangle(…).fill(theme.color(.accent)))` and then
+    /// `.opacity(isEnabled ? … : 0.5)` — a view modifier dimming the whole
+    /// button, its role sitting inside a nested call, which is not an alpha on
+    /// a role's colour. Both forms read past an optional-chaining `?` or a
+    /// force-unwrap `!` before the chained dot. The scanner is checked against
+    /// samples of its own (`testTheAlphaChainScannerFindsTheHelperCallForm`),
+    /// because the gated sources alone, holding no violation, could not tell a
+    /// scanner that finds nothing from one that is right.
+    ///
+    /// **Known gap, named rather than fixed.** The local-variable form —
+    /// the fold placeholder's former `color.withAlphaComponent(0.5)`, removed
+    /// in part five (f) rather than caught — still passes: following a value
+    /// through a `let` needs data flow, which a token scan does not have.
     private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
 
     func testTheMergeWashIsCoresOneAnswer() throws {
@@ -3136,13 +3149,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 guard let range = Range(match.range, in: code),
                       let callEnd = Self.balancedEnd(from: code.index(before: range.upperBound), in: code)
                 else { continue }
-                var index = callEnd
-                while index < code.endIndex, code[index].isWhitespace { index = code.index(after: index) }
-                guard index < code.endIndex, code[index] == "." else { continue }
-                let member = code[code.index(after: index)...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                guard let member = Self.chainedMember(after: callEnd, in: code) else { continue }
                 XCTAssertFalse(
                     member == "withAlphaComponent" || member == "opacity",
                     "\(name) chains .\(member) onto a role's colour — a wash's alpha is the palette's, not one composed at the use site"
+                )
+            }
+            for (callee, member) in Self.alphaChainsOntoRoleArguments(in: code) {
+                XCTFail(
+                    "\(name) chains .\(member) onto \(callee)(…), which spells a role — a wash's alpha is the palette's, not one composed at the use site"
                 )
             }
             if Self.partFiveBFiles.contains(name) {
@@ -3161,6 +3176,87 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testTheAlphaChainScannerFindsTheHelperCallForm() {
+        func hits(_ code: String) -> [String] {
+            Self.alphaChainsOntoRoleArguments(in: code).map { "\($0.callee).\($0.member)" }
+        }
+        XCTAssertEqual(hits("x = resolving(.accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(.accent)\n    .opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(.accent)?.opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(ChromeColorRole.accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(ChromeColorRole\n    .accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = resolving(ChromeColorRole .accent).opacity(0.4)"), ["resolving.opacity"])
+        XCTAssertEqual(hits("x = f(role: .hoverTint).withAlphaComponent(0.5)"), ["f.withAlphaComponent"])
+        // A whole-view dimming, its role inside a nested call, is not an alpha on a role's colour.
+        XCTAssertEqual(hits("v.background(RoundedRectangle(r).fill(theme.color(.accent))).opacity(x)"), [])
+        // A member of some value, not a role case, and an unknown leading-dot name.
+        XCTAssertEqual(hits("x = f(y.accent).opacity(1)"), [])
+        XCTAssertEqual(hits("x = f(g().accent).opacity(1)"), [])
+        XCTAssertEqual(hits("x = f(.notARole).opacity(1)"), [])
+        // A role with no alpha chained onto its call.
+        XCTAssertEqual(hits("x = resolving(.accent).frame(1)"), [])
+    }
+
+    /// The member chained onto the call ending just before `callEnd` —
+    /// whitespace and line breaks skipped, an optional-chaining `?` or a
+    /// force-unwrap `!` allowed before the dot — or `nil` when none is.
+    private static func chainedMember(after callEnd: String.Index, in code: String) -> Substring? {
+        var index = callEnd
+        while index < code.endIndex, code[index].isWhitespace { index = code.index(after: index) }
+        if index < code.endIndex, code[index] == "?" || code[index] == "!" { index = code.index(after: index) }
+        guard index < code.endIndex, code[index] == "." else { return nil }
+        return code[code.index(after: index)...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+    }
+
+    /// Every call in `code` with `.opacity` or `.withAlphaComponent` chained
+    /// onto it whose own argument list — depth one, outside any nested
+    /// bracket — spells a role case, leading-dot or qualified by
+    /// `ChromeColorRole`: `(callee, member)` per hit.
+    static func alphaChainsOntoRoleArguments(in code: String) -> [(callee: String, member: String)] {
+        let roles = Set(ChromeColorRole.allCases.map(\.rawValue))
+        func isIdentifier(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || character == "_"
+        }
+        var hits: [(callee: String, member: String)] = []
+        var open = code.startIndex
+        while let found = code[open...].firstIndex(of: "(") {
+            open = code.index(after: found)
+            guard found > code.startIndex, isIdentifier(code[code.index(before: found)]),
+                  let callEnd = balancedEnd(from: found, in: code),
+                  let member = chainedMember(after: callEnd, in: code).map(String.init),
+                  member == "opacity" || member == "withAlphaComponent" else { continue }
+            var depth = 0
+            var spellsRole = false
+            var cursor = found
+            var previous: Character = " "
+            var word = ""
+            while cursor < code.index(before: callEnd) {
+                let character = code[cursor]
+                if "([{".contains(character) { depth += 1 }
+                if ")]}".contains(character) { depth -= 1 }
+                let leadingDot = !isIdentifier(previous) && previous != ")" && previous != "]"
+                if depth == 1, character == ".", leadingDot || word == "ChromeColorRole" {
+                    let token = String(code[code.index(after: cursor)...].prefix(while: isIdentifier))
+                    if roles.contains(token) { spellsRole = true }
+                }
+                // Whitespace keeps the word, so `ChromeColorRole` survives a line
+                // break before `.accent`; an identifier after whitespace starts anew.
+                if isIdentifier(character) {
+                    let continues = cursor > found && isIdentifier(code[code.index(before: cursor)])
+                    word = (continues ? word : "") + String(character)
+                } else if !character.isWhitespace {
+                    word = ""
+                }
+                if !character.isWhitespace { previous = character }
+                cursor = code.index(after: cursor)
+            }
+            guard spellsRole else { continue }
+            let callee = code[..<found].reversed().prefix(while: isIdentifier).reversed()
+            hits.append((String(callee), member))
+        }
+        return hits
     }
 
     // MARK: - Rule thirty: one primary button, one secondary, one checkbox
@@ -3694,7 +3790,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     /// Every `switch` body in `code` whose cases name a selected row state
-    /// (`selectedFocused`/`selectedUnfocused`) and that spells one of the three
+    /// (`selectedFocused`/`selectedUnfocused`) and that spells one of the four
     /// roles `TreeRowBackground.role(for:)` answers with — a copy of the tree's
     /// state→role table, wherever it is written and however it is wrapped.
     static func rowStateSwitchesSpellingATreeRole(in code: String) -> [String] {
@@ -3712,7 +3808,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let namesSelectedState = ["selectedFocused", "selectedUnfocused"].contains {
                 LSPSourceGatingTests.containsToken($0, in: body)
             }
-            let spellsTreeRole = ["accentTintStrong", "selectionInactive", "hoverTint"].contains {
+            let spellsTreeRole = ["accentTintStrong", "selectionInactive", "hoverTint", "dropTargetTint"].contains {
                 LSPSourceGatingTests.containsToken($0, in: body)
             }
             if namesSelectedState && spellsTreeRole { copies.append(body) }

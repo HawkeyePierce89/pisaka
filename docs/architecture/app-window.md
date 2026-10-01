@@ -1092,17 +1092,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     session still naming a source behind a modal alert would answer a later
     `validateDrop` for a drag that ended long ago, and a modal loop spun from
     inside AppKit's `performDragOperation:` blocks the drag session — and the
-    source app with it — behind a dialog. The highlight is the **accent at 40 %
-    opacity**, reached at the *same* site and through the same rule as every
+    source app with it — behind a dialog. The highlight is **`dropTargetTint`**,
+    reached at the *same* site and through the same rule as every
     other row state: the row asks `TreeRowState.state(isSelected:isWindowKey:
     isHovering:isDropTarget:)` (`core-theme.md`) and maps the answer through
     `TreeRowBackground.color(for:resolving:)`. Drop outranks hover there because
     the pointer is inside the row and both conditions are true at once, and "will
     this drop land here?" is the only question being asked; the wash is heavier
     than `accentTintStrong` for the same reason — a drop over a row that is also
-    selected has to out-read the selection. The closed role set names no drop
-    wash and gains none: this is the accent read more strongly, which is a
-    reading the palette already supports, not a twenty-second role. One rule and
+    selected has to out-read the selection. The drop target maps to
+    `dropTargetTint` through `TreeRowBackground`, which composes no alpha — the
+    accent's hue at a third strength the palette carries (part five (g) in
+    `core-theme.md`) — and `TreeRowBackgroundTests` pins it. One rule and
     one mapping, read by both row kinds, is what stops the treatments drifting
     apart. Everything else on both row kinds is **unchanged and in the same
     order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
@@ -1117,11 +1118,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeRowState.state(...)` and maps the answer through the file-scope
     `TreeRowBackground.color(for:resolving:)` — `hover` → `hoverTint`,
     `selectedFocused` → `accentTintStrong`, `selectedUnfocused` →
-    `selectionInactive`, `dropTarget` → the accent at 40 %, and `plain` →
+    `selectionInactive`, `dropTarget` → `dropTargetTint`, and `plain` →
     `.clear`, the *absence* of a background rather than a colour of its own.
-    (`role(for:)` beneath it still answers the four that a role states, and `nil`
-    for the two that do not: `plain`, which paints nothing, and `dropTarget`,
-    whose wash the closed set does not name.) The theme arrives as a
+    (`role(for:)` beneath it answers a role for every state but one, and `nil`
+    only for `plain`, which paints nothing; no state composes an alpha, the drop
+    wash's strength coming from the palette — pinned by
+    `TreeRowBackgroundTests`.) The theme arrives as a
     role-to-colour *function*, not as the theme value, so no view file names
     `ChromeTheme` — rule five of the gating suite (`core-theme.md`). Both row
     kinds read that one mapping, for the reason they share the geometry tokens.
