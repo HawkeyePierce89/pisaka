@@ -97,17 +97,17 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 **Files:**
 - Modify (temporarily, then restore): `Sources/Pisaka/TerminalTheme.swift`
 
-- [ ] Replace the caret's `ChromePalette.nsColor(.accent, in: appearance)` with
+- [x] Replace the caret's `ChromePalette.nsColor(.accent, in: appearance)` with
   `NSColor.selectedContentBackgroundColor`. That is the mutation the acceptance
   review ran.
-- [ ] Run `swift test --filter ChromeThemeSourceGatingTests/testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse`.
+- [x] Run `swift test --filter ChromeThemeSourceGatingTests/testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse`.
   Copy every failure message verbatim, keeping only the message text after the
   assertion's own prefix. Expect three, each naming `TerminalTheme.swift`. If the
   count is not three, record what the run actually printed and note the
   difference in the progress log.
-- [ ] Restore the file with `git checkout -- Sources/Pisaka/TerminalTheme.swift`,
+- [x] Restore the file with `git checkout -- Sources/Pisaka/TerminalTheme.swift`,
   and confirm `git diff --quiet master -- Sources/Pisaka/TerminalTheme.swift`.
-- [ ] Re-run the same filtered test: it must be green.
+- [x] Re-run the same filtered test: it must be green.
 
 ### Task 2: Record all three messages in the rule forty-four entry and the test doc comment
 
