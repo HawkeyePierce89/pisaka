@@ -5074,10 +5074,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Verified live by mutation, not assumed: the caret put back to
     /// `NSColor.selectedContentBackgroundColor` in `TerminalTheme.swift` turned
-    /// this test red with "TerminalTheme.swift names a system colour outside its
-    /// ANSI arrays: selectedContentBackgroundColor" (and, the caret's `accent`
-    /// gone, "TerminalTheme.swift no longer names the role .accent"), and went
-    /// green again once restored.
+    /// this test red with three failures, and it went green again once restored.
+    /// The forbidden-token loop's `XCTFail` printed "TerminalTheme.swift names a
+    /// system colour outside its ANSI arrays: selectedContentBackgroundColor";
+    /// the member set's `XCTAssertEqual` printed "TerminalTheme.swift: the
+    /// `.…Color` members outside its ANSI arrays changed — a new one is a system
+    /// colour or a new sink"; and, the caret's `accent` gone, the role loop's
+    /// `XCTAssertTrue` printed "TerminalTheme.swift no longer names the role
+    /// .accent — its four chrome colours are roles".
     func testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse() throws {
         let name = "TerminalTheme.swift"
         let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(Self.source(named: name)))

@@ -3152,9 +3152,12 @@ The forty-four rules, each invisible to the compiler:
     the `=`, past the type annotation's own. Either array going missing fails
     loudly, naming the file and the declaration. Verified by mutation: the
     caret put back to `NSColor.selectedContentBackgroundColor` turned it red
-    with "TerminalTheme.swift names a system colour outside its ANSI arrays:
-    selectedContentBackgroundColor" and "no longer names the role .accent",
-    green again once restored.
+    with three failures — "TerminalTheme.swift names a system colour outside
+    its ANSI arrays: selectedContentBackgroundColor", "TerminalTheme.swift: the
+    `.…Color` members outside its ANSI arrays changed — a new one is a system
+    colour or a new sink" and "TerminalTheme.swift no longer names the role
+    .accent — its four chrome colours are roles" — and green again once
+    restored.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

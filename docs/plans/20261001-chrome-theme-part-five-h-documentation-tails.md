@@ -115,14 +115,14 @@ reading owes the same statement. The rewrite is shorter than today's text, so th
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] In `core-theme.md`'s rule forty-four entry, rewrite the "Verified by
+- [x] In `core-theme.md`'s rule forty-four entry, rewrite the "Verified by
   mutation" sentence so it quotes the three messages from Task 1 verbatim. Leave
   the rest of the entry untouched.
-- [ ] In the doc comment of
+- [x] In the doc comment of
   `testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse`, rewrite the
   "Verified live by mutation" paragraph the same way. Use the same three messages
   and say which assertion each comes from.
-- [ ] Run `swift test` and `swiftlint --strict`; both must be clean.
+- [x] Run `swift test` and `swiftlint --strict`; both must be clean.
 
 ### Task 3: One verdict on the dark ANSI-16 set
 
