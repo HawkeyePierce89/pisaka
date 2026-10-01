@@ -112,22 +112,22 @@ It does not catch the two button-dimming chains, which is correct. The rule's en
 **Files:**
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Strengthen the alpha clause in `testTheMergeWashIsCoresOneAnswer`. It reads each gated file's text with comments and literals stripped. An `.opacity` or `.withAlphaComponent` chained onto any call is red when that call's own balanced argument list spells a role case:
+- [x] Strengthen the alpha clause in `testTheMergeWashIsCoresOneAnswer`. It reads each gated file's text with comments and literals stripped. An `.opacity` or `.withAlphaComponent` chained onto any call is red when that call's own balanced argument list spells a role case:
   - A role case is a leading-dot raw value from `ChromeColorRole.allCases`, matched as a token at nesting depth one and not inside a nested call.
   - Reuse the existing `balancedEnd(from:in:)` and the walk over whitespace and members.
   - Either keep the `nsColor(`, `.color(` and `chromeColor(` form as it is, or show that the new form covers it.
-- [ ] The failure message names the file and the call, using the existing wording: "a wash's alpha is the palette's, not one composed at the use site".
-- [ ] Rewrite the rule's "Known gap" doc comment:
+- [x] The failure message names the file and the call, using the existing wording: "a wash's alpha is the palette's, not one composed at the use site".
+- [x] Rewrite the rule's "Known gap" doc comment:
   - The helper-call form is now caught.
   - Record the depth-one scope and its reason: the two button-dimming `.opacity` chains in `ChromeControls.swift`, at lines 178 and 207, are view modifiers whose role sits in a nested call.
   - The local-variable form remains a named gap, because following a value through a `let` needs data flow.
   - Remove the sentence saying the rule "is not strengthened here".
-- [ ] Run the mutation check live:
+- [x] Run the mutation check live:
   1. Temporarily restore `if state == .dropTarget { return resolving(.accent).opacity(0.4) }` in `ProjectTreeView.swift` and run the gating suite. It must fail and name `ProjectTreeView.swift`.
   2. Restore the file and run it again. It must be green.
-  3. Note the result for the documentation task.
-- [ ] Check that no count pinned by the gating suite changes: still forty-three rules and still sixty gated files.
-- [ ] Run `swift test`; it must pass.
+  3. Note the result for the documentation task. (Result: with the line restored into `color(for:resolving:)`, the rule failed with "ProjectTreeView.swift chains .opacity onto resolving(…), which spells a role — a wash's alpha is the palette's, not one composed at the use site"; after the restore the suite was green, 61 tests, 0 failures.)
+- [x] Check that no count pinned by the gating suite changes: still forty-three rules and still sixty gated files.
+- [x] Run `swift test`; it must pass.
 
 ### Task 5: The documents say what is now true
 
