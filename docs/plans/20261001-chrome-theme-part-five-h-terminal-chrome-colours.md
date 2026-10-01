@@ -217,8 +217,8 @@ Each entry should state the roles, the concrete-accessor exception and the narro
 
 ### Task 5: Update documentation
 
-- [ ] README.md and `docs/FEATURES.md`: check whether they describe the terminal's colours, and update them only if they do
-- [ ] CLAUDE.md: already updated in Tasks 2 and 3. Confirm the count word and the two-exceptions wording are present and the file is under its ceiling
+- [x] README.md and `docs/FEATURES.md`: check whether they describe the terminal's colours, and update them only if they do (checked: both say only that the terminal follows the app theme and recolours live, which stays true; no edit needed)
+- [x] CLAUDE.md: already updated in Tasks 2 and 3. Confirm the count word and the two-exceptions wording are present and the file is under its ceiling
 
 ## Post-Completion
 
