@@ -55,16 +55,26 @@ import XCTest
 ///   `ContentView`, the space is published by `BottomDockColumn`, and the name
 ///   crosses the seam as the column's `coordinateSpaceName`, so all three
 ///   halves are read.
-/// - **The column is pinned to the area and then clipped.** `.clipped()` clips a
-///   view to the frame it *reported*, not the one it was proposed, so dropping
-///   the `.frame(width:height:alignment:)` in front of it silently turns the
-///   guarantee into a no-op in precisely the overflow case it exists for. Both
-///   live in `BottomDockColumn.swift`.
+/// - **The column is pinned to the area, top-leading, and carries no clip; the
+///   bottom bar is drawn above it instead.** A clip of any spelling —
+///   `clipped(`, `clipShape(`, `mask(` — anywhere in `BottomDockColumn.swift`
+///   sits above the editor's `HSplitView`, and a clip above that split makes its
+///   panes drop the window's top safe-area inset: the whole top row slides under
+///   the transparent title bar with the dock open and sits correctly with it
+///   closed. It compiles, it is invisible in every gate but a hosted window
+///   (`BottomDockLayoutTests` measures it and records the bisection), and it is
+///   the most natural thing to add back to a column whose overflow must not
+///   reach the bottom bar. That guarantee is the root's instead: `bottomBar`
+///   carries `.zIndex(1)` in `ContentView.body`, on its own opaque ground, so
+///   anything spilling off `mainArea`'s bottom edge lands under it. The pin
+///   stays because the coordinate space is published on it and because its
+///   top-leading alignment is what sends the surplus down and to the trailing
+///   edge rather than up or over the project tree's leading edge.
 /// - **The slot itself is top-aligned.** The same argument one level in, and the
 ///   other half of the same guarantee: `.frame(height:)` defaults to `.center`,
 ///   which splits an overflowing child's surplus evenly and sends half of it
-///   *upwards*, over the divider and into the editor — inside the clipped rect,
-///   where the clip cannot reach it. Deleting `alignment: .top` compiles, reads
+///   *upwards*, over the divider and into the editor — inside `mainArea`,
+///   where the bar's cover cannot reach it. Deleting `alignment: .top` compiles, reads
 ///   as a harmless simplification, and leaves the guarantee covering the bottom
 ///   bar alone. The slot is built in `ContentView`'s `panel:` builder, so the
 ///   rule reads the modifiers between `panelContent(panel)` and that builder's
@@ -219,30 +229,39 @@ final class BottomPanelSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - The clip is pinned to the area it must clip to
+    // MARK: - The column is pinned and unclipped; the bar covers its overflow
 
-    func testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped() throws {
-        let code = Self.whitespaceFree(try dockColumnCode())
+    func testThePanelColumnIsPinnedUnclippedAndCoveredByTheBottomBar() throws {
+        let column = Self.whitespaceFree(try dockColumnCode())
         let pin = Self.whitespaceFree(
             "frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)"
         )
-        let pinned = try XCTUnwrap(code.range(of: pin), """
-            The panel column is not pinned to the `GeometryReader`'s size, top-*leading*. \
-            `.clipped()` clips to the frame a view *reported*, not the one it was proposed, so an \
-            oversized column would be clipped to its own overflow — a no-op in exactly the case \
-            the clip exists for. The leading half matters just as much: `.top` centers \
-            horizontally, so a column wider than the area (the split's panes state minimum widths \
-            the `GeometryReader` erases) would have the clip take half the surplus off each side, \
-            cutting the project tree's leading edge.
+        XCTAssertTrue(column.contains(pin), """
+            The panel column is not pinned to the `GeometryReader`'s size, top-*leading*. Without \
+            the pin an oversized column reports its overflow and the divider's coordinate space \
+            grows with it; `.top` alone centers horizontally, so a column wider than the area (the \
+            split's panes state minimum widths the `GeometryReader` erases) would push half the \
+            surplus off the project tree's leading edge.
             """)
-        let clip = try XCTUnwrap(code.range(of: "clipped()"), "the panel column is no longer clipped")
-        XCTAssertLessThan(
-            pinned.lowerBound, clip.lowerBound,
-            "the pin must come before the clip, or the clip rect is still the column's own size"
+        for clip in ["clipped(", "clipShape(", "mask("] {
+            XCTAssertFalse(column.contains(clip), """
+                `BottomDockColumn` contains `\(clip)`. A clip above the editor's `HSplitView` makes \
+                the split's panes drop the window's top safe-area inset, so with the dock open the \
+                whole top row slides under the title bar (`BottomDockLayoutTests`). The overflow \
+                guarantee is the bottom bar's `.zIndex(1)` in `ContentView.body`, not a clip here.
+                """)
+        }
+        XCTAssertTrue(
+            Self.whitespaceFree(try contentViewCode()).contains("bottomBar.zIndex(1)"),
+            """
+            The bottom bar is no longer drawn above `mainArea` by an explicit `.zIndex(1)`. That \
+            order — on the bar's own opaque ground — is the whole of "the panel never paints over \
+            the bottom bar" now that the dock column carries no clip.
+            """
         )
     }
 
-    // MARK: - The slot sends its surplus where the clip can reach it
+    // MARK: - The slot sends its surplus where the bar covers it
 
     func testThePanelSlotIsTopAligned() throws {
         let code = Self.whitespaceFree(try contentViewCode())
@@ -266,9 +285,9 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             """
             The fixed-height panel slot is no longer top-aligned. `.frame(height:)` defaults to \
             `.center`, so a child that refuses the proposal overflows *symmetrically*: the downward \
-            half lands on the column's bottom edge where `.clipped()` removes it, and the upward \
-            half paints over the divider and into the editor — inside the clipped rect, where the \
-            clip cannot reach it. Without this the overdraw guarantee covers the bottom bar and \
+            half lands on the column's bottom edge, under the bottom bar, and the upward half \
+            paints over the divider and into the editor — inside `mainArea`, where the bar's cover \
+            cannot reach it. Without this the overdraw guarantee covers the bottom bar and \
             nothing else, which is half of what the bug report names.
             """
         )

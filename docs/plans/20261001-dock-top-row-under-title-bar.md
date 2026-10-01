@@ -170,12 +170,12 @@ rewrite any comment the fix makes inaccurate. In particular:
   erasing minimums. If the fix removes or replaces the `GeometryReader`, that
   comment must say what now erases them, or that nothing does.
 
-- [ ] apply the fix to the identified construct
-- [ ] commit the open-versus-closed equality assertion (same top y; top y at or below the title bar's bottom edge) together with the fix, and update the suite's doc comment so it no longer says the assertion is pending
-- [ ] extend the suite so that, with a panel open, the bottom bar's frame is unchanged and the panel slot ends at or above the bottom bar's top edge
-- [ ] add a case at interface scale 1.8 (scaled stub rows) and a case with a vertical-tabs-shaped split (three panes), both asserting identical top y with the dock open and closed
-- [ ] update every affected guarantee comment in `ContentView.swift` and the extracted file
-- [ ] run `swift test`, `swiftlint --strict` and the app-layer bundle; all green
+- [x] apply the fix to the identified construct
+- [x] commit the open-versus-closed equality assertion (same top y; top y at or below the title bar's bottom edge) together with the fix, and update the suite's doc comment so it no longer says the assertion is pending
+- [x] extend the suite so that, with a panel open, the bottom bar's frame is unchanged and the panel slot ends at or above the bottom bar's top edge
+- [x] add a case at interface scale 1.8 (scaled stub rows) and a case with a vertical-tabs-shaped split (three panes), both asserting identical top y with the dock open and closed
+- [x] update every affected guarantee comment in `ContentView.swift` and the extracted file
+- [x] run `swift test`, `swiftlint --strict` and the app-layer bundle; all green
 
 ### Task 3: Pin the cause as a source rule (if expressible) and document it
 

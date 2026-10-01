@@ -2,15 +2,26 @@
 import SwiftUI
 
 /// The bottom dock's container: the editor split over the divider over the
-/// panel slot, in one column pinned to the area it was given and clipped to it.
+/// panel slot, in one column pinned to the area it was given.
 ///
 /// `ContentView.mainArea` renders this whenever a dock panel is visible and the
 /// editor split directly otherwise. Everything this view knows about *what* it
 /// stacks arrives through the three builders — the editor, the divider and the
 /// panel slot, the latter two built from the available height, which is the one
 /// input `BottomPanelHeightRule` needs. What it owns is the container's
-/// geometry: the `GeometryReader`, the stack, the `.topLeading` pin, the named
-/// coordinate space and the clip.
+/// geometry: the `GeometryReader`, the stack, the `.topLeading` pin and the
+/// named coordinate space.
+///
+/// **It carries no clip, and must not.** A clip — `.clipped()`, `.clipShape`,
+/// `.mask`, at any distance — applied to an ancestor of the editor's
+/// `HSplitView` makes the split's panes drop the window's top safe-area inset:
+/// the split's own frame stays put while the panes' content rises by the inset
+/// and slides under the transparent title bar. That was the lost top row with
+/// the dock open, and `BottomDockLayoutTests` records the bisection. The
+/// guarantee the clip used to give — nothing in this column paints over the
+/// bottom bar — is the window root's instead: the bar is drawn above the main
+/// area on an opaque ground (`ContentView.body`), so whatever spills off this
+/// column's bottom edge lands *under* it.
 ///
 /// **Its own file so the real container can be hosted in a test.**
 /// `ContentView` needs dozens of models and closures to exist at all, so a
@@ -37,20 +48,20 @@ struct BottomDockColumn<Editor: View, Divider: View, Panel: View>: View {
                 divider(geo.size.height)
                 panel(geo.size.height)
             }
-            // Pinned to the area before it is clipped, because `.clipped()`
-            // clips a view to the frame it *reported*, not to the one it was
-            // proposed. A column whose children refuse to shrink reports the
-            // oversized height, and a clip attached straight to it would then
-            // clip to the overflow — the very case it is here to catch. With
-            // the frame stated the rect is the `GeometryReader`'s own, and
-            // top alignment sends any surplus off the bottom edge, where the
-            // clip removes it. The alignment is *leading* as well as top:
-            // `.top` alone centers horizontally, and a column wider than the
-            // area — the split's own panes state minimum widths the
-            // `GeometryReader` erases, so in a narrow window it is — would
-            // then have the clip take half the surplus off each side,
-            // cutting the project tree's leading edge. Leading keeps the
-            // placement the `GeometryReader` gave it before the pin.
+            // Pinned to the area, so the column reports the `GeometryReader`'s
+            // own rect rather than its content's: a column whose children
+            // refuse to shrink would otherwise report the oversized height, and
+            // the coordinate space below would be a rect that grows with the
+            // overflow. Top alignment sends any surplus off the bottom edge,
+            // under the bottom bar, which the window root draws above this
+            // column. The alignment is *leading* as well as top: `.top` alone
+            // centers horizontally, and a column wider than the area — the
+            // split's own panes state minimum widths the `GeometryReader`
+            // erases, so in a narrow window it is — would then push half the
+            // surplus off the leading edge, cutting the project tree's leading
+            // edge. Leading keeps the placement the `GeometryReader` gave it
+            // before the pin and sends the whole surplus off the trailing
+            // edge, where the window ends.
             .frame(
                 width: geo.size.width,
                 height: geo.size.height,
@@ -62,17 +73,6 @@ struct BottomDockColumn<Editor: View, Divider: View, Panel: View>: View {
             // drag moves, and after the frame so it is the pinned rect, which
             // cannot move while the divider does.
             .coordinateSpace(name: coordinateSpaceName)
-            // The guarantee behind requirement "never over the bottom bar".
-            // The rule's clamp is the *behavior* and the absence of any
-            // minimum inside the panel slot is its *precondition*; both rest
-            // on arithmetic and on every child honoring its proposal. The
-            // clip rests on neither, so no future layout edit, intrinsic
-            // minimum in the editor zone's fixed strips (breadcrumb, tab
-            // strip, consent banner, find bar) or arithmetic slip can paint
-            // outside `mainArea`. Nothing that must escape the window content
-            // passes through here: the completion panel, the hover popover
-            // and context menus are all separate windows.
-            .clipped()
         }
     }
 }
