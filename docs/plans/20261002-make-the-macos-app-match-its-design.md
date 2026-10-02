@@ -224,23 +224,23 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/MainWindowChrome.swift`, `PisakaApp.swift` (wiring), `ContentView.swift`, `TabListView.swift`, `TabRowView.swift`
 - Modify: `Tests/PisakaAppTests/MainWindowChromeTests.swift`; create `Tests/PisakaAppTests/TabColumnLayoutTests.swift`
 
-- [ ] `MainWindowTitle.text(projectRoot:focusedFileName:)` returns:
+- [x] `MainWindowTitle.text(projectRoot:focusedFileName:)` returns:
   - `<project folder name> — <file name>`;
   - just the project name when no file is focused;
   - the app's existing default when no project is open.
 
   `MainWindowChrome` applies it and stays the only configurer; rule 9 stays green. The title is visible and centred, and the title bar stays transparent.
-- [ ] Vertical tab column:
+- [x] Vertical tab column:
   - default width 220;
   - no top padding: the first row sits flush under the title bar;
   - rows 28 high, each with a one-point `hairline` rule along its bottom;
   - the selected row's ground does not change.
 
   `TabColumnWidthRule` returns the scaled minimum and ideal width, and a maximum of `min(scaled maximum, window width / 3)`. The view reads the window width once from its geometry.
-- [ ] Tests:
+- [x] Tests:
   - Core: the title strings, and the width rule at scale 1.0 and 1.8 against narrow and wide windows;
   - app-layer: the window title text, the first row's top offset of 0 under the title bar, row height 28, and the hairline sampled at each row's bottom.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 6: The current-line highlight
 

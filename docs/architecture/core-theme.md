@@ -546,12 +546,12 @@ disagree.
     right angle: `bgPanel` ground, **no pane-edge rule at all** — its host is the
     `HSplitView` in `ContentView.editorSplit`, whose splitter already states the
     column/editor boundary, exactly as the gated `ProjectTreeView` beside it in
-    the same split view leaves its own — the active row filled `bgEditor` with the
-    `accentIndicator`-wide `accent` bar on its **leading** edge rather than
-    underneath, `textPrimary` for the active label and `textSecondary` for the
-    rest, `hoverTint` for an inactive row under the pointer — which the active row
-    does not need, being the one row that is filled — and the monochrome
-    `FileIcon` symbol. The two orientations stay two views on purpose: they state
+    the same split view leaves its own — a one-point `hairline` rule along every
+    row's bottom, the active row's ground **unchanged** (no fill; the design's
+    column marks it only by the `accentIndicator`-wide `accent` bar on its
+    **leading** edge rather than underneath), `textPrimary` for the active label
+    and `textSecondary` for the rest, `hoverTint` for an inactive row under the
+    pointer only, and the monochrome `FileIcon` symbol. The two orientations stay two views on purpose: they state
     *different* chrome (a height and a rule under it, the strip's host being a
     `VStack` that draws nothing between its children, versus a width it is given
     and a boundary its splitter states for it), so neither can be a branch inside

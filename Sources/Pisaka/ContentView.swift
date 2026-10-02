@@ -285,6 +285,12 @@ struct ContentView: View {
     /// reads it, so a caret move must not re-evaluate the whole window root —
     /// only `CaretReadoutObserver` around the bar observes it.
     @State private var caretReadout = CaretReadoutModel()
+    /// The window's content width, read from the body root's geometry and spent
+    /// on one thing: `TabColumnWidthRule`'s window-third bound on the vertical
+    /// tab column. Infinite until the first read, so the column's first layout
+    /// is given its default width rather than a maximum computed from nothing —
+    /// a split view adopts the ideal once and does not revisit it.
+    @State private var windowWidth: CGFloat = .infinity
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -439,6 +445,12 @@ struct ContentView: View {
         // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
         // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
+        // The one geometry read the tab column's width bound takes.
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { windowWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { windowWidth = $0 }
+        })
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
         // to hold is twice the size. On the split either floor reached the window
@@ -909,12 +921,11 @@ struct ContentView: View {
             switch settings.tabOrientation {
             case .vertical:
                 // Middle zone: vertical tab list, as its own resizable column.
+                // Its bounds are `TabColumnWidthRule`'s: the scaled tokens, the
+                // maximum also held to a third of the window.
+                let column = TabColumnWidthRule.bounds(metrics: metrics, windowWidth: Double(windowWidth))
                 TabListView(model: model, onClose: onClose)
-                    .frame(
-                        minWidth: metrics.scaled(180),
-                        idealWidth: metrics.scaled(220),
-                        maxWidth: metrics.scaled(320)
-                    )
+                    .frame(minWidth: column.minimum, idealWidth: column.ideal, maxWidth: column.maximum)
 
                 // Right zone: the editor zone for the selected tab, with the
                 // LeetCode statement beside it when there is one.

@@ -84,7 +84,7 @@ final class BottomBarToolTipTests: XCTestCase {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        MainWindowChrome.apply(to: window)
+        MainWindowChrome.apply(to: window, title: MainWindowTitle.defaultTitle)
         addTeardownBlock { @MainActor in window.close() }
         let host = NSHostingView(rootView: VStack(spacing: 0) { Color.clear; bar.zIndex(1) })
         window.contentView = host

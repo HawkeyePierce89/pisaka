@@ -1470,7 +1470,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     presenter call — `LeetCodeCommands.signIn()` awaits
     `awaitAccountResolution()` and raises the login sheet only when the settled
     state is not signed in, because the optimistic one would have a stored-but-dead
-    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome()` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
+    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome(model: model)` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over
     (both halves verified live in the preferences domain): the framework-derived
@@ -1500,11 +1500,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `MainWindowFrameAutosave`'s mould: its view reaches the hosting window on
     `viewDidMoveToWindow`, skips sheets (a sheet is hosted by its own window,
     and the commit dialog's chrome is not the main window's) and applies the
-    chrome through one idempotent `static func apply(to:)`. What it sets is two
-    properties and nothing else: `titlebarAppearsTransparent = true`, and
-    `backgroundColor = ChromePalette.nsColor(.bgPanel)`. The transparency is
-    what makes the second line visible at all — without it the framework draws
-    its own material over the strip and the colour below never shows.
+    chrome through one idempotent `static func apply(to:title:)`. What it sets
+    is four properties and nothing else: `titlebarAppearsTransparent = true`,
+    `backgroundColor = ChromePalette.nsColor(.bgPanel)`, `titleVisibility =
+    .visible` and the `title` (written only when it differs). The transparency
+    is what makes the second line visible at all — without it the framework
+    draws its own material over the strip and the colour below never shows.
+
+    **The title.** The marker takes the `WorkspaceModel` as an
+    `@ObservedObject` and hands its view the string Core's `MainWindowTitle`
+    decides — `<project folder name> — <file name>` with a file focused, the
+    project name alone with none, and `MainWindowTitle.defaultTitle` (the app's
+    display name, the title the scene gave the window before) with no project
+    open. `updateNSView` re-reads it on every workspace publish, and the view
+    re-applies only when the string changed, so typing in a buffer costs one
+    string comparison. The window has no toolbar, so the framework centres the
+    title in the title bar, which is the design's placement; `titleVisibility`
+    is stated rather than left to the default so that placement is written down
+    here. The marker stays the window's one configurer — the title is applied
+    from the same `apply` the transparency is, so rule nine's single setter
+    and the scene's single attachment still describe everything that touches
+    the title bar.
 
     **Why the ground is `bgPanel` while `ContentView`'s root paints
     `bgCanvas`.** The window's ground *is* the canvas, and that is where the
@@ -1519,10 +1535,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that resolves against the effective appearance whenever it is drawn, so a
     Theme change repaints the title bar with no appearance observer here and no
     cached value to invalidate — the rule `ChromePalette` states for every
-    AppKit chrome surface, spent at one more call site. The title *text* and the
-    window buttons are left alone: the framework draws both against the window's
-    appearance, which the Theme preference already sets at the content root, so
-    they follow without being told.
+    AppKit chrome surface, spent at one more call site. The title's *colour* and
+    the window buttons are left alone: the framework draws both against the
+    window's appearance, which the Theme preference already sets at the content
+    root, so they follow without being told.
 
     **A sibling of the frame marker, not a change to it.** The two answer
     unrelated questions about the same window — where it sits, and what colour
@@ -1530,7 +1546,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     persistence contract with its own gating suite and its own long explanation
     of why the framework's machinery is bypassed. It is attached in the scene by
     **chaining** onto the frame marker's existing line
-    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome())`)
+    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome(model: model))`)
     rather than on a line of its own, because `PisakaApp.swift` sits exactly at
     its `file_length` ceiling — the precedent that file already documents for
     its chained `.environmentObject` pair. `ChromeThemeSourceGatingTests`' ninth
@@ -1539,10 +1555,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     silently, and a removed one hands the strip back to the framework's
     material. `MainWindowChromeTests` (app bundle) asserts both properties on a
     real `NSWindow` — the ground in both appearances, which is what a frozen,
-    once-resolved colour would fail — twice over: through `apply(to:)`, and
-    again through the path the app actually takes, a marker added to the
-    window's content view with nobody calling the method. It also asserts the
-    marker is hit-test transparent. Its *other* rule, the
+    once-resolved colour would fail — twice over: through `apply(to:title:)`,
+    and again through the path the app actually takes, a marker added to the
+    window's content view with nobody calling the method. It asserts the title
+    is applied and visible with no toolbar on the window, and drives the title
+    the way the app does: the representable hosted over a real `WorkspaceModel`
+    in a titled window, read back as the workspace opens a folder, opens two
+    files and switches back — so a marker that titled the window once and
+    never again fails. It also asserts the marker is hit-test transparent. Its *other* rule, the
     `setAccessibilityElement(false)` in the initialiser, is deliberately **not**
     pinned: a plain `NSView` already answers `false`, so an assertion on it
     would pass with the line deleted. The line stays because it states the

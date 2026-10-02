@@ -996,7 +996,7 @@ struct PisakaApp: App {
             // `.environmentObject` pair above already documents. The two markers
             // are siblings, not one thing: frame persistence and colour are
             // unrelated questions about the same window.
-            .background(MainWindowFrameAutosave()).background(MainWindowChrome())
+            .background(MainWindowFrameAutosave()).background(MainWindowChrome(model: model))
             // The LeetCode sheets, attached *outside* `ContentView` rather than
             // inside it: the window content already presents the commit dialog
             // from its own body, and these are raised by menu commands this

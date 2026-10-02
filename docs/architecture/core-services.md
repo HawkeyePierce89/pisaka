@@ -670,6 +670,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `presentation(isCompactWidth:orientation:) -> Presentation` returns `.switcher`
     for compact width regardless of orientation, else `.horizontalStrip`/
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
+  - `MainWindowTitle.swift` — the macOS main window's title, pure:
+    `text(projectRoot:focusedFileName:)` answers `<project folder name> — <file
+    name>` (an em dash with a space either side, `separator`), the project name
+    alone when no file is focused (a `nil` or empty name), and `defaultTitle`
+    (`Pisaka`, the app's display name — what the scene titled the window before
+    this rule existed) when no project is open, whatever is focused. The
+    project name is the root's `lastPathComponent` as the user spelled it,
+    never resolved. Applied by `MainWindowChrome` (`app-shell.md`). Covered by
+    `MainWindowTitleTests`.
+  - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds
+    in `ContentView.editorSplit`'s `HSplitView`, pure:
+    `bounds(metrics:windowWidth:) -> Bounds` scales the three tokens (minimum
+    180, ideal 220, maximum 320) through `InterfaceMetrics.pt`, the grid every
+    other pane width is on, and holds the maximum to a third of the window
+    (`windowFraction`). The answer is always a valid frame: a third below the
+    scaled minimum holds the maximum *at* the minimum rather than handing
+    SwiftUI a maximum below its minimum, and the ideal is clamped between the
+    two. Covered by `TabColumnWidthRuleTests` — the tokens at scale 1.0 and 1.8,
+    the third binding on a narrow window at both scales, the ideal pulled down
+    with it, the floor, and min ≤ ideal ≤ max across a sweep.
   - `LicenseNotice.swift` — the third-party-license domain behind the
     Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
     `name`, `origin`, `version`, `revision`, `spdx`, `file`, plus `originURL` —

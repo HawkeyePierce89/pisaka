@@ -1555,13 +1555,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     view, the gated `ProjectTreeView`, states that boundary the same way: by
     leaving it to the splitter. (The strip's bottom rule is the other case — its
     host *is* a `VStack`, which draws nothing between its children.)
-    A row is `ChromeGeometry.verticalTabRowHeight` tall with `rowPaddingX`
-    horizontal padding, and states the strip's vocabulary turned through a right
-    angle: the active row filled `bgEditor` with an `accent` bar
-    `ChromeGeometry.accentIndicator` wide on its **leading** edge (the strip's
-    underline, rotated), its label `textPrimary` while every other row's is
-    `textSecondary`, and `hoverTint` under the pointer on an inactive row only —
-    the active one is already the one row that is filled. The icon is
+    The column has **no top inset**: the first row sits flush under the title
+    bar, the design's placement (a 4-point bottom inset stays past the last
+    row). Its width is `TabColumnWidthRule`'s (`core-services.md`): the scaled
+    minimum 180, default 220 and maximum 320, the maximum also held to a third
+    of the window. `ContentView` reads the window's width **once**, from one
+    `GeometryReader` in its body root's background, into `@State windowWidth`,
+    and applies the rule's bounds as the column's frame; the state starts
+    infinite so the split's first layout adopts the default width rather than a
+    maximum computed from nothing (a split view adopts the ideal once).
+    A row is `ChromeGeometry.verticalTabRowHeight` (28) tall with `rowPaddingX`
+    horizontal padding and a one-point `hairline` rule along its bottom edge
+    (`hairlineWidth`, scaled), and states the strip's vocabulary turned through
+    a right angle: the active row's **ground does not change** — the column's
+    `bgPanel` shows through it as through every row — and it is marked by an
+    `accent` bar `ChromeGeometry.accentIndicator` wide on its **leading** edge
+    (the strip's underline, rotated) and by its label, `textPrimary` while
+    every other row's is `textSecondary`; `hoverTint` under the pointer on an
+    inactive row only, so hovering the active row never reads as a second
+    selection. `TabColumnLayoutTests` (app bundle) renders the column over three
+    files at scale 1.0 and 1.8 and reads off the one bitmap: the selected row's
+    accent bar starts at y 0 and is 28 tall, one hairline run sits at each
+    row's bottom, and the selected row's middle is the `bgPanel` ground. The icon is
     **`TabFileIcon`**, the second of the two views the orientations share (both
     live in `TabStripView.swift`): the monochrome `FileIcon` symbol in
     `textSecondary` (the monochrome-icon decision in `core-theme.md`), with an

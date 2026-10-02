@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import SwiftUI
 import XCTest
 import PisakaCore
 @testable import Pisaka
@@ -14,6 +15,12 @@ import PisakaCore
 /// that matters is that it answers the palette's own value **in both
 /// appearances**, which is the property a frozen, once-resolved colour would
 /// fail while still looking right in whichever appearance the reviewer is in.
+///
+/// The title is driven the way the app drives it: the representable is hosted
+/// in a titled window over a real `WorkspaceModel`, and the window's title is
+/// read back as the workspace opens a folder, opens files and switches between
+/// them — so a marker that applied the title once and never again fails here.
+@MainActor
 final class MainWindowChromeTests: XCTestCase {
 
     private func makeWindow() -> NSWindow {
@@ -31,7 +38,7 @@ final class MainWindowChromeTests: XCTestCase {
             window.titlebarAppearsTransparent,
             "a freshly built window is opaque — otherwise this suite would pass without the call"
         )
-        MainWindowChrome.apply(to: window)
+        MainWindowChrome.apply(to: window, title: "Pisaka")
         XCTAssertTrue(
             window.titlebarAppearsTransparent,
             "without the transparency the framework's own material covers the ground below it"
@@ -40,7 +47,7 @@ final class MainWindowChromeTests: XCTestCase {
 
     func testTheGroundResolvesToThePanelRoleInBothAppearances() throws {
         let window = makeWindow()
-        MainWindowChrome.apply(to: window)
+        MainWindowChrome.apply(to: window, title: "Pisaka")
         let background = try XCTUnwrap(window.backgroundColor)
 
         for (appearance, name) in [
@@ -87,7 +94,7 @@ final class MainWindowChromeTests: XCTestCase {
             "a freshly built window is opaque — otherwise the attachment proves nothing"
         )
 
-        let marker = MainWindowChromeView()
+        let marker = MainWindowChromeView(title: "project — file.swift")
         content.addSubview(marker)
 
         XCTAssertTrue(
@@ -127,12 +134,65 @@ final class MainWindowChromeTests: XCTestCase {
     /// beside the hit-test override, but this suite cannot pin it and does not
     /// pretend to.
     func testTheMarkerIsTransparentToTheUser() {
-        let view = MainWindowChromeView()
+        let view = MainWindowChromeView(title: "Pisaka")
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
         XCTAssertNil(
             view.hitTest(NSPoint(x: 50, y: 50)),
             "a marker that takes a click swallows one meant for the window's content"
         )
+    }
+
+    func testTheTitleIsVisibleAndApplied() {
+        let window = makeWindow()
+        window.titleVisibility = .hidden
+        MainWindowChrome.apply(to: window, title: "pisaka — ContentView.swift")
+        XCTAssertEqual(window.title, "pisaka — ContentView.swift")
+        XCTAssertEqual(window.titleVisibility, .visible, "the design's title is shown, centred by the framework")
+        XCTAssertNil(window.toolbar, "a toolbar would move the title off centre")
+    }
+
+    func testTheHostedChromeTitlesTheWindowFromTheWorkspace() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MainWindowChromeTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("my-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
+        let first = folder.appendingPathComponent("first.swift")
+        let second = folder.appendingPathComponent("second.md")
+        try "let a = 1\n".write(to: first, atomically: true, encoding: .utf8)
+        try "# b\n".write(to: second, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel()
+        let window = makeWindow()
+        window.isReleasedWhenClosed = false
+        addTeardownBlock { @MainActor in window.close() }
+        window.contentView = NSHostingView(rootView: Color.clear.background(MainWindowChrome(model: model)))
+        settle()
+        XCTAssertEqual(window.title, MainWindowTitle.defaultTitle, "no project open reads the app's default")
+        XCTAssertTrue(window.titlebarAppearsTransparent, "the title bar stays transparent")
+
+        model.openFolder(url: folder)
+        settle()
+        XCTAssertEqual(window.title, "my-project", "a project with no file focused reads its name alone")
+
+        let firstFile = try model.open(url: first)
+        settle()
+        XCTAssertEqual(window.title, "my-project — first.swift")
+
+        _ = try model.open(url: second)
+        settle()
+        XCTAssertEqual(window.title, "my-project — second.md")
+
+        model.select(firstFile.id)
+        settle()
+        XCTAssertEqual(window.title, "my-project — first.swift", "switching tabs re-titles the window")
+        XCTAssertTrue(window.titlebarAppearsTransparent, "re-titling leaves the title bar transparent")
+    }
+
+    /// A few run-loop turns, enough for SwiftUI to deliver an observed change to
+    /// the representable's `updateNSView`.
+    private func settle() {
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
 }
 #endif

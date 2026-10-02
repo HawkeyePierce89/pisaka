@@ -257,7 +257,7 @@ final class BottomDockHarness {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        MainWindowChrome.apply(to: window)
+        MainWindowChrome.apply(to: window, title: "Pisaka")
         window.contentView = NSHostingView(
             rootView: DockHarnessRoot(panelOpen: panelOpen, shape: shape, recorder: recorder)
         )

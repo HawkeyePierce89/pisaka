@@ -114,7 +114,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
 
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
-  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
+  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
   `LocalHistorySnapshot.swift`, `LocalHistoryLayout.swift`, `LocalHistoryPolicy.swift`, `LocalHistoryStore.swift`, `LocalHistoryModel.swift`, `LocalHistoryBrowserModel.swift`
