@@ -78,7 +78,7 @@ which is machine-dependent and writes into the app's real preferences domain.
 
 ### Task 2: Verify
 
-- [ ] `swift test` passes
-- [ ] the app-layer bundle passes, and `CommitUnifiedDiffWashTests` passes three runs in a row
-- [ ] `swiftlint --strict` clean
-- [ ] macOS Release and iOS builds succeed
+- [x] `swift test` passes
+- [x] the app-layer bundle passes, and `CommitUnifiedDiffWashTests` passes three runs in a row
+- [x] `swiftlint --strict` clean
+- [x] macOS Release and iOS builds succeed
