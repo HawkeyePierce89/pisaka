@@ -679,6 +679,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     viewport, so an ordinary tab does not even capture one: the hit test below is
     work worth skipping on every scroll frame. It carries an *offset* rather than a
     line because that is what the editor has.
+    The caret has the same shape of channel: the optional `onCaretMoved`
+    closure, assigned to the coordinator's `reportCaret` on every update, receives
+    `(fileID, offset, buffer)` from `reportCaretPosition(of:)` — the selection's
+    **trailing end** (`NSMaxRange`), so a selection still reads a position — at
+    the end of every `textViewDidChangeSelection`, and at the end of an update
+    that **switched tabs** or **gained the listener**, after the viewport restore
+    and the reveal — a restore that leaves the selection where the outgoing tab
+    had it sends no selection change at all. `makeNSView` deliberately leaves
+    `reportCaret` unassigned, so the update SwiftUI runs straight after it reads
+    as gaining the listener and reports the new editor's caret before any move
+    (the scroll listener's own gained-listener idiom, and it keeps `makeNSView`
+    inside the body-length limit).
+    What the offset reads as is Core's (`CaretReadout`); the readout's model and
+    its deferral are `app-window.md`'s.
     `captureViewport()` reads `textView.selectedRange()` and resolves the top
     visible character by handing the clip view's `documentVisibleRect` top-left to
     `NSTextView.characterIndexForInsertion(at:)`; it answers `nil` only when the

@@ -280,6 +280,11 @@ struct ContentView: View {
     /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
     /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
+    /// Where the focused editor's caret is, for the bottom bar's readout.
+    /// Held as `@State` rather than `@StateObject` on purpose: this view never
+    /// reads it, so a caret move must not re-evaluate the whole window root —
+    /// only `CaretReadoutObserver` around the bar observes it.
+    @State private var caretReadout = CaretReadoutModel()
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -819,6 +824,26 @@ struct ContentView: View {
     /// nothing in `mainArea` paints over the bar (the other half is the
     /// `.zIndex(1)` in `body`).
     private var bottomBar: some View {
+        CaretReadoutObserver(model: caretReadout, focusedFileID: focusedTextFileID) { readout in
+            barContent(caretReadout: readout)
+        }
+        .background(chromeColor(.bgPanel))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(chromeColor(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
+    }
+
+    /// The focused tab, when it is a text tab — the only kind with a caret.
+    private var focusedTextFileID: UUID? {
+        guard let file = model.selectedFile, file.kind == .text else { return nil }
+        return file.id
+    }
+
+    /// The bar itself, built inside the observer so a caret move re-evaluates
+    /// this and not the window root.
+    private func barContent(caretReadout: String) -> some View {
         BottomBar(
             projectRoot: model.projectRoot,
             recentProjects: recentProjects,
@@ -848,14 +873,9 @@ struct ContentView: View {
             },
             activePanel: bottomPanel.wrappedValue,
             onTogglePanel: onTogglePanel,
-            settings: settings
+            settings: settings,
+            caretReadout: caretReadout
         )
-        .background(chromeColor(.bgPanel))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(chromeColor(.hairline))
-                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
-        }
     }
 
     private var editorSplit: some View {
@@ -1056,7 +1076,15 @@ struct ContentView: View {
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
             onFindUsages: onFindUsages,
             onRenameSymbol: onRenameSymbol,
-            onScrolled: onScrolled
+            onScrolled: onScrolled,
+            onCaretMoved: { [caretReadout] fileID, offset, text in
+                caretReadout.publish(
+                    fileID: fileID,
+                    caretOffset: offset,
+                    text: text,
+                    language: SyntaxLanguage(forFileName: file.displayName)
+                )
+            }
         )
     }
 
@@ -1301,7 +1329,8 @@ struct ContentView: View {
 }
 
 /// What the always-visible bottom bar draws: the three widgets at the leading
-/// end, the six panel toggles and the completion switch at the trailing one.
+/// end, the six panel toggles and the completion switch at the trailing one,
+/// and after them the caret readout while a text tab is focused.
 ///
 /// Its own view, rather than a builder on `ContentView`, so the bar can be
 /// hosted and measured alone (`BottomBarLayoutTests`): the window root carries
@@ -1328,6 +1357,10 @@ struct BottomBar: View {
     var onTogglePanel: (BottomPanel) -> Void = { _ in }
     /// The completion switch writes straight through to this store.
     @ObservedObject var settings: SettingsStore
+    /// The caret readout after the toggles (`CaretReadout`), or empty when no
+    /// text tab is focused — in which case nothing is drawn, gap included, so
+    /// the toggles end at the bar's padding exactly as before.
+    var caretReadout: String = ""
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
@@ -1376,6 +1409,16 @@ struct BottomBar: View {
             HStack(spacing: metrics.scaled(2)) {
                 panelToggles
                 completionToggleButton
+            }
+            if !caretReadout.isEmpty {
+                // Ten points after the last toggle, a bare local number for
+                // the same reason as the gaps above.
+                Text(caretReadout)
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.leading, metrics.scaled(10))
             }
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
@@ -1522,6 +1565,66 @@ final class BarToolTipView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+/// Where the focused editor's caret is, as the bottom bar's readout text.
+///
+/// The editor reports every selection change; the readout is composed on the
+/// next main-queue turn rather than at once, for two reasons. A selection
+/// change can arrive inside a SwiftUI update — the editor restores a tab's
+/// selection while installing it — and publishing there is a change made from
+/// within a view update. And a burst of moves (a held arrow key, a drag-select)
+/// composes one readout per turn rather than one per move. The text itself is
+/// `CaretReadout`'s; this only holds it, keyed by the tab it describes.
+@MainActor
+final class CaretReadoutModel: ObservableObject {
+    /// The tab the readout describes.
+    @Published private(set) var fileID: UUID?
+    /// The readout for that tab's caret.
+    @Published private(set) var text = ""
+
+    private var pending: (fileID: UUID, caretOffset: Int, text: NSString, language: SyntaxLanguage?)?
+
+    /// Record the caret of tab `fileID`; the readout follows on the next turn.
+    func publish(fileID: UUID, caretOffset: Int, text: NSString, language: SyntaxLanguage?) {
+        let isScheduled = pending != nil
+        pending = (fileID, caretOffset, text, language)
+        guard !isScheduled else { return }
+        DispatchQueue.main.async { [weak self] in self?.flush() }
+    }
+
+    /// The readout to draw while `focusedFileID` is the focused text tab:
+    /// empty when no text tab is focused, or when the caret last reported is
+    /// another tab's.
+    func readout(for focusedFileID: UUID?) -> String {
+        guard let focusedFileID, focusedFileID == fileID else { return "" }
+        return text
+    }
+
+    private func flush() {
+        guard let pending else { return }
+        self.pending = nil
+        let readout = CaretReadout.text(
+            text: pending.text,
+            caretOffset: pending.caretOffset,
+            language: pending.language,
+            encodingName: FileService.encodingName
+        )
+        if fileID != pending.fileID { fileID = pending.fileID }
+        if text != readout { text = readout }
+    }
+}
+
+/// Observes `CaretReadoutModel` around the bottom bar alone, so a caret move
+/// re-evaluates the bar and not the window root that builds it.
+struct CaretReadoutObserver<Content: View>: View {
+    @ObservedObject var model: CaretReadoutModel
+    let focusedFileID: UUID?
+    @ViewBuilder let content: (String) -> Content
+
+    var body: some View {
+        content(model.readout(for: focusedFileID))
     }
 }
 #endif

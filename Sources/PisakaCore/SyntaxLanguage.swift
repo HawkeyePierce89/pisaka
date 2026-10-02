@@ -54,6 +54,34 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case editorconfig
     case shell
 
+    /// The name the bottom bar's caret readout shows for this language.
+    ///
+    /// Spelled out per case rather than derived from the raw value, because
+    /// the raw values are lowercased identifiers (`javascript`, `editorconfig`)
+    /// and the readout shows the language's own capitalisation. A file with no
+    /// language at all is `CaretReadout`'s to name, not a case here.
+    public var displayName: String {
+        switch self {
+        case .swift: return "Swift"
+        case .javascript: return "JavaScript"
+        case .typescript: return "TypeScript"
+        case .json: return "JSON"
+        case .markdown: return "Markdown"
+        case .python: return "Python"
+        case .go: return "Go"
+        case .rust: return "Rust"
+        case .html: return "HTML"
+        case .css: return "CSS"
+        case .yaml: return "YAML"
+        case .dockerfile: return "Dockerfile"
+        case .dotenv: return "Dotenv"
+        case .gitignore: return "Gitignore"
+        case .sql: return "SQL"
+        case .editorconfig: return "EditorConfig"
+        case .shell: return "Shell"
+        }
+    }
+
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
     /// case-insensitive. Returns `nil` for an empty or unknown extension.

@@ -655,6 +655,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     still leaves room for the panel's content. The panel *content* states no
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
+    **The caret readout.** After the completion switch the bar draws
+    `CaretReadout`'s string (`core-editor.md`; its measurements are
+    `core-theme.md`'s *The bottom bar's caret readout*), handed in as
+    `BottomBar.caretReadout` — a plain string, so the bar stays hostable alone.
+    It comes from `CaretReadoutModel`, defined in this file: the editor reports
+    each caret move through `CodeEditorView.onCaretMoved` (`app-editor.md`), and
+    the model composes the readout on the **next main-queue turn**, coalescing a
+    burst of moves into one readout and never publishing from inside a SwiftUI
+    update (the editor restores a tab's selection while installing it). It is
+    keyed by tab id, and `readout(for:)` answers empty unless that id is the
+    **focused text tab** — so a database viewer tab, no tab, or a caret last
+    reported by a tab no longer focused draws nothing. The window root holds the
+    model as `@State`, **not** `@StateObject`, and only `CaretReadoutObserver`
+    around the bar observes it: a caret move re-evaluates the bar, never the
+    window root. The language is `SyntaxLanguage(forFileName:)` of the tab's
+    display name, as the editor's own highlighter resolves it.
   - `BottomDockColumn.swift` (macOS) — the bottom dock's container, extracted
     from `ContentView.mainArea`: a generic `BottomDockColumn<Editor, Divider,
     Panel>` that `mainArea` renders whenever a dock panel is visible (the

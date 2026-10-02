@@ -237,6 +237,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     than decorative: `SymbolQueryCatalog`'s compiled-query cache keys on this
     enum, and it crosses the `@Sendable` extractor seam
     (`docs/architecture/core-intelligence.md`).
+    `displayName` is the per-case name the caret readout shows (Swift,
+    JavaScript, TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML,
+    Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell) — spelled out by an
+    exhaustive `switch` rather than derived from the lowercased raw value, so a
+    new case cannot compile without one; `SyntaxLanguageTests` pins the table.
+  - `CaretReadout.swift` — the bottom bar's caret readout,
+    `text(text:caretOffset:language:encodingName:)` →
+    `Ln <line>, Col <column> · <encoding> · <language>`. The line is 1-based,
+    split by `LineStartIndex` (all six separators, CRLF once), so it agrees with
+    the gutter; the column is 1-based and counts **grapheme clusters** (Swift
+    `Character`s) from the line start, so an emoji, a letter with a combining
+    mark and a tab are each one column — the editor had no column counter to
+    agree with, and a UTF-16 count would read an emoji as two. No language reads
+    `Plain Text`; an offset outside the text clamps into it, because the app
+    composes the readout a turn after the move and the buffer may have shrunk.
+    Only the text **before** the caret is indexed, so the cost is the caret's
+    distance from the top rather than the buffer's size; the one place that
+    reading differs from the whole text's — a caret between a CR and its LF,
+    where the prefix ends in a bare CR — drops the trailing start it opens.
+    `CaretReadoutTests` covers ASCII, CRLF (and inside the pair), bare CR,
+    NEL/LS/PS, emoji, combining marks, tabs, first and last lines, an
+    unterminated last line, clamping, and the line agreeing with the whole
+    text's `LineStartIndex` at every offset. The encoding is the caller's
+    (`FileService.encodingName`, `core-workspace.md`).
   - `MinimapGeometry.swift` — pure, testable scroll/viewport math for the
     *proportional* minimap (CoreGraphics/Foundation only). A
     `public struct MinimapGeometry: Equatable` built from `documentHeight`/

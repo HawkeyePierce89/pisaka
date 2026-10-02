@@ -197,25 +197,25 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/PisakaCore/SyntaxLanguage.swift` (`displayName`), `Sources/PisakaCore/FileService.swift` (the encoding name constant), `Tests/PisakaCoreTests/SyntaxLanguageTests.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift` (publish the caret offset), `Sources/Pisaka/ContentView.swift`
 
-- [ ] Add `SyntaxLanguage.displayName` with these values:
+- [x] Add `SyntaxLanguage.displayName` with these values:
   - Swift, JavaScript, TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS
   - YAML, Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell
 
   `FileService` exposes the name of the one encoding it reads with: `UTF-8`.
-- [ ] Add `CaretReadout.text(text: NSString, caretOffset: Int, language: SyntaxLanguage?, encodingName: String) -> String`. It produces `Ln <line>, Col <column> · <encoding> · <language>`:
+- [x] Add `CaretReadout.text(text: NSString, caretOffset: Int, language: SyntaxLanguage?, encodingName: String) -> String`. It produces `Ln <line>, Col <column> · <encoding> · <language>`:
   - line is 1-based, with lines split by `LineStartIndex` (all six separators);
   - column is 1-based, counted in grapheme clusters from the line start;
   - language is `Plain Text` when there is none;
   - an offset beyond the text clamps to the end.
-- [ ] On every selection change, the editor's coordinator publishes the caret's UTF-16 offset for the focused tab only. It uses the selection's caret end, so a selection still shows the caret. The readout sits after the toggles with a 10-point gap, at 11 regular (`subheadline`) in `textSecondary`. It is empty when no text tab is focused, for example a database viewer tab or no tab at all.
-- [ ] Tests:
+- [x] On every selection change, the editor's coordinator publishes the caret's UTF-16 offset for the focused tab only. It uses the selection's caret end, so a selection still shows the caret. The readout sits after the toggles with a 10-point gap, at 11 regular (`subheadline`) in `textSecondary`. It is empty when no text tab is focused, for example a database viewer tab or no tab at all.
+- [x] Tests:
   - ASCII, CRLF, NEL/LS/PS, emoji and combining-mark columns;
   - first line and last line;
   - a caret at the end of a line with no terminator;
   - every `displayName`;
   - an app-layer check that the readout lands 10 points after the last toggle.
-- [ ] Remove "caret readout" from `core-theme.md`'s waiting items.
-- [ ] Run the gates (must pass).
+- [x] Remove "caret readout" from `core-theme.md`'s waiting items.
+- [x] Run the gates (must pass).
 
 ### Task 5: Centred window title and the vertical tab column
 

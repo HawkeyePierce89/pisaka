@@ -66,6 +66,14 @@ final class BottomBarLayoutTests: XCTestCase {
         try assertWidgets(scale: 1.8)
     }
 
+    func testTheCaretReadoutSitsTenPointsAfterTheTogglesAtScaleOne() throws {
+        try assertReadout(scale: 1)
+    }
+
+    func testTheCaretReadoutSitsTenPointsAfterTheTogglesAtScaleOnePointEight() throws {
+        try assertReadout(scale: 1.8)
+    }
+
     // MARK: - Toggles
 
     private func assertToggles(scale: Double, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -123,6 +131,36 @@ final class BottomBarLayoutTests: XCTestCase {
         )
     }
 
+    // MARK: - Caret readout
+
+    /// The completion switch is drawn active so its square's trailing edge is
+    /// the last toggle's; the readout's first ink sits ten points past it plus
+    /// the text's own leading side bearing, measured by rendering the same text
+    /// alone so the gap is never measured against itself.
+    private func assertReadout(scale: Double, file: StaticString = #filePath, line: UInt = #line) throws {
+        let metrics = InterfaceMetrics(scale: scale)
+        let readout = "Ln 12, Col 5 · UTF-8 · Swift"
+        let bar = try render(scale: scale, panel: .problems, completionOn: true, caretReadout: readout)
+        let runs = bar.activeGroundRuns()
+        XCTAssertEqual(runs.count, 2, "expected the Problems and completion squares at scale \(scale), got \(runs)",
+                       file: file, line: line)
+        let completion = try XCTUnwrap(runs.last, file: file, line: line)
+        let ink = try XCTUnwrap(
+            bar.inkRuns(from: completion.maxX + 1, upToX: bar.width).first,
+            "nothing drawn after the completion switch at scale \(scale)", file: file, line: line
+        )
+        let text = try TextInsets(readout, metrics: metrics)
+        XCTAssertEqual(
+            ink.minX - completion.maxX - text.leading, metrics.scaled(10), accuracy: 1,
+            "the caret readout is not 10 points after the last toggle at scale \(scale)", file: file, line: line
+        )
+        let lastInk = try XCTUnwrap(bar.inkRuns(from: completion.maxX + 1, upToX: bar.width).last)
+        XCTAssertEqual(
+            lastInk.maxX + text.trailing, bar.width - metrics.scaled(ChromeGeometry.barPaddingX), accuracy: 1,
+            "the caret readout does not end at the bar's trailing padding at scale \(scale)", file: file, line: line
+        )
+    }
+
     // MARK: - Widgets
 
     private func assertWidgets(scale: Double, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -156,7 +194,12 @@ final class BottomBarLayoutTests: XCTestCase {
 
     // MARK: - Hosting
 
-    private func render(scale: Double, panel: BottomPanel, completionOn: Bool) throws -> BottomBarRender {
+    private func render(
+        scale: Double,
+        panel: BottomPanel,
+        completionOn: Bool,
+        caretReadout: String = ""
+    ) throws -> BottomBarRender {
         let suite = "pisaka.tests.bottomBar.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
@@ -166,7 +209,8 @@ final class BottomBarLayoutTests: XCTestCase {
             branchSwitcher: BranchSwitcherModel(gitService: GitCLIService()),
             pullRequestModel: PullRequestCoordinator(transport: NoGitHubCLI()).model,
             activePanel: panel,
-            settings: SettingsStore(defaults: defaults)
+            settings: SettingsStore(defaults: defaults),
+            caretReadout: caretReadout
         )
         let render = try BottomBarRender(bar: bar, metrics: metrics)
         addTeardownBlock { @MainActor in render.window.close() }
@@ -223,16 +267,20 @@ private final class BottomBarRender {
 
     /// The x extents of the columns carrying any ink — a pixel that is not the
     /// bar's ground.
-    func inkRuns(upToX limit: CGFloat) -> [(minX: CGFloat, maxX: CGFloat)] {
+    func inkRuns(from origin: CGFloat = 0, upToX limit: CGFloat) -> [(minX: CGFloat, maxX: CGFloat)] {
         let ys = rows
-        return runs(upToX: limit) { x in ys.contains { !render.matches(.bgPanel, atX: x, y: $0) } }
+        return runs(from: origin, upToX: limit) { x in ys.contains { !render.matches(.bgPanel, atX: x, y: $0) } }
     }
 
-    private func runs(upToX limit: CGFloat, where hit: (CGFloat) -> Bool) -> [(minX: CGFloat, maxX: CGFloat)] {
+    private func runs(
+        from origin: CGFloat = 0,
+        upToX limit: CGFloat,
+        where hit: (CGFloat) -> Bool
+    ) -> [(minX: CGFloat, maxX: CGFloat)] {
         let step = 1 / render.pixelScale
         var result: [(minX: CGFloat, maxX: CGFloat)] = []
         var start: CGFloat?
-        var x: CGFloat = 0
+        var x: CGFloat = (origin * render.pixelScale).rounded(.down) / render.pixelScale
         while x < limit {
             if autoreleasepool(invoking: { hit(x) }) {
                 if start == nil { start = x }
@@ -274,6 +322,40 @@ private struct GlyphInsets {
         let last = try XCTUnwrap(ink.last)
         leading = first - pad
         trailing = pad + slot - (last + step)
+    }
+}
+/// How far a caret readout's ink sits inside its text frame on each side,
+/// measured by rendering it alone at the bar's font and colour.
+@MainActor
+private struct TextInsets {
+    let leading: CGFloat
+    let trailing: CGFloat
+
+    init(_ text: String, metrics: InterfaceMetrics) throws {
+        let pad = metrics.scaled(8)
+        let label = Text(text)
+            .font(metrics.scaledFont(.subheadline))
+            .lineLimit(1)
+            .fixedSize()
+        let width = NSHostingView(rootView: label).fittingSize.width
+        let height = metrics.scaled(ChromeGeometry.bottomBarHeight)
+        let ground = ChromeTheme(.dark).color(.bgPanel)
+        let root = label
+            .foregroundStyle(ChromeTheme(.dark).color(.textSecondary))
+            .frame(width: width, height: height)
+            .padding(.horizontal, pad)
+            .background(ground)
+        let render = try HostedRender(size: CGSize(width: width + 2 * pad, height: height), root: root)
+        defer { render.window.close() }
+        let step = 1 / render.pixelScale
+        let ys = Array(stride(from: 0, to: height, by: step))
+        let ink = stride(from: 0, to: width + 2 * pad, by: step).filter { x in
+            autoreleasepool { ys.contains { !render.matches(.bgPanel, atX: x, y: $0) } }
+        }
+        let first = try XCTUnwrap(ink.first, "the readout draws no ink")
+        let last = try XCTUnwrap(ink.last)
+        leading = first - pad
+        trailing = pad + width - (last + step)
     }
 }
 #endif

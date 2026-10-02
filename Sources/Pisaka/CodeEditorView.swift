@@ -227,6 +227,13 @@ struct CodeEditorView: NSViewRepresentable {
     /// by the glue that receives it.
     var onScrolled: ((Int) -> Void)?
 
+    /// The caret moved: this tab's id, the caret's UTF-16 offset and the
+    /// buffer it is an offset into, for the bottom bar's readout
+    /// (`CaretReadout`). Sent on every selection change and once when the view
+    /// switches to another tab, so the readout follows the focused tab; `nil`
+    /// for an editor nobody reads the caret of.
+    var onCaretMoved: ((UUID, Int, NSString) -> Void)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -973,6 +980,11 @@ struct CodeEditorView: NSViewRepresentable {
         // which nulls the pending line. After the turn drains, both have run
         // whichever way round they were, the restore has settled the clip view,
         // and the preview holds the incoming text the offset is a line of.
+        // Left unassigned by `makeNSView`, so the first update — which SwiftUI
+        // runs straight after it — reads as gaining the listener and reports the
+        // new editor's caret before any move.
+        let gainedCaretListener = context.coordinator.reportCaret == nil && onCaretMoved != nil
+        context.coordinator.reportCaret = onCaretMoved
         let gainedScrollListener = context.coordinator.reportScrolled == nil && onScrolled != nil
         context.coordinator.reportScrolled = onScrolled
         if gainedScrollListener || (switchedFile && onScrolled != nil) {
@@ -1036,6 +1048,13 @@ struct CodeEditorView: NSViewRepresentable {
         // is the one that installs its contents, so selecting earlier would land
         // the range in the previous tab's text.
         context.coordinator.applyReveal(reveal.request, fileID: fileID)
+
+        // Once the incoming tab's selection is restored or revealed, say where
+        // its caret is outright: a restore that leaves the selection where the
+        // outgoing tab had it sends no selection change at all.
+        if switchedFile || gainedCaretListener {
+            context.coordinator.reportCaretPosition(of: textView)
+        }
     }
 
     /// Remove the scroll/frame observers and cancel any in-flight minimap parse
@@ -1563,6 +1582,20 @@ struct CodeEditorView: NSViewRepresentable {
             reportScrolled(offset)
         }
 
+        // MARK: - Caret reporting
+
+        /// Report the caret to the bottom bar's readout, or `nil` when nobody
+        /// reads it. Assigned from `CodeEditorView` on every update, like
+        /// `reportScrolled`.
+        var reportCaret: ((UUID, Int, NSString) -> Void)?
+
+        /// Tell the readout where the caret is: the selection's trailing end, so
+        /// a selection still reads a caret position rather than nothing.
+        func reportCaretPosition(of textView: NSTextView) {
+            guard let reportCaret, let fileID else { return }
+            reportCaret(fileID, NSMaxRange(textView.selectedRange()), textView.string as NSString)
+        }
+
         /// The one place the caret's word becomes a question, shared by the two
         /// commands below so they can never disagree about what a name is or
         /// which offset the question is asked at.
@@ -1749,6 +1782,7 @@ struct CodeEditorView: NSViewRepresentable {
             // `EditorSearchController.selectionChanged()`), so it must move with
             // it — otherwise Replace edits a different match than the one shown.
             searchController.selectionChanged()
+            reportCaretPosition(of: textView)
         }
 
         func textDidEndEditing(_ notification: Notification) {

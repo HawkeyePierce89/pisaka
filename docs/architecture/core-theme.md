@@ -2178,8 +2178,9 @@ colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
 stay named under *What is still waiting*: the terminal's own palette (its four
-chrome colours since swept, part five (h)), the caret readout, the lane hues, the unified diff's per-line checkbox glyph and
-changed-line text tint.
+chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph and
+changed-line text tint. (The caret readout was waiting here too; it is now
+drawn — see the bottom bar's caret readout below.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2344,6 +2345,19 @@ the compiled catalog as a template, the AppKit half fills its square with the
 tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
 1.8 and draws the glyph centred, at its size, in its role.
 
+#### The bottom bar's caret readout
+
+`BottomBar` draws `CaretReadout`'s `Ln <line>, Col <column> · <encoding> ·
+<language>` after its toggles, 10 points (a bare local number, scaled once,
+like the bar's other gaps) past the completion switch, at `subheadline` (11
+regular) in `textSecondary`, one line and never truncated. With no text tab
+focused — a database viewer tab, or no tab — the bar is handed an empty string
+and draws nothing, the gap included, so the toggles end at the bar's padding
+exactly as before. `BottomBarLayoutTests` measures the gap at scale 1.0 and 1.8
+against the text's own side bearing, rendered alone. Where the string comes
+from is `app-window.md`'s (`CaretReadoutModel`) and `app-editor.md`'s
+(`onCaretMoved`).
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
@@ -2360,10 +2374,10 @@ The dock's tab row is **no longer deferred** — part four (a) drew it, and
 `ChromeGeometry.dockTabRowHeight` is spent. The popovers are **no longer
 deferred** — part five (a) drew them on `bgPopover` and replaced their
 `Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
-and `secondaryButtonHeight` are spent on the shared field. What stays deferred:
-the **caret readout** beside the bar, which waits on a design decision rather
-than on a file, the **lane hues**, and the unified diff's **per-line checkbox
-glyph** and **changed-line text tint** (part five (b)'s departures six and
+and `secondaryButtonHeight` are spent on the shared field. The **caret
+readout** is **no longer deferred**: it sits after the bar's toggles (see *The
+bottom bar's caret readout*, below). What stays deferred: the **lane hues**, and
+the unified diff's **per-line checkbox glyph** and **changed-line text tint** (part five (b)'s departures six and
 seven), all open design questions. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — but
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest

@@ -369,4 +369,22 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage.shell.lspLanguageID, "shellscript")
         XCTAssertNotEqual(SyntaxLanguage.shell.lspLanguageID, SyntaxLanguage.shell.rawValue)
     }
+
+    // MARK: - displayName
+
+    /// Every case's readout name, pinned as a whole table so a new case cannot
+    /// slip in without one and no spelling drifts unseen.
+    func testEveryDisplayName() {
+        let expected: [SyntaxLanguage: String] = [
+            .swift: "Swift", .javascript: "JavaScript", .typescript: "TypeScript",
+            .json: "JSON", .markdown: "Markdown", .python: "Python", .go: "Go",
+            .rust: "Rust", .html: "HTML", .css: "CSS", .yaml: "YAML",
+            .dockerfile: "Dockerfile", .dotenv: "Dotenv", .gitignore: "Gitignore",
+            .sql: "SQL", .editorconfig: "EditorConfig", .shell: "Shell",
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(SyntaxLanguage.allCases))
+        for language in SyntaxLanguage.allCases {
+            XCTAssertEqual(language.displayName, expected[language], "\(language)")
+        }
+    }
 }
