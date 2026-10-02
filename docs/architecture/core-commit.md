@@ -88,6 +88,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     wording stays general because line endings are only its commonest cause —
     a mode-only change and a file staged and then restored in the worktree land
     there too).
+  - `UnifiedDiffDisplayRows.swift` — how the dialog's unified diff is *laid out*,
+    reading `unified(rows:)`'s lines and changing none of them (so neither
+    `CommitDiffUnits` nor `PartialCommitBuilder` depends on it).
+    `rows(for: ChangedFile, lines:, contextLines: 3)` returns
+    `[UnifiedDiffDisplayRow]`: `.fileHeader("--- a/<path>")` and
+    `.fileHeader("+++ b/<path>")` first — the old side `/dev/null` for an added
+    or untracked file, the new side `/dev/null` for a deleted one, a rename's old
+    side naming its `oldPath` — then per hunk one `.hunkHeader("@@ -a,b +c,d @@")`
+    followed by that hunk's `.line`s. **A hunk is a run of changed lines with up to
+    three context lines on each side**, git's default; two runs whose gap is at
+    most six context lines share one hunk, so no context line is drawn twice, and
+    context further from every change is not drawn at all. Changed lines are
+    never dropped. **The numbers follow git's rule:** a side's start is its first
+    line's number in the hunk, or — for a side with no line in it — the count of
+    that side's lines before the hunk, so a new file reads `@@ -0,0 +1,N @@`;
+    the counts are always written, `,1` included. Header rows carry no line, so
+    the view draws no checkbox beside them and no click on them selects
+    anything. No changed line means no rows at all — the panel then draws its
+    placeholder. Tests: `UnifiedDiffDisplayRowsTests`.
   - `PartialCommitBuilder.swift` — the central new logic: assemble what a
     *partial* commit records for one file, i.e. the `HEAD` version with only the
     selected changes applied. `assemble(head:worktree:rows:selectedUnits:) ->
@@ -345,8 +364,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     an available `pushPlan` — the Commit and Push button's enablement, exactly the
     cases the former "Push after commit" switch was enabled in; the plan is
     re-derived after the commit regardless, so this decides what is offered,
-    never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)` and
-    `unifiedLines(for:)` — the last **empty for every whole-only file** (asked
+    never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)`,
+    `unifiedLines(for:)` and `unifiedDisplayRows(for:)` (the same lines laid out
+    by `UnifiedDiffDisplayRows`, built in the same pass and memoized with them) —
+    the last two **empty for every whole-only file** (asked
     after `wholeOnlyMessage`, so a line-endings-only change flattens nothing the
     panel would ignore) and **memoized by path**, invalidated from `files`'
     `didSet` so the cache cannot drift: the sheet's body re-evaluates on every

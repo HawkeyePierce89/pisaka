@@ -236,7 +236,7 @@ struct CommitDialogView: View {
             VStack(spacing: 0) {
                 paneHeader(path, truncation: .middle)
                 CommitUnifiedDiffView(
-                    lines: model.unifiedLines(for: path),
+                    rows: model.unifiedDisplayRows(for: path),
                     selectedUnits: selection.selectedUnits,
                     // Asked *before* the diff is considered: all three whole-only
                     // categories draw this sentence and no checkbox at all.

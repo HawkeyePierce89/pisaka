@@ -482,8 +482,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     row; part five (b)'s button count for the file is six (Cancel, Commit,
     Commit and Push, the author control, and the editor's two).
   - `CommitUnifiedDiffView.swift` — the dialog's right-hand panel: a **unified**
-    (single-column) diff of one file with a checkbox on every changed line. A
-    standalone SwiftUI panel rather than an extension of the AppKit `DiffView`,
+    (single-column) diff of one file with a checkbox on every changed line. It
+    draws `CommitDialogModel.unifiedDisplayRows(for:)`: the `--- a/` and `+++ b/`
+    file header rows, then each hunk's `@@ -a,b +c,d @@` row and its lines
+    (`UnifiedDiffDisplayRows`, `core-commit.md`). A header row draws in
+    `textSecondary` at the code font, starting where a line's checkbox does; it
+    has no checkbox, takes no click and carries no wash. A standalone SwiftUI panel rather than an extension of the AppKit `DiffView`,
     because neither of that view's properties survives here — it is a read-only
     *side-by-side* renderer over two `NSTextView`s, while the dialog needs one
     column (a `.modified` row showing its old and new line one above the other,
@@ -511,7 +515,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chrome belonging to a code row, and scaling it with the interface would make
     the two zones interact (`docs/architecture/core-zoom.md`).
     **Colour.** Every colour is a chrome role read through `\.chromeTheme`
-    (the text itself stays `SyntaxTheme`'s `.plain`): the row wash is Core's
+    except a context line's text, which stays `SyntaxTheme`'s `.plain`. An added
+    line's text is `statusGreen` and a removed line's `statusRed`, Core's
+    `ChromeColorRole.diffTextRole(for:)`, drawn on top of the wash. The row wash is Core's
     `ChromeColorRole.diffWashRole(for: UnifiedDiffLine.Kind)` — the same two
     `diffRemovedBackground`/`diffAddedBackground` roles the side-by-side pane
     spends, a context line drawing none — the checkbox is `accent` when on and

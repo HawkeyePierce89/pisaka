@@ -139,6 +139,18 @@ final class ChromeRoleMappingTests: XCTestCase {
         }
     }
 
+    func testTheUnifiedTextTintCoversEveryLineKind() {
+        let expected: [UnifiedDiffLine.Kind: ChromeColorRole?] = [
+            .context: nil,
+            .removed: .statusRed,
+            .added: .statusGreen,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(UnifiedDiffLine.Kind.allCases))
+        for kind in UnifiedDiffLine.Kind.allCases {
+            XCTAssertEqual(ChromeColorRole.diffTextRole(for: kind), expected[kind] ?? nil, "\(kind)")
+        }
+    }
+
     /// The merge wash's first test of any kind: every line kind has its answer,
     /// and exactly the three conflicted kinds share the one conflict wash.
     func testTheMergeWashCoversEveryLineKind() {

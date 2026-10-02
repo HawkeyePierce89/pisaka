@@ -205,6 +205,24 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(unified.map(\.unitIndex), [nil, 1, 1, 2])
     }
 
+    /// The panel's rows are the same lines laid out with the file's two header
+    /// rows and its hunk header, and the memo hands back the same answer.
+    func testUnifiedDisplayRowsLayTheLinesOutUnderTheirHeaders() async throws {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        let lines = model.unifiedLines(for: "a.txt")
+        let file = try XCTUnwrap(model.selection(for: "a.txt")?.facts.file)
+        let expected = UnifiedDiffDisplayRows.rows(for: file, lines: lines)
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), expected)
+        XCTAssertEqual(Array(expected.prefix(2)), [.fileHeader("--- a/a.txt"), .fileHeader("+++ b/a.txt")])
+        XCTAssertEqual(expected.compactMap(\.line), lines)
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), expected)
+        XCTAssertTrue(model.unifiedDisplayRows(for: "missing.txt").isEmpty)
+    }
+
     /// The load yields to the main actor every `loadYieldStride` files, so a set
     /// larger than one stride exercises the chunk boundary: every file must still
     /// be read, in git's order, each with its own facts.
@@ -492,6 +510,7 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(selection?.facts.eligibility, .wholeOnly(reason: .binaryInHead))
         XCTAssertEqual(selection?.facts.units, [])
         XCTAssertTrue(model.unifiedLines(for: "b.bin").isEmpty)
+        XCTAssertTrue(model.unifiedDisplayRows(for: "b.bin").isEmpty)
         // A whole-only file's checkbox is an ordinary two-state one — never mixed.
         XCTAssertEqual(model.checkboxState(for: "b.bin"), .checked)
         XCTAssertEqual(model.selectedFileCount, 1)

@@ -58,7 +58,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `<file>:<declaring type>` set equality, so `DiffView.swift`'s two surfaces
     are two entries and a second pane added inside a passing file cannot ride in
     on its neighbour. The base-foreground statements are counted by **site**, not
-    by file, for the same reason. A code-zone surface with nothing of the file's
+    by file, for the same reason; a statement is one of three spellings — the
+    text view's `textColor`, the SwiftUI `.foregroundStyle`, or the `??` fallback
+    of a line whose text may carry a tint instead (the unified diff's added and
+    removed lines, `diffTextRole(for:)`). A code-zone surface with nothing of the file's
     to colour is a **named exemption carrying its reason** — the two gutters, the
     minimap, the completion list, the scroll view behind a pane, the two web
     views (each with its own stylesheet) and the commit message field (the user's

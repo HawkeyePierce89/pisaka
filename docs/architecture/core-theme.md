@@ -133,7 +133,9 @@ two new geometry tokens) and each with its readers pinned by a gating
     nil; on the old side removed and modified `diffRemovedBackground`, added
     nil, the plain filler row; on the new side added and modified
     `diffAddedBackground`, removed nil), `diffWashRole(for: UnifiedDiffLine.Kind)`
-    (context nil, removed and added their grounds) and
+    (context nil, removed and added their grounds), `diffTextRole(for:
+    UnifiedDiffLine.Kind)` (context nil, removed `statusRed`, added
+    `statusGreen` — the unified diff's text tint, drawn on top of the wash) and
     `diffMarkerRole(for:side:)` (`statusRed` on the old side for removed and
     modified, `statusGreen` on the new side for added and modified, nil
     otherwise). `DiffSide` is Core's one diff-side type (`core-diff-merge.md`).
@@ -1025,8 +1027,11 @@ choosing hues that sit on the design's ground is an open design question.
     `hairlineWidth` **unscaled**, under the token's stated code-zoom exception.
     The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
    - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
-     the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
-     `accent`/`textSecondary`, line numbers `textSecondary`. A changed line's
+     the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, an added or
+     removed line's text through `diffTextRole(for:)` (`statusGreen`/`statusRed`,
+     context text keeping `SyntaxTheme`'s plain colour), the file and hunk header
+     rows `textSecondary`, the checkbox `accent`/`textSecondary`, line numbers
+     `textSecondary`. A changed line's
      wash spans the whole pane: the horizontal scroll axis proposes no width, so
      a row's own fill resolved to its text's width, and the content is now as
      wide as the larger of the pane's measured visible width and the widest
@@ -1514,11 +1519,13 @@ search surfaces.
    mistake rule twenty-seven exists to catch. Rule thirty bans platform toggles,
    and the glyph is neither. Whether that row's checkbox should be a code-zone
    shape of its own is a design question.
-7. **The unified diff's added and removed text keeps the code zone's plain
-   colour — an open question.** The design tints a changed line's text as well
-   as its ground; the row is code, drawn in `SyntaxTheme`'s plain colour on the
-   role wash, and a tinted *text* would be a chrome colour on code, which is
-   the zone question rather than a restyle.
+7. **The unified diff's added and removed text — closed by the design pass.**
+   This was left open: the design tints a changed line's text as well as its
+   ground, and a tinted *text* is a chrome colour on code. The design pass
+   settled it the design's way: an added line's text draws in `statusGreen` and
+   a removed line's in `statusRed` on top of the wash, through Core's
+   `diffTextRole(for:)`; context text keeps `SyntaxTheme`'s plain colour, and
+   the two line-number columns stay.
 
 **Six new gating rules (twenty-eight to thirty-three)** — the window ground in
 the subclass, the merge wash as Core's one answer, one primary button / one
@@ -2832,6 +2839,8 @@ The forty-six rules, each invisible to the compiler:
    diffMarkerRole`; the app files spelling `diffWashRole(for:` equal
    `{DiffView.swift, CommitUnifiedDiffView.swift}`, and neither spells
    `withAlphaComponent(` or `.opacity(` — the wash's alpha is the palette's.
+   The text tint the same way: none declares `func diffTextRole`, and the app
+   files spelling `diffTextRole(for:` equal `{CommitUnifiedDiffView.swift}`.
    The side clause: neither reader declares an `enum Side`, and no file under
    `Sources/Pisaka` outside `Sources/Pisaka/iOS/` spells `DiffTextView.Side`, so
    a new macOS caller cannot bring the old type back. Both limits are in the

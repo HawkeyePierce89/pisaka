@@ -225,6 +225,18 @@ extension ChromeColorRole {
         }
     }
 
+    /// A unified diff line's text colour, or `nil` for a context line, whose
+    /// text keeps the code zone's plain colour. An added line's text is
+    /// `statusGreen` and a removed line's `statusRed`, drawn on top of the wash
+    /// `diffWashRole(for:)` gives the same line.
+    public static func diffTextRole(for kind: UnifiedDiffLine.Kind) -> ChromeColorRole? {
+        switch kind {
+        case .context: return nil
+        case .removed: return .statusRed
+        case .added: return .statusGreen
+        }
+    }
+
     /// A merge-pane line's wash, or `nil` for a plain line.
     ///
     /// **One wash, not two.** The design draws the differing lines of the two

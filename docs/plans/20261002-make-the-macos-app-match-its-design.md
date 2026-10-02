@@ -379,14 +379,14 @@ Decisions made at plan time, so nothing is decided at run time:
 - Create: `Sources/PisakaCore/UnifiedDiffDisplayRows.swift`, `Tests/PisakaCoreTests/UnifiedDiffDisplayRowsTests.swift`
 - Modify: `Sources/Pisaka/CommitUnifiedDiffView.swift`, `Tests/PisakaAppTests/CommitUnifiedDiffWashTests.swift`, `ChromeThemeSourceGatingTests` (rule 19)
 
-- [ ] `UnifiedDiffDisplayRows.rows(for:)` returns, per file, `--- a/<path>` and `+++ b/<path>` header rows (`/dev/null` for an added or deleted file). Each hunk then gets an `@@ -a,b +c,d @@` row followed by its lines.
+- [x] `UnifiedDiffDisplayRows.rows(for:)` returns, per file, `--- a/<path>` and `+++ b/<path>` header rows (`/dev/null` for an added or deleted file). Each hunk then gets an `@@ -a,b +c,d @@` row followed by its lines.
   - `CommitDiffUnits` and `PartialCommitBuilder` are not changed.
   - Header rows carry no checkbox and cannot be selected.
-- [ ] Added lines' text draws in `statusGreen` and removed lines' text in `statusRed`, on top of their existing washes. Context text keeps the plain code colour, and the two line-number columns stay. This closes open question 7 in `core-theme.md`.
-- [ ] Tests:
+- [x] Added lines' text draws in `statusGreen` and removed lines' text in `statusRed`, on top of their existing washes. Context text keeps the plain code colour, and the two line-number columns stay. This closes open question 7 in `core-theme.md`.
+- [x] Tests:
   - Core: hunk header numbers for added, removed, mixed and multiple hunks, and for new or deleted files;
   - app-layer: extend the wash suite to sample tinted text pixels on added and removed rows, with header rows present.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 13: Find in Files and the find bar's toggles
 

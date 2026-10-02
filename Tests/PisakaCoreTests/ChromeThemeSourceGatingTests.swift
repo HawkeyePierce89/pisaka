@@ -115,6 +115,8 @@ import XCTest
 /// - **The diff wash is Core's one answer, and a diff side is one type.** The
 ///   two diff surfaces wash their rows from `diffWashRole`, over Core's one
 ///   `DiffSide` — a second side enum in the app is the seam the old one was.
+///   The unified diff's text tint is Core's one answer the same way: it reads
+///   `diffTextRole` and no other app file does.
 /// - **The three panels' controls are identifiable without sight.** The Log,
 ///   Local Changes and Pull Requests panels' icon-only controls are named, their
 ///   state carriers speak a value, and every symbol inside a labelled control is
@@ -1907,8 +1909,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitUnifiedDiffView.swift",
     ]
 
+    /// The one app file that tints a diff line's *text*: the unified diff draws
+    /// an added line's text in `statusGreen` and a removed line's in `statusRed`,
+    /// and the side-by-side `DiffView` does not tint its text.
+    private static let diffTextReaders: Set<String> = [
+        "CommitUnifiedDiffView.swift",
+    ]
+
     func testTheDiffWashIsCoresOneAnswerAndADiffSideIsOneType() throws {
         var readers: Set<String> = []
+        var textReaders: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
@@ -1920,13 +1930,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     )
                 }
             }
-            for declaration in ["func diffWashRole", "func diffMarkerRole"] {
+            for declaration in ["func diffWashRole", "func diffMarkerRole", "func diffTextRole"] {
                 XCTAssertFalse(
                     code.contains(declaration),
                     "\(name) declares its own \(declaration) — the diff wash is Core's one answer"
                 )
             }
             if Self.spellsCall("diffWashRole(for:", in: code) { readers.insert(name) }
+            if Self.spellsCall("diffTextRole(for:", in: code) { textReaders.insert(name) }
             if !url.path.contains("/Sources/Pisaka/iOS/") {
                 XCTAssertFalse(
                     code.contains("DiffTextView.Side"),
@@ -1940,6 +1951,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             readers, Self.diffWashReaders,
             "the app files reading ChromeColorRole.diffWashRole(for:) must be exactly its two known readers"
+        )
+        XCTAssertEqual(
+            textReaders, Self.diffTextReaders,
+            "the app files reading ChromeColorRole.diffTextRole(for:) must be exactly the unified diff"
         )
 
         let sideEnum = try NSRegularExpression(pattern: "\\benum\\s+Side\\b")

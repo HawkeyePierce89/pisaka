@@ -74,7 +74,10 @@ public final class CommitDialogModel: ObservableObject {
     /// the element's own `facts`, leaving every `rows` identical), so they go
     /// through `preservingUnifiedCache` and put it back. The fail-safe stays the
     /// default; the exemption is stated at the one place it holds.
-    private var unifiedCache: (path: String, lines: [UnifiedDiffLine])?
+    ///
+    /// It holds the display rows (`UnifiedDiffDisplayRows`) beside the lines,
+    /// built in the same pass, for the same reason.
+    private var unifiedCache: (path: String, lines: [UnifiedDiffLine], rows: [UnifiedDiffDisplayRow])?
 
     /// The author of the future commit, per-field-sourced. Unset until loaded,
     /// which blocks the commit exactly as git itself would.
@@ -271,16 +274,29 @@ public final class CommitDialogModel: ObservableObject {
     /// whole-only file, which the panel replaces with a placeholder rather than a
     /// diff whose checkboxes cannot be clicked.
     public func unifiedLines(for path: String) -> [UnifiedDiffLine] {
-        if let cached = unifiedCache, cached.path == path { return cached.lines }
-        guard let selection = selection(for: path) else { return [] }
+        unified(for: path).lines
+    }
+
+    /// The rows the right-hand panel draws for `path`: the file's two header
+    /// rows, then each hunk's `@@` row and lines (`UnifiedDiffDisplayRows`).
+    /// Empty exactly when `unifiedLines(for:)` holds no changed line, so for every
+    /// whole-only file.
+    public func unifiedDisplayRows(for path: String) -> [UnifiedDiffDisplayRow] {
+        unified(for: path).rows
+    }
+
+    private func unified(for path: String) -> (lines: [UnifiedDiffLine], rows: [UnifiedDiffDisplayRow]) {
+        if let cached = unifiedCache, cached.path == path { return (cached.lines, cached.rows) }
+        guard let selection = selection(for: path) else { return ([], []) }
         // Every whole-only category, not just an ineligible one: a file whose only
         // difference is its line endings *is* selectable and has rows, all of them
         // context, and the panel draws the placeholder instead — so flattening the
         // whole file per body pass built an array nobody reads.
-        guard selection.facts.wholeOnlyReason == nil else { return [] }
+        guard selection.facts.wholeOnlyReason == nil else { return ([], []) }
         let lines = CommitDiffUnits.unified(rows: selection.rows)
-        unifiedCache = (path, lines)
-        return lines
+        let rows = UnifiedDiffDisplayRows.rows(for: selection.facts.file, lines: lines)
+        unifiedCache = (path, lines, rows)
+        return (lines, rows)
     }
 
     /// The `rootRequestGeneration` the dialog's current contents correspond to.
