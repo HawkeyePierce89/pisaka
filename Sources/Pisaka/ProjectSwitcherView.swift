@@ -41,16 +41,11 @@ struct ProjectSwitcherView: View {
             isPresented.toggle()
         } label: {
             // A `Button`'s children are *combined* into one accessibility
-            // element, and an unhidden SF Symbol folds its own name into that
-            // element's name — the announcement part one recorded on the tree
-            // row ("chevron.right, folder fill, Sources") is the same mechanism
-            // read from the other side. Both symbols here are decoration beside
-            // a name that already says everything, so both are hidden, in
-            // `ProjectTreeView`'s idiom.
+            // element; the two glyphs here are decoration beside a name that
+            // already says everything, and `DesignGlyphImage` hides each from
+            // accessibility itself, so neither folds anything into the name.
             HStack(spacing: metrics.scaled(4)) {
-                Image(systemName: "folder")
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .accessibilityHidden(true)
+                DesignGlyphImage(.package, size: 12, slot: 12, role: .textSecondary)
                 // One line, always. The bar states its own height now
                 // (`ChromeGeometry.bottomBarHeight`), and a flexible `Text` in a
                 // fixed-height frame does not make room for itself: a folder
@@ -62,10 +57,7 @@ struct ProjectSwitcherView: View {
                     .truncationMode(.middle)
                     .foregroundStyle(theme.color(.textPrimary))
                 // The caret the design draws on a widget that opens a list.
-                // Neither switcher carried one before this sweep.
-                Image(systemName: "chevron.down")
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .accessibilityHidden(true)
+                DesignGlyphImage(.chevronDown, size: 10, slot: 10, role: .textSecondary)
             }
             .font(metrics.scaledFont(.callout))
             // No padding of its own: the bottom bar owns the 14-point gaps

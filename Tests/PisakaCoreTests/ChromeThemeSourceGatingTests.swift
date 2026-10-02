@@ -999,7 +999,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
     /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
-    /// satisfy it. The call count is pinned too: one declaration plus one call,
+    /// satisfy it. Both live in `BottomBar`, the bar's own view in the same
+    /// file since the design pass (so the bar can be hosted and measured alone),
+    /// and the toggles are read inside that struct's braces. The call count is pinned too: one declaration plus one call,
     /// inside `panelToggles` — the bar builds its toggles from
     /// `BottomPanel.allCases` and **names no panel case in that body**, so it
     /// keeps no second list of panels beside the one the dock's tab row reads.
@@ -1082,12 +1084,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
         )
         let bar = try XCTUnwrap(
-            Self.matchedBody(after: "var bottomBar:", in: code),
-            "bottomBar is gone or renamed — re-point this rule rather than losing it"
+            Self.matchedBody(after: "struct BottomBar:", in: code),
+            "BottomBar is gone or renamed — re-point this rule rather than losing it"
         )
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("panelToggles", in: bar),
-            "bottomBar must draw its panel toggles through panelToggles"
+            "BottomBar must draw its panel toggles through panelToggles"
         )
         let toggles = try XCTUnwrap(
             Self.matchedBody(after: "var panelToggles:", in: code),
@@ -1778,7 +1780,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// Which glyph, words and role a pull request's checks state is drawn with
     /// has one answer in Core — `GitHubChecksSummary`'s `symbolName` /
-    /// `spokenWords`, `GitHubCheckBucket`'s `spokenWords` (a job row draws a dot,
+    /// `indicatorGlyph` / `spokenWords`, `GitHubCheckBucket`'s `spokenWords` (a job row draws a dot,
     /// not a glyph) and `ChromeColorRole.checksRole(for:)` — read
     /// by the bottom-bar indicator and the Pull Requests panel, which used to
     /// keep one table each and could disagree about the same pull request.
@@ -3968,11 +3970,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // `.font(metrics.scaledFont(textStyle))` is the field's own text size —
         // the glyph matching the text beside it is the point.
         ("ChromeControls.swift", "struct ChromeThemedTextField", 1, .containerFont),
-        // Container fonts, one per row or label: the bottom-bar widgets' labels,
-        ("BranchSwitcherView.swift", "var body: some View", 2, .containerFont),
-        ("ProjectSwitcherView.swift", "var body: some View", 2, .containerFont),
-        ("PullRequestIndicatorView.swift", "var body: some View", 2, .containerFont),
-        // the switcher popovers' three rows, whose glyph sits in a 16-point icon
+        // Container fonts, one per row or label (the bottom-bar widgets' own
+        // glyphs are design glyphs, sized by the helper, and the indicator's
+        // fallback checks symbol carries its own metrics font): the switcher
+        // popovers' three rows, whose glyph sits in a 16-point icon
         // column — a `.frame(width:)` that aligns the names and sizes nothing,
         // the symbol not being resizable — under the row `HStack`'s body font,
         ("BranchSwitcherView.swift", "private func branchRow(", 1, .containerFont),

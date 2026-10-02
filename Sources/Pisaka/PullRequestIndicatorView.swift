@@ -44,12 +44,10 @@ struct PullRequestIndicatorView: View {
             } label: {
                 HStack(spacing: metrics.scaled(4)) {
                     // Three elements: what this is, which one it is, and what
-                    // its checks say. The leading glyph is the one the Pull
-                    // Requests toggle uses — the two now sit at opposite ends of
-                    // the bar, so the adjacency that once argued against sharing
-                    // a glyph no longer applies.
-                    Image(systemName: "arrow.triangle.merge")
-                        .foregroundStyle(theme.color(.textSecondary))
+                    // its checks say. The leading glyph is the pull request's
+                    // own; the Pull Requests toggle at the far end of the bar
+                    // draws the panel's.
+                    DesignGlyphImage(.gitPullRequest, size: 12, slot: 12, role: .textSecondary)
                     // The same single-line rule its two neighbours carry, swept
                     // as a construct rather than fixed where it already hurts: a
                     // number does not wrap today, but every `Text` drawn inside
@@ -60,11 +58,7 @@ struct PullRequestIndicatorView: View {
                         .lineLimit(1)
                         .monospacedDigit()
                         .foregroundStyle(theme.color(.textSecondary))
-                    // Glyph, role and words are Core's one answer, shared with the
-                    // panel's row: `circle` for no checks is this widget's own
-                    // earlier choice, now the panel's too.
-                    Image(systemName: pullRequest.summary.symbolName)
-                        .foregroundStyle(theme.color(.checksRole(for: pullRequest.summary)))
+                    checksGlyph(pullRequest.summary)
                 }
                 .font(metrics.scaledFont(.callout))
                 // No padding of its own: the bottom bar owns the 14-point gaps
@@ -76,6 +70,21 @@ struct PullRequestIndicatorView: View {
             .help(helpText(pullRequest))
             .accessibilityLabel("Pull request #\(pullRequest.number)")
             .accessibilityValue(pullRequest.summary.spokenWords)
+        }
+    }
+
+    /// What the checks say, at 12 points. A verdict draws the design's glyph —
+    /// Core's `indicatorGlyph` column, `check` or `x` — and any other state keeps
+    /// the SF Symbol the panel's row draws too. Glyph, role and words are Core's
+    /// one answer; the colour is the summary's role either way.
+    @ViewBuilder
+    private func checksGlyph(_ summary: GitHubChecksSummary) -> some View {
+        if let glyph = summary.indicatorGlyph {
+            DesignGlyphImage(glyph, size: 12, slot: 12, role: .checksRole(for: summary))
+        } else {
+            Image(systemName: summary.symbolName)
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(theme.color(.checksRole(for: summary)))
         }
     }
 

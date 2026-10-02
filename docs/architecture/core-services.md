@@ -117,13 +117,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     changes, problems, usages, pullRequests — so neither keeps a second list;
     `BottomPanelTests` pins the order and `core-theme.md`'s gating rule ten pins
     that the bar reads it and names no case of its own. What a strip draws for
-    a panel is a column of the same table: `public var systemImage: String` is
-    the bar's glyph — `terminal`, `arrow.triangle.branch`,
-    `arrow.triangle.pull`, `exclamationmark.triangle`, `text.magnifyingglass`,
-    `arrow.triangle.merge` — a symbol name being a string, as `FileIcon`'s is,
-    so Core stays Foundation-only and colour-free. Pull Requests draws
-    `arrow.triangle.merge` rather than the `arrow.triangle.pull` Local Changes
-    already uses because two toggles drawn with one glyph are
+    a panel is a column of the same table: `public var glyph: DesignGlyph` is
+    the bar's glyph — `terminal`, `list-checks`, `git-compare`,
+    `file-warning`, `search`, `git-pull-request-arrow`, the design's own
+    template images (`core-theme.md`'s design-glyph entry) — a `DesignGlyph`
+    being a name, as an SF Symbol's was, so Core stays Foundation-only and
+    colour-free. It replaced the SF Symbol column `systemImage` in the design
+    pass. The six are distinct because two toggles drawn with one glyph are
     indistinguishable at a glance, and with the labels gone the glyph is all
     there is (that reason sits beside the value in the source too, and
     `BottomPanelTests` pins the six glyphs distinct).

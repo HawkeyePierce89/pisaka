@@ -295,6 +295,19 @@ extension GitHubChecksSummary {
         }
     }
 
+    /// The design glyph the bottom-bar indicator draws for this summary, or
+    /// `nil` where the design names none and the indicator keeps `symbolName`.
+    /// Passing checks draw `check` and failing ones `x`; the colour stays
+    /// `ChromeColorRole.checksRole(for:)`. The Pull Requests panel's rows do not
+    /// read this column — they keep `symbolName`.
+    public var indicatorGlyph: DesignGlyph? {
+        switch self {
+        case .success: return .check
+        case .failure: return .x
+        case .noChecks, .pending: return nil
+        }
+    }
+
     /// The summary as words: the glyph's help text and accessibility value.
     public var spokenWords: String {
         switch self {

@@ -10,7 +10,7 @@
 /// **The declaration order is the order on screen**, read through `allCases`:
 /// the bottom bar's toggles and the dock's tab row both list the panels in it,
 /// and neither keeps a second list. What each strip draws for a panel is a
-/// column of the same table — `title` (both strips) and `systemImage` (the
+/// column of the same table — `title` (both strips) and `glyph` (the
 /// bar's icon-only toggle) — so adding, removing or reordering a case changes
 /// both strips at once.
 public enum BottomPanel: Equatable, CaseIterable, Sendable {
@@ -50,22 +50,21 @@ public enum BottomPanel: Equatable, CaseIterable, Sendable {
         }
     }
 
-    /// The SF Symbol name the bottom bar's icon-only toggle draws for the panel.
+    /// The design glyph the bottom bar's icon-only toggle draws for the panel.
     ///
-    /// A symbol name is a string, as `FileIcon`'s is, so this stays
-    /// Foundation-only and colour-free; the bar reads it alongside `title`.
-    public var systemImage: String {
+    /// A `DesignGlyph` is a name, as an SF Symbol's was, so this stays
+    /// Foundation-only and colour-free; the bar reads it alongside `title`. The
+    /// six glyphs are distinct — two toggles drawn with one glyph are
+    /// indistinguishable at a glance, and with the labels gone the glyph is all
+    /// there is.
+    public var glyph: DesignGlyph {
         switch self {
-        case .terminal: "terminal"
-        case .log: "arrow.triangle.branch"
-        case .changes: "arrow.triangle.pull"
-        case .problems: "exclamationmark.triangle"
-        case .usages: "text.magnifyingglass"
-        // `arrow.triangle.merge` rather than `arrow.triangle.pull`, which Local
-        // Changes three toggles to the left already uses: two dock toggles
-        // drawn with one glyph are indistinguishable at a glance, and with the
-        // labels gone the glyph is all there is.
-        case .pullRequests: "arrow.triangle.merge"
+        case .terminal: .terminal
+        case .log: .listChecks
+        case .changes: .gitCompare
+        case .problems: .fileWarning
+        case .usages: .search
+        case .pullRequests: .gitPullRequestArrow
         }
     }
 

@@ -143,13 +143,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `bottomBar` of six toggle buttons (Terminal / Log / Local Changes /
     Problems / Usages / Pull Requests — each name read from
     `BottomPanel.title`, the one table the dock's tab row reads too, and each
-    glyph from `BottomPanel.systemImage`, the same table's second column — so
+    glyph from `BottomPanel.glyph`, the same table's second column — so
     `bottomBarButton(panel:)` takes neither of its own, `panelToggles` builds
     the six from `ForEach(BottomPanel.allCases)`, and neither a tooltip nor the
-    order can disagree with a tab; the active one highlighted. The glyphs, and
-    why Pull Requests draws `arrow.triangle.merge` rather than the
-    `arrow.triangle.pull` Local Changes uses, live beside the values in
-    `BottomPanel.swift` (`core-services.md`)) sits flush at
+    order can disagree with a tab; the active one highlighted. The glyphs are
+    design glyphs drawn through `DesignGlyphImage`, and why each is distinct
+    lives beside the values in `BottomPanel.swift` (`core-services.md`)) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
     painted `bgPanel` with **no rule of its own** (the divider above it carries
@@ -231,7 +230,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     sharing it no longer applies), `#N`, and a trailing checks mark whose four
     glyphs are `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill`
     coloured `textSecondary` / `statusYellow` / `statusRed` / `statusGreen` —
-    `statusGreen`'s first consumer. All three widgets **drop their own paddings**
+    `statusGreen`'s first consumer. **Since the design pass** the bar draws the
+    design's own glyphs through `DesignGlyphImage`, at the design's sizes: the
+    project switcher `package` 12 (`textSecondary`), its name at `.callout` in
+    `textPrimary` and `chevron-down` 10; the branch switcher `git-branch` 12, its
+    name and `chevron-down` 10, all `textSecondary`; the indicator
+    `git-pull-request` 12, `#N`, and a checks mark that is the design's `check`
+    (`statusGreen`) or `x` (`statusRed`) for a verdict — Core's
+    `GitHubChecksSummary.indicatorGlyph` — and keeps the panel's SF Symbol,
+    sized to 12, for pending or no checks. Each panel toggle is a 22-point
+    square of radius 4 carrying `BottomPanel.glyph` at 13, two points from its
+    neighbours; the active one draws `accent` on `accentTint` (it was
+    `accentTintStrong`), the others `textSecondary`, and the completion switch
+    keeps its SF Symbols at 13 (`.body`) in the same colours.
+    `BottomBarLayoutTests` measures the toggle squares, their 2-point gaps, the
+    active ground and the 14-point widget gap off the real window root at scale
+    1.0 and 1.8. All three widgets **drop their own paddings**
     so the bar's 14-point gaps and its `bottomBarHeight` are the measurements
     actually drawn, each keeping `.contentShape(Rectangle())` as its click
     target; the indicator's tooltip, accessibility label and value and its
@@ -650,8 +664,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
 
     **On the chrome roles** since part three (`core-theme.md`): it reads
     `\.chromeTheme` beside `\.interfaceMetrics` and spends `textPrimary` on the
-    project's name at `.callout`, `textSecondary` on the leading `folder` glyph
-    and on the trailing `chevron.down` caret the sweep added — the widget opens a
+    project's name at `.callout`, `textSecondary` on the leading `package` glyph
+    (12) and on the trailing `chevron-down` caret (10) — both design glyphs
+    since the design pass, each hidden from accessibility by the helper — the caret the sweep added — the widget opens a
     list and now says so. It draws **no padding of its own**: the bottom bar owns
     the 14-point gaps between its three widgets and its own height, so a padding
     here would make the bar's stated measurements not the ones drawn; the label

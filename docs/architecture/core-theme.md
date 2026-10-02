@@ -690,7 +690,9 @@ gated set.
     seven controls became **icon-only squares**: `bottomBarToggleSide` on a
     side, `bottomBarToggleRadius` of corner radius, the icon at `.body`, an
     `accentTintStrong` ground with an `accent` icon when active and no ground
-    with a `textSecondary` icon when not. That visual decision is what rule ten
+    with a `textSecondary` icon when not (since the design pass: the panel's
+    design glyph at 13 on an `accentTint` ground — see the design-pass bar
+    entry below). That visual decision is what rule ten
     exists for: the `Label(title, systemImage:)` they carried *was* each one's
     accessibility name, so every one of them now spells `.help(` and
     `.accessibilityLabel(` — nothing misrenders without them, and the only
@@ -724,6 +726,16 @@ gated set.
     stated gaps and height are the measurements actually drawn, each keeping
     `.contentShape(Rectangle())` as its click target. Full entries in
     `app-window.md`.
+  - **The design pass's bar.** The widgets' and toggles' SF Symbols became the
+    design's glyphs, drawn through `DesignGlyphImage`: `package` 12 /
+    `git-branch` 12 / `git-pull-request` 12 leading each widget and
+    `chevron-down` 10 trailing both switchers; the indicator's checks mark is
+    `check` in `statusGreen` or `x` in `statusRed` for a verdict
+    (`GitHubChecksSummary.indicatorGlyph`, a Core column) and today's symbol at
+    12 otherwise; each toggle shows `BottomPanel.glyph` at 13 in its 22-point
+    square, and the active toggle's ground is `accentTint`, no longer
+    `accentTintStrong` — the completion switch's too. The Pull Requests panel's
+    rows keep `symbolName`. `BottomBarLayoutTests` measures the result.
 
 **The caret both switchers gained is an addition, not a restyle**: neither drew
 one before, and a control that opens a list should say so. It is recorded here
@@ -2536,7 +2548,8 @@ The forty-six rules, each invisible to the compiler:
    ("chevron.right, folder fill, Sources"). `ProjectSwitcherView.swift` and
    `BranchSwitcherView.swift` must therefore hide every decorative symbol they
    draw, asserted by counting `Image(systemName:` against
-   `.accessibilityHidden(true)` in each file, with
+   `.accessibilityHidden(true)` in each file — a `DesignGlyphImage(`, which every
+   bar widget's own glyph now is, hides itself and so counts on both sides — with
    `PullRequestIndicatorView.swift` the stated exception because it names itself
    outright with an explicit `.accessibilityLabel(`. That count has a **second
    half**, because it went green on the change that broke the thing it exists
@@ -2699,7 +2712,7 @@ The forty-six rules, each invisible to the compiler:
    enough.
 18. **The checks-state mapping is Core's one answer.** The glyph, words and
    role of a checks summary and of a job bucket are Core's
-   (`symbolName`/`spokenWords`, `ChromeColorRole.checksRole(for:)`). No app file
+   (`symbolName`/`indicatorGlyph`/`spokenWords`, `ChromeColorRole.checksRole(for:)`). No app file
    declares `func checksRole`; the app files spelling `checksRole(for:` equal
    `{PullRequestIndicatorView.swift, PullRequestsPanelView.swift}`; and no gated
    file spells a case label naming `.noChecks`, `.pending`, `.failure`,

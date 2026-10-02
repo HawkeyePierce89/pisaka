@@ -77,6 +77,11 @@ Decisions made at plan time, so nothing is decided at run time:
 - Accessibility labels and values stay as they are, unless a task removes the control that carries them.
 - No product or brand names in code, comments, docs or commit messages. The icon set's name appears only in the licence text and its acknowledgements entry.
 - DerivedData always goes outside the repository (`~/Library/Developer/Xcode/DerivedData/pisaka-<purpose>`).
+- **Headless rendering must never create a window per sample.** On 2026-10-02 the Task 2 bar suite brought the whole machine's WindowServer down: `HostedRender.matches` builds a fresh `NSWindow` (and so a WindowServer drawing context) inside `swatch(_:ground:)` on every call, and the suite called it once per pixel across a strip — thousands of windows in two minutes, then a watchdog kill of WindowServer. Every app-layer test in this plan follows these rules:
+  - `HostedRender`'s reference colours (`swatch`) are computed once per `(role, ground)` and cached for the test process; no sampling helper creates a window, a hosting view or a bitmap per pixel or per row;
+  - a test renders its subject once per state and then reads pixels out of that one bitmap;
+  - any loop that does create AppKit objects runs inside `autoreleasepool`, and every window a test opens is closed in teardown;
+  - a suite that cannot settle within a few seconds is redesigned (host a smaller view), never left to run.
 - **CRITICAL: every task MUST include new/updated tests**
 - **CRITICAL: all tests must pass before starting next task**
 
@@ -133,7 +138,7 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (rule 10's glyph counting)
 - Create: `Tests/PisakaAppTests/BottomBarLayoutTests.swift`
 
-- [ ] Replace `BottomPanel.systemImage` with `BottomPanel.glyph: DesignGlyph`:
+- [x] Replace `BottomPanel.systemImage` with `BottomPanel.glyph: DesignGlyph`:
   - Terminal → `terminal`
   - Log → `list-checks`
   - Local Changes → `git-compare`
@@ -142,23 +147,24 @@ Decisions made at plan time, so nothing is decided at run time:
   - Pull Requests → `git-pull-request-arrow`
 
   It stays the one table the bar reads. Update `BottomPanelTests` (six unique glyphs) and the doc comment.
-- [ ] Left group: 14 between widgets, 4 inside each.
+- [x] Left group: 14 between widgets, 4 inside each.
   - Project switcher: `package` 12 in `textSecondary`, then the project name at 12 regular in `textPrimary`, then `chevron-down` 10 in `textSecondary`. Remove the old folder glyph and large chevron.
   - Branch switcher: `git-branch` 12, then the branch name at 12 regular in `textSecondary`, then `chevron-down` 10.
   - Pull-request indicator: `git-pull-request` 12, then `#number` at 12 in `textSecondary`, then the checks glyph at 12. Passing draws `check` in `statusGreen`; failing draws `x` in `statusRed`. Any other state keeps today's symbol, sized 12. The choice is a Core column on the checks summary, with tests. The Pull Requests panel's own column is not changed.
   - 12-point text is the `callout` style.
-- [ ] Right group: gap 2. Each toggle is 22×22 with radius 4 and shows its panel's glyph at 13.
+- [x] Right group: gap 2. Each toggle is 22×22 with radius 4 and shows its panel's glyph at 13.
   - The active toggle draws `accent` on `accentTint`, replacing `accentTintStrong`.
   - Inactive toggles draw `textSecondary`.
   - The completion toggle keeps its SF Symbols, sized to 13, with the same active and inactive colours.
-- [ ] Keep rule 10's structure: `allCases`, `.help(` and `.accessibilityLabel(`, and switchers whose glyphs are all hidden from accessibility. Update its glyph counting for `DesignGlyphImage(`.
-- [ ] Headless tests on `ContentView`'s bar, using the `BottomDockLayoutTests` harness pattern, at scale 1.0 and 1.8:
+- [x] Keep rule 10's structure: `allCases`, `.help(` and `.accessibilityLabel(`, and switchers whose glyphs are all hidden from accessibility. Update its glyph counting for `DesignGlyphImage(`.
+- [x] First, make `HostedRender.swatch(_:ground:)` cached per `(role, ground)` so that repeated `matches`/`extent` calls create no further windows, and add an app-layer test that calls `matches` thousands of times for one role and asserts the number of windows the app holds afterwards is no greater than before plus one (count `NSApp.windows` with their window numbers, after an `autoreleasepool` drain). Rework the bar suite's pixel scans to read one captured bitmap.
+- [x] Headless tests on `ContentView`'s bar, using the `BottomDockLayoutTests` harness pattern, at scale 1.0 and 1.8:
   - widget gaps of 14 and toggle gaps of 2;
   - 22-point toggle squares;
   - the active toggle's ground samples as `accentTint`.
 
   Measure through probes or the bitmap. If a test-only seam is unavoidable, state why in the suite header.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 3: The bottom bar's tooltips actually appear
 

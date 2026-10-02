@@ -1659,7 +1659,7 @@ refusal's own `isArmable` rather than from a table in the view. Cancel is
 
 ### `PullRequestIndicatorView.swift`
 
-Beside the branch switcher: a leading `arrow.triangle.merge`, `#N` and a
+Beside the branch switcher: a leading `git-pull-request`, `#N` and a
 trailing checks mark — three elements since the chrome theme's part three, for
 the branch checked out right now. That part is what restyled it: all four
 colours are now `ChromeColorRole`s read from `\.chromeTheme` (the checks mark's
@@ -1673,7 +1673,11 @@ Since part four (b) the mark's glyph, colour and words are read from Core —
 `GitHubChecksSummary.symbolName`, `ChromeColorRole.checksRole(for:)` and
 `spokenWords` — rather than from the indicator's own `symbol`/`role`/
 `summaryWords`, which are gone, so the indicator and the panel cannot disagree
-about what a summary looks like. **Absent rather than empty** — nothing is drawn when the branch has no
+about what a summary looks like. **Since the design pass** the leading glyph is
+the design's `git-pull-request` and a verdict's mark is the design's `check` or
+`x` — `GitHubChecksSummary.indicatorGlyph`, a Core column the panel's rows do not
+read — each at 12 through `DesignGlyphImage`; pending and no checks keep
+`symbolName`, sized to 12. **Absent rather than empty** — nothing is drawn when the branch has no
 open pull request, when `gh` is not ready, or on a detached HEAD, all three of
 which are `currentBranchPullRequest == nil`. Clicking opens the panel with that
 row expanded. It reads the same model the panel does: one `gh` answer, two
@@ -1689,10 +1693,11 @@ itself outright with an explicit `.accessibilityLabel` and `.accessibilityValue`
 ### The two files that were only touched
 
 `ContentView.swift` gained the sixth bar button, the `panelContent(_:)` branch and
-the indicator in `bottomBar`. The button's glyph is `arrow.triangle.merge` rather
-than `arrow.triangle.pull`, which Changes already uses further along the bar —
-two dock buttons drawn with one symbol are indistinguishable at a glance, and
-since part three made the controls icon-only the glyph is all there is.
+the indicator in `bottomBar`. The button's glyph is `BottomPanel.glyph`'s
+`git-pull-request-arrow` since the design pass (it was `arrow.triangle.merge`,
+chosen over the `arrow.triangle.pull` Changes used) — two dock buttons drawn with
+one glyph are indistinguishable at a glance, and since part three made the
+controls icon-only the glyph is all there is.
 The indicator expands its row **only when the panel has one**: its pull request
 comes from the `--head` lookup, which is independent of the `--limit 50` list and
 survives a failed read of it, so on a repository with more open pull requests than

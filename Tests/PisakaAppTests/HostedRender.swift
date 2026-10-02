@@ -114,7 +114,29 @@ final class HostedRender {
             && abs(c.blueComponent - expected.blueComponent) < 0.02
     }
 
-    private static func swatch(_ role: ChromeColorRole, ground: Color?) -> NSColor? {
+    private struct SwatchKey: Hashable {
+        let role: ChromeColorRole
+        let ground: Color?
+    }
+
+    /// Every swatch rendered so far, for the life of the test process.
+    private static var swatches: [SwatchKey: NSColor] = [:]
+
+    /// `role`'s dark value over `ground` as the pipeline renders it — rendered
+    /// **once per `(role, ground)`** and cached. A swatch costs a window (a
+    /// WindowServer drawing context), and `matches`/`extent` are called per
+    /// pixel: rendering one per call once opened thousands of windows in a
+    /// single bar scan and brought the machine's WindowServer down.
+    /// `HostedRenderTests` pins that repeated sampling opens no further window.
+    static func swatch(_ role: ChromeColorRole, ground: Color?) -> NSColor? {
+        let key = SwatchKey(role: role, ground: ground)
+        if let cached = swatches[key] { return cached }
+        let rendered = autoreleasepool { renderSwatch(role, ground: ground) }
+        if let rendered { swatches[key] = rendered }
+        return rendered
+    }
+
+    private static func renderSwatch(_ role: ChromeColorRole, ground: Color?) -> NSColor? {
         let host = NSHostingView(rootView: Rectangle().fill(ChromeTheme(.dark).color(role))
             .frame(width: 4, height: 4)
             .background(ground ?? .clear))
