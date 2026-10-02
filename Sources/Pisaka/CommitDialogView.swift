@@ -4,19 +4,21 @@ import PisakaCore
 
 /// The commit dialog: a modal sheet over the main window.
 ///
-/// On the left the changed files with three-state checkboxes and status badges; on
-/// the right the selected file's unified diff with a checkbox on every changed line
-/// (or a "committed as a whole" placeholder — see `CommitUnifiedDiffView`); at the
-/// bottom the message field, the author line with local-config editing, the Amend
-/// and "Push after commit" switches, and Commit/Cancel.
+/// Top to bottom: the "Commit Changes" strip, the commit message box at full
+/// width, the changed files with three-state checkboxes beside the selected
+/// file's unified diff with a checkbox on every changed line (or a "committed as
+/// a whole" placeholder — see `CommitUnifiedDiffView`), and the footer — the
+/// author (local-config editing on click) and Amend on the left, Cancel, Commit
+/// and Commit and Push on the right.
 ///
 /// Thin and untested like the rest of the view layer: what may be committed
 /// (`CommitGate`), what the commit will do (`CommitPlan`), what a checkbox's state
 /// is (`CheckboxState`), what a whole-only file says instead of a diff
-/// (`WholeOnlyReason`) and what a push would do (`PushPlan`) are all decided in
-/// Core and merely displayed here. The commit itself is handed back to `PisakaApp`
-/// through `onCommit`, which owns the writer coordination (autosave, the revert
-/// gate) and the post-success refreshes — none of which a view may reach into.
+/// (`WholeOnlyReason`), what a push would do (`PushPlan`) and whether Commit and
+/// Push is offered (`canCommitAndPush`) are all decided in Core and merely
+/// displayed here. The commit itself is handed back to `PisakaApp` through
+/// `onCommit`, which owns the writer coordination (autosave, the revert gate)
+/// and the post-success refreshes — none of which a view may reach into.
 ///
 /// Every colour is a chrome role, read from `\.chromeTheme`: a sheet inherits the
 /// environment of the view its `.sheet(…)` hangs from, and `ContentView` presents
@@ -59,28 +61,33 @@ struct CommitDialogView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            messageBox
+                .padding(metrics.scaled(CommitDialogLayout.messagePadding))
+            hairline(horizontal: true)
             if isAwaitingLoad && model.files.isEmpty {
                 loading
             } else {
-                HSplitView {
+                // A fixed list beside the diff, the design's 260 at every scale:
+                // the diff takes every point the sheet has beyond it.
+                HStack(spacing: 0) {
                     fileList
-                        .frame(
-                            minWidth: metrics.scaled(220),
-                            idealWidth: metrics.scaled(280),
-                            maxWidth: metrics.scaled(420)
-                        )
+                        .frame(width: metrics.scaled(CommitDialogLayout.fileListWidth))
+                    hairline(horizontal: false)
                     diffPanel
-                        .frame(minWidth: metrics.scaled(380), maxWidth: .infinity)
+                        .frame(maxWidth: .infinity)
                 }
                 .frame(maxHeight: .infinity)
             }
             hairline(horizontal: true)
-            bottomSection
+            if let message = statusMessage {
+                statusLine(message)
+            }
+            footer
         }
         .background(theme.color(.bgPanel))
-        // The sheet's own size scales with the two panes inside it, so a 200%
-        // dialog still holds both at their minimums instead of squeezing the diff
-        // out of the split — `InterfaceMetricsTests` pins that composition.
+        // The sheet's own size scales with the panes inside it, so a 200% dialog
+        // still holds the list and a usable diff instead of squeezing the diff
+        // out — `InterfaceMetricsTests` pins that composition.
         .frame(
             minWidth: metrics.scaled(900),
             idealWidth: metrics.scaled(1000),
@@ -105,7 +112,7 @@ struct CommitDialogView: View {
                 .lineLimit(1)
             Spacer()
         }
-        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
+        .padding(.horizontal, metrics.scaled(CommitDialogLayout.messagePadding))
         .frame(height: metrics.scaled(ChromeGeometry.dialogEdgeStripHeight))
         .background(theme.color(.bgPanel))
         .overlay(alignment: .bottom) { hairline(horizontal: true) }
@@ -254,48 +261,34 @@ struct CommitDialogView: View {
         }
     }
 
-    // MARK: - Bottom: message, author, switches, buttons
+    // MARK: - Top: the message
 
-    /// The message box and the author line, then — below a `hairline` — the
-    /// footer: the two switches, the status sentence and the buttons, sized by
-    /// its content.
-    private var bottomSection: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-                Text("Commit Message")
-                    .font(metrics.scaledFont(.caption, weight: .semibold))
-                    .foregroundStyle(theme.color(.textSecondary))
-                messageBox
-                authorLine
-            }
-            .padding(metrics.scaled(10))
-            hairline(horizontal: true)
-            footer
-        }
-    }
-
-    /// The commit message, in the shared field box.
+    /// The commit message, in the shared field box, `messagePadding` from the
+    /// sheet's edges and the rules above and below it.
     ///
-    /// Disabled while the commit runs, like the switches below and for the same
-    /// reason: `commit()` pins the message at entry, so text typed mid-run is
-    /// not the text git records — and on success the field is cleared and the
+    /// Disabled while the commit runs, like the footer's controls and for the
+    /// same reason: `commit()` pins the message at entry, so text typed mid-run
+    /// is not the text git records — and on success the field is cleared and the
     /// sheet closes, so a correction made in that window would vanish with
     /// nothing saying the commit did not carry it. The run is exactly the long
     /// window (hooks, signing) in which noticing a typo is likely.
     ///
     /// The message is written at the *code* font, so the box that holds it is
-    /// counted in lines of that font: between `messageMinLines` and
-    /// `messageMaxLines` of `messageLineHeight`. A fixed point height followed
-    /// no zone at all — the text grew with the code size while the box stood
-    /// still — and an interface-scaled one would tie the two zones together.
-    /// Only the box's padding is chrome, and it scales. For the same reason it
-    /// carries a code `ZoomSurfaceMarker`: a gesture over text drawn at the code
-    /// size must grow that size, not the sheet.
+    /// counted in lines of that font: `messageLines` of `messageLineHeight`,
+    /// about the design's 68 points at the default code size. A fixed point
+    /// height followed no zone at all — the text grew with the code size while
+    /// the box stood still — and an interface-scaled one would tie the two zones
+    /// together. Only the box's padding is chrome, and it scales. For the same
+    /// reason it carries a code `ZoomSurfaceMarker`: a gesture over text drawn at
+    /// the code size must grow that size, not the sheet.
     ///
-    /// The design pads the text by 12; the box takes the shared field's 10,
-    /// because a two-point difference in one drawing is not worth a second
-    /// measurement. The editor hides its own scroll background so the box's
-    /// `bgEditor` shows through.
+    /// The box draws no visible label; while it is empty it shows "Commit
+    /// Message" in `textSecondary` at the same code font, inset by the text
+    /// view's line-fragment padding so it sits where the first typed character
+    /// will, and the editor speaks that name. The design pads the text by 12;
+    /// the box takes the shared field's 10, because a two-point difference in
+    /// one drawing is not worth a second measurement. The editor hides its own
+    /// scroll background so the box's `bgEditor` shows through.
     private var messageBox: some View {
         ChromeControlBox(isFocused: isMessageFocused, horizontalPadding: ChromeGeometry.fieldPaddingX) {
             TextEditor(text: $model.message)
@@ -303,19 +296,31 @@ struct CommitDialogView: View {
                 .foregroundStyle(theme.color(.textPrimary))
                 .scrollContentBackground(.hidden)
                 .focused($isMessageFocused)
-                .frame(
-                    minHeight: messageLineHeight * Self.messageMinLines,
-                    maxHeight: messageLineHeight * Self.messageMaxLines
-                )
+                .accessibilityLabel("Commit Message")
+                .overlay(alignment: .topLeading) {
+                    if model.message.isEmpty {
+                        Text("Commit Message")
+                            .font(.system(size: settings.fontSize, design: .monospaced))
+                            .foregroundStyle(theme.color(.textSecondary))
+                            .padding(.leading, Self.textLineFragmentPadding)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(height: messageLineHeight * Self.messageLines)
                 .disabled(model.isRunning)
                 .background(ZoomSurfaceMarker(kind: .code))
         }
     }
 
-    /// The message box's height bounds, in lines of the code font: chosen so the
-    /// default code size lands near the fixed 70–120 points the box used to have.
-    private static let messageMinLines: CGFloat = 4
-    private static let messageMaxLines: CGFloat = 7
+    /// The message box's height, in lines of the code font: four lines land
+    /// near the design's 68 points at the default code size.
+    private static let messageLines: CGFloat = 4
+
+    /// `NSTextContainer`'s default line-fragment padding — where the editor
+    /// starts its first character, so the placeholder starts there too. Not
+    /// chrome: the text view does not scale it.
+    private static let textLineFragmentPadding: CGFloat = 5
 
     /// One line of the message's code font — the font `TextEditor` draws at —
     /// as the text system lays it out.
@@ -325,100 +330,26 @@ struct CommitDialogView: View {
         )
     }
 
+    // MARK: - Bottom: status and footer
+
+    /// The last failure, or the gate's reason for Commit being disabled, in one
+    /// strip above the footer — outside it, so the footer keeps its 64 and a
+    /// long git stderr wraps here instead of pushing the buttons about.
+    private func statusLine(_ message: String) -> some View {
+        Text(message)
+            .font(metrics.scaledFont(.callout))
+            .foregroundStyle(theme.color(statusIsError ? .statusRed : .textSecondary))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, metrics.scaled(CommitDialogLayout.messagePadding))
+            .padding(.top, metrics.scaled(CommitDialogLayout.statusPaddingY))
+    }
+
+    /// The footer: `footerHeight` tall, the author and Amend on the left, the
+    /// three buttons on the right.
     private var footer: some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-            switchesLine
-
-            if let message = statusMessage {
-                Text(message)
-                    .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(statusIsError ? .statusRed : .textSecondary))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            HStack {
-                Spacer()
-                // Disabled while the commit runs: dismissing then would fire
-                // `onDismiss`, releasing the modal autosave suspension in the
-                // middle of git reading the working tree into the temporary index
-                // — the very concurrent writer the gate was raised for — while
-                // cancelling nothing, since the commit carries on to completion.
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.chromeSecondary)
-                    .keyboardShortcut(.cancelAction)
-                    .disabled(model.isRunning)
-                // ⌘Return rather than plain Return: the message field is a
-                // multiline editor, where Return has to insert a newline.
-                Button("Commit") {
-                    let origin = model.currentRequestGeneration
-                    Task { await onCommit(origin) }
-                }
-                .buttonStyle(.chromePrimary)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!model.canCommit)
-            }
-        }
-        .padding(metrics.scaled(10))
-    }
-
-    /// The identity git will resolve for this commit — labelled for the role it
-    /// will actually play.
-    ///
-    /// **Under Amend it is the *committer*, not the author.** `git commit --amend`
-    /// without `--reset-author` keeps the amended commit's author name, email and
-    /// date and replaces only the committer, so calling this line "Author" while
-    /// Amend is ticked states something git will not record — the exact failure the
-    /// per-field source labelling exists to prevent, only with the screen
-    /// confidently wrong rather than silent. It matters in both directions: a user
-    /// who fixes their local identity and amends to re-attribute the commit does
-    /// not re-attribute it, and one amending someone else's commit is told they
-    /// are the author when the original name survives. The identity is still
-    /// required (and still blocks the commit when unset) — git needs a committer
-    /// either way. Showing the *amended commit's* author would need a further
-    /// `git log -1` read; naming the role correctly needs none, and is what stops
-    /// the line from lying.
-    private var authorLine: some View {
-        HStack(spacing: metrics.scaled(6)) {
-            Text(model.amend ? "Committer:" : "Author:")
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(.textSecondary))
-            // An incomplete identity is red *and* blocks the commit (`CommitGate`
-            // reports `.identityIncomplete`): the whole point of showing the author
-            // is that a repository never commits under a name nobody looked at.
-            Text(model.identity.signature)
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(model.identity.isComplete ? .textPrimary : .statusRed))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if model.amend {
-                Text("(amend keeps the original author)")
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .lineLimit(1)
-            }
-            // Also disabled while the commit runs, and here it is not merely a
-            // display inconsistency: `setLocalIdentity` runs `git config --local`
-            // on the *same serial queue* as the commit's own steps, so a write
-            // landing between them decides by scheduling which identity the
-            // commit records — the one thing this line exists to make certain.
-            // Disabled while a previous save is still in flight for the mirror
-            // reason: the editor dismisses on Save, so a second one opened in that
-            // window would be seeded from the identity being replaced. The commit
-            // itself is blocked for that same window by `CommitGate`, not here.
-            // A plain button with an `accent` label rather than the platform's
-            // link style, whose colour is the system accent, not the role.
-            Button("Edit…") { isEditingAuthor = true }
-                .buttonStyle(.plain)
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(.accent))
-                .disabled(model.root == nil || model.isRunning || model.isWritingIdentity)
-            Spacer()
-        }
-    }
-
-    private var switchesLine: some View {
-        HStack(spacing: metrics.scaled(16)) {
+        HStack(spacing: metrics.scaled(CommitDialogLayout.footerGap)) {
+            authorButton
             // Amend moves the message field with it, so it goes through the model
             // rather than writing the stored property.
             ChromeCheckbox(
@@ -430,30 +361,112 @@ struct CommitDialogView: View {
             // rewrites the message field — so a mid-run toggle would visibly
             // change the composed message while the commit records neither.
             .disabled(model.isRunning)
-            // Also disabled while the commit runs: `commit()` pins this at entry
-            // with the rest of the intent, so a toggle made mid-run would change
-            // nothing while appearing to — and the control it appears to change
-            // decides whether the result is published to a remote.
-            ChromeCheckbox(
-                state: model.pushAfterCommit ? .on : .off,
-                label: "Push after commit",
-                title: "Push after commit"
-            ) { model.pushAfterCommit.toggle() }
-            .disabled(model.pushPlan?.isAvailable != true || model.isRunning)
-            if let text = pushText {
-                Text(text)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .lineLimit(1)
-            }
-            Spacer()
+            Spacer(minLength: metrics.scaled(CommitDialogLayout.footerGap))
+            // Disabled while the commit runs: dismissing then would fire
+            // `onDismiss`, releasing the modal autosave suspension in the
+            // middle of git reading the working tree into the temporary index
+            // — the very concurrent writer the gate was raised for — while
+            // cancelling nothing, since the commit carries on to completion.
+            Button("Cancel", action: onCancel)
+                .buttonStyle(.chromeSecondary)
+                .keyboardShortcut(.cancelAction)
+                .disabled(model.isRunning)
+            // ⌘Return rather than plain Return: the message field is a
+            // multiline editor, where Return has to insert a newline. It stays
+            // on Commit, not on the primary Commit and Push, so the shortcut
+            // never publishes to a remote.
+            Button("Commit") { commit(push: false) }
+                .buttonStyle(.chromeSecondary)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!model.canCommit)
+            // Disabled in exactly the cases the former "Push after commit"
+            // switch was, on top of Commit's own — `canCommitAndPush`. Its
+            // tooltip is where the push goes, or why it cannot.
+            Button("Commit and Push") { commit(push: true) }
+                .buttonStyle(.chromePrimary)
+                .disabled(!model.canCommitAndPush)
+                .help(pushText ?? "")
         }
+        .padding(.horizontal, metrics.scaled(CommitDialogLayout.messagePadding))
+        .frame(height: metrics.scaled(CommitDialogLayout.footerHeight))
+    }
+
+    /// Arm or disarm the push and run the commit. Both are written
+    /// **synchronously in the action**, before the `Task` hop: `commit()` pins
+    /// the push flag at entry, and the generation pin has the same reason as
+    /// `onCommit`'s.
+    private func commit(push: Bool) {
+        model.pushAfterCommit = push
+        let origin = model.currentRequestGeneration
+        Task { await onCommit(origin) }
+    }
+
+    /// The identity git will resolve for this commit: the `user-round` glyph and
+    /// the name, which opens the author editor. The role it will actually play
+    /// is the tooltip's first word.
+    ///
+    /// **Under Amend it is the *committer*, not the author.** `git commit --amend`
+    /// without `--reset-author` keeps the amended commit's author name, email and
+    /// date and replaces only the committer, so calling this "Author" while
+    /// Amend is ticked states something git will not record — the exact failure the
+    /// per-field source labelling exists to prevent, only with the screen
+    /// confidently wrong rather than silent. It matters in both directions: a user
+    /// who fixes their local identity and amends to re-attribute the commit does
+    /// not re-attribute it, and one amending someone else's commit is told they
+    /// are the author when the original name survives. The identity is still
+    /// required (and still blocks the commit when unset) — git needs a committer
+    /// either way. Showing the *amended commit's* author would need a further
+    /// `git log -1` read; naming the role correctly needs none, and is what stops
+    /// the tooltip from lying.
+    ///
+    /// Disabled while the commit runs, and here it is not merely a display
+    /// inconsistency: `setLocalIdentity` runs `git config --local` on the *same
+    /// serial queue* as the commit's own steps, so a write landing between them
+    /// decides by scheduling which identity the commit records — the one thing
+    /// this control exists to make certain. Disabled while a previous save is
+    /// still in flight for the mirror reason: the editor dismisses on Save, so a
+    /// second one opened in that window would be seeded from the identity being
+    /// replaced. The commit itself is blocked for that same window by
+    /// `CommitGate`, not here.
+    private var authorButton: some View {
+        Button { isEditingAuthor = true } label: {
+            HStack(spacing: metrics.scaled(CommitDialogLayout.authorGap)) {
+                DesignGlyphImage(
+                    .userRound,
+                    slot: CommitDialogLayout.authorGlyphSize,
+                    role: .textSecondary
+                )
+                // An incomplete identity is red *and* blocks the commit
+                // (`CommitGate` reports `.identityIncomplete`): the whole point of
+                // showing the author is that a repository never commits under a
+                // name nobody looked at.
+                Text(model.identity.displayName)
+                    .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(model.identity.isComplete ? .textPrimary : .statusRed))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(authorHelp)
+        .accessibilityLabel("Edit commit author")
+        .accessibilityValue(model.identity.signature)
+        .disabled(model.root == nil || model.isRunning || model.isWritingIdentity)
+    }
+
+    /// The author control's tooltip: the role, the full signature with its
+    /// sources, the amend note when it applies, and what a click does.
+    private var authorHelp: String {
+        let role = model.amend ? "Committer" : "Author"
+        let note = model.amend ? " (amend keeps the original author)" : ""
+        return "\(role): \(model.identity.signature)\(note). Click to edit."
     }
 
     private var pushText: String? {
         switch model.pushPlan {
-        case let .push(upstream): return "to \(upstream)"
-        case let .setUpstream(remote, branch): return "to \(remote)/\(branch) (new upstream)"
+        case let .push(upstream): return "Push to \(upstream)"
+        case let .setUpstream(remote, branch): return "Push to \(remote)/\(branch) (new upstream)"
         case let .unavailable(reason): return reason.message
         case nil: return nil
         }
@@ -470,7 +483,7 @@ struct CommitDialogView: View {
         model.errorMessage == nil && (model.isLoading || model.context == nil)
     }
 
-    /// What to say under the switches: the last failure if there is one, else the
+    /// What to say above the footer: the last failure if there is one, else the
     /// gate's reason for the Commit button being disabled.
     ///
     /// The gate is deliberately silent until the repository has been read.
@@ -488,14 +501,39 @@ struct CommitDialogView: View {
     private var statusIsError: Bool { model.errorMessage != nil }
 }
 
+/// The commit dialog's own measurements, unscaled; every use site scales them
+/// through `metrics`. They belong to this dialog alone, so deriving them from a
+/// `ChromeGeometry` token would couple them to a measurement that means
+/// something else (gating rule seven). Internal rather than private so the
+/// app-layer layout suite measures against the same numbers.
+enum CommitDialogLayout {
+    /// Around the message box, and the footer's and title's horizontal inset.
+    static let messagePadding: Double = 20
+    /// The file list's width beside the diff.
+    static let fileListWidth: Double = 260
+    /// The footer strip's height.
+    static let footerHeight: Double = 64
+    /// Between the footer's controls.
+    static let footerGap: Double = 10
+    /// The author glyph's drawn size and slot.
+    static let authorGlyphSize: Double = 13
+    /// Between the author glyph and the name.
+    static let authorGap: Double = 6
+    /// Above the status sentence, between the rule and its text.
+    static let statusPaddingY: Double = 8
+    /// Between a file row's checkbox, status letter and name.
+    static let rowGap: Double = 6
+}
+
 /// One row of the commit dialog's file list: the three-state checkbox, the
-/// status-tinted file icon, two lines — the name, then its directory — and the
-/// one-letter status badge shared with the Local Changes panel.
+/// one-letter status badge shared with the Local Changes panel, then two lines
+/// — the name, then its directory.
 ///
 /// The letter, its colour and its spoken name are Core's one answer
 /// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
 /// `FileStatus.spokenName`) — the same three the Local Changes panel and the Log's
-/// detail pane read.
+/// detail pane read. The row draws no file glyph, as the Local Changes rows do
+/// not: the letter is the one mark between the checkbox and the name.
 ///
 /// The row states no height: two lines plus its padding size it, so it grows
 /// with the interface scale instead of clipping its second line.
@@ -532,13 +570,9 @@ private struct CommitFileRow: View {
 
     var body: some View {
         let status = selection.file.status
-        let statusColor = theme.color(ChromeColorRole.changedFileRole(for: status))
-        let icon = FileIcon(
-            for: DirectoryEntry(url: URL(fileURLWithPath: selection.path), isDirectory: false)
-        )
         let name = (selection.path as NSString).lastPathComponent
         let directory = (selection.path as NSString).deletingLastPathComponent
-        HStack(spacing: metrics.scaled(6)) {
+        HStack(spacing: metrics.scaled(CommitDialogLayout.rowGap)) {
             ChromeCheckbox(
                 state: ChromeCheckbox.State(state),
                 label: "Include \(name) in the commit",
@@ -546,14 +580,10 @@ private struct CommitFileRow: View {
             )
             .help("Include this file in the commit")
             .disabled(!isMutable)
-            // The glyph's size is its own, not inherited: the row carries no
-            // container font, so without this it draws at the system default and
-            // stands still while the name and status letter grow with the scale.
-            // `.callout`, as `ChangedFileRow`'s icon in Local Changes.
-            Image(systemName: icon.symbolName)
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(statusColor)
-                .accessibilityHidden(true)
+            Text(status.letter)
+                .font(metrics.scaledFont(.callout, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.color(ChromeColorRole.changedFileRole(for: status)))
+                .accessibilityValue(status.spokenName)
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
                     .font(metrics.scaledFont(.body))
@@ -567,11 +597,7 @@ private struct CommitFileRow: View {
                 }
             }
             .lineLimit(1)
-            Spacer(minLength: metrics.scaled(4))
-            Text(status.letter)
-                .font(metrics.scaledFont(.callout, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusColor)
-                .accessibilityValue(status.spokenName)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, metrics.scaled(6))
         .padding(.vertical, metrics.scaled(3))

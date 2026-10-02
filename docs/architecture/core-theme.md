@@ -1390,7 +1390,8 @@ rule thirty-five from the third.
    against the drawing. One shape serving five callers takes one value, and the
    drawing wins — the revert checkbox's check grew two points, said beside the
    constant. The mixed-state dash uses the same width. Callers: the commit
-   dialog (file rows, Amend, Push after commit), Local Changes' revert checkbox
+   dialog (file rows, Amend — and Push after commit until the design pass
+   made pushing a button), Local Changes' revert checkbox
    and the Log filter bar's two date bounds, which replaced a platform `Toggle`.
 5. **The rule-matching convention**, which this part's eight rules (the six
    above plus the review rounds' thirty-four and thirty-five) follow and
@@ -1442,7 +1443,16 @@ an error and `textSecondary` otherwise; a `hairline` rule sits above a footer
 sized by its content; Cancel is `.chromeSecondary`, Commit `.chromePrimary`,
 shortcuts and disabled rules unchanged. The author editor sheet stands on
 `bgPanel` with its title in `textPrimary`, caption in `textSecondary`, Save
-`.chromePrimary` and Cancel `.chromeSecondary`. It joins rule twenty-six's
+`.chromePrimary` and Cancel `.chromeSecondary`. (**Since the design pass** the
+dialog reads top to bottom: header, the message box at full width 20 from every
+edge and four code-font lines high, a fixed 260 pt file list beside the diff, a
+status strip only when there is something to say, and a 64 pt footer — the
+`user-round` design glyph at 13 and the author name as one `.plain` button
+opening the editor, its role, signature and amend note moved into its tooltip;
+Amend; then Cancel and Commit in `.chromeSecondary` and Commit and Push, the one
+`.chromePrimary`. The "Push after commit" checkbox and the "Edit…" link are
+gone, and the file row reads checkbox, status letter, name over folder with no
+file icon. Full entry in `app-git-views.md`.) It joins rule twenty-six's
 shared-field callers (now five). Part five (c) replaces its platform `Form` with
 two stacked `ChromeThemedTextField`s ("Name", "Email") at `.body`, focused
 through a private enum, 360 wide as before.
@@ -1496,7 +1506,8 @@ search surfaces.
    sheet's own ground at the corners, so the content does not clip, and the
    file says so.
 5. **"Edit…"** on the author line is a `.plain` button with an `accent` label,
-   not `.buttonStyle(.link)`, a platform style rule thirty forbids.
+   not `.buttonStyle(.link)`, a platform style rule thirty forbids. (The design
+   pass folded it into the footer's author control, still a `.plain` button.)
 6. **The unified diff's per-line checkbox keeps its SF Symbol glyph — an open
    question.** It sits inside a code-font row; the shared checkbox is
    interface-scaled, and putting it in a code-zoom row is the mixed-zone
@@ -1761,8 +1772,8 @@ label itself. The catalog tab's rows and account buttons are in
 `core-leetcode.md`, Language Servers' in `core-provisioning.md`, Acknowledgements'
 and the licence pane's in `app-shell.md`, the sheets' in `core-github.md`. The
 commit dialog's message box is also counted in lines of the code font here (4 to
-7 of `messageLineHeight`, where it had been a fixed 70–120 points), pinned by
-rule twenty-seven.
+7 of `messageLineHeight`, where it had been a fixed 70–120 points — four exactly
+since the design pass, about the design's 68), pinned by rule twenty-seven.
 
 **Open questions**, deliberately left:
 
@@ -2582,7 +2593,7 @@ The forty-six rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set, four today. Since
+   files carrying such a line are themselves a counted set, three today. Since
    part eight the fallback is `file.url?.lastPathComponent ?? file.displayName`
    handed to `FileGlyph`, matched whitespace-free, and the tree, its draft field
    and `TabStripView.swift` construct no `FileIcon` at all and left the set.
@@ -2591,10 +2602,11 @@ The forty-six rules, each invisible to the compiler:
    header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
    glyph is drawn in `textSecondary` on a line rule one still scans — and since
    part four (b) `CommitLogView.swift`, whose changed-file row carries the same
-   binding, and since part five (b) `CommitDialogView.swift`'s file row.
-   `LocalChangesView.swift` carried it too until the design pass, when its file
-   rows stopped drawing a file glyph and its folder rows took `FileGlyph`'s, and
-   it left the set).
+   binding. `LocalChangesView.swift` carried it too until the design pass, when
+   its file rows stopped drawing a file glyph and its folder rows took
+   `FileGlyph`'s, and it left the set; so did `CommitDialogView.swift`, whose
+   file row (in the set since part five (b)) the same pass reduced to checkbox,
+   status letter and name.
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a

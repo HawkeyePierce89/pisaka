@@ -357,21 +357,21 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/PisakaCore/CommitDialogModel.swift` only if commit-and-push needs a new entry point (with tests)
 - Create: `Tests/PisakaAppTests/CommitDialogLayoutTests.swift`
 
-- [ ] From top to bottom:
+- [x] From top to bottom:
   1. the "Commit Changes" header, 44 high (`dialogEdgeStripHeight`);
   2. the commit message box: full width, 20 padding around it, about 68 high, in the code font as today;
   3. the file list, 260 wide, beside the diff;
   4. the 64-high footer.
-- [ ] File rows show the checkbox, then the status letter, then the name over its folder.
-- [ ] Footer:
+- [x] File rows show the checkbox, then the status letter, then the name over its folder.
+- [x] Footer:
   - left: the `user-round` glyph at 13, then the author name (clicking it opens the existing author editor), then the Amend checkbox;
   - right: Cancel (secondary), Commit (secondary, ⌘Return), and Commit and Push (primary).
 
   Remove the "Push after commit" checkbox. Commit and Push commits and then runs the existing push plan. It is disabled in exactly the cases where push was unavailable before, and its tooltip is the push target text (`pushText`). Amend's committer and its "keeps the original author" note stay in the author's tooltip.
-- [ ] Tests:
+- [x] Tests:
   - app-layer, at scale 1.0 and 1.8: header height 44, message box padding 20, list width 260, footer height 64, and the button order with Commit and Push as the primary;
   - Core: tests for any model change.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 12: The unified diff's header lines and tinted text
 

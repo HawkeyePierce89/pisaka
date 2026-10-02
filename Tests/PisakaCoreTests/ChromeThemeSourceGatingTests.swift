@@ -900,7 +900,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Four, and named. The tree's rows, the inline draft field and the
+        // Three, and named. The tree's rows, the inline draft field and the
         // shared tab icon left the set in part eight, when they moved to
         // `FileGlyph`'s design glyphs. What stays: since part four (a), the
         // Problems and Usages panels' file-group headers, each of whose
@@ -911,15 +911,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // the same binding. (Local Changes' rows and folder headers named it
         // too until the design pass: its file rows draw no file glyph and its
         // folder rows draw `FileGlyph`'s, so it left the set.)
-        // Part five (b) adds the commit dialog's file row, whose exempted line
-        // is that binding again (its glyph takes `changedFileRole(for:)`, a
-        // role, on a line rule one still scans).
-        // A fifth is a line that has quietly bought itself out of rule one.
+        // (The commit dialog's file row named it from part five (b) until the
+        // design pass: the row now reads checkbox, status letter, name and
+        // draws no file glyph, so it left the set too.)
+        // A fourth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
-                "CommitLogView.swift", "CommitDialogView.swift",
+                "CommitLogView.swift",
             ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
@@ -3404,7 +3404,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `.buttonStyle(` applications. Zero is stated, not defaulted, so a first
     /// button in a controller is a deliberate edit here.
     private static let partFiveBButtonCounts: [String: Int] = [
-        "CommitDialogView.swift": 5,
+        "CommitDialogView.swift": 6,
         "MergeView.swift": 7,
         "LocalHistoryView.swift": 1,
         "MergeWindowController.swift": 0,

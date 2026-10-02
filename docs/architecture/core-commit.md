@@ -130,7 +130,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     it. `IdentityFieldSource` (`.local`/`.global`/`.unset` — `.global` being
     "everything above this repository", one answer as far as the dialog is
     concerned) and `CommitIdentity` (`name`, `email`, `nameSource`, `emailSource`,
-    `isComplete`, `signature`) plus the pure
+    `isComplete`, `signature`, `displayName`) plus the pure
     `resolve(localName:localEmail:effectiveName:effectiveEmail:)`. The feature
     exists for one failure it must make impossible — a work repository silently
     committing under a personal *global* name because nothing on screen said which
@@ -147,7 +147,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     only** (`git config --local user.name/user.email`): nothing in this feature
     touches the global config, a deliberate limit rather than an omission — the
     global identity is a machine-wide setting and a commit dialog is the wrong
-    place to change one.
+    place to change one. `displayName` is the name alone — or `(name not set)`
+    when git has none — for the dialog footer's author control, whose tooltip
+    and accessibility value carry the full `signature` with its sources.
   - `CommitContext.swift` — the repository state the dialog reads once on open
     (pure value type, the `BranchRef`/`ChangedFile` precedent): `isUnbornHEAD`,
     `isDetachedHEAD`, `currentBranch` (short name), `upstream` (short tracking
@@ -223,7 +225,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — so without the re-check the merge would be recorded as an ordinary
     one-parent commit. The other blocks are deliberately *not* repeated: the
     identity, the message and the selection are the dialog's own state.
-  - `PushPlan.swift` — what "Push after commit" would do, decided from the
+  - `PushPlan.swift` — what a push after the commit would do, decided from the
     repository state alone (pure; `GitCLIService.push(_:root:)` turns the plan
     into a command and decides nothing). `PushUnavailableReason`
     (`.detachedHEAD`/`.noRemote`/`.branchChanged`, each with its `message` — the
@@ -339,7 +341,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `message`, `amend`, `pushAfterCommit`, `selectedPath`, `errorMessage`,
     `isLoading`, `isRunning` and `root`, with computed `selectedFiles`/
     `selectedFileCount`, `conflictedPaths`, `block`/`canCommit` (through
-    `CommitGate`), `pushPlan`, `checkboxState(for:)`, `wholeOnlyMessage(for:)` and
+    `CommitGate`), `pushPlan`, `canCommitAndPush` (Commit's own `canCommit` *and*
+    an available `pushPlan` — the Commit and Push button's enablement, exactly the
+    cases the former "Push after commit" switch was enabled in; the plan is
+    re-derived after the commit regardless, so this decides what is offered,
+    never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)` and
     `unifiedLines(for:)` — the last **empty for every whole-only file** (asked
     after `wholeOnlyMessage`, so a line-endings-only change flattens nothing the
     panel would ignore) and **memoized by path**, invalidated from `files`'
@@ -421,8 +427,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     previous one would let the still-open author editor write `git config --local`
     into the repository the user just left; a load *discarded* by this very switch
     returns without clearing `isLoading`, so leaving it raised strands the dialog
-    on its loading placeholder with no path back; and "Push after commit" is a
-    per-project opt-in that must not carry over silently. A *reopen for the same
+    on its loading placeholder with no path back; and the push flag must not
+    carry over silently. (The macOS dialog no longer has a switch for it: its
+    Commit and Commit and Push buttons each write it in their action.) A *reopen for the same
     root* takes `prepareForFolderChange`'s no-op path and so runs no `reset()`,
     which is why `load` additionally clears `files`/`selectedPath`/`errorMessage`
     itself before its first `await`: leaving them published let the sheet draw the
@@ -499,11 +506,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     editor dismisses on Save while the two `git config --local` commands are still
     queued behind the commit's own serial queue, so an ungated Commit in that window
     records the identity being replaced, or the new name beside the old email. The
-    "Edit…" button is disabled for the same window, so a second editor cannot be
+    author control is disabled for the same window, so a second editor cannot be
     seeded from the identity being replaced. `commit(
     originGeneration:) -> CommitOutcome` sequences: the origin pin (the
     `revert(_:originGeneration:)` precedent — captured by the *view*, in the
-    Commit button's action before its `Task` hop, since this body already runs
+    Commit buttons' action before its `Task` hop, since this body already runs
     inside that task and a token read here would only ever be compared against
     itself), the gate, the re-read of the **whole change list** (the list itself
     has to be fresh — a file that became conflicted since is not in the plan and
@@ -521,13 +528,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the check and the plan cannot resolve one path to two different sets of rows —
     and only then the push — *whether* it runs being the `pushAfterCommit` value
     **pinned at entry** beside `amendNow`/`messageNow`/the file selection, since the
-    switches stay live while the commit does (a sheet disables its own controls no
+    flag is a published input like the others, written by whichever button was
+    pressed, and stays writable while the commit runs (a sheet disables its own controls no
     more than it disables the main menu) and the commit is the long part: reading
     the flag afterwards let a tick made in that window publish to a remote the user
     had not armed when they pressed Commit, and an untick silently drop a push they
-    had. The view disables **every control feeding a pinned input** while
-    `isRunning` — the message field, the Amend and push switches, the file and
-    per-line checkboxes, and the author "Edit…" button — so what is on screen
+    had. On macOS the view writes the flag synchronously in the pressed button's
+    action, beside the generation pin, so the value pinned is the button's. The view disables **every control feeding a pinned input** while
+    `isRunning` — the message field, the Amend switch, the file and per-line
+    checkboxes, and the author control — so what is on screen
     cannot disagree with the pinned value. The message field is the case that
     loses work rather than merely misleading: the run *is* the long window (hooks,
     signing) in which a typo gets noticed, and on success the field is cleared and

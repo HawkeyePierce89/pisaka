@@ -913,6 +913,46 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(model.pushPlan, .push(upstream: "origin/main"))
     }
 
+    func testCommitAndPushNeedsACommittableDialogAndAnAvailablePlan() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+
+        // Blocked commit: no message yet, so neither button is offered.
+        XCTAssertFalse(model.canCommit)
+        XCTAssertFalse(model.canCommitAndPush)
+        model.message = "subject"
+        XCTAssertTrue(model.canCommit)
+        XCTAssertTrue(model.canCommitAndPush)
+    }
+
+    func testCommitAndPushIsOffDuringAnUnavailablePlanWhileCommitStaysOn() async {
+        let (git, files) = makeTextRepo()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: true,
+            currentBranch: nil,
+            upstream: nil,
+            remotes: [],
+            inProgress: nil
+        )
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        model.message = "subject"
+
+        XCTAssertTrue(model.canCommit)
+        XCTAssertEqual(model.pushPlan?.isAvailable, false)
+        XCTAssertFalse(model.canCommitAndPush)
+    }
+
+    func testCommitAndPushIsOffBeforeTheLoad() {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+
+        XCTAssertNil(model.pushPlan)
+        XCTAssertFalse(model.canCommitAndPush)
+    }
+
     // MARK: - commit()
 
     func testSuccessfulCommitBuildsThePlanAndClearsTheMessage() async {

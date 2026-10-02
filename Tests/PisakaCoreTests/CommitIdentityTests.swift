@@ -3,6 +3,15 @@ import XCTest
 
 final class CommitIdentityTests: XCTestCase {
 
+    // MARK: - Display name
+
+    func testDisplayNameIsTheNameAloneOrSaysItIsUnset() {
+        let set = CommitIdentity(name: "Ada", email: "ada@example.com", nameSource: .local, emailSource: .global)
+        XCTAssertEqual(set.displayName, "Ada")
+        let unset = CommitIdentity(name: "", email: "ada@example.com", nameSource: .unset, emailSource: .global)
+        XCTAssertEqual(unset.displayName, "(name not set)")
+    }
+
     // MARK: - Signature: a single source only when both fields really share one
 
     func testBothFieldsLocalNameTheSourceOnce() {

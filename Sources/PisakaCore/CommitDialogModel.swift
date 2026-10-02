@@ -108,7 +108,10 @@ public final class CommitDialogModel: ObservableObject {
     /// also moves the message field — see `setAmend(_:)`.
     @Published public private(set) var amend = false
 
-    /// Whether a successful commit is followed by a push.
+    /// Whether a successful commit is followed by a push. The macOS dialog has
+    /// no switch for it: its Commit and Commit and Push buttons each write it
+    /// synchronously in their action, before the `Task` hop, and `commit()`
+    /// pins it at entry with the rest of the intent.
     @Published public var pushAfterCommit = false
 
     /// The path shown in the right-hand diff panel, or `nil` when nothing is
@@ -229,8 +232,15 @@ public final class CommitDialogModel: ObservableObject {
     /// Whether the Commit button is enabled.
     public var canCommit: Bool { block == nil }
 
-    /// What "Push after commit" would do, or `nil` before a successful load.
+    /// What a push after the commit would do, or `nil` before a successful load.
     public var pushPlan: PushPlan? { context.map(PushPlan.plan) }
+
+    /// Whether the Commit and Push button is enabled: the commit may proceed
+    /// *and* the loaded push plan is available — exactly the cases in which the
+    /// former "Push after commit" switch was enabled, on top of Commit's own.
+    /// The plan is re-derived after the commit regardless (see `commit()`), so
+    /// this only decides what the button offers, never what the push does.
+    public var canCommitAndPush: Bool { canCommit && pushPlan?.isAvailable == true }
 
     /// The selection for `path`, or `nil` when no such file is loaded.
     public func selection(for path: String) -> CommitFileSelection? {

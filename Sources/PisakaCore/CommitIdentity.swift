@@ -91,7 +91,14 @@ public struct CommitIdentity: Equatable {
         nameSource != .unset && emailSource != .unset
     }
 
-    /// The author line shown in the dialog.
+    /// The name the dialog's footer draws beside its author glyph: the name
+    /// alone, or `(name not set)` when git has none. The full `signature` — both
+    /// fields and their sources — is that control's tooltip.
+    public var displayName: String {
+        nameSource == .unset ? "(name not set)" : name
+    }
+
+    /// The full author line, shown as the dialog footer's author tooltip.
     ///
     /// `Name <email> (local)` when both fields come from the same config level,
     /// and a per-field spelling — `Name (local) <email> (global)` — the moment

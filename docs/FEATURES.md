@@ -928,11 +928,12 @@ user sees it.
   same dialog with only that file checked.
 - Commit (macOS): a modal dialog, opened with Cmd+K (Git > Commit…),
   the Commit button in the Local Changes header, or **Commit…** in a changed
-  file's context menu. On the left the changed files
-  with three-state checkboxes and status badges; on the right the selected file's
-  unified diff with **a checkbox on every changed line**, so you can commit part
-  of a file and leave the rest as local changes; at the bottom the message field,
-  the author line, and the Amend and "Push after commit" switches. Everything
+  file's context menu. At the top the message field; under it, on the left, the
+  changed files with three-state checkboxes and status letters; on the right the
+  selected file's unified diff with **a checkbox on every changed line**, so you
+  can commit part of a file and leave the rest as local changes; at the bottom the
+  author, the Amend switch, and the Cancel, Commit and **Commit and Push**
+  buttons. Everything
   starts checked, so opening the dialog and confirming commits every local change
   — except when you opened it from a single file's Commit… item, where only that
   file starts checked (and scrolled into view) while everything else is left for a
@@ -954,15 +955,16 @@ user sees it.
   index, so your `pre-commit`/`commit-msg` hooks still run (and see exactly the
   content being committed) and git resolves the author as it normally would; a
   failing hook aborts with its own message and leaves the repository untouched.
-  The author line always shows the name and email the commit will carry **and
-  which config each came from** — `(local)` or `(global)`, named per field so a
-  mixed pair cannot be misreported — with an editor that writes the repository's
+  The author's name sits in the footer; its tooltip shows the name and email the
+  commit will carry **and which config each came from** — `(local)` or `(global)`, named per field so a
+  mixed pair cannot be misreported — and clicking it opens an editor that writes the repository's
   **local** config only, never the global one; an unset identity blocks the
   commit. Amend rewrites the previous commit, offering its message into an empty
   message field (and leaving text you have typed alone) — the dialog opens
   whenever a project is open, including on a clean working tree, so a
-  message-only amend needs nothing to be checked; "Push after commit"
-  pushes when done, using the branch's upstream or creating one
+  message-only amend needs nothing to be checked; Commit and Push
+  commits and then pushes (its tooltip says where, and it is disabled when there
+  is nowhere to push), using the branch's upstream or creating one
   (`--set-upstream`) when it has none, and reports "commit created, push failed"
   as its own outcome rather than as a failed commit. Files that cannot be split
   line by line — a deleted file, a binary, non-UTF-8, unreadable or very large one
