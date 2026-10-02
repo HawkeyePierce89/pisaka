@@ -1422,9 +1422,10 @@ struct BottomBar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isOn ? "Code completion: On" : "Code completion: Off")
+        // The tooltip through AppKit, not `.help` — `BarToolTip` says why.
+        .background(BarToolTip(text: isOn ? "Code completion: On" : "Code completion: Off"))
         // This control has never had a visible label, and now its six siblings
-        // have lost theirs too — `.help` is a tooltip rather than a name, so the
+        // have lost theirs too — a tooltip is not a name, so the
         // label and the state are spelled out here. Without them this is a
         // bottom-bar control that cannot be identified without sight, and it
         // silently changes how the editor behaves.
@@ -1437,7 +1438,7 @@ struct BottomBar: View {
     /// `accent` glyph while its panel is the visible one, and no ground with a
     /// `textSecondary` glyph otherwise.
     ///
-    /// **The visible titles are gone**, which is what makes both the `.help(` and
+    /// **The visible titles are gone**, which is what makes both the tooltip and
     /// the `.accessibilityLabel(` below mandatory rather than polite: an
     /// icon-only control whose `Label` is gone does not go silent — a `Button`
     /// combines its children, so a bare `Image(systemName:)` folds the
@@ -1470,8 +1471,57 @@ struct BottomBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(panel.title)
+        .background(BarToolTip(text: panel.title))
         .accessibilityLabel(panel.title)
+    }
+}
+
+/// A bottom-bar toggle's tooltip, carried by an AppKit view's `toolTip` behind
+/// the toggle rather than by SwiftUI's `.help`.
+///
+/// `.help` on these toggles never showed in the shipped window. Hosted headlessly
+/// — alone, and in the real main window — SwiftUI's tooltip bridge answers the
+/// right string at every toggle, with or without the bar's `.zIndex(1)`, the
+/// transparent title bar or the hit-transparent markers behind the content, so
+/// none of those is the cause, and the step that fails (the framework asking
+/// that bridge on hover) is not one this app can reach or a headless test can
+/// drive (`app-window.md`). An `NSView.toolTip` is AppKit's own mechanism,
+/// registered on the view itself as a tracking rect, and does not route through
+/// that bridge at all. `BottomBarToolTipTests` finds each of these views by its
+/// text and frame; gating rule ten requires this and refuses `.help(` in the two
+/// toggle builders, so the bar keeps one tooltip mechanism.
+///
+/// Placed with `.background(...)`, so it takes exactly the toggle's square. It
+/// draws nothing, answers no hit test — the click still lands on the SwiftUI
+/// button in front of it — and stays out of the accessibility tree, where the
+/// toggle's own `.accessibilityLabel` is the name.
+struct BarToolTip: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> BarToolTipView {
+        BarToolTipView()
+    }
+
+    func updateNSView(_ nsView: BarToolTipView, context: Context) {
+        nsView.toolTip = text
+    }
+}
+
+/// The `NSView` behind `BarToolTip`. Internal rather than private only because
+/// the representable names it in its signatures.
+final class BarToolTipView: NSView {
+    init() {
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 #endif

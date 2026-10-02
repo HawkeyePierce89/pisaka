@@ -186,7 +186,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
     while active and no ground under a `textSecondary` icon otherwise, each
     keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
-    is what makes `.help(` and `.accessibilityLabel(` mandatory on every one of
+    is what makes a tooltip and `.accessibilityLabel(` mandatory on every one of
     them rather than polite: the `Label(title, systemImage:)` they used to carry
     *was* each one's accessibility name, while an unhidden `Image(systemName:)`
     supplies a name of its own instead — the *symbol's* (`core-theme.md`'s rule
@@ -197,6 +197,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     body must read `BottomPanel.allCases` and name no panel case — so the bar
     keeps no second list of panels and a seventh panel arrives through the one
     builder whose name the rule already requires.
+
+    **The toggles' tooltips are AppKit's, not `.help`'s.** Each of the seven
+    carries `.background(BarToolTip(text:))` — an `NSViewRepresentable` whose
+    `BarToolTipView` sets `toolTip`, draws nothing, answers `nil` to every hit
+    test (the click lands on the SwiftUI button in front of it) and is not an
+    accessibility element — with the panel's `title` for a panel toggle and
+    "Code completion: On"/"Code completion: Off" for the switch. `.help` on the
+    same toggles never showed in the shipped window, and the diagnosis is
+    recorded here because it did **not** end at a cause this app could fix:
+    hosted headlessly in a titled window shaped like the main one, and also
+    read off the real main window inside the test host, SwiftUI's tooltip bridge
+    (the hosting view's dynamic tooltip manager, asked at a point) answered the
+    right string at every toggle — with and without the bar's `.zIndex(1)`, with
+    and without the transparent title bar, and with the hit-transparent markers
+    (`MainWindowChromeView`, `MainWindowFrameAutosaveView`) in place, an AppKit
+    hit test at each toggle landing on the window's hosting view itself. Three
+    of the four candidates are therefore ruled out as the cause. The fourth —
+    whether the window is key and the application active when the framework
+    decides to ask that bridge on hover — is the one step a headless test cannot
+    drive: the test host never becomes the active application, and there even a
+    bare `Button` with `.help` shows no tooltip, so no headless experiment
+    separates "never asked" from "asked and suppressed". With no fix to make at a
+    cause, the bar takes the plan's fallback: `NSView.toolTip` is AppKit's own
+    mechanism, registered as a tracking rect on the view itself, and does not go
+    through SwiftUI's bridge at all. Every other `.help` in the window is
+    untouched by this. `BottomBarToolTipTests` finds each tooltip view by its
+    text and its toggle-square frame, at scale 1.0 and 1.8; gating rule ten
+    requires `BarToolTip(` and refuses `.help(` in both builders, so the bar
+    keeps one tooltip mechanism.
 
     **Both draggable dividers are drawn from the roles too.**
     `panelDivider(available:)` fills `bgPanel` and overlays a one-point
@@ -254,11 +283,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the completion on/off switch (T-4): `completionToggleButton`, in the
     `bottomBarButton` idiom (the same square, the same two states, keyed on
     `settings.completionEnabled`), showing `lightbulb` when on and
-    `lightbulb.slash` when off with a `.help(…)` naming the state ("Code
-    completion: On" / "Code completion: Off"). It has never carried a `Label`
+    `lightbulb.slash` when off with a tooltip (`BarToolTip`, above) naming the
+    state ("Code completion: On" / "Code completion: Off"). It has never carried a `Label`
     title to serve as its accessibility name — and since part three its six
-    siblings have lost theirs too — while `.help` is a tooltip rather than a
-    name: the label and the state are therefore spelled out with
+    siblings have lost theirs too — while a tooltip is not a name: the label and the state are therefore spelled out with
     `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
     without which the one bottom-bar control that silently changes how the editor
     behaves could not be identified without sight. It writes **straight through** to

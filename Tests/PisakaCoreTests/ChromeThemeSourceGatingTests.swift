@@ -81,7 +81,9 @@ import XCTest
 ///   widgets owe the same rule from the other side: they hide every symbol they
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
-///   with the counts looking healthy.
+///   with the counts looking healthy. Each toggle's tooltip is an AppKit
+///   `toolTip` through `BarToolTip(`, and `.help(` is refused in the two
+///   toggle builders, because `.help` never showed there in the shipped window.
 /// - **Every label the bar draws stays on one line.** The bar states its own
 ///   height, so a label that wraps is clipped rather than accommodated — and it
 ///   wraps only at the width, scale or project name the reviewer did not try.
@@ -987,19 +989,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The window root, and the two toggle idioms whose bodies must each name a
     /// tooltip *and* an accessibility label.
     ///
+    /// The tooltip is `BarToolTip(` — an AppKit `toolTip` behind the toggle — and
+    /// `.help(` is **refused** in both bodies: `.help` never showed on these
+    /// toggles in the shipped window, so it is the mechanism the bar replaced, and
+    /// a body spelling both would carry two (`app-window.md` records the
+    /// diagnosis; `BottomBarToolTipTests` finds each tooltip view by text and
+    /// frame).
+    ///
     /// Part three made both icon-only. That is a visual decision with an
     /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
     /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
     /// into whatever element it is combined into — so dropping the title does
     /// not leave the control nameless, it leaves it named after a glyph. Either
-    /// way the name the title carried is gone, and `.help(` is a *tooltip*,
-    /// which VoiceOver does not read as a name. Nothing misrenders, no test
+    /// way the name the title carried is gone, and a tooltip is not a name
+    /// VoiceOver reads. Nothing misrenders, no test
     /// goes red, and the only reader who notices is the one who cannot see the
     /// bar at all.
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
-    /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
-    /// satisfy it. Both live in `BottomBar`, the bar's own view in the same
+    /// six's idiom, so a `BarToolTip(` somewhere else in this 1 500-line file
+    /// cannot satisfy it. Both live in `BottomBar`, the bar's own view in the same
     /// file since the design pass (so the bar can be hosted and measured alone),
     /// and the toggles are read inside that struct's braces. The call count is pinned too: one declaration plus one call,
     /// inside `panelToggles` — the bar builds its toggles from
@@ -1064,15 +1073,27 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 Self.matchedBody(after: declaration, in: code),
                 "\(declaration) is gone or renamed — re-point this rule rather than losing it"
             )
-            for required in [".help(", ".accessibilityLabel("] {
-                XCTAssertTrue(
-                    Self.spellsCall(required, in: body),
-                    """
-                    \(Self.windowRootFile)'s \(declaration) must spell \(required) — an icon-only \
-                    control is named after its glyph until an explicit label replaces that
-                    """
-                )
-            }
+            XCTAssertTrue(
+                Self.spellsCall(".accessibilityLabel(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) must spell .accessibilityLabel( — an icon-only \
+                control is named after its glyph until an explicit label replaces that
+                """
+            )
+            XCTAssertTrue(
+                Self.spellsCall("BarToolTip(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) must carry its tooltip through BarToolTip( — \
+                the AppKit toolTip the shipped window actually shows (app-window.md)
+                """
+            )
+            XCTAssertFalse(
+                Self.spellsCall(".help(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) spells .help( — the bar's tooltips are \
+                AppKit's, through BarToolTip(, and a second mechanism is the one that never showed
+                """
+            )
         }
         // One declaration and one call — the call inside `panelToggles`, over
         // `allCases`. A hand-written seventh call is a second list of panels.

@@ -2526,7 +2526,10 @@ The forty-six rules, each invisible to the compiler:
    keeps its platform title bar.
 10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
-   `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
+   `completionToggleButton` each spell `BarToolTip(` — the AppKit `toolTip`
+   that replaced `.help`, which never showed on these toggles in the shipped
+   window (`app-window.md` records the diagnosis) — and `.accessibilityLabel(`,
+   and neither spells `.help(`, so the bar keeps one tooltip mechanism; and
    `bottomBarButton(` occurs exactly twice — one declaration and one call inside
    `panelToggles`, which `bottomBar` draws, which builds the toggles from
    `BottomPanel.allCases` and names no panel case in its body, so the bar keeps
@@ -2534,12 +2537,12 @@ The forty-six rules, each invisible to the compiler:
    (`BottomPanelTests` pins the order; this rule pins who reads it). Part three made all seven controls icon-only, and the
    `Label(title, systemImage:)` they used to carry *was* each one's
    accessibility name; an unhidden `Image(systemName:)` supplies a name of its
-   own instead — the *symbol's* — and `.help(` is a tooltip VoiceOver does not
-   read as a name. So the visual decision silently renames named controls after
+   own instead — the *symbol's* — and a tooltip is not a name VoiceOver
+   reads. So the visual decision silently renames named controls after
    their glyphs: nothing misrenders, no other gate goes red, and the only reader
    who notices is the one who cannot see the bar. The bodies are read
-   brace-matched, in rule six's idiom, so a `.help(` elsewhere in a
-   fourteen-hundred-line file cannot satisfy it; the call count is pinned so a
+   brace-matched, in rule six's idiom, so a `BarToolTip(` elsewhere in a
+   fifteen-hundred-line file cannot satisfy it; the call count is pinned so a
    seventh dock panel arrives through the one builder whose name the rule
    already requires, rather than as a hand-written call shipping nameless. The
    **same rule read from the other side** covers the bar's three widgets: a

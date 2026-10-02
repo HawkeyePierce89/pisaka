@@ -173,22 +173,22 @@ Decisions made at plan time, so nothing is decided at run time:
 - Create or modify: an app-layer suite pinning the chosen mechanism
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (rule 10, if the mechanism changes)
 
-- [ ] Reproduce headlessly: host the bar in a titled window, as the dock harness does, and inspect what a toggle registers for its tooltip. Find why `.help` never shows. Candidate causes:
+- [x] Reproduce headlessly: host the bar in a titled window, as the dock harness does, and inspect what a toggle registers for its tooltip. Find why `.help` never shows. Candidate causes:
   - the bar's `.zIndex(1)` layering;
   - the transparent title bar;
   - the hit-transparent background views;
   - the window never becoming key in that state.
 
   Record the cause in `app-window.md`.
-- [ ] If the cause can be fixed so that `.help` shows, fix it at the cause; that fix then covers every `.help` in the window. Otherwise, give each panel toggle and the completion toggle an AppKit backing view and set its `toolTip`:
+- [x] If the cause can be fixed so that `.help` shows, fix it at the cause; that fix then covers every `.help` in the window. Otherwise, give each panel toggle and the completion toggle an AppKit backing view and set its `toolTip`:
   - a panel toggle shows `panel.title`;
   - the completion toggle shows `Code completion: On` or `Code completion: Off`.
 
   Accessibility labels and values do not change.
-- [ ] Pin it:
+- [x] Pin it:
   - an app-layer test asserts that every toggle exposes its tooltip text through the chosen mechanism. For the AppKit path, a walk of the view hierarchy finds a view with that `toolTip`;
   - update rule 10 so it requires the mechanism actually used.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 4: The caret readout
 
