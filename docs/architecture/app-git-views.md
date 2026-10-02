@@ -782,8 +782,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     thirty-one).
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
     a read-only
-    commit table (a fixed-`rowHeight` list of short hash, ref badges, subject,
-    author, date) observing `CommitLogModel`, with row selection setting
+    commit table (a fixed-`rowHeight` list of ref badges and subject, author,
+    relative date and short hash, in that order) observing `CommitLogModel`, with row selection setting
     `model.selected`. Each row's leading cell is the branch-graph gutter — the view
     lays the graph out once (`CommitGraphLayout.layout`) and threads each row plus
     the previous row's edges into `CommitGraphView` so cells align. The graph is
@@ -817,14 +817,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the previous commit's files. `onOpenCommitDiff` is threaded `PisakaApp →
     ContentView → CommitLogView → CommitDetailPane → CommitFileRow`. The
     filter/search bar (`LogFilterBar`) sits above the table once a repo is open.
+    **No title row (design pass).** The "History" header strip is gone: the
+    filter strip is the panel's only toolbar, and `refreshControls` — the
+    loading spinner (labelled "Loading commits") and the refresh button (its
+    label and help unchanged) — is handed to the bar as its `trailing` content,
+    after the search field. With no folder open the bar is not drawn and there is
+    nothing to refresh. **The date column is relative**: `RelativeCommitDate`
+    (`core-git-models.md`) answers from the raw `%aI` string, `now`, the user's
+    calendar and locale, and the row's tooltip is the exact date and time
+    (`.long` date, `.medium` time), or the raw string when it does not parse.
     **Chrome (part four (b)).** Every colour is a `ChromeColorRole` read from
     `\.chromeTheme`; the gutter's lane hues (`CommitGraphPalette`) are the one
-    table it does not read. The header strip is the Problems panel's shape
-    (`panelHeaderHeight`, `panelHeaderPaddingX`, its own bottom `hairline` by
-    overlay); below the filter bar a static, non-interactive **column header row**
-    (24 pt, 12 pt inset, 16 pt gap, bottom hairline) labels Hash / Message /
-    Author / Date in `textSecondary` `.subheadline` semibold over an empty graph
-    column when the gutter is drawn — it reads the rows' own widths from one
+    table it does not read. Below the filter bar a static, non-interactive
+    **column header row** (24 pt, 12 pt inset, 16 pt gap, bottom hairline) labels
+    Message / Author / Date / Hash in `textSecondary` `.subheadline` semibold
+    after an empty graph column when the gutter is drawn — it reads the rows' own widths from one
     private `CommitLogLayout` (hash 58, author 160, date 120, the subject column
     flexible), which is what keeps "Message" over the ref badges and subject.
     The graph column is `max(40, laneCount × 14 + 6)` pt, scaled: it still grows
@@ -839,7 +846,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `accent` text. The detail pane's file rows read Core's one changed-file
     answer — `FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)` and
     `FileStatus.spokenName` as the accessibility value — so no private table
-    remains. **No `Divider()`:** the header, the detail pane's subject and the
+    remains. **No `Divider()`:** the column header, the detail pane's subject and the
     list/detail divide each draw their own `hairline` by overlay. The divide is
     therefore no longer an `HSplitView` (whose divider the system draws in its
     separator value): the list owns a trailing hairline with a 5 pt drag strip
@@ -869,7 +876,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     edge, and the previous row's edges (`incomingEdges`) from the top edge to
     center — so a lane's bottom-half in one cell meets its top-half in the next to
     form a continuous line without any view owning the whole list.
-  - `LogFilterBar.swift` — the Log filter/search bar above the commit table. A thin
+  - `LogFilterBar.swift` — the Log filter/search bar above the commit table, and
+    the panel's only toolbar: generic over its owner's `trailing` controls (the
+    Log's spinner and refresh button), drawn at the row's trailing end after the
+    search field and scrolling with the row below the floor. A thin
     (untested) view whose server-side dimensions live in a single `@State private
     var draft: LogFilterDraft` plus a separate `search: String` (message search is
     not a `LogFilter` dimension). **Seeding rule:** a seed *assigns* the
@@ -992,7 +1002,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hairline sit outside both shapes. Crossing the floor with a field focused
     swaps the row and drops focus — harmless, the draft being `@State` above
     both. The fixed widths it replaced (≈1000 points at scale 1) clipped the
-    branch menu, the search, the Log header's refresh button and the rows' date
+    branch menu, the search, the Log's refresh button and the rows' date
     column below that; `ChromeThemeSourceGatingTests` rule twenty-one pins the
     shape (`core-theme.md`).
 

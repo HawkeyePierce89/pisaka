@@ -262,6 +262,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     path (`LogFilterDraft.selectRef(tag:)` → `filter.refSelection`) carries the
     selection verbatim so an apply fired before the ref list arrives cannot collapse
     the branch to "All".
+  - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
+    `date(from:)` parses git's raw strict ISO-8601 `%aI` string
+    (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`
+    answers, tried in order: `just now` under a minute (and up to a minute in the
+    future — clock skew between machines); `Nm ago` under an hour, even across
+    midnight; `Nh ago` on the same calendar day; `Yesterday` on the previous
+    calendar day; `N days ago` two to six calendar days back; otherwise a short
+    date `MMM d`, plus `, yyyy` when the year is not now's — which is also what a
+    date more than a minute in the future gets, since no relative phrase
+    describes it honestly. Calendar days are the injected calendar's, in its time
+    zone (`startOfDay` difference); the short date is formatted in the injected
+    locale. Unparsable input is returned unchanged, so the column never blanks.
+    The app passes `Date()`, `.current` and `.current`; the tests pin every
+    boundary at a fixed `now` in `Europe/Berlin` with `en_US_POSIX`, including
+    midnight and New Year crossings, future dates and unparsable input.
   - `LogFilterDraft.swift` — the Log filter bar's single editable draft, shared by
     the macOS bar and the iOS advanced-filter form. Pure, Foundation-only, fully
     unit-tested; the view layer holds one `LogFilterDraft` value (plus a separate

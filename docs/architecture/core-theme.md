@@ -984,12 +984,13 @@ a lane colour is an identity token, not a chrome meaning. Its eight hues are
 today's system values carried over so the gutter changes nothing visually;
 choosing hues that sit on the design's ground is an open design question.
 
-  - **The Log panel** — `CommitLogView.swift`, the environment path. The header
-    strip is the Problems panel's; a new static, non-interactive column-header
-    row (Hash / Message / Author / Date, 24 pt) reads the rows' own widths; rows
+  - **The Log panel** — `CommitLogView.swift`, the environment path. Since the
+    design pass it draws no title row: the refresh controls sit at the filter
+    strip's trailing end. A static, non-interactive column-header row
+    (Message / Author / Date / Hash, 24 pt) reads the rows' own widths; rows
     are 25 pt, 12 pt inset, 16 pt column gap; washes `accentTintStrong` /
-    `hoverTint`, ref badges `accent` on `accentTint`; the date keeps its short
-    date+time format. The graph column is `max(40, lanes × 14 + 6)` pt, scaled,
+    `hoverTint`, ref badges `accent` on `accentTint`; the date is relative
+    (`RelativeCommitDate`), the exact date and time its tooltip. The graph column is `max(40, lanes × 14 + 6)` pt, scaled,
     40 being a named minimum. The three `Divider()`s are the surface's own
     hairlines — including the list/detail divide, which is therefore a hairline
     with a drag strip rather than an `HSplitView`. Full entry in
@@ -2679,13 +2680,16 @@ The forty-six rules, each invisible to the compiler:
    `header` and its column-header row's `label(_:)`, the filter bar's
    `filterField(…)` and `dateBound(…)` (the branch picker's menu items are menu
    rows, not strip labels), Local Changes' `toolbar`, and the Pull Requests
-   panel's `header` and row `summaryLine`. Two of those have since moved.
+   panel's `header` and row `summaryLine`. Three of those have since moved.
    Part five (a) deleted the private `filterField(…)` when the bar's fields
    became the shared field, dropping that builder from the rule. Part five (b)
    moved the date bound's label into the shared checkbox's trailing title, so
    since then that label is counted in `ChromeCheckbox`
    (`ChromeControls.swift`) rather than in `dateBound(…)`, and `LogFilterBar.swift`
-   is no longer among the rule's files. The rule's files are therefore
+   is no longer among the rule's files. The design pass removed the Log's
+   `header` strip altogether — its refresh controls sit at the filter strip's
+   trailing end and draw no `Text` — so the Log's entry names the column
+   header's `label(_:)` alone. The rule's files are therefore
    `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `TerminalPanelView.swift`,
    `CommitLogView.swift`, `ChromeControls.swift`, `LocalChangesView.swift` and
    `PullRequestsPanelView.swift` — a list the suite checks against its own

@@ -1238,6 +1238,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// labels, so `refPicker` is not named), the Local Changes toolbar, and the
     /// Pull Requests header and row line.
     ///
+    /// The Log's header strip is gone since the design pass — the panel draws
+    /// no title row, its refresh controls sit at the filter strip's trailing
+    /// end and draw no `Text` — so the Log's entry names the column header's
+    /// `label(_:)` alone.
+    ///
     /// Part five (b) moved the date bound's label into the shared checkbox's
     /// trailing title, so the filter bar's entry is re-pointed at
     /// `ChromeCheckbox`, the one place that label is now drawn.
@@ -1245,7 +1250,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
-        ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
+        ("CommitLogView.swift", ["private func label(_ text: String)"]),
         ("ChromeControls.swift", ["struct ChromeCheckbox"]),
         ("LocalChangesView.swift", ["private var toolbar: some View"]),
         ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
@@ -2010,7 +2015,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
         ("CommitLogView.swift", [
-            ControlBuilder(path: ["private var header: some View"],
+            ControlBuilder(path: ["private var refreshControls: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private struct CommitFileRow", "var body: some View"],
                            required: [".accessibilityValue("], hidesSymbols: true),
@@ -2224,8 +2229,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// one, changes a count and a person decides whether the new site's
     /// neighbour names the activity.
     static let spinnerClassification: [String: (labelled: Int, hidden: Int)] = [
-        // The header's and the load-more row's: "History" and the row's place
-        // say nothing about loading, and "Loading…" is the empty list's alone.
+        // The refresh controls' and the load-more row's: the refresh glyph and
+        // the row's place say nothing about loading, and "Loading…" is the empty list's alone.
         "CommitLogView.swift": (labelled: 2, hidden: 0),
         // Alone in the dialog's loading state.
         "CommitDialogView.swift": (labelled: 1, hidden: 0),

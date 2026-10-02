@@ -306,9 +306,9 @@ Decisions made at plan time, so nothing is decided at run time:
 - Create: `Sources/PisakaCore/RelativeCommitDate.swift`, `Tests/PisakaCoreTests/RelativeCommitDateTests.swift`
 - Modify: `Sources/Pisaka/CommitLogView.swift`, `LogFilterBar.swift`, `ChromeThemeSourceGatingTests` (rules 20/21, if they name the header)
 
-- [ ] Remove the "History" header row. The refresh button (with its label and help) and the loading spinner move to the trailing end of the filter strip.
-- [ ] Columns, in order: the graph gutter (unchanged, leading), then Message, Author, Date, Hash. The hash is last, monospaced, in `textSecondary`. The column header follows the same order.
-- [ ] `RelativeCommitDate.text(for:now:calendar:locale:)`:
+- [x] Remove the "History" header row. The refresh button (with its label and help) and the loading spinner move to the trailing end of the filter strip.
+- [x] Columns, in order: the graph gutter (unchanged, leading), then Message, Author, Date, Hash. The hash is last, monospaced, in `textSecondary`. The column header follows the same order.
+- [x] `RelativeCommitDate.text(for:now:calendar:locale:)`:
   - `just now` under a minute;
   - `Nm ago` under an hour;
   - `Nh ago` under 24 hours on the same day;
@@ -317,12 +317,12 @@ Decisions made at plan time, so nothing is decided at run time:
   - a short date beyond that (`MMM d`, plus `, yyyy` in another year), formatted with the injected locale.
 
   It parses the raw `%aI` string and returns that raw string when parsing fails. The row's tooltip is the exact date and time.
-- [ ] Tests:
+- [x] Tests:
   - every boundary, with fixed `now`, calendar, time zone and the `en_US_POSIX` locale;
   - midnight crossings;
   - future dates;
   - unparsable input.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 10: Local Changes panel
 

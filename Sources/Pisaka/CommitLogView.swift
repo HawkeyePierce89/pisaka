@@ -5,9 +5,9 @@ import PisakaCore
 /// The Git Log view shown in the bottom dock panel: a
 /// read-only commit history list.
 ///
-/// Renders the commit table (short hash, ref badges, subject, author, date)
-/// wired to `CommitLogModel`, with a branch-graph gutter, a filter/search bar,
-/// and a commit-detail pane (changed files only) that opens beside the list when
+/// Renders the commit table (ref badges and subject, author, relative date,
+/// short hash) wired to `CommitLogModel`, with a branch-graph gutter, a
+/// filter/search bar carrying the refresh controls, and a commit-detail pane (changed files only) that opens beside the list when
 /// a commit is selected; double-clicking a changed file opens its
 /// commit-vs-parent diff in a separate window. Clicking a row sets
 /// `model.selected`. The view holds no domain logic — it observes
@@ -72,17 +72,19 @@ struct CommitLogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             // The filter/search bar sits above the list once a repo is open. Its
             // server-side dimensions re-fetch (generation-guarded); the message
-            // search filters the loaded commits client-side.
+            // search filters the loaded commits client-side. The panel draws no
+            // title row: the strip carries the refresh controls at its trailing
+            // end, and with no folder open there is nothing to refresh.
             if projectRoot != nil {
                 LogFilterBar(
                     references: model.references,
                     filter: model.filter,
                     searchQuery: model.searchQuery,
                     onApplyFilter: applyFilter,
-                    onSearch: { model.setSearchQuery($0) }
+                    onSearch: { model.setSearchQuery($0) },
+                    trailing: refreshControls
                 )
             }
             content
@@ -109,19 +111,14 @@ struct CommitLogView: View {
         }
     }
 
-    /// The panel's header strip: the Problems panel's shape — a
-    /// `panelHeaderHeight` strip drawing its own bottom `hairline`.
-    private var header: some View {
-        HStack(spacing: metrics.scaled(CommitLogLayout.headerGap)) {
-            Text("History")
-                .font(metrics.scaledFont(.body, weight: .semibold))
-                .foregroundStyle(theme.color(.textPrimary))
-                .lineLimit(1)
+    /// The loading spinner and the refresh button, drawn at the trailing end of
+    /// the filter strip — the Log's only toolbar.
+    private var refreshControls: some View {
+        HStack(spacing: metrics.scaled(CommitLogLayout.refreshGap)) {
             if model.isLoading {
                 ChromeSpinner()
                     .accessibilityLabel("Loading commits")
             }
-            Spacer()
             Button(action: refreshIfPossible) {
                 Image(systemName: "arrow.clockwise")
                     .font(metrics.scaledFont(.body))
@@ -133,9 +130,6 @@ struct CommitLogView: View {
             .help("Refresh commit history")
             .accessibilityLabel("Refresh commit history")
         }
-        .padding(.horizontal, metrics.scaled(ChromeGeometry.panelHeaderPaddingX))
-        .frame(height: metrics.scaled(ChromeGeometry.panelHeaderHeight))
-        .overlay(alignment: .bottom) { hairline(horizontal: true) }
     }
 
     /// The one-point rule a strip draws along its own edge: a horizontal rule
@@ -432,8 +426,8 @@ private enum CommitLogLayout {
     static let nodeRadius: Double = 3
     /// The edge lines' stroke width.
     static let lineWidth: Double = 2
-    /// Between the header strip's title and its spinner and refresh glyph.
-    static let headerGap: Double = 8
+    /// Between the filter strip's loading spinner and its refresh glyph.
+    static let refreshGap: Double = 8
     /// Around the empty-state sentence: the default `.padding()` inset.
     static let placeholderPadding: Double = 16
     /// The commit list's narrowest width beside the detail pane.
@@ -456,8 +450,8 @@ private enum CommitLogLayout {
     }
 }
 
-/// The static column header above the commit rows: Hash, Message, Author, Date,
-/// over an empty graph column when the gutter is drawn. It lays its labels out
+/// The static column header above the commit rows: Message, Author, Date, Hash,
+/// after an empty graph column when the gutter is drawn. It lays its labels out
 /// through the rows' own widths, so "Message" sits where the ref badges and the
 /// subject start. Non-interactive: there is no sorting.
 private struct CommitColumnHeader: View {
@@ -475,14 +469,14 @@ private struct CommitColumnHeader: View {
                 Color.clear
                     .frame(width: CommitLogLayout.graphWidth(laneCount: laneCount, metrics: metrics))
             }
-            label("Hash")
-                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
             label("Message")
                 .frame(maxWidth: .infinity, alignment: .leading)
             label("Author")
                 .frame(width: metrics.scaled(CommitLogLayout.authorWidth), alignment: .trailing)
             label("Date")
                 .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
+            label("Hash")
+                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
         }
         .padding(.horizontal, metrics.scaled(CommitLogLayout.rowPaddingX))
         .frame(height: metrics.scaled(CommitLogLayout.headerRowHeight))
@@ -502,8 +496,9 @@ private struct CommitColumnHeader: View {
     }
 }
 
-/// One commit row: short hash, any ref badges, the subject, the author, and the
-/// formatted date. Clicking selects the commit.
+/// One commit row: any ref badges and the subject, the author, the relative
+/// date (its exact date and time as the row's tooltip), and the short hash last.
+/// Clicking selects the commit.
 ///
 /// The selection wash is `accentTintStrong` whether or not the window is key —
 /// the Problems panel's precedent, whose rows carry no second, inactive state —
@@ -547,12 +542,6 @@ private struct CommitRow: View {
                 .frame(width: CommitLogLayout.graphWidth(laneCount: laneCount, metrics: metrics), height: rowHeight)
             }
 
-            Text(shortHash)
-                .font(metrics.scaledFont(.subheadline, design: .monospaced))
-                .foregroundStyle(theme.color(.textSecondary))
-                .lineLimit(1)
-                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
-
             HStack(spacing: metrics.scaled(CommitLogLayout.badgeGap)) {
                 ForEach(commit.refs, id: \.self) { ref in
                     RefBadge(name: ref)
@@ -571,18 +560,25 @@ private struct CommitRow: View {
                 .lineLimit(1)
                 .frame(width: metrics.scaled(CommitLogLayout.authorWidth), alignment: .trailing)
 
-            Text(displayDate)
+            Text(relativeDate)
                 .font(metrics.scaledFont(.callout))
                 .monospacedDigit()
                 .foregroundStyle(theme.color(.textSecondary))
                 .lineLimit(1)
                 .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
+
+            Text(shortHash)
+                .font(metrics.scaledFont(.subheadline, design: .monospaced))
+                .foregroundStyle(theme.color(.textSecondary))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(CommitLogLayout.hashWidth), alignment: .leading)
         }
         .padding(.horizontal, metrics.scaled(CommitLogLayout.rowPaddingX))
         .frame(maxWidth: .infinity, minHeight: rowHeight,
                maxHeight: rowHeight, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
+        .help(exactDate)
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
     }
@@ -595,19 +591,24 @@ private struct CommitRow: View {
         return .clear
     }
 
-    /// The author date formatted for display. `Commit.date` is the raw strict
-    /// ISO-8601 string (Core stays locale-free); parse it here and render a short,
-    /// locale-aware date+time. Falls back to the raw string if parsing fails.
-    private var displayDate: String {
-        guard let date = Self.isoParser.date(from: commit.date) else { return commit.date }
-        return Self.displayFormatter.string(from: date)
+    /// The author date said relative to now — Core's one answer
+    /// (`RelativeCommitDate`), in the user's calendar and locale; the raw string
+    /// when it does not parse.
+    private var relativeDate: String {
+        RelativeCommitDate.text(for: commit.date, now: Date(), calendar: .current, locale: .current)
     }
 
-    private static let isoParser = ISO8601DateFormatter()
-    private static let displayFormatter: DateFormatter = {
+    /// The row's tooltip: the exact author date and time, locale-aware, or the
+    /// raw string when it does not parse.
+    private var exactDate: String {
+        guard let date = RelativeCommitDate.date(from: commit.date) else { return commit.date }
+        return Self.exactFormatter.string(from: date)
+    }
+
+    private static let exactFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
+        formatter.dateStyle = .long
+        formatter.timeStyle = .medium
         return formatter
     }()
 }
