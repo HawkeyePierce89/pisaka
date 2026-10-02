@@ -159,7 +159,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the body is a `VStack(spacing: 0)` of `DockTabRow` above the existing
     `switch`, because this is the one place every panel passes through — one
     call site, every panel gets it, and the slot's pinned frame, its top
-    alignment, the clip, the divider and `panelHeightRule` are untouched (the
+    alignment, the bar's cover, the divider and `panelHeightRule` are untouched (the
     row is part of the slot's content, not a strip beside it, so
     `BottomPanelSourceGatingTests`' pins on the call and the `switch` labels
     read the same). `onSelect` asks `BottomPanel.tabActivation(bottomPanel
@@ -262,9 +262,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     path (`app-editor-overlays.md`) — differing only in having no second surface:
     the Preferences checkbox is the only place it is set.
     Panel-height persistence: instead of the old recreated `VSplitView` (which
-    reset the height on every panel switch / hide-show), `mainArea` wraps a
-    `GeometryReader` around a manual `VStack { editorSplit; panelDivider;
-    panelContent(panel).frame(height: …) }`. A `@State private var panelHeight:
+    reset the height on every panel switch / hide-show), `mainArea` hands
+    `BottomDockColumn` (its own entry below) the three parts of a manual
+    `VStack { editorSplit; panelDivider; panelContent(panel).frame(height: …) }`,
+    which the column stacks inside its `GeometryReader`. A `@State private var panelHeight:
     CGFloat = 240` holds the height *independently of which panel is shown*, so it
     survives switches and hide/show (`@State`-only — cross-launch `@AppStorage` is
     YAGNI). What a *legal* height is, this view no longer decides: the private
@@ -283,7 +284,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     it. That is an oscillation, not a track, and the pointer drifts off the
     divider; the drag-start base capture prevents frame-to-frame *compounding* but
     cannot fix a translation read against a moving origin. So the column publishes
-    `.coordinateSpace(name: panelColumnSpace)` and the gesture is
+    a named coordinate space — `BottomDockColumn` publishes it, under the name
+    `panelColumnSpace` that `ContentView` passes in as `coordinateSpaceName` — and
+    the gesture is
     `DragGesture(minimumDistance: 0, coordinateSpace: .named(…))`: the column's
     frame is stationary for the whole drag, the cumulative translation is absolute,
     and the mapping is one-to-one. `.global` would serve as well — the container is
@@ -330,40 +333,59 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     metrics.scaled(120)` on its body — a tie with the floor, so invisible in the
     ordinary case and live on the degenerate path, where it would have slid the
     terminal's tab bar (the only way to switch or close a session) out from under
-    the clip. It is deleted too, and the rule now holds for all six panels in
-    their own files. The *guarantee* is `.clipped()` on the column,
-    **pinned to the area first** — `.frame(width: geo.size.width, height:
-    geo.size.height, alignment: .topLeading)` — because `.clipped()` clips a view
-    to the frame it *reported*, not to the one it was proposed: a column whose
-    children refuse to shrink reports the oversized height, and a clip attached
-    straight to it would clip to the overflow, i.e. to nothing, which is the exact
-    case it is here to catch. With the frame stated the clip rect is the
-    `GeometryReader`'s own and top alignment sends any surplus off the bottom
-    edge. The alignment is **leading** as well as top, and that half is not
-    cosmetic: `.top` alone centers horizontally, and the column *is* wider than
-    the area in a narrow window — the split's panes state minimum widths the
-    `GeometryReader` erases, so their sum can exceed the window minimum below —
-    at which point a centered column has the clip take half the surplus off each
-    side, cutting the project tree's leading edge. Leading keeps the placement the
-    `GeometryReader` gave the column before the pin, so only the bottom is ever
-    trimmed. The **slot itself is top-aligned** for the same reason one level in:
-    a fixed frame reports the height it was given, so a child that refuses the
-    proposal overflows it — and the default `.center` alignment would split that
-    surplus evenly, sending half *upwards*, over the divider and into the editor,
-    where the column's clip cannot reach it because it is inside the clipped rect.
-    `alignment: .top` puts the whole surplus below the slot, which is the column's
-    bottom edge, which is where the clip is. Without it the guarantee covers the
+    the bar. It is deleted too, and the rule now holds for all six panels in
+    their own files. The *guarantee* is **drawing order at the window root**: the
+    body draws `bottomBar` with an explicit `.zIndex(1)` on its own opaque
+    `bgPanel` ground, so whatever spills off `mainArea`'s bottom edge — a future
+    layout edit, an intrinsic minimum in the editor zone's fixed strips, an
+    arithmetic slip — lands *under* the bar, never over it, and clicks on the bar
+    still reach the bar. It used to be `.clipped()` on the dock column, and **the
+    clip was the lost-top-row bug**: with any panel open the whole editor split —
+    the tree's header, the tab strip — sat under the transparent title bar by
+    exactly the top safe-area inset (so it never grew with the interface scale),
+    and with the dock closed it sat correctly. Bisected in a hosted window
+    (`BottomDockLayoutTests`' doc comment carries the measurements): the
+    `GeometryReader`, the pin and the coordinate space are innocent, and **a clip
+    of any spelling — `.clipped()`, `.clipShape`, `.mask`, a clipped compositing
+    group — applied to any ancestor of an `HSplitView`** leaves the split's own
+    frame in place while its panes' content drops the inset and rises under the
+    title bar; a pure-SwiftUI stack under the same clip keeps it. The dock branch
+    was the only one with a clip above the split. With an editor that refuses to
+    shrink the clipped column was worse still, pushing the tree's row past the
+    window's top edge. So the column now carries **no clip**, and the overflow
+    guarantee moved to the root — no constant offset, no padding sized to the
+    title bar, no hand-added `safeAreaInsets`, and `MainWindowChrome` untouched.
+    The column stays **pinned to the area** — `.frame(width: geo.size.width,
+    height: geo.size.height, alignment: .topLeading)` — because a column whose
+    children refuse to shrink would otherwise report its oversized height, and
+    the coordinate space published on it would be a rect that grows with the
+    overflow; with the frame stated it is the `GeometryReader`'s own rect and top
+    alignment sends any surplus off the bottom edge, under the bar. The alignment
+    is **leading** as well as top, and that half is not cosmetic: `.top` alone
+    centers horizontally, and the column *is* wider than the area in a narrow
+    window — the split's panes state minimum widths the `GeometryReader` erases,
+    so their sum can exceed the window minimum below — at which point a centered
+    column pushes half the surplus off the leading edge, cutting the project
+    tree's leading edge. Leading keeps the placement the `GeometryReader` gave
+    the column before the pin and sends the whole surplus off the trailing edge,
+    where the window ends. The **slot itself is top-aligned** for the same
+    reason one level in: a fixed frame reports the height it was given, so a
+    child that refuses the proposal overflows it — and the default `.center`
+    alignment would split that surplus evenly, sending half *upwards*, over the
+    divider and into the editor, inside `mainArea`, where the bar's cover cannot
+    reach it. `alignment: .top` puts the whole surplus below the slot, which is
+    the column's bottom edge, under the bar. Without it the guarantee covers the
     bottom bar and nothing else, and "never over the divider above" would rest on
-    the precondition alone — a source rule, which is precisely what the clip is
-    here not to depend on. So:
-    the clamp rests on arithmetic and the precondition rests on every child
-    honoring its proposal, and both can be wrong, so the clip makes "nothing inside
-    `mainArea` paints over the bar" unconditional against future layout edits and
-    against the editor zone's own fixed strips (breadcrumb, tab strip, consent
-    banner, find bar). The clip alone would not do — it would silently hide panel
-    content instead of shrinking it. Nothing that must escape the window content
-    passes through the column: the completion panel, the hover popover and context
-    menus are separate windows. All three parts live in the view layer, where
+    the precondition alone — a source rule, which is precisely what the cover is
+    here not to depend on. So: the clamp rests on arithmetic and the precondition
+    rests on every child honoring its proposal, and both can be wrong, so the
+    drawing order makes "nothing inside `mainArea` paints over the bar"
+    unconditional against future layout edits and against the editor zone's own
+    fixed strips (breadcrumb, tab strip, consent banner, find bar). The cover
+    alone would not do — it would silently hide panel content instead of
+    shrinking it. Nothing that must escape the window content passes through the
+    column: the completion panel, the hover popover and context menus are
+    separate windows. All three parts live in the view layer, where
     `swift test` cannot see them and where each can be undone by an edit that
     compiles and reviews cleanly, so `BottomPanelSourceGatingTests` reads
     `ContentView.swift` (comment- and literal-stripped, the
@@ -383,15 +405,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     suite stayed green — which is the miss `TerminalPanelView` demonstrated for the
     whole life of the rule, and the reason the inventory is tied to the enum
     rather than merely listed. Also pinned: the gesture
-    naming `panelColumnSpace` with `minimumDistance: 0`, the top-leading pin
-    ordered before the clip, and the slot's own `alignment: .top` — read out of
-    exactly the modifiers between the `panelContent(panel)` call and that pin, so
-    the column's `.topLeading` cannot satisfy it by accident. All the string matches are made against
+    naming `panelColumnSpace` with `minimumDistance: 0` and the column
+    publishing the name it is handed; the top-leading pin in
+    `BottomDockColumn.swift`, **no `clipped`, `clipShape`, `mask` or
+    `cornerRadius` — called with an argument list or a trailing closure —
+    anywhere in that file, nor in `ContentView`'s `body`,
+    `mainArea` or `editorSplit`** — the split's other ancestors, so a clip that
+    moves one level up is refused too (a pane that needs one clips in its own
+    declaration, below the split, as the markdown split does) — and
+    `bottomBar.zIndex(1)` plus the bar's own `bgPanel` background in
+    `ContentView.swift` — the source
+    rule that keeps the lost top row from coming back, since a clip is the most
+    natural thing to add back to a column whose overflow must not reach the bar;
+    and the slot's own `alignment: .top` — read out of exactly the modifiers
+    between the `panelContent(panel)` call and the end of the column's `panel:`
+    builder, so the column's `.topLeading` cannot satisfy it by accident. The
+    layout itself — the top row's y identical with the dock open and closed and
+    flush with `contentLayoutRect`'s top, at interface scale 1.0 and 1.8 and
+    with the vertical-tabs split's three panes; the bar's frame unchanged; the
+    slot ending at or above the bar; an overflowing column keeping its top row
+    flush and landing under the bar, whose pixels and clicks stay its own,
+    measured only once the harness's layout has settled — is pinned by `BottomDockLayoutTests`
+    in the app-layer bundle, the one gate that places views. All the string matches are made against
     whitespace-stripped source, so a reformat that wraps an argument list cannot
     fail the suite while the rule it guards is intact.
     **The window's minimum content size moved to the body root — both axes.**
     `minHeight: metrics.scaled(400)` and `minWidth: metrics.scaled(640)` used to
-    sit on `editorSplit`, where a `GeometryReader` erases its children's minimum
+    sit on `editorSplit`, where `BottomDockColumn`'s `GeometryReader` erases its children's minimum
     sizes — so with a panel shown neither reached the window as a minimum content
     size (they only did in the no-panel branch, which leaves no `GeometryReader`
     between the split and the window, so the two branches disagreed about how
@@ -410,7 +450,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     window's width minimum in both branches. Raising the root `minWidth` to the composed sum
     would hard-code a number that moves with the tab orientation and with the
     panes' own floors, and the case it would rule out is the one the top-*leading*
-    pin and the clip below already handle — which is why that alignment is
+    pin above already handles — which is why that alignment is
     described there as a live case rather than a hypothetical. The 320pt `minWidth` on `editorZone` is a different
     number for a different job and stays where it is (`app-editor.md`): it is the
     text view's floor against the statement pane beside it, not the window's.
@@ -447,8 +487,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on the `VStack` that is the tab strip plus `editorZone` in the horizontal one
     — rather than derived from the text view's intrinsic width. `markdownSplitContent(for:size:)` spends the divider's 5 scaled
     points first and hands what is left to `MarkdownPreviewWidthRule`, so the two
-    frames sum to no more than the area, and pins/clips the pair for `mainArea`'s
-    reason. The gesture is measured in `markdownSplitSpace` — the split's own
+    frames sum to no more than the area, and pins and clips the pair so a half
+    that refuses its proposal cannot paint over the other. That clip is safe where
+    the dock column's was not: it sits inside one of `editorSplit`'s panes, below
+    the `HSplitView`, and only a clip *above* that split loses the top inset. The gesture is measured in `markdownSplitSpace` — the split's own
     frame, which cannot move while the divider does, `panelColumnSpace`'s reason
     on the horizontal axis — with `minimumDistance: 0`, an opening
     zero-translation frame that writes nothing (a bare click must change no
@@ -571,6 +613,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     still leaves room for the panel's content. The panel *content* states no
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
+  - `BottomDockColumn.swift` (macOS) — the bottom dock's container, extracted
+    from `ContentView.mainArea`: a generic `BottomDockColumn<Editor, Divider,
+    Panel>` that `mainArea` renders whenever a dock panel is visible (the
+    no-panel branch renders `editorSplit` directly). It owns the container's
+    geometry and nothing else — the `GeometryReader`, the `VStack(spacing: 0)` of
+    editor (`maxHeight: .infinity`) over divider over panel slot, the
+    `.topLeading` pin to the reader's size, and the named coordinate space
+    published on the pinned rect. *What* it stacks arrives through three
+    builders: the editor, and the divider and panel slot built from the available
+    height, which is the one input `BottomPanelHeightRule` needs; the slot
+    arrives with its rule-sized, top-aligned frame already on it, and the column
+    adds nothing. The space's name is the caller's (`coordinateSpaceName`,
+    `ContentView.panelColumnSpace`), because the drag that reads it is built
+    there. **It carries no clip, and must not**: a clip on any ancestor of the
+    editor's `HSplitView` makes the split's panes drop the window's top safe-area
+    inset and slide under the transparent title bar — the lost-top-row bug,
+    whose bisection and fix are in `ContentView.swift`'s entry above. The
+    guarantees it keeps: the divider drag is measured in its stationary pinned
+    rect and tracks one-to-one; `BottomPanelHeightRule` stays the one authority
+    on the slot's height (the column sizes nothing); top-leading alignment sends
+    any surplus down, under the bar, and off the trailing edge, never over the
+    project tree's leading edge; and "nothing paints over the bottom bar" is the
+    window root's drawing order, not this view's. The window's minimum content
+    size stays stated at the body root, because this column's `GeometryReader`
+    erases its children's minimums. `BottomPanelSourceGatingTests` pins the pin,
+    the absence of any clip spelling and the published space;
+    `BottomDockLayoutTests` (app-layer bundle) hosts it in a real window.
+    **Why it is a file of its own**: testability of the real container.
+    `ContentView` needs dozens of models and closures to exist at all, so no
+    layout suite can build it; this view needs none of them, so the suite hosts
+    the very container the app renders, with stub panes, rather than a copy that
+    could drift from it.
+
   - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (dismisses and calls, wired to the same open panel) and `onOpenRecent` (dismisses and calls with the URL). Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is a short list with only the "Open Folder…" item. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
 
     **On the chrome roles** since part three (`core-theme.md`): it reads

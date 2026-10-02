@@ -2,10 +2,12 @@ import XCTest
 
 /// Static verification of the bottom dock panel's layout rules — the ones
 /// `swift test` cannot otherwise see because they live in the (untested by
-/// convention) macOS view layer, in `ContentView.swift`.
+/// convention) macOS view layer, in `ContentView.swift` and the dock container
+/// it delegates to, `BottomDockColumn.swift`.
 ///
 /// A repository-file suite in the `ZoomSourceGatingTests` mould: it reads
-/// `Sources/Pisaka/ContentView.swift` through `#filePath` with Foundation only
+/// `Sources/Pisaka/ContentView.swift` and `Sources/Pisaka/BottomDockColumn.swift`
+/// through `#filePath` with Foundation only
 /// and reuses `LSPSourceGatingTests`'s Swift scanner, so **comments and string
 /// literals are stripped before anything is matched**. That is load-bearing
 /// here for the usual reason and then some: the file documents every one of
@@ -49,23 +51,47 @@ import XCTest
 ///   `minimumDistance: 0`.** `DragGesture()` — the default — compiles and
 ///   type-checks identically while measuring against an origin the drag itself
 ///   moves, which oscillates instead of tracking. Nothing but a human dragging
-///   the divider can tell the two apart at runtime.
-/// - **The column is pinned to the area and then clipped.** `.clipped()` clips a
-///   view to the frame it *reported*, not the one it was proposed, so dropping
-///   the `.frame(width:height:alignment:)` in front of it silently turns the
-///   guarantee into a no-op in precisely the overflow case it exists for.
+///   the divider can tell the two apart at runtime. The drag is built in
+///   `ContentView`, the space is published by `BottomDockColumn`, and the name
+///   crosses the seam as the column's `coordinateSpaceName`, so all three
+///   halves are read.
+/// - **The column is pinned to the area, top-leading, and carries no clip; the
+///   bottom bar is drawn above it instead.** A clip of any spelling —
+///   `clipped`, `clipShape`, `mask`, `cornerRadius`, called with an argument
+///   list or a trailing closure alike — anywhere in
+///   `BottomDockColumn.swift`, or in `ContentView`'s `body`, `mainArea` or
+///   `editorSplit`, sits above the editor's `HSplitView`, and a clip above that split makes its
+///   panes drop the window's top safe-area inset: the whole top row slides under
+///   the transparent title bar with the dock open and sits correctly with it
+///   closed. It compiles, it is invisible in every gate but a hosted window
+///   (`BottomDockLayoutTests` measures it and records the bisection), and it is
+///   the most natural thing to add back to a column whose overflow must not
+///   reach the bottom bar. That guarantee is the root's instead: `bottomBar`
+///   carries `.zIndex(1)` in `ContentView.body`, on its own opaque `bgPanel`
+///   ground — both halves read — so anything spilling off `mainArea`'s bottom
+///   edge lands under it. The pin
+///   stays because the coordinate space is published on it and because its
+///   top-leading alignment is what sends the surplus down and to the trailing
+///   edge rather than up or over the project tree's leading edge.
 /// - **The slot itself is top-aligned.** The same argument one level in, and the
 ///   other half of the same guarantee: `.frame(height:)` defaults to `.center`,
 ///   which splits an overflowing child's surplus evenly and sends half of it
-///   *upwards*, over the divider and into the editor — inside the clipped rect,
-///   where the clip cannot reach it. Deleting `alignment: .top` compiles, reads
+///   *upwards*, over the divider and into the editor — inside `mainArea`,
+///   where the bar's cover cannot reach it. Deleting `alignment: .top` compiles, reads
 ///   as a harmless simplification, and leaves the guarantee covering the bottom
-///   bar alone.
+///   bar alone. The slot is built in `ContentView`'s `panel:` builder, so the
+///   rule reads the modifiers between `panelContent(panel)` and that builder's
+///   closing brace.
 final class BottomPanelSourceGatingTests: XCTestCase {
 
     /// `ContentView.swift`, comment- and literal-stripped.
     private func contentViewCode() throws -> String {
         try appSource(named: "ContentView.swift")
+    }
+
+    /// `BottomDockColumn.swift`, comment- and literal-stripped.
+    private func dockColumnCode() throws -> String {
+        try appSource(named: "BottomDockColumn.swift")
     }
 
     /// One file under `Sources/Pisaka/`, comment- and literal-stripped.
@@ -196,62 +222,113 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             """
         )
         XCTAssertTrue(
-            code.contains(Self.whitespaceFree("coordinateSpace(name: Self.panelColumnSpace)")),
+            code.contains(Self.whitespaceFree("BottomDockColumn(coordinateSpaceName: Self.panelColumnSpace)")),
+            "the dock column is no longer handed the space the divider drag is measured in"
+        )
+        XCTAssertTrue(
+            Self.whitespaceFree(try dockColumnCode())
+                .contains(Self.whitespaceFree("coordinateSpace(name: coordinateSpaceName)")),
             "the panel column no longer publishes the space its drag is measured in"
         )
     }
 
-    // MARK: - The clip is pinned to the area it must clip to
+    // MARK: - The column is pinned and unclipped; the bar covers its overflow
 
-    func testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped() throws {
-        let code = Self.whitespaceFree(try contentViewCode())
+    /// Every clipping modifier, in both call syntaxes: whitespace removal turns
+    /// `.mask { Rectangle() }` into `mask{`, which an argument-list-only match
+    /// would let through.
+    private static let clipSpellings = ["clipped", "clipShape", "mask", "cornerRadius"]
+        .flatMap { [$0 + "(", $0 + "{"] }
+
+    func testThePanelColumnIsPinnedUnclippedAndCoveredByTheBottomBar() throws {
+        let column = Self.whitespaceFree(try dockColumnCode())
         let pin = Self.whitespaceFree(
             "frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)"
         )
-        let pinned = try XCTUnwrap(code.range(of: pin), """
-            The panel column is not pinned to the `GeometryReader`'s size, top-*leading*. \
-            `.clipped()` clips to the frame a view *reported*, not the one it was proposed, so an \
-            oversized column would be clipped to its own overflow — a no-op in exactly the case \
-            the clip exists for. The leading half matters just as much: `.top` centers \
-            horizontally, so a column wider than the area (the split's panes state minimum widths \
-            the `GeometryReader` erases) would have the clip take half the surplus off each side, \
-            cutting the project tree's leading edge.
+        XCTAssertTrue(column.contains(pin), """
+            The panel column is not pinned to the `GeometryReader`'s size, top-*leading*. Without \
+            the pin an oversized column reports its overflow and the divider's coordinate space \
+            grows with it; `.top` alone centers horizontally, so a column wider than the area (the \
+            split's panes state minimum widths the `GeometryReader` erases) would push half the \
+            surplus off the project tree's leading edge.
             """)
-        let clip = try XCTUnwrap(code.range(of: "clipped()"), "the panel column is no longer clipped")
-        XCTAssertLessThan(
-            pinned.lowerBound, clip.lowerBound,
-            "the pin must come before the clip, or the clip rect is still the column's own size"
+        for clip in Self.clipSpellings {
+            XCTAssertFalse(column.contains(clip), """
+                `BottomDockColumn` contains `\(clip)`. A clip above the editor's `HSplitView` makes \
+                the split's panes drop the window's top safe-area inset, so with the dock open the \
+                whole top row slides under the title bar (`BottomDockLayoutTests`). The overflow \
+                guarantee is the bottom bar's `.zIndex(1)` in `ContentView.body`, not a clip here.
+                """)
+        }
+        // The column is one ancestor of the split; `ContentView` holds the
+        // others — `body` wraps `mainArea`, `mainArea` wraps the column, and
+        // `editorSplit` is the split's own modifier chain — and a clip at any of
+        // them restores the bug just as one in the column would. A clip a pane
+        // needs belongs in that pane's own declaration, below the split, as the
+        // markdown split's does.
+        let contentView = try contentViewCode()
+        for name in ["body", "mainArea", "editorSplit"] {
+            let declaration = Self.whitespaceFree(try XCTUnwrap(
+                Self.declarationBody(after: name, in: contentView),
+                "ContentView no longer declares `\(name)` — update this suite deliberately"
+            ))
+            for clip in Self.clipSpellings {
+                XCTAssertFalse(declaration.contains(clip), """
+                    `ContentView.\(name)` contains `\(clip)`. It is an ancestor of the editor's \
+                    `HSplitView`, and a clip there drops the panes' top safe-area inset exactly as \
+                    one in `BottomDockColumn` would (`BottomDockLayoutTests`).
+                    """)
+            }
+        }
+        XCTAssertTrue(
+            Self.whitespaceFree(contentView).contains("bottomBar.zIndex(1)"),
+            """
+            The bottom bar is no longer drawn above `mainArea` by an explicit `.zIndex(1)`. That \
+            order — on the bar's own opaque ground — is the whole of "the panel never paints over \
+            the bottom bar" now that the dock column carries no clip.
+            """
+        )
+        let bar = Self.whitespaceFree(try XCTUnwrap(
+            Self.declarationBody(after: "bottomBar", in: contentView),
+            "ContentView no longer declares `bottomBar` — update this suite deliberately"
+        ))
+        XCTAssertTrue(
+            bar.contains(Self.whitespaceFree("background(chromeColor(.bgPanel))")),
+            """
+            The bottom bar no longer paints its own opaque `bgPanel` ground. The `.zIndex(1)` \
+            above only orders the bar over `mainArea`; without the ground, whatever overflows the \
+            dock column shows through the bar.
+            """
         )
     }
 
-    // MARK: - The slot sends its surplus where the clip can reach it
+    // MARK: - The slot sends its surplus where the bar covers it
 
     func testThePanelSlotIsTopAligned() throws {
         let code = Self.whitespaceFree(try contentViewCode())
+        let column = try XCTUnwrap(
+            code.range(of: "BottomDockColumn("),
+            "ContentView no longer builds the dock through BottomDockColumn — update this suite deliberately"
+        )
         let slot = try XCTUnwrap(
-            code.range(of: "panelContent(panel)"),
+            code.range(of: "panelContent(panel)", range: column.upperBound..<code.endIndex),
             "panelContent(_:) is no longer called with the selected panel — update this suite deliberately"
         )
-        let pin = try XCTUnwrap(
-            code.range(of: Self.whitespaceFree("frame(width: geo.size.width")),
-            "the panel column is no longer pinned to the area — see testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped"
+        // The `panel:` builder's closing brace. The slot's modifiers carry no
+        // brace of their own, so everything up to it is the fixed-height slot's
+        // modifiers and nothing else.
+        let builderEnd = try XCTUnwrap(
+            code.range(of: "}", range: slot.upperBound..<code.endIndex),
+            "the panel slot's builder is not closed — the scan is broken, not the code"
         )
-        XCTAssertLessThan(
-            slot.upperBound, pin.lowerBound,
-            "the slot must be inside the pinned column, or this suite is reading the wrong modifiers"
-        )
-        // Everything between the call and the column's own pin: the fixed-height
-        // slot's modifiers, and nothing else. The column pin's own
-        // `alignment: .topLeading` is past `pin.lowerBound` and so cannot satisfy
-        // this by accident.
         XCTAssertTrue(
-            code[slot.upperBound..<pin.lowerBound].contains("alignment:.top"),
+            code[slot.upperBound..<builderEnd.lowerBound].contains("alignment:.top"),
             """
             The fixed-height panel slot is no longer top-aligned. `.frame(height:)` defaults to \
             `.center`, so a child that refuses the proposal overflows *symmetrically*: the downward \
-            half lands on the column's bottom edge where `.clipped()` removes it, and the upward \
-            half paints over the divider and into the editor — inside the clipped rect, where the \
-            clip cannot reach it. Without this the overdraw guarantee covers the bottom bar and \
+            half lands on the column's bottom edge, under the bottom bar, and the upward half \
+            paints over the divider and into the editor — inside `mainArea`, where the bar's cover \
+            cannot reach it. Without this the overdraw guarantee covers the bottom bar and \
             nothing else, which is half of what the bug report names.
             """
         )

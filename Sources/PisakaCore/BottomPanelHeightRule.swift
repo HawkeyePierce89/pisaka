@@ -33,7 +33,7 @@ import Foundation
 /// scale, where the scaled floor alone can exceed what the reservation leaves —
 /// the rule returns the **ceiling**, not the floor. A floor that does not fit is
 /// not a floor; honoring it would hand the layout a height the space cannot
-/// hold, and an unclipped column would then paint over the bar below it. So the
+/// hold, and the column would then overflow onto the bar below it. So the
 /// panel shrinks, and `height <= available` holds unconditionally.
 ///
 /// ## Why one floor for every panel
@@ -49,9 +49,10 @@ import Foundation
 /// at the floor — every panel in it is a scrollable list, table or terminal.
 ///
 /// That clamp is the *behavior* and the absent inner minimums are its
-/// *precondition*; the view additionally clips the column, which is the
-/// *guarantee* — arithmetic and honored proposals can both be wrong, a clip
-/// cannot.
+/// *precondition*; the view additionally draws the bar above the column, on
+/// its own opaque ground, which is the *guarantee* — arithmetic and honored
+/// proposals can both be wrong, drawing order cannot. (Not a clip: a clip above
+/// the editor's split costs the window its top row, `BottomDockColumn`.)
 public struct BottomPanelHeightRule: Equatable, Hashable, Sendable {
     /// The smallest height the panel is dragged to while it fits (see the
     /// degenerate case, which goes below it).

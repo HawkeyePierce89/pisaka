@@ -795,7 +795,7 @@ fifteen, then to sixteen with the review round's fix below.
     path, spending `textPrimary`, `textSecondary`, `accent` and `hairline`. Its
     contract: one row across the top of the dock, drawn **once**, from
     `ContentView.panelContent(_:)`, above whichever panel is showing — inside the
-    fixed-height slot, so the slot's pinned frame, its top alignment, the clip,
+    fixed-height slot, so the slot's pinned frame, its top alignment, the bar's cover,
     the divider and `BottomPanelHeightRule` are all untouched and the row states
     no minimum height anywhere. The tabs are `BottomPanel.allCases` in the bar's
     own order, each named by `BottomPanel.title`; the row is

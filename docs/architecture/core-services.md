@@ -174,8 +174,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     short area at a large interface scale, where the scaled floor alone can exceed
     what the reservation leaves — the rule returns the **ceiling**, not the floor:
     a floor that does not fit is not a floor, and honoring it would hand the layout
-    a height the space cannot hold, which an unclipped column would then paint over
-    the bar below it. So `height <= available` holds unconditionally, and the
+    a height the space cannot hold, whose surplus would then spill off the column
+    and vanish under the bar below it. So `height <= available` holds unconditionally, and the
     result is never negative. Non-finite inputs are guarded the way
     `ZoomScaleRule.clamp` guards them (`core-zoom.md`) rather than left to survive
     a `min`/`max`, where every comparison with NaN is false: a non-finite
@@ -194,7 +194,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     lost at 120pt — every panel in the slot is a scrollable list, table or
     terminal. The three former inner minimums in `panelContent(_:)` are deleted
     for this reason (`app-window.md`), which is the *precondition* the clamp
-    behavior needs; the column's `.clipped()` is the *guarantee* on top of both.
+    behavior needs; the bottom bar's drawing order — `.zIndex(1)` at the window
+    root, on its own opaque ground — is the *guarantee* on top of both. It was a
+    `.clipped()` on the column once, and that clip, sitting above the editor's
+    `HSplitView`, is what lost the window's top row under the title bar
+    (`app-window.md`).
     **Why this is Core and not view glue.** Two call sites must agree on every
     number — the divider drag and the rendered `.frame(height:)` — and "what is a
     legal panel height" is a decision with a named degenerate case, not
