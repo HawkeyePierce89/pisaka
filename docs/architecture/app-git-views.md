@@ -496,6 +496,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `textSecondary` when off, and the line numbers and the placeholder are
     `textSecondary`. The dialog around the panel is swept too — its own entry's
     chrome paragraph above.
+    **A changed line is washed across the whole pane.** The rows sit in a
+    `LazyVStack` inside a two-axis `ScrollView`, and the horizontal axis proposes
+    no width, so a row's `maxWidth: .infinity` alone resolves to the content's own
+    width and its wash would stop after its text; a `LazyVStack` also takes its
+    width from its first row rather than its widest, so an overflowing line
+    could not widen the content either. So the content's width is the larger of
+    two *measured* values — the pane's visible width, read from a
+    `GeometryReader` around the scroll view, and the widest realized row's
+    natural width, which each row reports through `onGeometryChange` before its
+    fill (the row hugs its content there, holding no spacer, so it reports its
+    own width and never the width it is given) and which resets when the lines
+    change — and every row fills that width. A diff that fits does not scroll;
+    one that overflows is washed to the visible trailing edge once scrolled to
+    the far right. The widest row is the widest *laid out*, so the content
+    widens as a longer line scrolls into view. `CommitUnifiedDiffWashTests`
+    (app-layer bundle) renders both cases and samples the washes at the pane's
+    trailing edge against the palette's resolved colours, the context row
+    unwashed.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle

@@ -975,9 +975,15 @@ choosing hues that sit on the design's ground is an open design question.
     The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
    - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
      the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
-     `accent`/`textSecondary`, line numbers `textSecondary`. Gated in full; the
-     commit dialog around it is untouched except for reading the status answer.
-     Full entry in `app-git-views.md`.
+     `accent`/`textSecondary`, line numbers `textSecondary`. A changed line's
+     wash spans the whole pane: the horizontal scroll axis proposes no width, so
+     a row's own fill resolved to its text's width, and the content is now as
+     wide as the larger of the pane's measured visible width and the widest
+     realized row's natural width, every row filling it —
+     `CommitUnifiedDiffWashTests` (app-layer bundle) samples the washes at the
+     trailing edge, before and after scrolling an overflowing diff. Gated in
+     full; the commit dialog around it is untouched except for reading the
+     status answer. Full entry in `app-git-views.md`.
 
 #### Part five (a) — the popovers and the search surfaces
 

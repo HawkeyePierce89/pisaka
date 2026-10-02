@@ -56,6 +56,9 @@ struct CommitUnifiedDiffView: View {
     /// The chrome palette: the row wash (Core's `diffWashRole(for:)`), the
     /// checkbox, the line numbers and the placeholder read their colours from it.
     @Environment(\.chromeTheme) private var theme
+    /// The widest natural width any realized row has reported, reset when the
+    /// lines change. Part of the content's width (`diff`'s doc comment).
+    @State private var widestRow: CGFloat = 0
 
     var body: some View {
         if let wholeOnlyMessage {
@@ -89,23 +92,42 @@ struct CommitUnifiedDiffView: View {
     /// in Files result rows and the LeetCode statement carry, and for the same
     /// reason (`docs/architecture/core-zoom.md`): targeting the interface zone
     /// while the text under the pointer follows the code size is incoherent.
+    ///
+    /// **The content's width is the larger of the pane's visible width and the
+    /// widest row's natural width**, and every row fills it, so a changed line's
+    /// wash spans the pane however short its text is — and still reaches the
+    /// visible trailing edge once the pane is scrolled to the far right of an
+    /// overflowing line. Both halves are measured, never assumed: the horizontal
+    /// axis proposes no width, so without the first a row's width was its own
+    /// text's and its wash stopped there; and a `LazyVStack` takes its own width
+    /// from its first row rather than its widest, so without the second an
+    /// overflowing line could not widen the content at all. The widest row is
+    /// the widest *realized* one — a lazy stack never lays out the rest — so the
+    /// content widens as a longer line scrolls into view.
     private var diff: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                // The index is the identity: the same text can legitimately appear
-                // on many lines, and a `.modified` pair shares its unit index. It
-                // is taken from `indices` rather than by wrapping the array in
-                // `enumerated()`, which would build a fresh array of one tuple per
-                // line on *every* body pass — and this body re-runs on every
-                // keystroke in the message field, over a diff that can be tens of
-                // thousands of lines long, which is the very cost
-                // `CommitDialogModel.unifiedLines(for:)` is memoized to avoid.
-                ForEach(lines.indices, id: \.self) { index in
-                    row(lines[index])
+        GeometryReader { pane in
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // The index is the identity: the same text can legitimately
+                    // appear on many lines, and a `.modified` pair shares its unit
+                    // index. It is taken from `indices` rather than by wrapping the
+                    // array in `enumerated()`, which would build a fresh array of
+                    // one tuple per line on *every* body pass — and this body
+                    // re-runs on every keystroke in the message field, over a diff
+                    // that can be tens of thousands of lines long, which is the
+                    // very cost `CommitDialogModel.unifiedLines(for:)` is memoized
+                    // to avoid.
+                    ForEach(lines.indices, id: \.self) { index in
+                        row(lines[index])
+                    }
                 }
+                .padding(.vertical, 2)
+                .frame(minWidth: max(pane.size.width, widestRow), alignment: .leading)
             }
-            .padding(.vertical, 2)
         }
+        // A memoized diff hands back the same array, so this comparison is the
+        // storage-identity fast path on every pass but a file switch.
+        .onChange(of: lines) { widestRow = 0 }
         .background(ZoomSurfaceMarker(kind: .code))
     }
 
@@ -127,10 +149,16 @@ struct CommitUnifiedDiffView: View {
                 .foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
+        // The row's natural width, read before the fill below: the row hugs its
+        // content here (no spacer inside it), so what it reports is its own
+        // width and never the width it is later given, which would ratchet the
+        // content wider than the pane after a resize.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if width > widestRow { widestRow = width }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(background(line.kind))
         .contentShape(Rectangle())

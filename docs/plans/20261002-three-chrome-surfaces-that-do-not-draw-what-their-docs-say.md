@@ -132,23 +132,23 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 - Create: `Tests/PisakaAppTests/CommitUnifiedDiffWashTests.swift`
 - Modify: `docs/architecture/app-git-views.md`, `docs/architecture/core-theme.md`
 
-- [ ] Reproduce in a harness: host `CommitUnifiedDiffView` in a real window about 600 points wide, with a short added line, a short removed line and one context line long enough to overflow the pane. Confirm the short line's wash stops after its text.
-- [ ] Give the scrolled content a width of the larger of two values: the pane's measured visible width, and the widest row's natural width. Then every row fills that width, so its `diffWashRole(for:)` wash spans it.
+- [x] Reproduce in a harness: host `CommitUnifiedDiffView` in a real window about 600 points wide, with a short added line, a short removed line and one context line long enough to overflow the pane. Confirm the short line's wash stops after its text.
+- [x] Give the scrolled content a width of the larger of two values: the pane's measured visible width, and the widest row's natural width. Then every row fills that width, so its `diffWashRole(for:)` wash spans it.
   - The visible width is measured from the scroll view's own geometry, never a constant.
   - The row's existing click target, checkbox, gutters, monospaced text, code-zone marker and `fixedSize` title behaviour all stay as they are.
-- [ ] Write the tests:
+- [x] Write the tests:
   - with no horizontal overflow, the short added and removed lines are washed to the pane's trailing edge;
   - with an overflowing line, after scrolling the hosted scroll view to its far right, the short lines are washed at the visible trailing edge as well;
   - context lines stay unwashed.
 
   Sample a rendered bitmap against the palette's resolved colours.
-- [ ] Update the `CommitUnifiedDiffView.swift` entry in `app-git-views.md` and the unified-diff paragraph in `core-theme.md`:
+- [x] Update the `CommitUnifiedDiffView.swift` entry in `app-git-views.md` and the unified-diff paragraph in `core-theme.md`:
   - the cause (no width proposal on the horizontal axis, so a row's width is its own content width);
   - the rule now in place (the content is at least the pane wide, and every row fills it);
   - the suite that measures it.
 
   Leave no sentence describing the old behaviour.
-- [ ] Run `swift test` and the app-layer bundle (must pass).
+- [x] Run `swift test` and the app-layer bundle (must pass).
 
 ### Task 5: Verify acceptance criteria
 
