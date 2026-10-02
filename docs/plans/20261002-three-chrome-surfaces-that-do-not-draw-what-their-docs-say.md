@@ -160,9 +160,9 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 
 ### Task 6: Update documentation
 
-- [ ] CLAUDE.md: the platform floor is macOS 14 in both places, and the theme suite's rule count is forty-five. Re-check that `LintConfigurationTests`' size bound on CLAUDE.md still holds.
-- [ ] `docs/architecture/` entries updated per Tasks 2–4. No sentence anywhere still describes the old tab spreading, the hugging box, the native ring or the text-length wash, or a caller framing a shared field's height from outside.
-- [ ] README states macOS 14+.
+- [x] CLAUDE.md: the platform floor is macOS 14 in both places, and the theme suite's rule count is forty-five. Re-check that `LintConfigurationTests`' size bound on CLAUDE.md still holds.
+- [x] `docs/architecture/` entries updated per Tasks 2–4. No sentence anywhere still describes the old tab spreading, the hugging box, the native ring or the text-length wash, or a caller framing a shared field's height from outside.
+- [x] README states macOS 14+.
 
 ## Post-Completion
 
