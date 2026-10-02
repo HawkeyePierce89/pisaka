@@ -999,8 +999,31 @@ colour). The suite grows from twenty-two rules to twenty-seven.
 **`ChromeControls.swift` — the shared field shape, the query toggle and the secondary button.**
 `ChromeControlBox` has a `bgEditor` ground, a one-point `hairline` border,
 `accent` at `fieldFocusedBorderWidth` while focused, and `fieldCornerRadius`,
-taking its horizontal inset as a parameter and stating no height so the container
-decides (22 in the filter strip, 33 in Find in Files). `ChromeThemedTextField`
+taking its horizontal inset as a parameter and an **optional height from its
+caller**: given one (unscaled, scaled by the box like its padding), the box frames
+itself at exactly that height and draws its ground and border on that frame, the
+content vertically centred — 22 in the Log filter strip (its three fields and its
+two date bounds), 33 in Find in Files' three fields, 26 in the two LeetCode
+inputs; given none, it is sized by its content and is never greedy, which is what
+the in-editor find bar, the branch switcher's filter, the commit dialog's author
+fields, the two pull-request sheets' fields and the grid's cell editor get.
+`ChromeThemedTextField` threads the height through both initialisers as
+`height:`. **Why the height is stated to the box.** Those callers used to frame
+the height *outside* the field, which only added transparent room around a box
+that still hugged its text line — a one-line box, its border lost under the
+platform's focus ring. The box cannot instead fill whatever height it is offered:
+a stack's spare room reaches it exactly as a caller's fixed frame does, so a
+filling box grew the find bar above the editor from about 29 points to about 239.
+Only the caller knows which of the two it means, so the caller says it.
+`ChromeThemedTextFieldLayoutTests` (app bundle) renders a field given 33 points
+and samples its `bgEditor` ground and `hairline` border above and below the text
+line, and hosts an unheighted field above a flexible view in a tall window and
+holds it to one text line, both at interface scale 1 and 1.8. **The platform's
+focus ring is suppressed** on the inner field (`.focusEffectDisabled()`), so the
+box's `accent` border is the one focus indication; the platform draws that ring
+only on a key window with real first-responder focus, which the headless bundle
+cannot reliably reach, so that half is pinned by gating rule forty-five and the
+live check. `ChromeThemedTextField`
 is a plain `TextField` with `textPrimary` content, an optional leading glyph
 hidden from accessibility, and a spoken name — drawn as a `textSecondary`
 placeholder while the field is empty when built with `title:`, never drawn when
@@ -2318,7 +2341,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-four rules, each invisible to the compiler:
+The forty-five rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3162,6 +3185,14 @@ The forty-four rules, each invisible to the compiler:
     colour or a new sink" and "TerminalTheme.swift no longer names the role
     .accent — its four chrome colours are roles" — and green again once
     restored.
+45. **The shared field suppresses the platform's focus ring.** Inside
+    `ChromeThemedTextField`'s declaration (ordinary scanner), the inner
+    `TextField(` construction's modifier chain — up to the end of its enclosing
+    block — applies `focusEffectDisabled`. One modifier fixes every caller, so the
+    rule reads the declaration alone and sweeps no other file for bare
+    `TextField(` constructions. The ring compiles, and only a key window with real
+    first-responder focus shows it, which the headless app bundle cannot reliably
+    reach — so this rule and the live check are the only nets for it.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

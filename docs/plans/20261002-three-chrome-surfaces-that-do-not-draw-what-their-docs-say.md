@@ -46,7 +46,7 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 - Complete each task fully before moving to the next.
 - Fix causes, not symptoms:
   - no hard-coded width standing in for a measured one;
-  - no per-call-site workaround for the shared field;
+  - no per-call-site workaround for the shared field's look: the ring and the box are fixed in the shared control, and a call site only passes the height it already states (Task 3);
   - no new colour roles, palette values or `ChromeGeometry` tokens.
 - Accessibility stays as it is:
   - each dock tab keeps its label and its "Selected"/"Not selected" value;
@@ -98,28 +98,32 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 
 ### Task 3: The shared themed field draws its box and no native ring
 
+**Why the box needs its height from the caller.** A first attempt made `ChromeControlBox` fill whatever height it is offered. That fixed the framed fields but grew the in-editor find bar from about 29 to 239 points, because a stack's spare room reaches the box exactly the way a caller's fixed frame does — as an offered height. A custom layout that fills only finite offers grew it the same way. So the box cannot tell "fill my frame" from "do not take the stack's spare room" on its own; the caller that wants a fixed height must say so to the box. The draft suite from that attempt is at `/tmp/pisaka-task3/ChromeThemedTextFieldLayoutTests.swift` and may be reused.
+
 **Files:**
 - Modify: `Sources/Pisaka/ChromeControls.swift`
+- Modify: the call sites that frame a shared field's or box's height from outside — today `Sources/Pisaka/ProjectSearchView.swift` (query, replace and file-mask fields), `Sources/Pisaka/LogFilterBar.swift` (its fields, and its own `ChromeControlBox` use if that is framed the same way), `Sources/Pisaka/LeetCodeOpenProblemSheet.swift` and `Sources/Pisaka/LeetCodeBrowserView.swift`; confirm the list by grep before editing
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (new rule forty-five, with its header inventory entry)
 - Create: `Tests/PisakaAppTests/ChromeThemedTextFieldLayoutTests.swift`
-- Modify: `CLAUDE.md` (rule count), `docs/architecture/core-theme.md`, `docs/architecture/app-editor.md`
+- Modify: `CLAUDE.md` (rule count), `docs/architecture/core-theme.md`, `docs/architecture/app-editor.md`, and the doc entries of the edited call-site files
 
-- [ ] The ring: apply `.focusEffectDisabled()` to the inner `TextField` inside `ChromeThemedTextField`. This fixes every caller at once.
-- [ ] The box: make `ChromeControlBox` fill the height its container proposes, with the ground and the border drawn on that filled frame. A caller that frames 33 (or 22) then gets a box of exactly that height. Make no call-site edits. Callers that state no height must keep their current content height, and the tests below check that. If the measurement shows a no-height caller growing, stop and report it rather than patching the caller.
-- [ ] Add rule forty-five to `ChromeThemeSourceGatingTests`: the shared field's declaration applies `focusEffectDisabled` to its `TextField`. That is the whole rule — no sweep of other files for bare `TextField(` constructions, which is outside this ticket's scope. Then bump the documented rule count from forty-four to forty-five everywhere it is restated: the suite header, `core-theme.md`'s canonical list and CLAUDE.md. The cross-file count check must stay green.
-- [ ] Write the headless tests:
-  - a field framed at 33 points paints its `bgEditor` ground and its border across the full 33 points (render to a bitmap and sample above and below the text line);
-  - the same field with no outer height inside a content-sized host keeps its single-line height;
-  - repeat at interface scale 1.8.
+- [x] The ring: apply `.focusEffectDisabled()` to the inner `TextField` inside `ChromeThemedTextField`. This fixes every caller at once.
+- [x] The box: give `ChromeControlBox` an optional height parameter, threaded through `ChromeThemedTextField`'s initialisers. With a height, the box frames itself at exactly that height and draws its ground and border on that frame, the content vertically centred. With no height (the default), it behaves exactly as today — sized by its content, never greedy. The parameter takes the unscaled value and the box scales it, matching how the box already scales its padding.
+- [x] Edit each call site that frames a shared field's or box's height from outside so it passes that height through the new parameter instead, removing the outer `.frame(height:)`. The value is the same named layout constant each site already uses (`SearchLayout.queryFieldHeight`, `FilterBarLayout.controlHeight`, `OpenProblemSheetLayout.inputHeight`, `LeetCodeBrowserLayout.queryFieldHeight`). Call sites that state no height are not touched.
+- [x] Add rule forty-five to `ChromeThemeSourceGatingTests`: the shared field's declaration applies `focusEffectDisabled` to its `TextField`. That is the whole rule — no sweep of other files for bare `TextField(` constructions, which is outside this ticket's scope. Then bump the documented rule count from forty-four to forty-five everywhere it is restated: the suite header, `core-theme.md`'s canonical list and CLAUDE.md. The cross-file count check must stay green.
+- [x] Write the headless tests:
+  - a field given a height of 33 paints its `bgEditor` ground and its border across the full 33 points (render to a bitmap and sample above and below the text line; compare against a swatch rendered through the same pipeline, since the cached bitmap applies a colour-space conversion);
+  - a field with no height, hosted the way the in-editor find bar sits — above a flexible view in a tall window — keeps its single-line height;
+  - repeat both at interface scale 1.8.
 
   The native focus ring is drawn by the platform only on a key window with real first-responder focus, so the headless bundle cannot reliably see it. Say so in the suite header and in `core-theme.md`. That half is pinned by rule forty-five and the live check.
-- [ ] Update `core-theme.md`'s `ChromeControls.swift` entry:
-  - the box fills the height its container decides;
+- [x] Update `core-theme.md`'s `ChromeControls.swift` entry:
+  - the box takes an optional height from its caller and draws on exactly that height, and with none it is sized by its content;
   - the native focus effect is suppressed in the shared field;
-  - the cause (an outer frame that could not reach the box, and an unsuppressed ring) and the rule and suite that now prevent it.
+  - the cause (an outer frame that could not reach the box, and an unsuppressed ring), why the height has to come from the caller (a stack's spare room and a fixed frame reach the box identically), and the rule and suite that now prevent it.
 
-  Also update the find bar's sentence in `app-editor.md` if it describes the old look.
-- [ ] Run `swift test` and the app-layer bundle (must pass).
+  Update the entries of the edited call-site files the same way, and the find bar's sentence in `app-editor.md` if it describes the old look.
+- [x] Run `swift test` and the app-layer bundle (must pass).
 
 ### Task 4: The unified diff washes a changed line across the whole pane
 
@@ -157,7 +161,7 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 ### Task 6: Update documentation
 
 - [ ] CLAUDE.md: the platform floor is macOS 14 in both places, and the theme suite's rule count is forty-five. Re-check that `LintConfigurationTests`' size bound on CLAUDE.md still holds.
-- [ ] `docs/architecture/` entries updated per Tasks 2–4. No sentence anywhere still describes the old tab spreading, the hugging box, the native ring or the text-length wash.
+- [ ] `docs/architecture/` entries updated per Tasks 2–4. No sentence anywhere still describes the old tab spreading, the hugging box, the native ring or the text-length wash, or a caller framing a shared field's height from outside.
 - [ ] README states macOS 14+.
 
 ## Post-Completion

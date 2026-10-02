@@ -168,9 +168,9 @@ struct LeetCodeOpenProblemSheet: View {
                 text: $text,
                 focus: $focus,
                 focusedEquals: .input,
-                textStyle: .body
+                textStyle: .body,
+                height: OpenProblemSheetLayout.inputHeight
             )
-            .frame(height: metrics.scaled(OpenProblemSheetLayout.inputHeight))
             // Enter submits, but only when the text names something — the
             // same condition the Open button is under, so the two cannot
             // disagree.

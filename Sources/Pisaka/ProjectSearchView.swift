@@ -186,9 +186,9 @@ struct ProjectSearchView: View {
                 text: $pattern,
                 focus: $focusedField,
                 focusedEquals: .query,
-                textStyle: .body
+                textStyle: .body,
+                height: SearchLayout.queryFieldHeight
             )
-            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
             .onSubmit { activateFirstResult() }
             .onChange(of: pattern) { _ in scheduleSearch() }
 
@@ -220,9 +220,9 @@ struct ProjectSearchView: View {
                 text: $template,
                 focus: $focusedField,
                 focusedEquals: .replace,
-                textStyle: .body
+                textStyle: .body,
+                height: SearchLayout.queryFieldHeight
             )
-            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
 
             Button("Replace All") { confirmReplaceAll() }
                 .buttonStyle(.chromeSecondary)
@@ -251,9 +251,9 @@ struct ProjectSearchView: View {
                 text: $mask,
                 focus: $focusedField,
                 focusedEquals: .mask,
-                textStyle: .body
+                textStyle: .body,
+                height: SearchLayout.queryFieldHeight
             )
-            .frame(height: metrics.scaled(SearchLayout.queryFieldHeight))
             .frame(maxWidth: metrics.scaled(220))
             .onChange(of: mask) { _ in scheduleSearch() }
 

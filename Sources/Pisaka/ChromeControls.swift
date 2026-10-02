@@ -17,9 +17,20 @@ import PisakaCore
 /// `ChromeSegmentedControl`; a choice over a dynamic or long list is a
 /// `ChromeMenuField`. A segmented control whose segment count is unknown at
 /// build time is the wrong shape, because it cannot be laid out.
+///
+/// **The height is the caller's to state, and it is stated *to the box*.** With
+/// a `height`, the box frames itself at exactly that height (unscaled in, scaled
+/// here, like its padding) and draws its ground and border on that frame, the
+/// content vertically centred. With none it is sized by its content and is never
+/// greedy. A `.frame(height:)` applied *outside* the box cannot do this: it only
+/// adds transparent room around a box that still hugs its text line. And the box
+/// cannot simply fill whatever height it is offered, because a stack's spare room
+/// reaches it exactly as a caller's fixed frame does — the in-editor find bar,
+/// above the editor, would grow to swallow it.
 struct ChromeControlBox<Content: View>: View {
     let isFocused: Bool
     let horizontalPadding: Double
+    var height: Double?
     @ViewBuilder let content: () -> Content
 
     @Environment(\.interfaceMetrics) private var metrics
@@ -29,6 +40,7 @@ struct ChromeControlBox<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.fieldCornerRadius))
         content()
             .padding(.horizontal, metrics.scaled(horizontalPadding))
+            .frame(height: height.map { metrics.scaled($0) })
             .background(shape.fill(theme.color(.bgEditor)))
             .overlay(
                 shape.strokeBorder(
@@ -54,6 +66,12 @@ struct ChromeControlBox<Content: View>: View {
 /// name describes. `spokenName:` draws nothing in an empty field — right where
 /// an empty field is itself a value a grey word would misrepresent (the
 /// database grid's cell editor, where grey is how the grid draws NULL).
+///
+/// A caller with a height of its own passes it as `height:`, which reaches the
+/// box (see `ChromeControlBox`); a caller with none gets a field one text line
+/// high. The platform's focus ring is suppressed on the inner field: the box's
+/// `accent` border is the focus indication, and the ring drew around the text
+/// line on top of it (gating rule forty-five).
 struct ChromeThemedTextField<FocusValue: Hashable>: View {
     let title: String
     let drawsTitle: Bool
@@ -64,6 +82,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
     var horizontalPadding: Double
     var textStyle: InterfaceTextStyle
     var spacing: Double
+    var height: Double?
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
@@ -77,12 +96,13 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         focusedEquals: FocusValue,
         horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
         textStyle: InterfaceTextStyle = .callout,
-        spacing: Double = 6
+        spacing: Double = 6,
+        height: Double? = nil
     ) {
         self.init(
             name: title, drawsName: true, text: text, glyph: glyph, focus: focus,
             focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
-            textStyle: textStyle, spacing: spacing
+            textStyle: textStyle, spacing: spacing, height: height
         )
     }
 
@@ -96,12 +116,13 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         focusedEquals: FocusValue,
         horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
         textStyle: InterfaceTextStyle = .callout,
-        spacing: Double = 6
+        spacing: Double = 6,
+        height: Double? = nil
     ) {
         self.init(
             name: spokenName, drawsName: false, text: text, glyph: glyph, focus: focus,
             focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
-            textStyle: textStyle, spacing: spacing
+            textStyle: textStyle, spacing: spacing, height: height
         )
     }
 
@@ -114,7 +135,8 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         focusedEquals: FocusValue,
         horizontalPadding: Double,
         textStyle: InterfaceTextStyle,
-        spacing: Double
+        spacing: Double,
+        height: Double?
     ) {
         self.title = name
         self.drawsTitle = drawsName
@@ -125,10 +147,15 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         self.horizontalPadding = horizontalPadding
         self.textStyle = textStyle
         self.spacing = spacing
+        self.height = height
     }
 
     var body: some View {
-        ChromeControlBox(isFocused: focus.wrappedValue == focusedEquals, horizontalPadding: horizontalPadding) {
+        ChromeControlBox(
+            isFocused: focus.wrappedValue == focusedEquals,
+            horizontalPadding: horizontalPadding,
+            height: height
+        ) {
             HStack(spacing: metrics.scaled(spacing)) {
                 if let glyph {
                     Image(systemName: glyph)
@@ -145,6 +172,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
                     }
                     TextField("", text: $text)
                         .textFieldStyle(.plain)
+                        .focusEffectDisabled()
                         .foregroundStyle(theme.color(.textPrimary))
                         .focused(focus, equals: focusedEquals)
                         .accessibilityLabel(title)

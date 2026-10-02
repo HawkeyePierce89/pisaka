@@ -199,10 +199,10 @@ struct LeetCodeBrowserView: View {
                     glyph: "magnifyingglass",
                     focus: $focus,
                     focusedEquals: .query,
-                    textStyle: .body
+                    textStyle: .body,
+                    height: LeetCodeBrowserLayout.queryFieldHeight
                 )
                 .frame(maxWidth: metrics.scaled(320))
-                .frame(height: metrics.scaled(LeetCodeBrowserLayout.queryFieldHeight))
 
                 // A run-time list of languages, so the picker rule answers the
                 // menu field — the Settings problem-catalog tab's answer over

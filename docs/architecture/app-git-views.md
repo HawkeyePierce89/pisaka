@@ -922,7 +922,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     in one line — branch, author, path, Since, Until, then the message search —
     each in one 22 pt box: 4 pt radius, `bgEditor` ground, one-point `hairline`
     border, a two-point `accent` border while a text field holds focus
-    (`@FocusState`), 8 pt inset and 6 pt inner gap. The text fields are drawn
+    (`@FocusState`), 8 pt inset and 6 pt inner gap. The 22 pt reaches each box
+    as the shared field's (or box's) `height:` — `FilterBarLayout.controlHeight`
+    — so the ground and border are drawn at the full 22 points; a `.frame(height:)`
+    outside the field only added room around a box that hugged its text line
+    (`core-theme.md`, `ChromeControls.swift`). The text fields are drawn
     `.plain` with their own `textSecondary` `.callout` placeholder (a plain
     field's own is the system's value) and `textPrimary` text; widths author 140,
     path 160, search 220. The branch menu is, since part five (c), the shared
@@ -930,8 +934,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     first caller: the borderless, indicator-less `Menu` beside a `textSecondary`
     chevron is the same, but its items are plain `Button`s with the chosen one
     labelled by a checkmark, replacing the inline platform `Picker` chrome rule
-    thirty-six forbids; the bar still frames the field at its own
-    `FilterBarLayout.controlHeight` and hands it the bar's 8 pt inset and 6 pt
+    thirty-six forbids; the bar still frames the menu field at its own
+    `FilterBarLayout.controlHeight` from outside (the menu field takes no height
+    parameter) and hands it the bar's 8 pt inset and 6 pt
     gap, and the computed binding below is unchanged; each date bound keeps
     its checkbox — the shared `ChromeCheckbox` plus its label since part five
     (b), replacing a platform `Toggle` — and the system date field, an `NSDatePicker` drawn with no

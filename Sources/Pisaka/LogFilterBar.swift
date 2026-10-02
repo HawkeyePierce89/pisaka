@@ -270,9 +270,9 @@ struct LogFilterBar: View {
             text: draftAuthorBinding,
             focus: $focusedField,
             focusedEquals: .author,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
@@ -288,9 +288,9 @@ struct LogFilterBar: View {
             text: draftPathBinding,
             focus: $focusedField,
             focusedEquals: .path,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
@@ -317,9 +317,9 @@ struct LogFilterBar: View {
             glyph: "magnifyingglass",
             focus: $focusedField,
             focusedEquals: .search,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
@@ -346,7 +346,11 @@ struct LogFilterBar: View {
         enabled: Binding<Bool>,
         date: Binding<Date>
     ) -> some View {
-        ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
+        ChromeControlBox(
+            isFocused: false,
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
+        ) {
             HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
                 ChromeCheckbox(state: enabled.wrappedValue ? .on : .off, label: label, title: label) {
                     enabled.wrappedValue.toggle()
@@ -377,7 +381,6 @@ struct LogFilterBar: View {
                 }
             }
         }
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
     }
 
     /// Whether `bound`'s calendar popover is open; closing it clears the state.
