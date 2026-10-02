@@ -26,7 +26,9 @@ import PisakaCore
 /// terminal views, their container and the terminal's ANSI-16 arrays are
 /// untouched: they are the terminal zone, not chrome. The terminal's four chrome
 /// colours — ground, text, caret, selection — are roles since part five (h);
-/// see `TerminalTheme`.
+/// see `TerminalTheme`. The terminal sits inside `TerminalPanelInset`'s
+/// interface-scaled left and right margin, painted the terminal's own `bgPanel`
+/// ground.
 struct TerminalPanelView: View {
     @ObservedObject var model: TerminalSessionsModel
 
@@ -54,8 +56,10 @@ struct TerminalPanelView: View {
         VStack(spacing: 0) {
             tabBar
             if let active = model.activeSession {
-                TerminalHostView(session: active, model: model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TerminalPanelInset {
+                    TerminalHostView(session: active, model: model)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 theme.color(.bgPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -124,6 +128,37 @@ struct TerminalPanelView: View {
         .contentShape(Rectangle())
         .onTapGesture { model.activate(id: session.id) }
     }
+}
+
+/// The hosted terminal inside its panel: inset on the leading and trailing
+/// edges, the inset painted `bgPanel` — the role the dock slot paints and,
+/// resolved concretely, the terminal's own ground (`TerminalTheme`) — so the
+/// panel reads as one surface rather than a terminal-coloured block set into a
+/// frame.
+///
+/// The inset is chrome, not terminal: it scales with the **interface** zone, so
+/// zooming the terminal changes its rows and columns and leaves the margin
+/// where it is. Split out of the panel so the app-layer suite can measure the
+/// inset around a stand-in without spawning a shell.
+struct TerminalPanelInset<Content: View>: View {
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(.horizontal, metrics.scaled(Self.insetX))
+            .background(theme.color(.bgPanel))
+    }
+
+    /// The design's left and right margin around the terminal, in points at
+    /// interface scale 1.0.
+    static var insetX: Double { 14 }
 }
 
 /// The session strip's own numbers — gaps and insets that belong to this panel

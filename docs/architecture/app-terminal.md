@@ -7,8 +7,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     layer so `PisakaCore` stays color-free. An `enum TerminalTheme` (statics
     only). **Only the two ANSI-16 arrays are spelled here**; the four colors
     around them are chrome and are read from `ChromePalette` as roles since part
-    five (h) (`core-theme.md`): the ground is `bgCanvas` (`0x1E1F22` dark,
-    `0xF5F5F7` light — it was black and white), the default text `textPrimary`
+    five (h) (`core-theme.md`): the ground is `bgPanel` (`0x2B2D30` dark,
+    `0xECECEF` light — black and white before part five (h), then `bgCanvas`
+    until the design pass moved it onto the role the dock slot paints, so the
+    terminal and the inset around it read as one surface), the default text `textPrimary`
     (`0xDFE1E5` / `0x1D1D1F` — it was SwiftTerm's `#8A8A8A` and `#1E1E1E`), the
     caret `accent` and the selection `accentTintStrong`. Before part five (h) the
     caret and selection were the semantic
@@ -59,10 +61,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     defaults to `true`, *bold* text on colors 0–6 is remapped onto those brights,
     so ordinary prompt/`ls`/`npm` output would vanish in the light theme.
     `lightANSIColors` is a darkened set, every entry at least 4.5:1 against the
-    light ground `0xF5F5F7` ("bright" reads as more *saturated* rather than
+    light ground `0xECECEF` ("bright" reads as more *saturated* rather than
     lighter, the only direction legible on a light background; ANSI 8, 11 and 14
-    were darkened to `0x707070`, `0x926A00` and `0x007C8B` in part five (h) to
-    hold that floor on the new ground), and `darkANSIColors` is SwiftTerm's own
+    were darkened in part five (h) to hold that floor on `0xF5F5F7`, and ANSI 8,
+    11, 13 and 14 again — to `0x6A6A6A`, `0x8A6400`, `0xA63AB3` and `0x007583`
+    — when the ground moved to `bgPanel`), and `darkANSIColors` is SwiftTerm's own
     `Color.defaultInstalledColors` verbatim — the terminal's own vocabulary and
     the one thing this file still spells for itself — so the install is
     unconditional in both directions and dark → light → dark restores exactly what
@@ -85,9 +88,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     clamp alone would still trap. `TerminalThemeTests` (app bundle) pins the key
     against the palette's four roles under both appearances and both
     high-contrast variants, with its own
-    component arithmetic, the light set's floor (every entry ≥ 4.5:1 on the light
-    `bgCanvas`, each failure naming the index and ratio), which set each
-    appearance installs, and both arrays' sixteen
+    component arithmetic, the ground an apply actually leaves on a live
+    (process-less) `TerminalView` — its layer background and the text under the
+    caret, both `bgPanel` in either appearance — the light set's floor (every
+    entry ≥ 4.5:1 on the light `bgPanel`, each failure naming the index and
+    ratio), which set each appearance installs, and both arrays' sixteen
     entries.
   - `TerminalSession.swift` — one live shell session in the embedded terminal: a
     final class holding a stable `id` (UUID), a display `title`, and the SwiftTerm
@@ -280,9 +285,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the `+` and `xmark` glyphs state `textSecondary` explicitly, because a
     borderless button would otherwise tint them itself. The no-session
     placeholder draws `bgPanel` rather than the platform's `textBackgroundColor`.
-    `TerminalHostView` and the container view are **untouched**. The terminal's
+    `TerminalHostView` and the container view are **untouched**; the host sits
+    inside `TerminalPanelInset`, which pads it 14 points left and right — an
+    interface-zone measurement through `metrics.scaled(_:)`, so zooming the
+    terminal leaves it alone — and paints the margin `bgPanel`, the terminal's
+    own ground and the dock slot's, so the panel reads as one surface. The inset
+    is its own generic view so `TerminalPanelInsetTests` (app bundle) can measure
+    it around a stand-in, at scale 1.0 and 1.8, without spawning a shell. The terminal's
     ANSI-16 arrays (`TerminalTheme`, one of the chrome suite's four exemptions,
     narrowed by rule forty-four to those two arrays) are the terminal zone, not
     chrome; its four chrome colors — ground, text, caret, selection — have been
-    the `bgCanvas`, `textPrimary`, `accent` and `accentTintStrong` roles since
-    part five (h), resolved concretely by appearance (`TerminalTheme`'s entry).
+    the `bgPanel` (`bgCanvas` until the design pass), `textPrimary`, `accent`
+    and `accentTintStrong` roles since part five (h), resolved concretely by
+    appearance (`TerminalTheme`'s entry).

@@ -263,13 +263,13 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/LSPConsentBanner.swift`, `TerminalPanelView.swift`, `TerminalTheme.swift` / `TerminalSession.swift`
 - Modify: `Tests/PisakaAppTests/TerminalThemeTests.swift`, `ChromeThemeSourceGatingTests` (rule 30's callers and rule 44, if their text changes)
 
-- [ ] The banner's accept button uses `.chromePrimary` and its decline button `.chromeSecondary`. Delete `acceptButton` and `declineButton`, and rewrite the banner's `core-theme.md` entry.
-- [ ] The terminal view sits inside its panel with a 14-point inset on the left and right, scaled with the interface. The terminal's ground is `bgPanel`, the role the dock slot paints. Per rule 44's exemption, it is resolved for the current appearance and handed to the terminal as a concrete colour. The inset is painted the same colour, so the panel reads as one surface.
-- [ ] Tests:
+- [x] The banner's accept button uses `.chromePrimary` and its decline button `.chromeSecondary`. Delete `acceptButton` and `declineButton`, and rewrite the banner's `core-theme.md` entry.
+- [x] The terminal view sits inside its panel with a 14-point inset on the left and right, scaled with the interface. The terminal's ground is `bgPanel`, the role the dock slot paints. Per rule 44's exemption, it is resolved for the current appearance and handed to the terminal as a concrete colour. The inset is painted the same colour, so the panel reads as one surface.
+- [x] Tests:
   - `TerminalThemeTests` asserts the background equals the resolved `bgPanel` in both appearances;
   - an app-layer test measures the 14-point inset at scale 1.0 and 1.8;
   - rule 30's caller list covers the banner's buttons.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 8: File and folder glyphs in the tree, tabs, breadcrumb and gutter
 

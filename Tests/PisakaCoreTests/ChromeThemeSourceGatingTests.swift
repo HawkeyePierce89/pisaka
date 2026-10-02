@@ -3375,6 +3375,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("chromePrimary", [
             "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift", "LeetCodeOpenProblemSheet.swift",
+            "LSPConsentBanner.swift",
         ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
@@ -3383,6 +3384,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
             "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
             "LeetCodeJudgeView.swift", "LeetCodeOpenProblemSheet.swift", "LeetCodeLoginView.swift",
+            "LSPConsentBanner.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
@@ -5121,7 +5123,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The four roles the terminal's chrome colours are read as — ground, default
     /// text, caret, selection — spelled leading-dot, the way the file passes them
     /// to `ChromePalette.nsColor(_:in:)`.
-    private static let terminalChromeRoles = [".bgCanvas", ".textPrimary", ".accent", ".accentTintStrong"]
+    private static let terminalChromeRoles = [".bgPanel", ".textPrimary", ".accent", ".accentTintStrong"]
 
     /// Colour names rule one's list leaves out because no gated view could reach
     /// them, but `TerminalTheme.swift` could: AppKit's fixed greys and

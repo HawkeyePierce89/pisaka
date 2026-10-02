@@ -168,6 +168,11 @@ struct LSPConsentBanner: View {
     /// breadcrumb's reason: a divider is drawn in the *system's* separator
     /// value, which is not the table's, so it would disagree with the hairlines
     /// above it in either appearance.
+    ///
+    /// Each row's two actions are the shared `.chromePrimary` (the offer) and
+    /// `.chromeSecondary` (the refusal) styles — the one primary and one
+    /// secondary button every chrome surface draws — so the strip carries no
+    /// button look of its own to drift from theirs.
     private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
             content()
@@ -178,47 +183,6 @@ struct LSPConsentBanner: View {
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
         .background(theme.color(.bgPanel))
-    }
-
-    /// The confirming action, one helper for all three rows: the accent filled,
-    /// its label in `onAccent`, corners at `cornerRadiusMax`.
-    ///
-    /// One helper rather than three call sites because the three rows ask the
-    /// same question and must answer it with the same button — and `.plain`
-    /// rather than a bordered style because a system-drawn button beside an
-    /// accent-filled one is precisely the mixed look this sweep removes.
-    ///
-    /// The vertical padding is the strip's own bare number, not a token divided
-    /// down: a button's height is this surface's measurement, and writing it as
-    /// half a *horizontal* row-padding token would tie the two together where
-    /// nothing says they are related.
-    private func acceptButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(metrics.scaledFont(.body))
-                .foregroundStyle(theme.color(.onAccent))
-                .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
-                .padding(.vertical, metrics.scaled(4))
-                .background(
-                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
-                        .fill(theme.color(.accent))
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// The declining action: a plain `textSecondary` label. Neither answer is
-    /// destructive and both are reversible from Preferences, so the weight of
-    /// the two buttons is the only thing saying which is the offer.
-    private func declineButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(metrics.scaledFont(.body))
-                .foregroundStyle(theme.color(.textSecondary))
-                .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
-                .padding(.vertical, metrics.scaled(4))
-        }
-        .buttonStyle(.plain)
     }
 
     private func downloadRow(_ prompt: LSPConsentPrompt) -> some View {
@@ -275,13 +239,15 @@ struct LSPConsentBanner: View {
             // *before* the first responder ever sees it, so every newline typed
             // in the file behind the banner would start a 52 MB download and
             // record consent for it. Both answers stay pointer-only.
-            acceptButton("Download") {
+            Button("Download") {
                 Task { await provisioning.accept(prompt.server) }
             }
+            .buttonStyle(.chromePrimary)
 
-            declineButton("No Thanks") {
+            Button("No Thanks") {
                 provisioning.decline(prompt.server)
             }
+            .buttonStyle(.chromeSecondary)
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(12))
@@ -339,13 +305,15 @@ struct LSPConsentBanner: View {
             // the answer is recorded (`accept` records it synchronously before its
             // first hop), and a `.defaultAction` here would put every Return typed
             // in the file behind this strip on the key-equivalent path.
-            acceptButton("Install") {
+            Button("Install") {
                 Task { await gopls.accept() }
             }
+            .buttonStyle(.chromePrimary)
 
-            declineButton("No Thanks") {
+            Button("No Thanks") {
                 gopls.decline()
             }
+            .buttonStyle(.chromeSecondary)
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(12))
@@ -401,13 +369,15 @@ struct LSPConsentBanner: View {
             // same moment), and a `.defaultAction` here would put every Return
             // typed in the file behind this strip on the window's key-equivalent
             // path.
-            acceptButton("Download") {
+            Button("Download") {
                 Task { await rust.accept() }
             }
+            .buttonStyle(.chromePrimary)
 
-            declineButton("No Thanks") {
+            Button("No Thanks") {
                 rust.decline()
             }
+            .buttonStyle(.chromeSecondary)
         }
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(12))

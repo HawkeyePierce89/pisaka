@@ -14,8 +14,10 @@ import SwiftTerm
 /// Only the two ANSI-16 arrays are spelled here — they are the terminal's own
 /// vocabulary, a protocol's numbering rather than chrome. The four colors around
 /// them are chrome and are read from `ChromePalette` as roles: the ground is
-/// `bgCanvas`, the default text `textPrimary`, the caret `accent` and the
-/// selection `accentTintStrong`. None of them follows the system accent.
+/// `bgPanel` — the role the dock slot paints, so the terminal and the inset
+/// `TerminalPanelView` draws around it read as one surface — the default text
+/// `textPrimary`, the caret `accent` and the selection `accentTintStrong`. None
+/// of them follows the system accent.
 ///
 /// Unlike the rest of the AppKit chrome, which hands dynamic `NSColor`s to AppKit
 /// and lets it resolve them at draw time, the colors are resolved *at apply time*
@@ -76,7 +78,7 @@ enum TerminalTheme {
     ]
 
     /// The light theme's ANSI-16, darkened so every entry clears at least 4.5:1
-    /// against the light ground, `bgCanvas`'s `0xF5F5F7` (SwiftTerm's own brights
+    /// against the light ground, `bgPanel`'s `0xECECEF` (SwiftTerm's own brights
     /// sit at 1.3–1.9:1 on a light ground). "Bright" reads as *more saturated*
     /// rather than lighter, which is the only direction that stays legible on a
     /// light background.
@@ -89,13 +91,13 @@ enum TerminalTheme {
         rgb8(0x9A, 0x22, 0xA8),
         rgb8(0x00, 0x70, 0x7F),
         rgb8(0x4D, 0x4D, 0x4D),
-        rgb8(0x70, 0x70, 0x70),
+        rgb8(0x6A, 0x6A, 0x6A),
         rgb8(0xC7, 0x30, 0x1E),
         rgb8(0x1F, 0x7A, 0x33),
-        rgb8(0x92, 0x6A, 0x00),
+        rgb8(0x8A, 0x64, 0x00),
         rgb8(0x2E, 0x5F, 0xD0),
-        rgb8(0xA8, 0x3B, 0xB5),
-        rgb8(0x00, 0x7C, 0x8B),
+        rgb8(0xA6, 0x3A, 0xB3),
+        rgb8(0x00, 0x75, 0x83),
         rgb8(0x1E, 0x1E, 0x1E),
     ]
 
@@ -177,7 +179,7 @@ enum TerminalTheme {
         in appearance: ChromeAppearance
     ) -> (background: NSColor, foreground: NSColor, caret: NSColor, selection: NSColor) {
         (
-            background: ChromePalette.nsColor(.bgCanvas, in: appearance),
+            background: ChromePalette.nsColor(.bgPanel, in: appearance),
             foreground: ChromePalette.nsColor(.textPrimary, in: appearance),
             caret: ChromePalette.nsColor(.accent, in: appearance),
             selection: ChromePalette.nsColor(.accentTintStrong, in: appearance)

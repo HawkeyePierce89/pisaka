@@ -604,12 +604,14 @@ disagree.
     the `hairline` rules beside it in either appearance). The
     question line is `textPrimary`; the explanatory caption and the runtime-network
     note are `textSecondary`, being the same kind of fact; the leading symbol is
-    `accent`. The two actions are where the strip states the sweep's rule about
-    **mixed looks**: the confirming one is drawn by one private helper — `accent`
-    fill, `onAccent` label, `cornerRadiusMax`, padding off `rowPaddingX`, and
-    `.buttonStyle(.plain)` — used by all three rows, and the declining one is a
-    plain `textSecondary` label button, because a system-drawn button beside an
-    accent-filled one is precisely the look this sweep removes. The weight of the
+    `accent`. The two actions are the shared styles, as everywhere else in the
+    chrome: each row's confirming action is `.chromePrimary` and its declining
+    one `.chromeSecondary`. The strip first drew them through two private helpers
+    of its own — an `accent`-filled `.plain` label at `cornerRadiusMax`, and a
+    bare `textSecondary` label — and the design pass replaced both with the
+    shared styles and deleted the helpers, because a one-off pair beside the
+    styles every other surface uses is itself the mixed look this sweep removes;
+    rule thirty's caller sets name the file under both styles. The weight of the
     two buttons is the only thing saying which is the offer, which is honest: both
     answers are non-destructive and reversible from Preferences. No keyboard
     shortcut is added — the reason in that file's own comment (a default button in
@@ -2235,7 +2237,7 @@ text, the caret and the selection — are chrome, and they become roles:
 
 | Terminal colour | Role | Dark | Light |
 |---|---|---|---|
-| ground | `bgCanvas` | `0x1E1F22` | `0xF5F5F7` |
+| ground | `bgCanvas`, since moved to `bgPanel` (below) | `0x1E1F22` | `0xF5F5F7` |
 | default text | `textPrimary` | `0xDFE1E5` | `0x1D1D1F` |
 | caret | `accent` | `0x4F8DFF` | `0x2F6FE0` |
 | selection | `accentTintStrong` | accent hues at alpha `0x33` | accent hues at alpha `0x33` |
@@ -2384,6 +2386,27 @@ equality; `ChromePaletteTests` keeps the wash distinct from
 `selectionInactive`; `CurrentLineHighlightTests` samples the band in both
 halves, on the caret's line and not its neighbour, and none under a multi-line
 selection.
+
+#### The terminal's ground and inset
+
+The design sets the terminal into its panel rather than edge to edge: a
+14-point margin on the left and right, at interface scale 1.0 and scaling with
+the interface (the margin is chrome, so zooming the terminal changes its rows
+and columns and leaves the margin where it is). The terminal's ground moves
+from part five (h)'s `bgCanvas` to **`bgPanel`** — `0x2B2D30` dark, `0xECECEF`
+light — the role the dock slot paints, and `TerminalPanelInset` paints the
+margin the same role, so the slot, the margin and the terminal read as one
+surface. Nothing about the exemption changes: `TerminalTheme` still resolves the
+role concretely for the matched appearance under rule forty-four, which now
+requires `.bgPanel` where it required `.bgCanvas`. The new light ground is
+darker, so the light ANSI-16 floor of 4.5:1 is now measured against
+`0xECECEF`, and four entries were darkened along their own hues to hold it:
+ANSI 8 `0x707070` → `0x6A6A6A` (it measured 4.2:1), ANSI 11 `0x926A00` →
+`0x8A6400` (4.2:1), ANSI 13 `0xA83BB5` → `0xA63AB3` (4.50:1, on the floor) and
+ANSI 14 `0x007C8B` → `0x007583` (4.2:1). `TerminalThemeTests` pins the ground
+on a live view in both appearances and the floor on the new ground;
+`TerminalPanelInsetTests` measures the margin at scale 1.0 and 1.8 and samples
+it as `bgPanel`.
 
 #### What is still waiting
 
@@ -3294,7 +3317,7 @@ The forty-six rules, each invisible to the compiler:
     because the converters' `red`/`green`/`blue` name channels — so
     `NSColor.red` or `.magenta` fails; the `.…Color` members
     it reaches are pinned by set equality, so `.controlAccentColor` fails; it
-    must name each of `.bgCanvas`, `.textPrimary`, `.accent`
+    must name each of `.bgPanel`, `.textPrimary`, `.accent`
     and `.accentTintStrong`; and each array holds exactly sixteen top-level
     `rgb8(` entries. The presence check is what catches a restored
     `.selectedTextBackgroundColor` selection: that token is also SwiftTerm's
