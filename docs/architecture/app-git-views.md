@@ -594,7 +594,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
-    and macOS 13's `onChange(of:perform:)` runs the closure captured *before* the
+    and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the
     change, so off `self` it is still the folder the user just left. The pinned
     request generation does not cover that case — the folder-open path has already
     bumped it, so a stale-root refresh pinning the *current* generation is accepted,
@@ -870,11 +870,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     directly (`draft = LogFilterDraft(filter: filter, defaultDate: Date())`),
     because at appearance the properties are current — and a bar that has never
     been shown also has no chosen day to preserve, which is exactly the
-    from-scratch seeding form's case. The **single-parameter `onChange` spelling is
-    deliberate**, not an inconsistency with the iOS bar: the deployment target is
-    macOS 13, whose only overload is `onChange(of:perform:)` and whose one closure
-    parameter *is* the new value; the two-parameter form is macOS 14+ and will not
-    compile here. No value-equality suppression is involved anywhere: the
+    from-scratch seeding form's case. The **single-parameter `onChange` spelling**
+    is the macOS call sites' idiom, whose one closure parameter *is* the new value:
+    it was the only overload while the floor was macOS 13, and now that the floor
+    is 14 it is deprecated in favour of the two-parameter form the iOS bar uses —
+    migrating the macOS call sites is a separate change, which is why the two bars
+    are still spelled differently. No value-equality suppression is involved anywhere: the
     previous mirrored-`@State` + `.onChange` construction *was* suppressed by value
     equality, which failed under interleaved applies when the published `filter`
     lagged `requestedFilter` and an echo built from the published value was accepted

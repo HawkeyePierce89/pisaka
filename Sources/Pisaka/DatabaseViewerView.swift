@@ -821,7 +821,8 @@ struct DatabaseViewerView: View {
     /// Return opens the focused cell's editor.
     ///
     /// A zero-sized button carrying the shortcut rather than a key handler on the
-    /// cell itself: `onKeyPress(_:)` is macOS 14 and this app runs on 13. It is
+    /// cell itself — the idiom chosen while the floor was macOS 13, which has no
+    /// `onKeyPress(_:)`, and kept because the button's enablement is the rule. It is
     /// enabled **only** while a grid cell actually holds the keyboard, so it can
     /// take Return neither from the field it opens nor from anything else the
     /// window is showing.

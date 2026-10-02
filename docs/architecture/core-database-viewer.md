@@ -1094,7 +1094,7 @@ only *consults* one, before each of its two writes.
   and that is the gesture editing needs; Copy puts on the pasteboard exactly the
   string a selection would have carried. Return is carried by a zero-sized,
   accessibility-hidden button with a keyboard shortcut rather than
-  `onKeyPress(_:)`, which is macOS 14 while this app runs on 13, and it is
+  `onKeyPress(_:)` — the idiom chosen while the floor was macOS 13 — and it is
   enabled only while a grid cell actually holds the keyboard so it can take
   Return neither from the field it opens nor from anything else the window shows.
   Everything is still sized through `\.interfaceMetrics` and nothing is drawn at

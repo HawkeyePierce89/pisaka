@@ -1972,7 +1972,7 @@ the limits the design carries.
     container; `onMoveCommand` moves the selection up and down and the
     `ScrollViewReader` keeps it visible; Return opens through a zero-sized
     shortcut button enabled only while the list holds focus (the database grid's
-    idiom, since `onKeyPress` is macOS 14); single tap selects, double tap opens,
+    idiom); single tap selects, double tap opens,
     the context menu offers Open, and the Open button stays. Below the last row
     a right-click offers Open for the current selection (nothing without one)
     and a plain click clears the selection, as the `Table` did — a clear

@@ -941,8 +941,8 @@ relative branch, was resolved against the document's directory, landed *inside*
 the root and came back out as a project file. Containment was never at risk (the
 canonical check still ran); the answer was wrong in the direction that looks
 right — `MarkdownLinkRule` said `openInEditor` and a click opened a missing file
-instead of handing the URL to the system. That is the deployment target's
-ordinary case, not a malformed one: macOS 13's parser refuses a space and every
+instead of handing the URL to the system. That was the ordinary case while the
+floor was macOS 13, not a malformed one: its parser refuses a space and every
 non-ASCII character, so `https://ru.wikipedia.org/wiki/Привет` took that branch.
 The reading is RFC 3986's, which is also CommonMark's for an absolute
 destination — an ASCII letter, then letters/digits/`+`/`-`/`.`, ended by `:` —

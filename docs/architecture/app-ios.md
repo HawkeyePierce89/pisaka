@@ -836,8 +836,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **Change handlers seed from their parameter**, as on macOS — but here that is
     uniformity, not a bug fix, and the difference is worth stating so neither bar
     is "corrected" into the other. The stale-property trap belongs to the
-    deprecated single-parameter `onChange(of:perform:)` that macOS 13 is stuck
-    with: it runs the closure captured *before* the change, so a plain stored
+    deprecated single-parameter `onChange(of:perform:)` that the macOS bar still
+    uses: it runs the closure captured *before* the change, so a plain stored
     property read off `self` there is still the previous value. The iOS target is
     17, whose two-parameter `onChange(of:_:)` runs the *new* closure, so
     `searchQuery` reads current either way; the seed is spelled

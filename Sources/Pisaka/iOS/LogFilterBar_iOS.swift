@@ -30,7 +30,7 @@ import PisakaCore
 /// stored property. On iOS this is uniformity with the macOS bar rather than a
 /// bug fix, and the difference is worth naming so neither side is "corrected"
 /// into the other: the stale-property trap belongs to the deprecated
-/// single-parameter `onChange(of:perform:)`, which macOS 13 is stuck with — it
+/// single-parameter `onChange(of:perform:)`, which the macOS bar still uses — it
 /// runs the closure captured *before* the change, so a plain stored property
 /// read off `self` there (the macOS bar's `filter`/`searchQuery`, a `let`) is
 /// still the previous value and seeding from it lags one publish forever. The

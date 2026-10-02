@@ -1942,7 +1942,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
      field with its text selected.
     That select-all resolves the field editor through **this bar's own window**
     (captured by a small private `WindowAccessor` `NSViewRepresentable`, since
-    SwiftUI exposes no window on macOS 13) and only while that window is key —
+    SwiftUI exposes no window) and only while that window is key —
     *not* through `NSApp.keyWindow`. ⌘F is an app-wide `CommandMenu` item, so it
     fires with the Find in Files window key too, and that window's shared field
     editor is an `NSTextView` with `isFieldEditor == true`: a key-window read

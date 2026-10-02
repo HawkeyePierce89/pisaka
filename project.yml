@@ -1,7 +1,7 @@
 name: Pisaka
 
 # XcodeGen project for the Pisaka app. One multiplatform application target that
-# builds for both macOS 13 and iOS 17 (the modern Xcode "multiplatform app", a
+# builds for both macOS 14 and iOS 17 (the modern Xcode "multiplatform app", a
 # single target with multiple supported destinations). `swift run Pisaka` is gone
 # — build/run through this generated project (`xcodegen generate` then
 # `xcodebuild`/Xcode).
@@ -45,7 +45,7 @@ name: Pisaka
 options:
   bundleIdPrefix: ws.karmanov.pisaka
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "14.0"
     iOS: "17.0"
   createIntermediateGroups: true
 

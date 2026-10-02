@@ -1821,7 +1821,7 @@ differed:
    the list is one focusable container, `onMoveCommand` moves the selection and
    the `ScrollViewReader` keeps it visible, and Return opens through a
    zero-sized shortcut button enabled only while the list holds focus (the
-   viewer's `returnOpensTheFocusedCell` idiom, since `onKeyPress` is macOS 14);
+   viewer's `returnOpensTheFocusedCell` idiom);
    single tap selects, double tap opens, the context menu offers Open, and the
    explicit Open button stays. Below the last row — where the rows' container is
    stretched to the viewport and a clear, hit-testable background sits behind

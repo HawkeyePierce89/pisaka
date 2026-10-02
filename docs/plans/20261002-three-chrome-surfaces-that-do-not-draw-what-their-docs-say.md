@@ -65,12 +65,12 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 - Modify: the comment and doc sentences that state 13 as the deployment target or the supported floor (found by grep)
 - Modify: the existing static suite that reads `project.yml` / `Package.swift`
 
-- [ ] Set `options.deploymentTarget.macOS` to `"14.0"` in `project.yml` and `.macOS(.v14)` in `Package.swift`. Keep iOS at 17.
-- [ ] Update every statement of the floor: README "Requires macOS 14+", CLAUDE.md's two mentions, the header comments of `project.yml` and `Package.swift`, and the release notes string in `release.yml`. If `ReleaseWorkflowTests` pins that string, update it too.
-- [ ] Reword the sentences that justify code by "the deployment target is macOS 13" so they stay true. A historical fact about macOS 13's own behaviour may stay when stated as such.
-- [ ] Deprecation warnings are accepted. Raising the floor to macOS 14 deprecates the single-parameter `onChange(of:perform:)`, used at about 57 call sites, and those sites will now emit deprecation warnings. Migrating them is out of scope for this ticket: do not touch them. The project does not treat warnings as errors, so the macOS Release and iOS builds must still succeed with these warnings present.
-- [ ] Add a static assertion that `project.yml`'s macOS deployment target and `Package.swift`'s macOS platform name the same version. Put it in the existing suite that already reads those files, so a restated floor cannot drift.
-- [ ] Run `xcodegen generate`. Run `swift test` (must pass), plus the macOS Release and iOS builds (must succeed).
+- [x] Set `options.deploymentTarget.macOS` to `"14.0"` in `project.yml` and `.macOS(.v14)` in `Package.swift`. Keep iOS at 17.
+- [x] Update every statement of the floor: README "Requires macOS 14+", CLAUDE.md's two mentions, the header comments of `project.yml` and `Package.swift`, and the release notes string in `release.yml`. If `ReleaseWorkflowTests` pins that string, update it too.
+- [x] Reword the sentences that justify code by "the deployment target is macOS 13" so they stay true. A historical fact about macOS 13's own behaviour may stay when stated as such.
+- [x] Deprecation warnings are accepted. Raising the floor to macOS 14 deprecates the single-parameter `onChange(of:perform:)`, used at about 57 call sites, and those sites will now emit deprecation warnings. Migrating them is out of scope for this ticket: do not touch them. The project does not treat warnings as errors, so the macOS Release and iOS builds must still succeed with these warnings present.
+- [x] Add a static assertion that `project.yml`'s macOS deployment target and `Package.swift`'s macOS platform name the same version. Put it in the existing suite that already reads those files, so a restated floor cannot drift.
+- [x] Run `xcodegen generate`. Run `swift test` (must pass), plus the macOS Release and iOS builds (must succeed).
 
 ### Task 2: The dock's tab row packs its tabs at the leading edge
 
