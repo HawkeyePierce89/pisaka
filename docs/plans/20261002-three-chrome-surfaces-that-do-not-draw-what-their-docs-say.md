@@ -79,13 +79,13 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 - Create: `Tests/PisakaAppTests/DockTabRowLayoutTests.swift`
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] Reproduce in a headless harness: host `DockTabRow` in a real window, about 1000 points wide, and confirm the tabs spread across it.
-- [ ] Make each tab exactly as wide as its padded title. The title is the only thing that sizes the tab. The accent strip takes its width from the title and sits below it, so it can never ask for width of its own. Both states keep the same height and title position. No weight change, no hard-coded widths.
-- [ ] Keep the gating rules on this file green:
+- [x] Reproduce in a headless harness: host `DockTabRow` in a real window, about 1000 points wide, and confirm the tabs spread across it.
+- [x] Make each tab exactly as wide as its padded title. The title is the only thing that sizes the tab. The accent strip takes its width from the title and sits below it, so it can never ask for width of its own. Both states keep the same height and title position. No weight change, no hard-coded widths.
+- [x] Keep the gating rules on this file green:
   - rule twelve (sole caller);
   - rule thirteen (the strip hidden from accessibility, the selection spoken as a value);
   - rule sixteen (the bottom rule drawn behind the tabs).
-- [ ] Write the tests:
+- [x] Write the tests:
   - the six tabs are packed from the leading padding with `tabGap` between neighbours;
   - the close action sits at the trailing edge;
   - the space between the last tab and the close action takes up the rest of the row;
@@ -93,8 +93,8 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
   - the same at interface scale 1.8.
 
   Measure through what the view already exposes (each tab's accessibility element and frame, or a rendered bitmap) rather than adding a test-only seam to the production view. If a seam turns out to be unavoidable, state why in the suite header.
-- [ ] Update the `DockTabRow.swift` entry in `app-window.md` with the cause (a width-flexible strip made every tab greedy) and the rule that now prevents it (the title alone sizes a tab; the headless suite measures the packing). Leave no sentence describing the old behaviour.
-- [ ] Run `swift test` and the app-layer bundle (must pass).
+- [x] Update the `DockTabRow.swift` entry in `app-window.md` with the cause (a width-flexible strip made every tab greedy) and the rule that now prevents it (the title alone sizes a tab; the headless suite measures the packing). Leave no sentence describing the old behaviour.
+- [x] Run `swift test` and the app-layer bundle (must pass).
 
 ### Task 3: The shared themed field draws its box and no native ring
 
