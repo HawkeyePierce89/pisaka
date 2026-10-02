@@ -261,6 +261,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     unterminated last line, clamping, and the line agreeing with the whole
     text's `LineStartIndex` at every offset. The encoding is the caller's
     (`FileService.encodingName`, `core-workspace.md`).
+  - `CurrentLineRule.swift` — which line the editor's current-line highlight
+    washes: `highlightedLine(selection:lineStarts:length:) -> NSRange?`. The
+    answer is the UTF-16 range of the line holding the caret, separator
+    included (start to the next line's start; the last line runs to `length`);
+    a selection within one line still highlights, a selection spanning lines
+    answers `nil`. A selection ending exactly at the next line's start — a whole
+    line selected with its separator — covers one line, because its last
+    character is that separator. The trailing empty line of a text ending in a
+    separator, and an empty document's one line, answer the zero-length range
+    at their start. `lineStarts` is `LineStartIndex`'s table, so the line is
+    split by the same six separators the gutter numbers by; the lookup is a
+    binary search (a caret move costs O(log lines)), and an out-of-range
+    selection clamps into the text. `length` is passed because the last line's
+    end is not in the table. `CurrentLineRuleTests`
+    covers a caret (mid-line, at a line start, at a line end), a single-line
+    selection, multi-line selections, the whole-line-with-separator case, the
+    last line, the trailing empty line, an empty document, every separator and
+    clamping. The two painters are `app-editor-overlays.md`'s; the wiring is
+    `app-editor.md`'s.
   - `MinimapGeometry.swift` — pure, testable scroll/viewport math for the
     *proportional* minimap (CoreGraphics/Foundation only). A
     `public struct MinimapGeometry: Equatable` built from `documentHeight`/

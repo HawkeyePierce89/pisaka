@@ -249,13 +249,13 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/BracketOverlayLayoutManager.swift`, `LineNumberRulerView.swift`, `CodeEditorView.swift`, `Sources/PisakaCore/ChromeColorRole.swift` (doc: `currentLine` spent), `Tests/PisakaAppTests/ChromePaletteTests.swift`
 - Create: `Tests/PisakaAppTests/CurrentLineHighlightTests.swift`
 
-- [ ] `CurrentLineRule.highlightedLine(selection:lineStarts:)` returns the UTF-16 range of the line holding the caret. It returns `nil` when the selection spans more than one line; a selection within one line still highlights.
-- [ ] In the layout manager's background pass, after the indent-level pass and before `super`, paint that line full width in `currentLine`. Paint the same line's band in the gutter ruler. Redraw on selection change. Resolve both colours inside the drawing appearance (rule 25).
-- [ ] Mark `currentLine` as spent in `ChromeColorRole`'s comment and in `core-theme.md`, and enable `ChromePaletteTests`' waiting rule.
-- [ ] Tests:
+- [x] `CurrentLineRule.highlightedLine(selection:lineStarts:)` returns the UTF-16 range of the line holding the caret. It returns `nil` when the selection spans more than one line; a selection within one line still highlights.
+- [x] In the layout manager's background pass, after the indent-level pass and before `super`, paint that line full width in `currentLine`. Paint the same line's band in the gutter ruler. Redraw on selection change. Resolve both colours inside the drawing appearance (rule 25).
+- [x] Mark `currentLine` as spent in `ChromeColorRole`'s comment and in `core-theme.md`, and enable `ChromePaletteTests`' waiting rule.
+- [x] Tests:
   - Core rule cases: caret only, a single-line selection, a multi-line selection, the last line, and an empty document;
   - app-layer (`EditorLayoutHarness`): the caret line's text area and gutter sample as `currentLine`, a neighbouring line does not, and a multi-line selection paints no tint.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 7: Consent banner buttons and the terminal panel
 

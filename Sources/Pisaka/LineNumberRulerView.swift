@@ -826,6 +826,23 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // `backgroundRect(in:ruleThickness:)` says why.
         ChromePalette.nsColor(.bgEditor).setFill()
         Self.backgroundRect(in: rect, ruleThickness: ruleThickness).fill()
+        // The current line's band, continuing the text area's wash into the
+        // gutter: the same line, read off the layout manager that paints the
+        // text side, so the two can never disagree. Under the hairline and the
+        // numbers, and resolved here, inside the drawing appearance.
+        if let overlay = layoutManager as? BracketOverlayLayoutManager,
+           let range = overlay.currentLineRange,
+           let band = overlay.currentLineBand(for: range) {
+            // The gutter's own width from its leading edge — the band is a
+            // row of the gutter, never of the rectangle handed in.
+            ChromePalette.nsColor(.currentLine).setFill()
+            NSRect(
+                x: 0,
+                y: band.minY + textView.textContainerOrigin.y + convert(NSPoint.zero, from: textView).y,
+                width: ruleThickness,
+                height: band.height
+            ).fill()
+        }
         ChromePalette.nsColor(.hairline).setFill()
         // `ChromeGeometry.hairlineWidth` unscaled — the one stated exception to
         // "every token is scaled at its use site". A hairline is one point by

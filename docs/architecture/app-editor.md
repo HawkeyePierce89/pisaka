@@ -693,6 +693,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     inside the body-length limit).
     What the offset reads as is Core's (`CaretReadout`); the readout's model and
     its deferral are `app-window.md`'s.
+    The current-line highlight is wired beside it: `updateCurrentLine(of:)` asks
+    `CurrentLineRule` over the whole selection — first range's start to last
+    range's end, so a column selection across lines is a multi-line one — and
+    the ruler's `lineStarts`, and hands a changed answer to the layout manager's
+    `setCurrentLine(_:)` and marks the ruler for display. It runs at the end of
+    every `textViewDidChangeSelection` and at the end of **every** update — a
+    restored selection may send no selection change, and an unchanged line is a
+    no-op — so it costs a binary search per update. The painting is
+    `app-editor-overlays.md`'s.
     `captureViewport()` reads `textView.selectedRange()` and resolves the top
     visible character by handing the clip view's `documentVisibleRect` top-left to
     `NSTextView.characterIndexForInsertion(at:)`; it answers `nil` only when the

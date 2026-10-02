@@ -188,6 +188,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     keystroke. Off, a degenerate width (zero or less, which is also how an
     uncomputed width arrives) or an absent text storage draws nothing and leaves
     the pass byte-for-byte what it was.
+    **The current-line wash** is painted in the same pass, after the level blocks
+    and before `super`: `setCurrentLine(_:)` takes `CurrentLineRule`'s answer
+    from the coordinator (an unchanged range is a no-op) and invalidates only the
+    band it leaves and the band it lands on — two line-high strips, never the
+    viewport, since it runs on every caret move; `currentLineBand(for:)` measures
+    the band at draw time in text-container y — the line's first through last
+    fragment, from x 0 across the text view's whole width — and a zero-length
+    range at the end of the text is the extra line fragment (the trailing empty
+    line, or an empty document's one line), laid out up to the last character
+    only, never the whole file. The fill is `ChromePalette.nsColor(.currentLine)`,
+    a dynamic colour resolved inside the drawing pass. Painting it after the
+    blocks puts it over the caret line's indentation tint; painting it before
+    `super` keeps the matched pair, the search matches and the selection on top.
+    The gutter reads `currentLineRange` and `currentLineBand(for:)` off this class
+    rather than holding a copy, so the two halves cannot disagree.
+    `CurrentLineHighlightTests` samples both halves (`core-theme.md`).
     **The ordering is blocks first, then `super`**, in an override of
     `drawBackground(forGlyphRange:at:)`: `super` is what paints the `.backgroundColor`
     temporary attributes — the caret's matched pair and both search-match
@@ -610,7 +626,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     applied as `.preferredColorScheme` at the window root — while caching nothing
     and observing no appearance change of its own. Four colours, four roles.
     `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over
-    `Self.backgroundRect(in:ruleThickness:)`, then a
+    `Self.backgroundRect(in:ruleThickness:)`, then — when the layout manager is a
+    `BracketOverlayLayoutManager` holding a current line — that line's band in
+    `currentLine`, its y the layout manager's `currentLineBand(for:)` translated
+    the way the numbers are, its x the gutter's own `0 ..< ruleThickness` (never
+    the rectangle handed in, for the reason below), then a
     `ChromeGeometry.hairlineWidth` rule in `hairline` at the
     ruler's right edge (`ruleThickness - hairlineWidth`).
     **The rectangle filled is the gutter's own, never the one handed in**, and

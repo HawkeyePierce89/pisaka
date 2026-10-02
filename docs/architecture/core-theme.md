@@ -88,11 +88,15 @@ adds no write of any kind. Its only persisted input is the existing
     `currentLine`, `bracketMatch` and `conflictBackground`. Part five (b)
     spends `conflictBackground` on the merge panes, through
     `mergeWashRole(for:)`, which leaves **two**: `currentLine` and
-    `bracketMatch`. **Both are deliberately still unused** — both
-    belong to the *code* zone, whose overlays are temporary text attributes on the
-    editor's own theme (`SyntaxTheme`), so spending them is a decision about where
-    the chrome ends rather than a restyle. They are declared nonetheless, because
-    the table is the design rather than an inventory of today's call sites. The raw values are the stable names the
+    `bracketMatch`. The current-line highlight then spends `currentLine` — the
+    full-width band the layout manager paints under the caret's line and its
+    continuation in the gutter (see *The current-line highlight*, below) — which
+    leaves **one**: `bracketMatch`, deliberately still unused, because it
+    belongs to the *code* zone, whose matched-pair overlay is a temporary text
+    attribute on the editor's own theme (`SyntaxTheme`), so spending it is a
+    decision about where the chrome ends rather than a restyle. It is declared
+    nonetheless, because the table is the design rather than an inventory of
+    today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
     **`diagnosticRole(for:)` — the chrome's one severity answer**, moved here in
@@ -322,15 +326,16 @@ when it changed, exactly one consumer — `ProjectTreeView.swift`'s
 selected while its window is not key, never an editor text selection; part five
 (b)'s commit dialog file row paints the same state by *calling* that mapping, not
 by naming the role, so the consumer is still one —
-and `currentLine` is painted by *nothing
+and `currentLine` was then painted by *nothing
 at all*, its only occurrences being its declaration, its palette row and the
-comment on the row above it. The two have therefore never shared a surface, and
-the only thing that looks different after the change is one tree row's
+comment on the row above it. The two had therefore never shared a surface, and
+the only thing that looked different after the change was one tree row's
 background. What `ChromePaletteTests` states —
 `testTheInactiveSelectionWashIsNotTheCurrentLineWash`, asserted in both
 appearances through `ChromeTheme` and through the concrete AppKit colours — is a
-rule about the *future*: whoever adds a current-line highlight must not let it
-arrive in the selection's own wash. It is written as the property rather than as
+rule about what was then the *future* and is now spent: the current-line
+highlight (see *The current-line highlight*) must not arrive in the selection's
+own wash, and the assertion is what keeps it from doing so. It is written as the property rather than as
 the new numbers, so it survives a later palette change; the restated row carries
 the new pair beside it. A second assertion,
 `testTheInactiveSelectionRowNamesTheFileThatPaintsIt`, keeps the row's comment
@@ -2358,6 +2363,28 @@ against the text's own side bearing, rendered alone. Where the string comes
 from is `app-window.md`'s (`CaretReadoutModel`) and `app-editor.md`'s
 (`onCaretMoved`).
 
+#### The current-line highlight
+
+The editor washes the caret's line in `currentLine`, full width, and continues
+the band into the gutter. Which line is `CurrentLineRule`'s answer
+(`core-editor.md`): the line holding the caret, a selection within one line
+still highlighting, a selection spanning lines highlighting nothing. The
+coordinator asks it on every selection change and on every view update, over
+the whole selection (a column selection across lines is a multi-line one) and
+the ruler's own line-start table, and hands the answer to the layout manager,
+which redraws only the band the wash leaves and the band it lands on. The text
+side paints in `drawBackground`, after the indentation levels and before
+`super`, so the matched pair, the search matches and the selection all land on
+top of it; the gutter reads the same answer and geometry off the layout manager
+and paints its band over `bgEditor`, under the hairline and the numbers. Both
+fills are dynamic colours resolved inside the drawing pass, rule twenty-five's
+footing, so an appearance switch repaints them untold. Rule twenty-nine holds
+the files spelling `currentLine` to the palette and these two painters, by set
+equality; `ChromePaletteTests` keeps the wash distinct from
+`selectionInactive`; `CurrentLineHighlightTests` samples the band in both
+halves, on the caret's line and not its neighbour, and none under a multi-line
+selection.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
@@ -2383,8 +2410,8 @@ deferred** — part five (h) moved its four chrome colours onto the roles — bu
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
 entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
 `0x1E1F22` than on the black they were tuned for. Each follows the six-step guide at the end of
-this document, on its own. Two roles remain unspent — `currentLine` and
-`bracketMatch`, both code zone — after fifty-seven surfaces, the same two roles
+this document, on its own. One role remains unspent — `bracketMatch`, code
+zone — after the current-line highlight spent `currentLine`, the same one role
 `ChromeColorRole.swift`'s own doc comment names.
 
 ### The monochrome-icon decision
@@ -2965,8 +2992,10 @@ The forty-six rules, each invisible to the compiler:
     designated initializer assigns `backgroundColor` and names `bgPanel`.
 29. **The merge wash is Core's one answer.** The `mergeWashRole` token is read
     by `MergeView.swift` alone among the app files; no app file other than
-    `ChromePalette.swift` spells `conflictBackground`, `currentLine` or
-    `bracketMatch`; no gated file chains `.withAlphaComponent`/`.opacity` onto a
+    `ChromePalette.swift` spells `conflictBackground` or `bracketMatch`; the app
+    files spelling `currentLine` are exactly `ChromePalette.swift`,
+    `BracketOverlayLayoutManager.swift` and `LineNumberRulerView.swift` (the
+    current-line highlight's two painters), by set equality; no gated file chains `.withAlphaComponent`/`.opacity` onto a
     role's colour (`nsColor(…)`, `.color(…)` or `chromeColor(…)`, brace-matched,
     line breaks allowed — `MinimapView.swift`'s alpha on a syntax-table colour is
     code zone and outside the rule); part five (b)'s ten files spell

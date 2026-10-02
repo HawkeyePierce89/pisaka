@@ -154,8 +154,9 @@ import XCTest
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
 ///   silently, the later one winning with nothing to say so.
 /// - **The merge wash is Core's one answer.** `mergeWashRole(for:)` is read by
-///   the merge panes alone, `conflictBackground`/`currentLine`/`bracketMatch` by
-///   no app file but the palette, and no gated file chains an alpha onto a
+///   the merge panes alone, `conflictBackground`/`bracketMatch` by no app file
+///   but the palette, `currentLine` by the palette and the current-line
+///   highlight's two painters alone, and no gated file chains an alpha onto a
 ///   role's colour — a composed alpha is a second wash nothing re-themes.
 /// - **One primary button, one secondary, one checkbox.** No gated file spells a
 ///   platform toggle or button style; the shared controls' callers are pinned;
@@ -3181,9 +3182,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule twenty-nine: the merge wash is Core's one answer
 
-    /// `mergeWashRole(for:)` is read by the merge panes alone; the three roles it
-    /// and the code zone's line overlays own are spelled by no app file but the
-    /// palette; and no gated file composes an alpha onto a role's colour.
+    /// `mergeWashRole(for:)` is read by the merge panes alone; the merge wash's
+    /// own role and the unspent `bracketMatch` are spelled by no app file but the
+    /// palette; `currentLine` — spent by the current-line highlight — by the
+    /// palette and that highlight's two painters exactly, by set equality; and
+    /// no gated file composes an alpha onto a role's colour.
     ///
     /// The alpha clause is a pattern over a call and the member chained onto it
     /// — `nsColor(…)`, `.color(…)` or `chromeColor(…)`, its brace-matched
@@ -3218,23 +3221,35 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// through a `let` needs data flow, which a token scan does not have.
     private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
 
+    /// The palette, plus the current-line highlight's two painters: the text
+    /// side's full-width band and the gutter's continuation of it.
+    private static let currentLinePainters: Set<String> = [
+        "ChromePalette.swift", "BracketOverlayLayoutManager.swift", "LineNumberRulerView.swift",
+    ]
+
     func testTheMergeWashIsCoresOneAnswer() throws {
         var readers: Set<String> = []
+        var currentLinePainters: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
+            if LSPSourceGatingTests.containsToken("currentLine", in: code) { currentLinePainters.insert(name) }
             guard name != "ChromePalette.swift" else { continue }
-            for role in ["conflictBackground", "currentLine", "bracketMatch"] {
+            for role in ["conflictBackground", "bracketMatch"] {
                 XCTAssertFalse(
                     LSPSourceGatingTests.containsToken(role, in: code),
-                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, the other two are the code zone's"
+                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, bracketMatch is the code zone's"
                 )
             }
         }
         XCTAssertEqual(
             readers, Self.mergeWashReaders,
             "the app files reading ChromeColorRole.mergeWashRole(for:) must be exactly the merge panes"
+        )
+        XCTAssertEqual(
+            currentLinePainters, Self.currentLinePainters,
+            "the app files naming currentLine must be exactly the palette and the current-line highlight's two painters"
         )
 
         let roleColor = try NSRegularExpression(pattern: "(?:\\bnsColor|\\.color|\\bchromeColor)\\s*\\(")

@@ -1055,6 +1055,10 @@ struct CodeEditorView: NSViewRepresentable {
         if switchedFile || gainedCaretListener {
             context.coordinator.reportCaretPosition(of: textView)
         }
+        // The same reason, for the current-line wash: a restored selection that
+        // sends no selection change would leave the band where it was. A no-op
+        // when the line has not moved.
+        context.coordinator.updateCurrentLine(of: textView)
     }
 
     /// Remove the scroll/frame observers and cancel any in-flight minimap parse
@@ -1783,6 +1787,29 @@ struct CodeEditorView: NSViewRepresentable {
             // it — otherwise Replace edits a different match than the one shown.
             searchController.selectionChanged()
             reportCaretPosition(of: textView)
+            updateCurrentLine(of: textView)
+        }
+
+        /// Hand the current-line highlight its line: `CurrentLineRule` over the
+        /// whole selection (a column selection's ranges spanning lines is a
+        /// multi-line selection) and the ruler's own line-start table, so the
+        /// band sits on exactly the line the gutter numbers. The layout manager
+        /// redraws the two bands that changed, and the ruler — which reads the
+        /// same answer off the layout manager — redraws only when it moved.
+        func updateCurrentLine(of textView: NSTextView) {
+            guard let layoutManager = overlayLayoutManager, let ruler = lineNumberRuler,
+                  let first = textView.selectedRanges.first?.rangeValue,
+                  let last = textView.selectedRanges.last?.rangeValue
+            else { return }
+            let selection = NSRange(location: first.location, length: max(0, NSMaxRange(last) - first.location))
+            let line = CurrentLineRule.highlightedLine(
+                selection: selection,
+                lineStarts: ruler.lineStarts,
+                length: textView.textStorage?.length ?? 0
+            )
+            guard line != layoutManager.currentLineRange else { return }
+            layoutManager.setCurrentLine(line)
+            ruler.needsDisplay = true
         }
 
         func textDidEndEditing(_ notification: Notification) {
