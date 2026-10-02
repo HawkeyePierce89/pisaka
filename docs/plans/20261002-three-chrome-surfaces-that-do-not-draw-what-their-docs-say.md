@@ -152,11 +152,11 @@ Causes found while exploring (master `d917dc6a`). The implementer must confirm e
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` passes.
-- [ ] `swiftlint --strict` from the repository root is clean.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` passes. DerivedData goes outside the repository.
-- [ ] The macOS Release build (`-configuration Release`) and the iOS build (`generic/platform=iOS`) succeed. The `onChange` deprecation warnings from Task 1 are expected and accepted.
-- [ ] Each of the three fixes has its headless suite, and the field also has its new gating rule. The rule count is consistent across the suite, `core-theme.md` and CLAUDE.md.
+- [x] `swift test` passes.
+- [x] `swiftlint --strict` from the repository root is clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` passes. DerivedData goes outside the repository.
+- [x] The macOS Release build (`-configuration Release`) and the iOS build (`generic/platform=iOS`) succeed. The `onChange` deprecation warnings from Task 1 are expected and accepted.
+- [x] Each of the three fixes has its headless suite, and the field also has its new gating rule. The rule count is consistent across the suite, `core-theme.md` and CLAUDE.md.
 
 ### Task 6: Update documentation
 
