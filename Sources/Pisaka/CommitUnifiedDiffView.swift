@@ -62,6 +62,9 @@ struct CommitUnifiedDiffView: View {
     /// Bumped by every re-measure and used as the rows' identity, so each
     /// realized row is rebuilt and reports its width afresh (`remeasure()`).
     @State private var measureGeneration = 0
+    /// The scroll view's visible width — the pane less any legacy vertical
+    /// scroller. Part of the content's width (`diff`'s doc comment).
+    @State private var visibleWidth: CGFloat = 0
 
     var body: some View {
         if let wholeOnlyMessage {
@@ -107,27 +110,34 @@ struct CommitUnifiedDiffView: View {
     /// overflowing line could not widen the content at all. The widest row is
     /// the widest *realized* one — a lazy stack never lays out the rest — so the
     /// content widens as a longer line scrolls into view.
+    /// The visible width is the clip view's (`VisibleWidthProbe`), not the
+    /// pane's: with legacy scroll bars the vertical scroller takes part of the
+    /// pane, and a width read from SwiftUI — the pane's frame or the scroll
+    /// view's container — still includes it.
     private var diff: some View {
-        GeometryReader { pane in
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // The index is the identity: the same text can legitimately
-                    // appear on many lines, and a `.modified` pair shares its unit
-                    // index. It is taken from `indices` rather than by wrapping the
-                    // array in `enumerated()`, which would build a fresh array of
-                    // one tuple per line on *every* body pass — and this body
-                    // re-runs on every keystroke in the message field, over a diff
-                    // that can be tens of thousands of lines long, which is the
-                    // very cost `CommitDialogModel.unifiedLines(for:)` is memoized
-                    // to avoid.
-                    ForEach(lines.indices, id: \.self) { index in
-                        row(lines[index])
-                    }
+        ScrollView([.vertical, .horizontal]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                // The index is the identity: the same text can legitimately
+                // appear on many lines, and a `.modified` pair shares its unit
+                // index. It is taken from `indices` rather than by wrapping the
+                // array in `enumerated()`, which would build a fresh array of
+                // one tuple per line on *every* body pass — and this body
+                // re-runs on every keystroke in the message field, over a diff
+                // that can be tens of thousands of lines long, which is the
+                // very cost `CommitDialogModel.unifiedLines(for:)` is memoized
+                // to avoid.
+                ForEach(lines.indices, id: \.self) { index in
+                    row(lines[index])
                 }
-                .id(measureGeneration)
-                .padding(.vertical, 2)
-                .frame(minWidth: max(pane.size.width, widestRow), alignment: .leading)
             }
+            .id(measureGeneration)
+            .padding(.vertical, 2)
+            .frame(minWidth: max(visibleWidth, widestRow), alignment: .leading)
+            // The visible width is the clip view's, read from AppKit: the
+            // pane's frame — and SwiftUI's own container size — include a
+            // legacy vertical scroller, so every diff would overflow by its
+            // width and scroll horizontally.
+            .background(VisibleWidthProbe(width: $visibleWidth))
         }
         // A memoized diff hands back the same array, so this comparison is the
         // storage-identity fast path on every pass but a file switch. `initial`
@@ -222,6 +232,52 @@ struct CommitUnifiedDiffView: View {
     /// The row's wash: Core's one answer, `nil` (a context line) drawing none.
     private func background(_ kind: UnifiedDiffLine.Kind) -> Color {
         ChromeColorRole.diffWashRole(for: kind).map { theme.color($0) } ?? .clear
+    }
+}
+
+/// Reports the enclosing scroll view's clip width — the area that actually
+/// shows content, which excludes a legacy vertical scroller — and reports it
+/// again whenever the clip view is resized (a window resize, or the scroller
+/// appearing as the content outgrows the pane).
+private struct VisibleWidthProbe: NSViewRepresentable {
+    @Binding var width: CGFloat
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.onWidth = { width = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: ProbeView, context: Context) {
+        view.onWidth = { width = $0 }
+    }
+
+    final class ProbeView: NSView {
+        var onWidth: ((CGFloat) -> Void)?
+        private weak var observedClip: NSClipView?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let center = NotificationCenter.default
+            if let observedClip {
+                center.removeObserver(self, name: NSView.frameDidChangeNotification, object: observedClip)
+            }
+            observedClip = enclosingScrollView?.contentView
+            guard let clip = observedClip else { return }
+            clip.postsFrameChangedNotifications = true
+            center.addObserver(
+                self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: clip
+            )
+            clipFrameChanged()
+        }
+
+        @objc private func clipFrameChanged() {
+            guard let clip = observedClip else { return }
+            let width = clip.bounds.width
+            // Published on the next turn: the notification can land inside a
+            // SwiftUI layout pass, where a state write is not allowed.
+            DispatchQueue.main.async { [weak self] in self?.onWidth?(width) }
+        }
     }
 }
 

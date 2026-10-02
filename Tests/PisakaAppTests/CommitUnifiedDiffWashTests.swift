@@ -54,6 +54,12 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         ),
     ]
 
+    /// Short lines enough to overflow the pane vertically, so a legacy vertical
+    /// scroller is shown.
+    private static let tall: [UnifiedDiffLine] = short + (3...60).map {
+        UnifiedDiffLine(kind: .context, text: "line", oldNumber: $0, newNumber: $0, unitIndex: nil)
+    }
+
     /// A wider overflowing diff whose line at index 3 is exactly as long as
     /// `overflowing`'s — the row whose width survives the switch.
     private static let wider: [UnifiedDiffLine] = overflowing + [
@@ -78,6 +84,32 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         addTeardownBlock { @MainActor in render.window.close() }
         XCTAssertGreaterThan(render.scrolledBy, 0, "the overflowing diff did not scroll horizontally")
         try assertWashedAtTrailingEdge(render)
+    }
+
+    /// With legacy scroll bars ("Show scroll bars: Always") the vertical
+    /// scroller takes part of the pane, so the content is as wide as the clip
+    /// view, not as the pane: a diff whose lines all fit still does not scroll
+    /// horizontally. The preference is set the way the system sets it, through
+    /// the defaults key `NSScroller` reads, because a style forced onto the
+    /// hosted scroll view from outside is not something SwiftUI lays out for.
+    /// Verified by mutation: measured from the pane's frame — or from SwiftUI's
+    /// `containerRelativeFrame`, which reports the same 600 points — the
+    /// content is 600 points wide in a 583-point clip view.
+    func testShortChangedLinesDoNotScrollWithLegacyScrollers() throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: "AppleShowScrollBars")
+        defaults.set("Always", forKey: "AppleShowScrollBars")
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        addTeardownBlock { @MainActor in
+            defaults.set(previous, forKey: "AppleShowScrollBars")
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        }
+        let render = try DiffRender(lines: Self.tall, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let visible = try XCTUnwrap(render.visibleWidth, "no hosted scroll view")
+        XCTAssertLessThan(visible, render.width - 1, "the scrollers are not legacy — the case is not exercised")
+        let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+        XCTAssertEqual(contentWidth, visible, accuracy: 0.5, "the content is wider than the visible pane")
     }
 
     // MARK: - Live updates
@@ -209,6 +241,9 @@ private final class DiffRender {
 
     /// The hosted scroll view's document width, or `nil` if none is found.
     var contentWidth: CGFloat? { Self.scrollView(in: render.host)?.documentView?.frame.width }
+
+    /// The hosted scroll view's clip width — the pane less any legacy scroller.
+    var visibleWidth: CGFloat? { Self.scrollView(in: render.host)?.contentView.bounds.width }
 
     /// Applies `change` to the hosted input and lets the layout settle.
     func update(file: StaticString = #filePath, line: UInt = #line, _ change: (DiffInput) -> Void) throws {
