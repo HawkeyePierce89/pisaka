@@ -129,7 +129,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`
+  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
   `DatabaseFileRule.swift`, `DatabaseValue.swift`, `DatabaseServicing.swift`, `DatabaseQuery.swift`, `DatabaseSchema.swift`, `DatabasePage.swift`, `DatabaseCellEntry.swift`, `DatabaseRowIdentity.swift`, `DatabaseUpdatePlan.swift`, `DatabaseConsolePlan.swift`, `DatabaseConsoleModel.swift`, `DatabaseViewerModel.swift`
@@ -166,7 +166,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
   `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
@@ -311,8 +311,8 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
-  equality) and its forty-five rules, inventoried in that suite's own header and
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-one, by set
+  equality) and its forty-six rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,
@@ -420,7 +420,7 @@ silently, which is what keeps `swift test` dependency-free.
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `FoldingSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
-`ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+`DesignGlyphAssetTests`, `ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for
 anything that ships in the bundle with no Swift code behind it, and for any architectural
 rule `swift test` cannot otherwise see.

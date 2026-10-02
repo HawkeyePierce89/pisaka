@@ -251,6 +251,15 @@
       "revision" : "41646dfd43ac83f001b03c70605feb036afae46d",
       "spdx" : "MIT AND Apache-2.0 AND ISC AND BSD-3-Clause AND Unlicense",
       "file" : "mermaid.txt"
+    },
+    {
+      "id" : "design-glyphs",
+      "name" : "Lucide (design glyphs)",
+      "origin" : "Sources/Pisaka/Assets.xcassets/Glyphs",
+      "version" : null,
+      "revision" : "648676f7c95b82ffc54b7f49612108e0258d2e939a924dd713afa367351f2514",
+      "spdx" : "ISC AND MIT",
+      "file" : "design-glyphs.txt"
     }
   ],
   "excluded" : [

@@ -17,15 +17,17 @@ import XCTest
 /// `ChromeColorRole.textSecondary` in prose — so a raw `contains` would pass on
 /// all three while the code they name was deleted.
 ///
-/// **The stated exceptions.** Three rules match against
+/// **The stated exceptions.** Four rules match against
 /// `GitHubSourceGatingTests.strippingComments(_:)` instead — comments removed,
 /// **string literals kept** — because each rule's subject *is* a literal, and the
 /// ordinary scanner would delete exactly the text it checks: the query-toggle name
 /// rule (`testQueryTogglesSpeakOneNamePerMode`), whose `help:` names are
 /// literals; the merge editor's chevron check in
 /// `testTheCommitDialogsRowsAndControls`, which finds the chevrons by their symbol
-/// names, also literals; and clause (c) of `testAServedPagesChromeIsThePalettes`,
-/// because a CSS hex value is a string literal. Every other rule that reads
+/// names, also literals; clause (c) of `testAServedPagesChromeIsThePalettes`,
+/// because a CSS hex value is a string literal; and the design-glyph rule
+/// (`testDesignGlyphsAreDrawnOnlyThroughTheHelper`), because an image loaded by
+/// name is loaded by a literal. Every other rule that reads
 /// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
 /// to the code.
 ///
@@ -231,6 +233,12 @@ import XCTest
 ///   draws its ring around the text line, over the box's border: it compiles,
 ///   and only a key window with real first-responder focus shows it, which the
 ///   headless app bundle cannot reliably reach.
+/// - **Design glyphs are drawn only through the helper.** No macOS source but
+///   `DesignGlyphImage.swift` loads an image by a glyph's name — an `Image("…")`
+///   or `NSImage(named:` naming one, or either spelling `assetName` — so the
+///   template intent, the fitted aspect and the hidden-from-accessibility rule
+///   are stated once. `AppIcon` is not a glyph and stays exempt. A glyph loaded
+///   inline compiles and draws, untinted by the theme or announced by its name.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -360,6 +368,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (f): the fold placeholder — its `…` glyph and rounded
         // outline, drawn from the palette through two spent seams.
         "BracketOverlayLayoutManager.swift",
+        // The design's glyphs: the one helper every surface draws them through,
+        // tinting each with the role its caller names (rule forty-six).
+        "DesignGlyphImage.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1009,7 +1020,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Asserted by counting, through this suite's one call matcher `callCount(_:in:)`:
     /// each widget's `Image(systemName:` count must equal its
     /// `.accessibilityHidden(true)` count. A symbol added without a thought for
-    /// the announcement moves one count and not the other.
+    /// the announcement moves one count and not the other. A `DesignGlyphImage(`
+    /// is a glyph that hides itself — the helper applies
+    /// `.accessibilityHidden(true)` in its own body, which rule thirty-four
+    /// re-checks — so it counts on both sides at once: it adds to the glyphs a
+    /// widget draws and owes no modifier of its own.
     ///
     /// Counting alone was not enough, and the way it failed is the reason for
     /// the second half. A widget's symbol is usually decoration, but two of
@@ -1101,8 +1116,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
             let symbols = Self.callCount("Image(systemName:", in: code)
             XCTAssertGreaterThan(
-                symbols, 0,
-                "\(name) draws no SF Symbol any more — re-point this rule rather than losing it"
+                symbols + Self.callCount("DesignGlyphImage(", in: code), 0,
+                "\(name) draws no glyph any more — re-point this rule rather than losing it"
             )
             XCTAssertEqual(
                 Self.callCount(".accessibilityHidden(true)", in: code), symbols,
@@ -3924,6 +3939,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The glyphs are found through `callRanges(_:in:)`, so an
     /// `Image(\n    systemName: …)` is the same glyph: the rule's first shape
     /// searched the contiguous text and skipped a wrapped one outright.
+    ///
+    /// **A `DesignGlyphImage(` is sized by construction**, and so is never an
+    /// unsized glyph at its call site: the helper's own `Image(` is the one
+    /// place the size is set, and the rule re-checks it there — `.resizable()`
+    /// with a `.frame(` naming `metrics` on its own chain, and
+    /// `.accessibilityHidden(true)` on the same chain, which is what lets rule
+    /// ten count the helper as a hidden glyph.
     private enum GlyphSizing {
         /// An enclosing stack's own chain ends in `.font(` naming `metrics`, so
         /// the glyph and the text beside it are one size by construction.
@@ -4039,6 +4061,29 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             case .offBothScales:
                 break
             }
+        }
+        let helper = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.designGlyphHelperFile))
+        )
+        let helperBody = try XCTUnwrap(
+            Self.matchedBody(after: "struct DesignGlyphImage", in: helper),
+            "DesignGlyphImage's declaration is gone or renamed — re-point this rule"
+        )
+        let helperImages = Self.callRanges("Image(", in: helperBody)
+        XCTAssertEqual(helperImages.count, 1, "DesignGlyphImage must draw exactly one Image(")
+        for found in helperImages {
+            let open = helperBody.index(before: found.upperBound)
+            let end = try XCTUnwrap(Self.balancedEnd(from: open, in: helperBody))
+            let links = Self.chainLinks(from: end, in: helperBody)
+            XCTAssertTrue(
+                Self.chainSizesThroughMetrics(from: end, in: helperBody, links: ["frame"])
+                    && links.contains { $0.name == "resizable" },
+                "DesignGlyphImage's Image( must be .resizable() and framed through metrics — every caller's size is this one"
+            )
+            XCTAssertTrue(
+                links.contains { $0.name == "accessibilityHidden" && $0.arguments == "(true)" },
+                "DesignGlyphImage's Image( must hide itself from accessibility — rule ten counts it as hidden"
+            )
         }
         for (name, code) in try Self.strippedGatedSources() {
             XCTAssertEqual(
@@ -5229,6 +5274,65 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule forty-six: design glyphs are drawn only through the helper
+
+    /// The one file allowed to load a design glyph by name.
+    static let designGlyphHelperFile = "DesignGlyphImage.swift"
+
+    /// Rule forty-six. Every macOS source under `Sources/Pisaka/` (the iOS
+    /// directory aside) other than the helper is read through the
+    /// **literal-keeping** scanner — the name an image is loaded by *is* a
+    /// literal — and no `Image(` or `NSImage(named:` call in it may name a
+    /// glyph: neither a string literal equal to a `DesignGlyph` raw value nor
+    /// the token `assetName`. `Image(systemName:` is a different call (an SF
+    /// Symbol, which may share a word with a glyph) and is not matched; any
+    /// other literal — `AppIcon` today — is not a glyph and is not this rule's.
+    ///
+    /// The helper must itself spell both loads through `assetName`, so a
+    /// renamed property cannot empty the rule into a vacuous pass.
+    func testDesignGlyphsAreDrawnOnlyThroughTheHelper() throws {
+        let glyphLiterals = Set(DesignGlyph.allCases.map { "\"\($0.assetName)\"" })
+        func namesAGlyph(_ arguments: Substring) -> Bool {
+            LSPSourceGatingTests.containsToken("assetName", in: String(arguments))
+                || glyphLiterals.contains { arguments.contains($0) }
+        }
+        func loads(in code: String) -> [Substring] {
+            var arguments: [Substring] = []
+            for needle in ["Image(", "NSImage(named:"] {
+                for found in Self.callRanges(needle, in: code) {
+                    guard let open = code[found].firstIndex(of: "("),
+                          let end = Self.balancedEnd(from: open, in: code) else { continue }
+                    let argument = code[code.index(after: open)..<code.index(before: end)]
+                    if needle == "Image(",
+                       argument.drop(while: \.isWhitespace).hasPrefix("systemName") { continue }
+                    arguments.append(argument)
+                }
+            }
+            return arguments
+        }
+
+        var offenders: [String] = []
+        var helperLoads = 0
+        for url in try Self.swiftSources()
+        where url.path.contains("/Sources/Pisaka/") && !url.path.contains("/Sources/Pisaka/iOS/") {
+            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let naming = loads(in: code).filter(namesAGlyph)
+            if url.lastPathComponent == Self.designGlyphHelperFile {
+                helperLoads = naming.count
+            } else if !naming.isEmpty {
+                offenders.append(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            offenders, [],
+            "a design glyph is drawn through DesignGlyphImage or DesignGlyphDrawing, never loaded by name inline"
+        )
+        XCTAssertEqual(
+            helperLoads, 2,
+            "\(Self.designGlyphHelperFile) must load the glyph by assetName exactly twice — once per half — or this rule reads nothing"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5254,7 +5358,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// documents and has no view, so it paints nothing and names no role by
     /// construction. It is gated for rules one and two, which are the rules it
     /// could break — a system colour or a hex literal creeping into it.
+    ///
+    /// `DesignGlyphImage.swift` is exempt because it paints the role its
+    /// *caller* names: it takes a `ChromeColorRole` and spells no case of one,
+    /// so it names none by construction. It is gated for rules one and two and
+    /// for rule forty-six, whose subject it is.
     private static let roleNamingExemptions: Set<String> = [
+        "DesignGlyphImage.swift",
         "ChromeThemeEnvironment.swift",
         "LSPInstalledLicenses.swift",
         "CommitGraphView.swift",
@@ -5323,7 +5433,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
-        45: "forty-five",
+        45: "forty-five", 46: "forty-six",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

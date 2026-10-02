@@ -1172,7 +1172,8 @@ shape-specific line scanner) and asserts:
     from `project.yml` (minus `PisakaCore`), plus the documented transitive trees
     (the `tree-sitter` C runtime, and `swift-cmark`, which swift-markdown links
     and `project.yml` never names), plus the **bundled page assets** — the third
-    source class, below — *set* equality, so a new dependency fails the suite
+    source class, below — plus the **design glyphs** (the fourth origin shape,
+    below), *set* equality, so a new dependency fails the suite
     until its license is added, and a dropped one fails until its entry goes.
     **The set is destination-blind, deliberately, and Sparkle is the first entry
     where that shows.** `licenses.json` has no platform dimension and
@@ -1217,6 +1218,20 @@ shape-specific line scanner) and asserts:
     above applies here twice over: `Resources/MarkdownPreview` itself carries
     `destinationFilters: [macOS]`, so iOS's Acknowledgements lists two components
     its bundle does not contain — over-attribution, for Sparkle's reason;
+  - **the design glyphs, the fourth origin shape.** The design's glyphs ship as
+    template vector imagesets in the app's asset catalog, so their one entry,
+    `design-glyphs`, carries exactly `Sources/Pisaka/Assets.xcassets/Glyphs` as
+    its `origin` — matched exactly, not by prefix, so a second `Sources/` origin
+    is a fifth shape the partition refuses. The export carries no upstream
+    commit, so the entry's `revision` is the sha256 of the export's
+    `MANIFEST.txt` and its `version` is `null`, both equal to what
+    `Resources/DesignGlyphs/VENDORED.md` records (a record `project.yml` does not
+    bundle). From the directory's end, exactly one notice claims the folder and
+    its imagesets are exactly the glyphs that record's table lists — read
+    through `DesignGlyphRecord`, the reader `DesignGlyphAssetTests` shares. The
+    `Vendor/` checks are untouched and still select only the four grammars. The
+    copyright-holder table pins the text's MIT-section holder, since the ISC
+    holder line spells the icon set's name, which stays out of code;
   - the SPDX exception set is no longer empty: `Swift-exception` is on SPDX's
     published exceptions list and is recorded as one, while libgit2's linking
     exception is not on that list and stays part of its licence text;

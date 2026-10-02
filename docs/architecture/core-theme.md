@@ -273,6 +273,20 @@ two new geometry tokens) and each with its readers pinned by a gating
     is the currently active editor tab's file** (there is no click-to-select in
     the tree, and a folder is never selected), and **"focused" means the window
     is key**.
+  - `DesignGlyph.swift` — the design's glyphs as one name table: a `String`-raw
+    `CaseIterable` enum, twenty-four cases, whose **raw value is the asset
+    name** in `Sources/Pisaka/Assets.xcassets/Glyphs/` (`assetName` returns it),
+    and a `nativeSize` column holding each glyph's drawn size in points at
+    interface scale 1.0 as the design export states it — 11 for the bar and
+    status glyphs, 12 for the file and folder glyphs, 13 for `undo-2` and
+    `refresh-cw`, 14 for the three query toggles. Foundation-only, colour-free:
+    it names a picture, and the role it is tinted with is the drawing site's.
+    `DesignGlyphTests` pins the names and sizes; `DesignGlyphAssetTests` holds
+    the case set equal to the catalog's imagesets by set equality, each PDF to
+    the export manifest's sha256 prefix, each imageset to the template intent
+    and preserved vector data, and each `nativeSize` to the size
+    `Resources/DesignGlyphs/VENDORED.md` records. The one helper that draws them
+    is `DesignGlyphImage.swift`, under "The design's glyphs" below.
 
 ## App
 
@@ -2276,6 +2290,48 @@ stays at **sixty** files — `TerminalTheme.swift` stays one of the four
 exemptions, now narrowed — and the suite goes from forty-three rules to
 **forty-four**.
 
+#### The design's glyphs — one helper, one name table
+
+The design draws its icons from a set of its own, not from SF Symbols, so its
+glyphs ship as **template vector assets**: twenty-four PDFs from the design
+export, one imageset each under `Sources/Pisaka/Assets.xcassets/Glyphs/`, every
+one marked `template-rendering-intent: template` (so it takes the tint it is
+handed) and `preserves-vector-representation: true` (so it stays sharp at every
+interface scale). Their names live in one Foundation-only Core enum,
+`DesignGlyph` — raw value = asset name, plus `nativeSize`, the drawn size the
+export states — and that enum is the one name table every surface reads.
+
+They are drawn through **one helper**, `DesignGlyphImage.swift`, and nowhere
+else:
+
+- `DesignGlyphImage(_ glyph:, size:, slot:, role:)`, the SwiftUI half, draws the
+  template `.resizable()` and fitted (never stretched) at `size × interface
+  scale` — `size` defaulting to the glyph's `nativeSize` — centred in a
+  `slot × interface scale` square, tinted by the role out of the injected
+  theme, and `accessibilityHidden(true)`: a glyph is a control's picture, never
+  its name.
+- `DesignGlyphDrawing.image(_:pointSize:tint:)`, the AppKit half, returns the
+  glyph as an `NSImage` fitted into a square and filled with the tint at draw
+  time. The caller resolves the tint inside its own drawing appearance, on rule
+  twenty-five's footing.
+
+The helper joins the gated set, taking it from sixty to **sixty-one**, and is
+the tenth file exempt from the role-naming self-check, because it paints the
+role its caller names and spells none itself. The suite goes from forty-five
+rules to **forty-six**: rule forty-six holds that no macOS source but the helper
+loads an image by a glyph's name, and rules ten and thirty-four learn that a
+`DesignGlyphImage(` is a sized, accessibility-hidden glyph — thirty-four
+re-checking the helper's own `Image(` for both. Provenance — the export, the
+manifest digest the acknowledgement records as its revision, which glyphs fall
+under the MIT notice, and the by-hand update procedure — is in
+`Resources/DesignGlyphs/VENDORED.md`, a record `project.yml` does not bundle;
+`DesignGlyphAssetTests` and `LicenseCoverageTests` hold the catalog, the record,
+the enum and the `licenses.json` entry to one another. The run-time half the Core gate
+cannot see is `DesignGlyphImageTests` in the app bundle: every glyph loads from
+the compiled catalog as a template, the AppKit half fills its square with the
+tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
+1.8 and draws the glyph centred, at its size, in its role.
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
@@ -2345,7 +2401,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — **sixty** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — and the design glyphs' helper, `DesignGlyphImage.swift`, one more: **sixty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -2353,7 +2409,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-five rules, each invisible to the compiler:
+The forty-six rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3138,7 +3194,7 @@ The forty-five rules, each invisible to the compiler:
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
     spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
-    hex literal *is* a string literal — one of the suite's three literal-keeping
+    hex literal *is* a string literal — one of the suite's four literal-keeping
     readings, named in its header.
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
@@ -3205,11 +3261,22 @@ The forty-five rules, each invisible to the compiler:
     `TextField(` constructions. The ring compiles, and only a key window with real
     first-responder focus shows it, which the headless app bundle cannot reliably
     reach — so this rule and the live check are the only nets for it.
+46. **Design glyphs are drawn only through the helper.** Every macOS source
+    under `Sources/Pisaka/` (the iOS directory aside) other than
+    `DesignGlyphImage.swift` is read through the comments-only scanner, literals
+    kept — the name an image is loaded by *is* a literal — and no `Image(` or
+    `NSImage(named:` call in it may name a glyph: neither a string literal equal
+    to a `DesignGlyph` raw value nor the token `assetName`. `Image(systemName:`
+    is a different call and is not matched; `AppIcon` is not a glyph and stays
+    exempt. The helper must itself load by `assetName` exactly twice, once per
+    half, so the rule cannot read nothing. A glyph loaded inline compiles and
+    draws — untinted by the theme, or announced by its asset name.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
 exceptions, each naming no role by construction while staying gated for the
-rules it *can* break: `ChromeThemeEnvironment.swift`, which carries the
+rules it *can* break: `DesignGlyphImage.swift`, which paints the role its caller
+names (gated for rules one and two and rule forty-six), `ChromeThemeEnvironment.swift`, which carries the
 appearance down the tree and paints nothing, `LSPInstalledLicenses.swift`
 (since part five (c)), a Foundation-only enum that returns the installed licence
 documents and has no view, and `CommitGraphView.swift`, which draws only lanes

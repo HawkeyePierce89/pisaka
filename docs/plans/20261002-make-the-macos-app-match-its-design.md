@@ -91,17 +91,17 @@ Decisions made at plan time, so nothing is decided at run time:
 - Create: `Tests/PisakaCoreTests/DesignGlyphAssetTests.swift`, `Tests/PisakaCoreTests/DesignGlyphTests.swift`
 - Modify: `Resources/Licenses/licenses.json`, `Tests/PisakaCoreTests/LicenseCoverageTests.swift`, `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 
-- [ ] Copy exactly these 24 PDFs from `~/Documents/pisaka-design-export/icons/` into one imageset each:
+- [x] Copy exactly these 24 PDFs from `~/Documents/pisaka-design-export/icons/` into one imageset each:
   - `package`, `git-branch`, `chevron-down`, `chevron-right`, `git-pull-request`, `check`, `terminal`, `file-warning`
   - `git-compare`, `list-checks`, `search`, `git-pull-request-arrow`, `folder`, `folder-open`, `file-code`, `file-text`
   - `database`, `x`, `user-round`, `undo-2`, `refresh-cw`, `case-sensitive`, `whole-word`, `regex`
 
   Each imageset's `Contents.json` sets `"template-rendering-intent": "template"` and `"preserves-vector-representation": true`. While copying, verify each file's sha256 against its prefix in `MANIFEST.txt`.
-- [ ] Add `DesignGlyph` to Core: a `String`-backed `CaseIterable` enum with one case per glyph, whose raw value is the asset name. Give it a `nativeSize: Double` column holding each glyph's point size from the manifest (`package` 11, `chevron-down` 11, `refresh-cw` 13, …). Core stays Foundation-only.
-- [ ] Add the shared helper in the app layer:
+- [x] Add `DesignGlyph` to Core: a `String`-backed `CaseIterable` enum with one case per glyph, whose raw value is the asset name. Give it a `nativeSize: Double` column holding each glyph's point size from the manifest (`package` 11, `chevron-down` 11, `refresh-cw` 13, …). Core stays Foundation-only.
+- [x] Add the shared helper in the app layer:
   - a SwiftUI `DesignGlyphImage(_ glyph:, slot:, role:)`. It draws the template image at `nativeSize × interface scale`, centred in a `slot × interface scale` square, never stretched, tinted by the role, and `accessibilityHidden(true)`;
   - an AppKit helper that returns the same glyph as an `NSImage` at a given point size and tint, for drawing in AppKit views. Per rule 25, the caller resolves the tint inside the drawing appearance.
-- [ ] Copy `LICENSE.txt` verbatim to `Resources/Licenses/design-glyphs.txt`. Add a `licenses.json` entry with:
+- [x] Copy `LICENSE.txt` verbatim to `Resources/Licenses/design-glyphs.txt`. Add a `licenses.json` entry with:
   - id `design-glyphs`, and the icon set's name in `name`;
   - origin `Sources/Pisaka/Assets.xcassets/Glyphs`, version `null`;
   - revision = the MANIFEST sha256 above, spdx `ISC AND MIT`.
@@ -111,18 +111,18 @@ Decisions made at plan time, so nothing is decided at run time:
   - that the revision is the manifest's digest, because the export carries no upstream commit;
   - which of the shipped glyphs fall under the MIT notice;
   - the by-hand update procedure.
-- [ ] Extend `LicenseCoverageTests` with a fourth origin shape, the asset-catalog glyph folder:
+- [x] Extend `LicenseCoverageTests` with a fourth origin shape, the asset-catalog glyph folder:
   - `testEveryEntryHasARemoteVendoredOrBundledOrigin` accepts exactly the origin `Sources/Pisaka/Assets.xcassets/Glyphs` as the fourth shape, and its message names four shapes. The `Vendor/` tests are unchanged and still select only the four grammars.
   - Directory listing check: that one entry must acknowledge every imageset in the glyph folder.
   - Provenance check: the entry's revision must equal the digest recorded in `Resources/DesignGlyphs/VENDORED.md`, and its `version` must agree with that record (`null`).
   - Update the suite's doc comment inventory.
-- [ ] `DesignGlyphAssetTests` (reads files through `#filePath`; Foundation and Core `SHA256` only):
+- [x] `DesignGlyphAssetTests` (reads files through `#filePath`; Foundation and Core `SHA256` only):
   - the set of imagesets equals `DesignGlyph.allCases`;
   - each PDF's sha256 prefix equals a table pinned in the suite;
   - each `Contents.json` carries the template intent and preserved vector data;
   - each `nativeSize` equals the manifest size recorded in `Resources/DesignGlyphs/VENDORED.md`.
-- [ ] Add a new `ChromeThemeSourceGatingTests` rule: design glyphs are drawn only through the helper. No macOS source outside the helper file may contain an `Image("` or `NSImage(named:` that names a glyph; `AppIcon` stays exempt. Add the helper file to the gated set. Teach rules 10 and 34 that a `DesignGlyphImage(` counts as a sized, accessibility-hidden glyph. Bump every restated rule and file count.
-- [ ] Run `xcodegen generate`, `swift test`, `swiftlint --strict` and the app-layer bundle (must pass).
+- [x] Add a new `ChromeThemeSourceGatingTests` rule: design glyphs are drawn only through the helper. No macOS source outside the helper file may contain an `Image("` or `NSImage(named:` that names a glyph; `AppIcon` stays exempt. Add the helper file to the gated set. Teach rules 10 and 34 that a `DesignGlyphImage(` counts as a sized, accessibility-hidden glyph. Bump every restated rule and file count.
+- [x] Run `xcodegen generate`, `swift test`, `swiftlint --strict` and the app-layer bundle (must pass).
 
 ### Task 2: The bottom bar draws the design's glyphs at the design's sizes
 

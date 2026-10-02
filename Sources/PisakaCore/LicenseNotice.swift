@@ -18,8 +18,9 @@ public struct LicenseNotice: Codable, Equatable, Identifiable, Sendable {
     /// The display name, which may differ from `id` where the id is a package
     /// key and the name is the upstream project (`tree-sitter-dotenv (vendored)`).
     public let name: String
-    /// The upstream URL for a remote package, or the `Vendor/<name>` path for a
-    /// vendored one.
+    /// The upstream URL for a remote package, the `Vendor/<name>` path for a
+    /// vendored one, the shipped file's `Resources/` path for a bundled asset,
+    /// or the asset-catalog folder the design's glyphs ship from.
     public let origin: String
     /// The upstream release, or `nil` where there is none to name: Neon and
     /// SwiftTreeSitter are revision-pinned past their newest tags, and the
@@ -29,8 +30,9 @@ public struct LicenseNotice: Codable, Equatable, Identifiable, Sendable {
     public let version: String?
     /// The exact commit the shipped text was copied from — for a remote package
     /// the `Package.resolved` pin, for a vendored one the SHA its `VENDORED.md`
-    /// records. This is what makes the text verifiable rather than merely
-    /// plausible.
+    /// records. The design glyphs have no upstream commit, so theirs is the
+    /// sha256 of their export's manifest (`Resources/DesignGlyphs/VENDORED.md`).
+    /// This is what makes the text verifiable rather than merely plausible.
     public let revision: String
     /// The SPDX license *expression* (`MIT`, `BSD-3-Clause`,
     /// `MIT AND Unicode-DFS-2016`).
