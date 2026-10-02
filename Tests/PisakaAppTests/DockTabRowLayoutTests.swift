@@ -107,48 +107,34 @@ final class DockTabRowLayoutTests: XCTestCase {
     }
 }
 
-/// `DockTabRow` hosted in a borderless window on a black ground, rendered to a
-/// bitmap once its layout has settled.
+/// `DockTabRow` hosted in a borderless window on a black ground
+/// (`HostedRender`).
 @MainActor
 private final class DockTabRowRender {
-    let window: NSWindow
-    private let rep: NSBitmapImageRep
-    /// Bitmap pixels per point.
-    private let pixelScale: CGFloat
+    private let render: HostedRender
+    var window: NSWindow { render.window }
     private let rowHeight: CGFloat
+    private var pixelScale: CGFloat { render.pixelScale }
 
     init(selection: BottomPanel, metrics: InterfaceMetrics, width: CGFloat) throws {
         rowHeight = metrics.scaled(ChromeGeometry.dockTabRowHeight)
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: rowHeight),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
         let root = DockTabRow(selection: selection, onSelect: { _ in }, onClose: {})
             .environment(\.interfaceMetrics, metrics)
             .environment(\.chromeTheme, ChromeTheme(.dark))
             .frame(width: width, height: rowHeight)
             .background(Color.black)
-        let host = NSHostingView(rootView: root)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-        rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        pixelScale = CGFloat(rep.pixelsWide) / host.bounds.width
+        render = try HostedRender(size: CGSize(width: width, height: rowHeight), root: root)
     }
 
     private func color(atPixelX x: Int, y: CGFloat) -> NSColor? {
-        let row = Int(y * pixelScale)
-        return rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB)
+        render.color(atPixelX: x, y: y)
     }
 
     /// The x extent, in points, of the accent run one point above the row's
     /// bottom edge — inside the two-point strip, above the hairline's one.
     func accentRun() -> (minX: CGFloat, maxX: CGFloat)? {
         let y = rowHeight - 1
-        let columns = (0..<rep.pixelsWide).filter { x in
+        let columns = (0..<render.pixelsWide).filter { x in
             guard let c = color(atPixelX: x, y: y) else { return false }
             // The dark accent, 0x4F8DFF, against black, the hairline and the
             // secondary text — all of which are grey.
@@ -169,7 +155,7 @@ private final class DockTabRowRender {
                 return c.redComponent + c.greenComponent + c.blueComponent > 0.3
             }
         }
-        guard let last = (0..<rep.pixelsWide).reversed().first(where: inked) else { return nil }
+        guard let last = (0..<render.pixelsWide).reversed().first(where: inked) else { return nil }
         var first = last
         while first > 0, inked(first - 1) { first -= 1 }
         return (CGFloat(first) / pixelScale, CGFloat(last + 1) / pixelScale)

@@ -1090,6 +1090,10 @@ Four decisions in that one line, each measured rather than assumed:
     lines**, matched consecutively over the comment-stripped `project.yml`.
     Deleting them leaves every build green, both destinations linking, and every
     byte-level release check passing; only a launch can tell.
+  - **`ReleaseMetadataTests.testProjectAndPackageNameTheSameMacOSFloor`** compares
+    `project.yml`'s `options.deploymentTarget.macOS` with `Package.swift`'s
+    `.macOS(.vN)`, both comment-stripped, so the app's floor and the Core gate's
+    cannot drift apart when one of them is restated.
 
 That last point is the general one. Every other gate in this repository is
 byte-level — `swift test` compiles Core and reads repository files, CI builds the

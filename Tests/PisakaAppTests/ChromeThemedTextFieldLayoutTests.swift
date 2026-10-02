@@ -11,7 +11,8 @@ import PisakaCore
 /// **The bug.** Callers framed the field's height from outside
 /// (`.frame(height:)` around the field). That frame only added transparent room
 /// around `ChromeControlBox`, whose ground and border hugged the padded text
-/// line, so a "33-point" Find in Files field drew a one-line box.
+/// line, so a "33-point" Find in Files field drew a one-line box. The menu
+/// field shares the box and had the same cause, so it is measured the same way.
 ///
 /// **The rule now.** A caller with a height passes it to the field as `height:`;
 /// the box frames itself at exactly that height and draws on it. A caller with
@@ -29,9 +30,7 @@ import PisakaCore
 /// is pinned by `ChromeThemeSourceGatingTests`' rule forty-five and the live
 /// check instead.
 ///
-/// Colours are compared against a swatch of the same role rendered through the
-/// same pipeline, because the cached bitmap applies a colour-space conversion
-/// the palette's raw values do not carry.
+/// Hosting, settling and colour comparison are `HostedRender`'s.
 @MainActor
 final class ChromeThemedTextFieldLayoutTests: XCTestCase {
 
@@ -53,6 +52,14 @@ final class ChromeThemedTextFieldLayoutTests: XCTestCase {
         try assertUnheighted(scale: 1.8)
     }
 
+    func testAMenuFieldGivenAHeightPaintsItsBoxAcrossThatHeight() throws {
+        try assertHeighted(scale: 1, menu: true)
+    }
+
+    func testAMenuFieldGivenAHeightPaintsItsBoxAcrossThatHeightAtInterfaceScaleOnePointEight() throws {
+        try assertHeighted(scale: 1.8, menu: true)
+    }
+
     func testTheFindBarDoesNotGrowAboveAFlexibleSibling() throws {
         try assertFindBar(scale: 1)
     }
@@ -63,15 +70,29 @@ final class ChromeThemedTextFieldLayoutTests: XCTestCase {
 
     // MARK: - Assertions
 
-    /// A field given 33 points, hosted in a much taller window: its box spans
-    /// exactly the 33 — not the window's spare room — with the `hairline` border
-    /// at both edges and the `bgEditor` ground above and below the text line.
-    private func assertHeighted(scale: Double, file: StaticString = #filePath, line: UInt = #line) throws {
+    /// A field — or, with `menu`, the shared menu field, which shares the box —
+    /// given 33 points, hosted in a much taller window: its box spans exactly
+    /// the 33 — not the window's spare room — with the `hairline` border at both
+    /// edges and the `bgEditor` ground above and below the text line.
+    private func assertHeighted(
+        scale: Double, menu: Bool = false, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
         let metrics = InterfaceMetrics(scale: scale)
         let height = metrics.scaled(33)
         let width = metrics.scaled(240)
         let render = try FieldRender(metrics: metrics, size: CGSize(width: width + 20, height: height * 4)) {
-            FieldHost(text: "query", height: 33).frame(width: width)
+            if menu {
+                // A title longer than the field, so the box spans the width
+                // the column below samples (a box hugs its label horizontally).
+                let title = String(repeating: "a long branch name ", count: 6)
+                ChromeMenuField(
+                    label: "Branch", options: [(value: 0, title: title)], selection: .constant(0),
+                    currentTitle: title, height: 33
+                )
+                .frame(width: width, alignment: .leading)
+            } else {
+                FieldHost(text: "query", height: 33).frame(width: width)
+            }
         }
         addTeardownBlock { @MainActor in render.window.close() }
 
@@ -164,14 +185,12 @@ private struct FieldHost: View {
     }
 }
 
-/// A view hosted in a borderless window on a black ground, rendered to a bitmap
-/// once its layout has settled, inset by 10 points from its top-leading corner.
+/// A view hosted in a borderless window on a black ground, inset by 10 points
+/// from its top-leading corner (`HostedRender`).
 @MainActor
 private final class FieldRender {
-    let window: NSWindow
-    private let rep: NSBitmapImageRep
-    private let pixelScale: CGFloat
-    private let height: CGFloat
+    private let render: HostedRender
+    var window: NSWindow { render.window }
 
     init<V: View>(metrics: InterfaceMetrics, size: CGSize, @ViewBuilder content: () -> V) throws {
         let root = content()
@@ -180,73 +199,24 @@ private final class FieldRender {
             .environment(\.interfaceMetrics, metrics)
             .environment(\.chromeTheme, ChromeTheme(.dark))
             .background(Color.black)
-        let host = NSHostingView(rootView: root)
-        window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-        height = host.bounds.height
-        rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        pixelScale = CGFloat(rep.pixelsWide) / host.bounds.width
+        render = try HostedRender(size: size, root: root)
     }
 
-    private func color(atX x: CGFloat, y: CGFloat) -> NSColor? {
-        rep.colorAt(x: Int(x * pixelScale), y: Int(y * pixelScale))?.usingColorSpace(.sRGB)
-    }
-
-    private func isInk(_ c: NSColor?) -> Bool {
-        guard let c else { return false }
-        return c.redComponent + c.greenComponent + c.blueComponent > 0.05
-    }
-
-    /// Whether the pixel at (`x`, `y`) points is `role`'s dark value, as a
-    /// swatch of that role renders through this same pipeline — the cached
-    /// bitmap carries a colour-space conversion the palette's raw values do not.
     func matches(_ role: ChromeColorRole, atX x: CGFloat, y: CGFloat) -> Bool {
-        guard let c = color(atX: x, y: y), let expected = Self.swatch(role) else { return false }
-        return abs(c.redComponent - expected.redComponent) < 0.02
-            && abs(c.greenComponent - expected.greenComponent) < 0.02
-            && abs(c.blueComponent - expected.blueComponent) < 0.02
-    }
-
-    private static var swatches: [ChromeColorRole: NSColor] = [:]
-
-    private static func swatch(_ role: ChromeColorRole) -> NSColor? {
-        if let cached = swatches[role] { return cached }
-        let host = NSHostingView(rootView: Rectangle().fill(ChromeTheme(.dark).color(role)).frame(width: 4, height: 4))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 4, height: 4),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        let value = rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB)
-        swatches[role] = value
-        return value
+        render.matches(role, atX: x, y: y)
     }
 
     /// The vertical extent, in points, of the ink run in column `x`.
     func boxExtent(atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
-        let rows = stride(from: 0, to: height, by: 1 / pixelScale).filter { isInk(color(atX: x, y: $0)) }
-        guard let first = rows.first, let last = rows.last else { return nil }
-        return (first, last + 1 / pixelScale)
+        render.extent(atX: x) { c in
+            guard let c else { return false }
+            return c.redComponent + c.greenComponent + c.blueComponent > 0.05
+        }
     }
 
     /// The vertical extent, in points, of the pixels painted `role` in column `x`.
     func extent(of role: ChromeColorRole, atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
-        let rows = stride(from: 0, to: height, by: 1 / pixelScale).filter { matches(role, atX: x, y: $0) }
-        guard let first = rows.first, let last = rows.last else { return nil }
-        return (first, last + 1 / pixelScale)
+        render.extent(of: role, atX: x)
     }
 }
 #endif

@@ -1986,7 +1986,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       framed from outside (`core-theme.md`, `ChromeControls.swift`) — with the shared
       `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
       monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
-      while off), replace row the shared field gap 8
+      while off), replace row the shared field at the same `height:` gap 8
      then Replace All in the secondary button style, scope line `callout` in
      `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
      the path in `callout` and the count in `subheadline` all in `textSecondary`,

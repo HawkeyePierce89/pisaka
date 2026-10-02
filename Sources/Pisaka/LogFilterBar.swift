@@ -221,9 +221,9 @@ struct LogFilterBar: View {
             selection: refSelectionBinding,
             currentTitle: currentRefLabel,
             horizontalPadding: FilterBarLayout.controlPaddingX,
-            spacing: FilterBarLayout.innerGap
+            spacing: FilterBarLayout.innerGap,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.branchMinWidth),
             maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth)

@@ -606,7 +606,8 @@ struct ChromeSettingsTabBar<Tab: Hashable>: View {
 /// the current title (`callout`, `textPrimary`, one line) beside a
 /// `textSecondary` chevron. Each option is a button; the chosen one is labelled
 /// with a checkmark. The field speaks its label and the current title. The
-/// caller supplies the height and the width limits.
+/// caller supplies the width limits and, as `height:`, the height — which, as
+/// for the text field, reaches the box rather than framing it from outside.
 struct ChromeMenuField<Value: Hashable>: View {
     let label: String
     let options: [(value: Value, title: String)]
@@ -614,12 +615,13 @@ struct ChromeMenuField<Value: Hashable>: View {
     let currentTitle: String
     var horizontalPadding: Double = ChromeGeometry.fieldPaddingX
     var spacing: Double = 6
+    var height: Double?
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        ChromeControlBox(isFocused: false, horizontalPadding: horizontalPadding) {
+        ChromeControlBox(isFocused: false, horizontalPadding: horizontalPadding, height: height) {
             Menu {
                 ForEach(options.indices, id: \.self) { index in
                     let option = options[index]

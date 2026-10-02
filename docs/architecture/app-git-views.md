@@ -952,9 +952,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     first caller: the borderless, indicator-less `Menu` beside a `textSecondary`
     chevron is the same, but its items are plain `Button`s with the chosen one
     labelled by a checkmark, replacing the inline platform `Picker` chrome rule
-    thirty-six forbids; the bar still frames the menu field at its own
-    `FilterBarLayout.controlHeight` from outside (the menu field takes no height
-    parameter) and hands it the bar's 8 pt inset and 6 pt
+    thirty-six forbids; the bar passes the menu field its own
+    `FilterBarLayout.controlHeight` as `height:`, which reaches the shared box
+    exactly as the text fields' does (an outside frame left the menu's box one
+    label high beside 22-point fields), and hands it the bar's 8 pt inset and 6 pt
     gap, and the computed binding below is unchanged; each date bound keeps
     its checkbox — the shared `ChromeCheckbox` plus its label since part five
     (b), replacing a platform `Toggle` — and the system date field, an `NSDatePicker` drawn with no

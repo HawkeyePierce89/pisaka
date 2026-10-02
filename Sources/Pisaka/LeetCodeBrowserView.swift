@@ -211,10 +211,10 @@ struct LeetCodeBrowserView: View {
                     label: "Language",
                     options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
                     selection: $settings.leetCodeLanguage,
-                    currentTitle: settings.leetCodeLanguage.displayName
+                    currentTitle: settings.leetCodeLanguage.displayName,
+                    height: ChromeGeometry.menuFieldHeight
                 )
                 .frame(maxWidth: metrics.scaled(220))
-                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
                 .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: metrics.scaled(4))

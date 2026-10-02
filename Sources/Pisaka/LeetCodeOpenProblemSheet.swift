@@ -190,9 +190,9 @@ struct LeetCodeOpenProblemSheet: View {
                     label: "Language",
                     options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
                     selection: $settings.leetCodeLanguage,
-                    currentTitle: settings.leetCodeLanguage.displayName
+                    currentTitle: settings.leetCodeLanguage.displayName,
+                    height: ChromeGeometry.menuFieldHeight
                 )
-                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
                 .fixedSize(horizontal: true, vertical: false)
                 .disabled(model.isOpening)
             }

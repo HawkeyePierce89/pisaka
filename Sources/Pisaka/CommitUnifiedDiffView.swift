@@ -56,9 +56,12 @@ struct CommitUnifiedDiffView: View {
     /// The chrome palette: the row wash (Core's `diffWashRole(for:)`), the
     /// checkbox, the line numbers and the placeholder read their colours from it.
     @Environment(\.chromeTheme) private var theme
-    /// The widest natural width any realized row has reported, reset when the
-    /// lines change. Part of the content's width (`diff`'s doc comment).
+    /// The widest natural width any realized row has reported since the last
+    /// re-measure. Part of the content's width (`diff`'s doc comment).
     @State private var widestRow: CGFloat = 0
+    /// Bumped by every re-measure and used as the rows' identity, so each
+    /// realized row is rebuilt and reports its width afresh (`remeasure()`).
+    @State private var measureGeneration = 0
 
     var body: some View {
         if let wholeOnlyMessage {
@@ -121,14 +124,28 @@ struct CommitUnifiedDiffView: View {
                         row(lines[index])
                     }
                 }
+                .id(measureGeneration)
                 .padding(.vertical, 2)
                 .frame(minWidth: max(pane.size.width, widestRow), alignment: .leading)
             }
         }
         // A memoized diff hands back the same array, so this comparison is the
-        // storage-identity fast path on every pass but a file switch.
-        .onChange(of: lines) { widestRow = 0 }
+        // storage-identity fast path on every pass but a file switch. `initial`
+        // covers a diff that reappears after a placeholder, whose earlier
+        // widest row this view's state would otherwise still carry.
+        .onChange(of: lines, initial: true) { remeasure() }
+        .onChange(of: fontSize) { remeasure() }
         .background(ZoomSurfaceMarker(kind: .code))
+    }
+
+    /// Forgets the widest row and rebuilds the rows so every realized one
+    /// reports again. Zeroing alone is not enough: `onGeometryChange` reports
+    /// only a *change*, so a row whose width survived the new lines (same text
+    /// length at the same index) would never report, and the content would fall
+    /// back to the pane and strand an overflowing line out of scroll reach.
+    private func remeasure() {
+        widestRow = 0
+        measureGeneration += 1
     }
 
     private func row(_ line: UnifiedDiffLine) -> some View {

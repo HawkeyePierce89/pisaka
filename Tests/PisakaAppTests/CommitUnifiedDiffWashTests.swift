@@ -33,6 +33,11 @@ import PisakaCore
 /// palette's raw values do not). The context row directly below them must carry
 /// neither. The overflow case scrolls the hosted `NSScrollView` to its far right
 /// before rendering.
+///
+/// **Live updates.** The content's width is measured state, so the cases that
+/// change the hosted diff in place — a file switch, a placeholder in between,
+/// a font-size change — compare the width it settles at against a fresh render
+/// of the same end state.
 @MainActor
 final class CommitUnifiedDiffWashTests: XCTestCase {
 
@@ -46,6 +51,15 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         UnifiedDiffLine(
             kind: .context, text: String(repeating: "wide context line ", count: 12),
             oldNumber: 3, newNumber: 3, unitIndex: nil
+        ),
+    ]
+
+    /// A wider overflowing diff whose line at index 3 is exactly as long as
+    /// `overflowing`'s — the row whose width survives the switch.
+    private static let wider: [UnifiedDiffLine] = overflowing + [
+        UnifiedDiffLine(
+            kind: .context, text: String(repeating: "wider context line ", count: 24),
+            oldNumber: 4, newNumber: 4, unitIndex: nil
         ),
     ]
 
@@ -64,6 +78,58 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         addTeardownBlock { @MainActor in render.window.close() }
         XCTAssertGreaterThan(render.scrolledBy, 0, "the overflowing diff did not scroll horizontally")
         try assertWashedAtTrailingEdge(render)
+    }
+
+    // MARK: - Live updates
+
+    /// Switching to a narrower diff whose widest row keeps its index and width
+    /// leaves the content exactly as wide as a fresh render of that diff: the
+    /// surviving row is measured again rather than forgotten, so the overflowing
+    /// line stays in scroll reach, and the wider diff's width does not linger.
+    func testSwitchingFilesMeasuresTheNewDiffsWidestRow() throws {
+        let expected = try freshContentWidth(Self.overflowing)
+        XCTAssertGreaterThan(expected, 600, "the narrower diff does not overflow — the case is not exercised")
+        let render = try DiffRender(lines: Self.wider, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        try render.update { $0.lines = Self.overflowing }
+        let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+        XCTAssertEqual(contentWidth, expected, accuracy: 0.5, "the content is not the new diff's widest row")
+        try render.scrollToTrailingEdge()
+        try assertWashedAtTrailingEdge(render)
+    }
+
+    /// A file shown as a placeholder between two diffs does not carry the first
+    /// diff's widest row into the second.
+    func testADiffAfterAPlaceholderForgetsTheEarlierWidestRow() throws {
+        let render = try DiffRender(lines: Self.wider, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        try render.update { $0.wholeOnlyMessage = "Committed as a whole." }
+        try render.update {
+            $0.wholeOnlyMessage = nil
+            $0.lines = Self.short
+        }
+        let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+        XCTAssertEqual(contentWidth, render.width, accuracy: 0.5, "the earlier diff's widest row lingered")
+        try assertWashedAtTrailingEdge(render)
+    }
+
+    /// Shrinking the code font narrows the content to the rows' new width.
+    func testAFontSizeChangeMeasuresTheRowsAgain() throws {
+        let expected = try freshContentWidth(Self.wider)
+        let render = try DiffRender(lines: Self.wider, fontSize: 20, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let zoomed = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+        XCTAssertGreaterThan(zoomed, expected + 1, "the larger font did not widen the content — the case is not exercised")
+        try render.update { $0.fontSize = 13 }
+        let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+        XCTAssertEqual(contentWidth, expected, accuracy: 0.5, "the larger font's width lingered")
+    }
+
+    /// The content width of `lines` rendered fresh at the default font size.
+    private func freshContentWidth(_ lines: [UnifiedDiffLine]) throws -> CGFloat {
+        let render = try DiffRender(lines: lines, scrollToTrailingEdge: false)
+        defer { render.window.close() }
+        return try XCTUnwrap(render.contentWidth, "no hosted scroll view")
     }
 
     /// The removed and added rows are washed in a column just inside the
@@ -96,52 +162,70 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
     }
 }
 
-/// The diff hosted in a borderless 600 × 300 window on a black ground, rendered
-/// to a bitmap once its layout has settled.
+/// What the hosted diff is drawing, changed in place by the live-update cases
+/// so the view keeps its identity and state across the change — the way the
+/// commit dialog switches files under one `CommitUnifiedDiffView`.
+@MainActor
+private final class DiffInput: ObservableObject {
+    @Published var lines: [UnifiedDiffLine]
+    @Published var wholeOnlyMessage: String?
+    @Published var fontSize: Double
+
+    init(lines: [UnifiedDiffLine], fontSize: Double) {
+        self.lines = lines
+        self.fontSize = fontSize
+    }
+}
+
+private struct DiffHost: View {
+    @ObservedObject var input: DiffInput
+
+    var body: some View {
+        CommitUnifiedDiffView(
+            lines: input.lines, selectedUnits: [0], wholeOnlyMessage: input.wholeOnlyMessage, fontSize: input.fontSize
+        )
+    }
+}
+
+/// The diff hosted in a borderless 600 × 300 window on a black ground
+/// (`HostedRender`).
 @MainActor
 private final class DiffRender {
-    let window: NSWindow
     let width: CGFloat = 600
-    private let height: CGFloat = 300
+    let input: DiffInput
+    private let render: HostedRender
+    var window: NSWindow { render.window }
     private(set) var scrolledBy: CGFloat = 0
-    /// The hosted scroll view's document width, or `nil` if none was found.
-    private(set) var contentWidth: CGFloat?
-    private var rep: NSBitmapImageRep
-    private let pixelScale: CGFloat
 
-    init(lines: [UnifiedDiffLine], scrollToTrailingEdge: Bool) throws {
-        let root = CommitUnifiedDiffView(lines: lines, selectedUnits: [0], wholeOnlyMessage: nil, fontSize: 13)
-            .frame(width: width, height: height)
+    init(lines: [UnifiedDiffLine], fontSize: Double = 13, scrollToTrailingEdge: Bool) throws {
+        input = DiffInput(lines: lines, fontSize: fontSize)
+        let root = DiffHost(input: input)
+            .frame(width: width, height: 300)
             .environment(\.chromeTheme, ChromeTheme(.dark))
             .background(Color.black)
-        let host = NSHostingView(rootView: root)
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        Self.settle(host)
-        contentWidth = Self.scrollView(in: host)?.documentView?.frame.width
-
-        if scrollToTrailingEdge, let scroll = Self.scrollView(in: host), let document = scroll.documentView {
-            let clip = scroll.contentView
-            let x = max(0, document.frame.width - clip.bounds.width)
-            clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
-            scroll.reflectScrolledClipView(clip)
-            scrolledBy = clip.bounds.origin.x
-            Self.settle(host)
-        }
-
-        rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        pixelScale = CGFloat(rep.pixelsWide) / host.bounds.width
+        render = try HostedRender(size: CGSize(width: width, height: 300), root: root)
+        if scrollToTrailingEdge { try self.scrollToTrailingEdge() }
     }
 
-    private static func settle(_ host: NSView) {
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+    /// The hosted scroll view's document width, or `nil` if none is found.
+    var contentWidth: CGFloat? { Self.scrollView(in: render.host)?.documentView?.frame.width }
+
+    /// Applies `change` to the hosted input and lets the layout settle.
+    func update(file: StaticString = #filePath, line: UInt = #line, _ change: (DiffInput) -> Void) throws {
+        change(input)
+        render.settle(file: file, line: line)
+        try render.capture()
+    }
+
+    func scrollToTrailingEdge() throws {
+        guard let scroll = Self.scrollView(in: render.host), let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let x = max(0, document.frame.width - clip.bounds.width)
+        clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
+        scroll.reflectScrolledClipView(clip)
+        scrolledBy = clip.bounds.origin.x
+        render.settle()
+        try render.capture()
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {
@@ -152,48 +236,15 @@ private final class DiffRender {
         return nil
     }
 
-    private func color(atX x: CGFloat, y: CGFloat) -> NSColor? {
-        rep.colorAt(x: Int(x * pixelScale), y: Int(y * pixelScale))?.usingColorSpace(.sRGB)
-    }
+    // The wash roles are translucent, so they are compared on the same black
+    // ground the diff is hosted on.
 
-    /// Whether the pixel at (`x`, `y`) points is `role`'s dark value as a swatch
-    /// of that role renders through this same pipeline.
     func matches(_ role: ChromeColorRole, atX x: CGFloat, y: CGFloat) -> Bool {
-        guard let c = color(atX: x, y: y), let expected = Self.swatch(role) else { return false }
-        return abs(c.redComponent - expected.redComponent) < 0.02
-            && abs(c.greenComponent - expected.greenComponent) < 0.02
-            && abs(c.blueComponent - expected.blueComponent) < 0.02
+        render.matches(role, atX: x, y: y, ground: .black)
     }
 
-    /// The vertical extent, in points, of the pixels painted `role` in column `x`.
     func extent(of role: ChromeColorRole, atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
-        let rows = stride(from: 0, to: height, by: 1 / pixelScale).filter { matches(role, atX: x, y: $0) }
-        guard let first = rows.first, let last = rows.last else { return nil }
-        return (first, last + 1 / pixelScale)
-    }
-
-    private static var swatches: [ChromeColorRole: NSColor] = [:]
-
-    private static func swatch(_ role: ChromeColorRole) -> NSColor? {
-        if let cached = swatches[role] { return cached }
-        // The wash roles are translucent, so the swatch sits on the same black
-        // ground the diff is hosted on.
-        let host = NSHostingView(rootView: Rectangle().fill(ChromeTheme(.dark).color(role))
-            .frame(width: 4, height: 4)
-            .background(Color.black))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 4, height: 4),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        let value = rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB)
-        swatches[role] = value
-        return value
+        render.extent(of: role, atX: x, ground: .black)
     }
 }
 #endif

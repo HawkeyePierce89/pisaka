@@ -189,7 +189,7 @@ import XCTest
 ///   each caller's construction count by file, so a control changing shape
 ///   changes a count even inside a file already spelling both shapes. The
 ///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
-///   draws is the control. `menuFieldHeight` frames menu fields alone, its
+///   draws is the control. `menuFieldHeight` sizes menu fields alone, its
 ///   spellings pinned per file by count.
 /// - **No gated file builds a platform table.** A `Table` draws its header,
 ///   grounds, alternation and selection box in the platform's colours; no gated
@@ -4398,12 +4398,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    /// The files that frame something at `ChromeGeometry.menuFieldHeight`, with
-    /// how many times each spells it. Every one of these is a `ChromeMenuField`
-    /// frame — the token is the shared menu field's height and nothing else's;
-    /// `ChromeGeometry.swift` is the declaration. The Log bar builds a menu field
-    /// too but frames it at its own `FilterBarLayout.controlHeight`, so it is not
-    /// a key.
+    /// The files that size something at `ChromeGeometry.menuFieldHeight`, with
+    /// how many times each spells it. Every one of these is a `ChromeMenuField`'s
+    /// `height:` argument — the token is the shared menu field's height and
+    /// nothing else's; `ChromeGeometry.swift` is the declaration. The Log bar
+    /// builds a menu field too but sizes it at its own
+    /// `FilterBarLayout.controlHeight`, so it is not a key.
     private static let menuFieldHeightSpellings: [String: Int] = [
         "ChromeGeometry.swift": 1,
         "SettingsView.swift": 1,
@@ -4439,7 +4439,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for (file, count) in Self.menuFieldHeightSpellings where file != "ChromeGeometry.swift" {
             XCTAssertEqual(
                 count, menuFieldCounts[file],
-                "\(file) frames \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
+                "\(file) sizes \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
             )
         }
     }
@@ -5201,7 +5201,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// Rule forty-five. Inside `ChromeThemedTextField`'s declaration, the inner
     /// `TextField(` construction's modifier chain — from the construction to the
-    /// end of its enclosing block — applies `focusEffectDisabled`. Every caller
+    /// end of its enclosing block — applies `.focusEffectDisabled()` with an
+    /// empty argument list, so `focusEffectDisabled(false)` (which keeps the
+    /// ring) does not satisfy it. Every caller
     /// of the shared field is fixed by this one modifier, so the rule reads the
     /// declaration alone and sweeps no other file.
     ///
@@ -5220,9 +5222,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             field.range(of: "TextField("),
             "ChromeThemedTextField no longer constructs a TextField — re-point this rule"
         )
-        let chain = field[construction.lowerBound...].prefix { $0 != "}" }
+        let chain = field[construction.lowerBound...].prefix { $0 != "}" }.filter { !$0.isWhitespace }
         XCTAssertTrue(
-            LSPSourceGatingTests.containsToken("focusEffectDisabled", in: String(chain)),
+            chain.contains(".focusEffectDisabled()"),
             "ChromeThemedTextField's TextField no longer applies focusEffectDisabled — the platform's ring is back over the box"
         )
     }

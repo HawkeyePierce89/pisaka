@@ -936,6 +936,15 @@ The workflow then, in order:
     stale cask breaks is *fresh* installs, which land on the previous version
     silently — which is why the step verifies its own edit rather than trusting
     the substitution.
+
+    **Raising the macOS floor is a by-hand step in two places.** The bump
+    moves the version and `sha256` and nothing else, so a cask that declares
+    a `depends_on macos` floor keeps the old one until it is raised by hand in
+    the tap. Sparkle needs no edit: `generate_appcast` reads
+    `LSMinimumSystemVersion` from the archived app, so the appcast carries the
+    new minimum and an install below it is simply not offered the update —
+    which the release that raises the floor (macOS 13 → 14 is the latest)
+    should state in its notes.
   - **Remove the run's keys and keychain**, `if: always()` and last, so no path
     through the job — success, any failure above, or a cancellation — leaves any
     of the three private keys (the `.p12`, the notary `.p8` and the Homebrew tap

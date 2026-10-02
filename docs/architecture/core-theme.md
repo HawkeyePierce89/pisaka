@@ -811,9 +811,12 @@ fifteen, then to sixteen with the review round's fix below.
     title at `.callout` — `textPrimary` when selected, `textSecondary` otherwise,
     **regular weight in both states**, because a label that turned semibold would
     widen and shift every tab after it on each click — padded by
-    `dockTabLabelPaddingX`, above an `accentIndicator`-thick strip spanning the
-    tab: `accent` when selected, `Color.clear` otherwise, so the tab's height
-    never changes with selection. A click asks Core's
+    `dockTabLabelPaddingX`. The padded title alone sizes the tab; the
+    `accentIndicator`-thick strip is a bottom overlay that takes its width from
+    the title and so can never ask for width of its own (a stacked strip that
+    accepted any width made every tab greedy and spread the row;
+    `app-window.md`, `DockTabRowLayoutTests`): `accent` when selected,
+    `Color.clear` otherwise, so the tab's height never changes with selection. A click asks Core's
     `BottomPanel.tabActivation(_:tab:)` and hands a `.show` answer to the bar's
     own funnel, `onTogglePanel` — which is also what creates the first terminal
     session, so the scene file was not touched; the showing tab answers
@@ -1564,7 +1567,10 @@ own body (rule twenty).
   both inside the `Menu`'s own label, so clicking the arrow opens the menu (the
   lift carried the Log bar's sibling chevron, which opened nothing, until the
   part's review round; rule thirty-seven). The
-  caller supplies the height and the width limits. One definition, three
+  caller supplies the width limits and, as `height:`, the height, which reaches
+  the shared box the way the text field's does — an outside `.frame(height:)`
+  left the box one label high, out of line with the fixed-height text fields
+  beside it (`ChromeThemedTextFieldLayoutTests` measures both). One definition, three
   callers — the Log bar, the catalog tab's default language, the create sheet's
   base branch — the way the checkbox was lifted in part five (b).
 
@@ -1603,11 +1609,11 @@ layout enum (`LeetCodeBrowserLayout.queryFieldHeight`,
 `OpenProblemSheetLayout.inputHeight`, both 26, so nothing renders differently),
 the way `SearchLayout.queryFieldHeight` and `FilterBarLayout.controlHeight` size
 the other pinned-height fields. Rule thirty-seven pins the token's spellings per
-file by count over every source file — the declaration plus four frames, each a
-`ChromeMenuField` (`SettingsView.swift`, `NewPullRequestSheet.swift`,
+file by count over every source file — the declaration plus four `height:`
+arguments, each a `ChromeMenuField`'s (`SettingsView.swift`, `NewPullRequestSheet.swift`,
 `LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`) — and checks each
 count against that file's pinned menu field constructions. What a spelling
-frames is not something a token rule can see; that is checked by reading.
+sizes is not something a token rule can see; that is checked by reading.
 
 **Why the settings tab bar is not the dock's.** Both draw one pattern — an
 accent indicator under the selected label, `accentIndicator` on both, the rule
