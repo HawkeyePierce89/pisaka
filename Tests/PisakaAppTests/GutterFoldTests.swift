@@ -437,6 +437,39 @@ final class GutterFoldTests: XCTestCase {
         XCTAssertEqual(components(of: left), components(of: right), message(), file: file, line: line)
     }
 
+    // MARK: - Fold glyph slot
+
+    /// The fold glyph is a code-zone measurement: the design's 11 points at the
+    /// default editor font size, scaled with the code font, and centred on the
+    /// chevron cell — whose side, the click target, still derives from the ruler
+    /// font alone.
+    func testTheFoldGlyphFollowsTheCodeFontAndCentresOnTheUnchangedCell() {
+        let defaultSize = CGFloat(SettingsStore.defaultFontSize)
+        for codeSize in [defaultSize, defaultSize * 2] {
+            let harness = makeRulerHarness(text: "one {\n  two\n}")
+            harness.textView.font = .monospacedSystemFont(ofSize: codeSize, weight: .regular)
+            harness.ruler.editorFontChanged()
+
+            XCTAssertEqual(harness.ruler.foldGlyphSide, 11 * codeSize / defaultSize, accuracy: 0.001,
+                           "fold glyph side at code font \(codeSize)")
+            let cell = harness.ruler.foldCellRect(cellY: 40)
+            let rulerSize = max(codeSize - 2, NSFont.smallSystemFontSize)
+            XCTAssertEqual(cell.width, ceil(rulerSize * 0.8), "the click cell moved with the glyph at \(codeSize)")
+            let glyph = harness.ruler.foldGlyphRect(cellY: 40)
+            XCTAssertEqual(glyph.width, harness.ruler.foldGlyphSide, accuracy: 0.001)
+            XCTAssertEqual(glyph.height, glyph.width, accuracy: 0.001, "the glyph's slot is square")
+            XCTAssertEqual(glyph.midX, cell.midX, accuracy: 0.001, "the glyph is not centred on the cell at \(codeSize)")
+            XCTAssertEqual(glyph.midY, cell.midY, accuracy: 0.001, "the glyph is not centred on the cell at \(codeSize)")
+        }
+    }
+
+    func testTheFoldGlyphLoadsBothDirections() {
+        for glyph in [DesignGlyph.chevronDown, .chevronRight] {
+            XCTAssertNotNil(DesignGlyphDrawing.image(glyph, pointSize: 11, tint: .black),
+                            "\(glyph.assetName) did not load for the gutter")
+        }
+    }
+
     // MARK: - Helpers
 
     private struct RulerHarness {

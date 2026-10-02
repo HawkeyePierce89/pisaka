@@ -291,6 +291,17 @@ two new geometry tokens) and each with its readers pinned by a gating
     and preserved vector data, and each `nativeSize` to the size
     `Resources/DesignGlyphs/VENDORED.md` records. The one helper that draws them
     is `DesignGlyphImage.swift`, under "The design's glyphs" below.
+  - `FileGlyph.swift` — which design glyph stands for a file or a folder on the
+    macOS chrome. `forFile(named:)` has three answers: `database` when
+    `DatabaseFileRule` recognises the name (asked first, so a `.db` file is not
+    text), `file-text` for a name no `SyntaxLanguage` claims and for Markdown,
+    `.gitignore`, `.env` and `.editorconfig`, and `file-code` for every other
+    language — the language switch is exhaustive, so a new language is a compile
+    error until it is placed. `forFolder(expanded:)` answers `folder-open` or
+    `folder`. It reads the two rules that already own the question rather than a
+    third extension table, and `FileIcon` is untouched for iOS.
+    `FileGlyphTests` walks every `SyntaxLanguage` through a sample table held
+    equal to `allCases`, plus the database extensions, unknown names and folders.
 
 ## App
 
@@ -2440,9 +2451,10 @@ zone — after the current-line highlight spent `currentLine`, the same one role
 ### The monochrome-icon decision
 
 Every icon in the swept surfaces is drawn in `textSecondary`: the tab strip's
-file icon, the vertical column's, the tree's folder and file icons, the draft
-field's icon column. `FileIcon` answers a symbol **and** a semantic tint, and these surfaces
-deliberately read only the symbol. A column of differently-tinted glyphs
+file glyph, the vertical column's, the tree's folder and file glyphs, the draft
+field's icon column. Since part eight those four draw `FileGlyph`'s design
+glyphs, which carry no tint at all; the panels still reading `FileIcon` answer a
+symbol **and** a semantic tint, and deliberately read only the symbol. A column of differently-tinted glyphs
 competes for the eye with the one thing each surface actually has to say — the
 accent underline on the active tab, the selection wash on the active file's row
 — and a tinted icon inside a selected row's wash is two colours arguing. The
@@ -2566,14 +2578,17 @@ The forty-six rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set of seven
-   (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
-   `TabStripView.swift`, since part four (a) `ProblemsPanelView.swift` and
+   files carrying such a line are themselves a counted set, five today. Since
+   part eight the fallback is `file.url?.lastPathComponent ?? file.displayName`
+   handed to `FileGlyph`, matched whitespace-free, and the tree, its draft field
+   and `TabStripView.swift` construct no `FileIcon` at all and left the set.
+   What stays: since part four (a) `ProblemsPanelView.swift` and
    `UsagesPanelView.swift`, whose one exempted line each is the file-group
    header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
    glyph is drawn in `textSecondary` on a line rule one still scans — and since
    part four (b) `CommitLogView.swift` and `LocalChangesView.swift`, whose
-   changed-file rows and folder headers carry the same binding).
+   changed-file rows and folder headers carry the same binding, and since part
+   five (b) `CommitDialogView.swift`'s file row).
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a

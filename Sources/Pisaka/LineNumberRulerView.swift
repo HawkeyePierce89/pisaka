@@ -28,10 +28,10 @@ import PisakaCore
 /// sits beside (`zoomSurfaceKind == .code` covers the whole gutter).
 ///
 /// It also hosts the **fold chevron column**, between the diagnostic markers
-/// and the numbers: `chevron.down` on the header line of every fold candidate,
-/// `chevron.right` on a folded one, nothing on any other line. Its width is
-/// constant for a given font size, for the marker column's reason — candidates
-/// arrive on their own schedule (a debounce, or a language server) and must not
+/// and the numbers: the design's `chevron-down` glyph on the header line of
+/// every fold candidate, `chevron-right` on a folded one, nothing on any other
+/// line. Its width is constant for a given font size, for the marker column's
+/// reason — candidates arrive on their own schedule (a debounce, or a language server) and must not
 /// slide the gutter under the pointer when they do. The same walk **skips**
 /// every line whose start falls strictly inside a folded range, so `12` is
 /// followed by `27` rather than by a number drawn over the header's row; the
@@ -417,8 +417,8 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// document and redraw.
     ///
     /// Both sets arrive together because the gutter draws one column out of the
-    /// two — a candidate is a `chevron.down`, a folded candidate a
-    /// `chevron.right` — and because a line's number is drawn or skipped by the
+    /// two — a candidate is a `chevron-down`, a folded candidate a
+    /// `chevron-right` — and because a line's number is drawn or skipped by the
     /// folded set alone. Handing them over separately would let the ruler paint
     /// one frame in which a chevron points at a block the numbering does not
     /// agree is hidden.
@@ -1005,8 +1005,8 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     }
 
     /// Draw one line's chevron, centered in the chevron column beside its line
-    /// fragment: `chevron.down` for a candidate that is open, `chevron.right`
-    /// for one that is folded — both in `textSecondary`, the distinction carried
+    /// fragment: the design's `chevron-down` for a candidate that is open,
+    /// `chevron-right` for one that is folded — both in `textSecondary`, the distinction carried
     /// by the symbol rather than by two greys, because the gutter's chrome text
     /// is one weight and a second one would be a second opinion about it. A line
     /// that heads neither a candidate nor a folded region draws nothing; the
@@ -1020,10 +1020,9 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// gutter — for up to the folding budget on a served file — which is exactly
     /// the sign this column exists to be.
     ///
-    /// The image is configured at draw time, the way the completion panel's
-    /// badges are and for the same reason the fold placeholder is measured at
-    /// draw time: nothing is cached, so a zoom, a font change and a light/dark
-    /// switch each need no bookkeeping at all.
+    /// The image is built at draw time, for the same reason the fold placeholder
+    /// is measured at draw time: nothing is cached, so a zoom, a font change and
+    /// a light/dark switch each need no bookkeeping at all.
     private func drawFoldChevron(
         forLine number: Int,
         fragmentRect: NSRect,
@@ -1033,24 +1032,48 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let line = number - 1
         let isFolded = foldedState.folded(containing: line) != nil
         guard isFolded || foldCandidateByHeaderLine[line] != nil else { return }
-        let symbolName = isFolded ? "chevron.right" : "chevron.down"
+        let glyph: DesignGlyph = isFolded ? .chevronRight : .chevronDown
+        // Resolved here, inside `draw(_:)`, so the dynamic colour takes the
+        // drawing appearance (rule 25's footing) and the image is filled with it.
         let color = foldChevronColor
-        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
-        let side = chevronSide
-        let configuration = NSImage.SymbolConfiguration(pointSize: side, weight: .regular)
-            .applying(.init(paletteColors: [color]))
-        let configured = image.withSymbolConfiguration(configuration) ?? image
-        // A chevron is not square, so the configured image is centered inside
-        // the square cell rather than stretched to fill it.
-        let drawn = configured.size
-        let cellY = relativePoint.y + textOrigin.y + fragmentRect.minY
-            + (fragmentRect.height - side) / 2
-        configured.draw(in: NSRect(
-            x: chevronColumnMinX + (side - drawn.width) / 2,
-            y: cellY + (side - drawn.height) / 2,
-            width: drawn.width,
-            height: drawn.height
-        ))
+        let rect = foldGlyphRect(cellY: relativePoint.y + textOrigin.y + fragmentRect.minY
+            + (fragmentRect.height - chevronSide) / 2)
+        guard let image = DesignGlyphDrawing.image(glyph, pointSize: rect.width, tint: color) else { return }
+        image.draw(in: rect)
+    }
+
+    /// The fold glyph's side: the design's 11 points at the default editor font
+    /// size, scaled with the code font — the gutter is a code-zone surface, so it
+    /// follows the code zoom, never the interface scale.
+    ///
+    /// `internal` so `GutterFoldTests` can assert the slot at two code font sizes.
+    var foldGlyphSide: CGFloat {
+        let codeFontSize = textView?.font?.pointSize ?? CGFloat(SettingsStore.defaultFontSize)
+        return 11 * codeFontSize / CGFloat(SettingsStore.defaultFontSize)
+    }
+
+    /// The square the fold glyph is drawn in, centred on the chevron cell whose
+    /// bottom edge (in the ruler's flipped space, its top) is `cellY`.
+    ///
+    /// Centred rather than fitted to the cell: the glyph is sized by the code
+    /// font, the cell by the ruler font, and the cell is where the click target
+    /// lives — so the target stays exactly what it was and the glyph sits on its
+    /// centre, overhanging into the gaps either side when it is the larger.
+    func foldGlyphRect(cellY: CGFloat) -> NSRect {
+        let side = foldGlyphSide
+        let cell = chevronSide
+        return NSRect(
+            x: chevronColumnMinX + (cell - side) / 2,
+            y: cellY + (cell - side) / 2,
+            width: side,
+            height: side
+        )
+    }
+
+    /// The fold cell's square, for the same tests: `chevronColumnMinX` and the
+    /// cell side, at `cellY`.
+    func foldCellRect(cellY: CGFloat) -> NSRect {
+        NSRect(x: chevronColumnMinX, y: cellY, width: chevronSide, height: chevronSide)
     }
 
     // MARK: - Clicks

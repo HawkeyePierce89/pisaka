@@ -278,27 +278,27 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`, `TabRowView.swift`, `TabStripView.swift` (`TabFileIcon`, `TabStatusMark`), `BreadcrumbBarView.swift`, `LineNumberRulerView.swift`
 - Modify: `Tests/PisakaAppTests/GutterFoldTests.swift`, `ChromeThemeSourceGatingTests` (rule 8, the tab icon rule)
 
-- [ ] `FileGlyph.forFile(named:) -> DesignGlyph` returns one of three answers:
+- [x] `FileGlyph.forFile(named:) -> DesignGlyph` returns one of three answers:
   - `database` when `DatabaseFileRule.isDatabaseFile(named:)`;
   - `file-text` for no `SyntaxLanguage`, and for `markdown`, `gitignore`, `dotenv` and `editorconfig`;
   - `file-code` for every other language.
 
   `FileGlyph.forFolder(expanded:)` returns `folder-open` or `folder`. `FileIcon` is not changed, for iOS.
-- [ ] Project tree:
+- [x] Project tree:
   - a folder row draws its disclosure chevron at 12 (`chevron-down` when expanded, `chevron-right` when collapsed; no rotation), then its folder glyph at 14;
   - a file row draws its file glyph at 14;
   - all glyphs are `textSecondary`.
-- [ ] Tabs, horizontal and vertical: the file glyph at 13, and the close glyph is `x` at 12.
-- [ ] Breadcrumb: separators are `chevron-right` at 10.
-- [ ] Gutter fold control:
+- [x] Tabs, horizontal and vertical: the file glyph at 13, and the close glyph is `x` at 12.
+- [x] Breadcrumb: separators are `chevron-right` at 10.
+- [x] Gutter fold control:
   - `chevron-down` for an expanded block and `chevron-right` for a collapsed one;
   - drawn at `11 × codeFontSize / SettingsStore.defaultFontSize` (code zone), centred in the existing fold column;
   - the click target does not change.
-- [ ] Tests:
+- [x] Tests:
   - `FileGlyphTests` covers every `SyntaxLanguage` case through `allCases`, the database extensions, unknown files and folders;
   - `GutterFoldTests` covers the glyph slot at two code font sizes;
   - app-layer tree row rendering finds a glyph in the 12- and 14-point slots at scale 1.0 and 1.8.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 9: Log panel
 

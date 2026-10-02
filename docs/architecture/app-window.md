@@ -1002,7 +1002,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     drawn through a private `DisclosureGroupStyle` (`FolderDisclosureStyle` + its
     `FolderDisclosureRow`) that renders chevron and
     label as **one full-width row**: the whole row toggles expansion, not just the
-    ~10pt chevron, and it carries the same hover highlight and padding as a file
+    chevron, and it carries the same hover highlight and padding as a file
     row (`FileRowView`), so both row kinds read and behave alike. Because the
     style draws the chevron itself there is no separate disclosure control, so
     "one click, one state change" holds by construction — the row's single
@@ -1012,12 +1012,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
     the row re-declares itself as one — combined element, `.isButton`, the
     expansion state as its `accessibilityValue`, and an `accessibilityAction`
-    toggling the same binding, adding no second expansion path. Both symbols
-    inside that element — the style's chevron and the label's folder icon — are
-    `.accessibilityHidden(true)`: combining children folds an unhidden SF
-    Symbol's own name into the element's label ("chevron.right, folder fill,
-    Sources"), and both are decorative beside the name, the button trait and the
-    value. That restores
+    toggling the same binding, adding no second expansion path. **The glyphs
+    are the design's**, drawn through `DesignGlyphImage` in `textSecondary`: the
+    chevron at 12 in the 12-point chevron column — `chevron-down` when expanded,
+    `chevron-right` when collapsed, two glyphs rather than one rotated — then,
+    after the 4-point gap, `FileGlyph.forFolder(expanded:)` at 14 in a 14-point
+    slot (`TreeRowLayout.iconSize`); a file row draws `FileGlyph.forFile(named:)`
+    in the same slot, and the inline draft draws the glyph its row will have.
+    Both glyphs inside that element are hidden from accessibility by the helper:
+    combining children would fold an unhidden image's own name into the
+    element's label, and both are decorative beside the name, the button trait
+    and the value. `TreeRowGlyphLayoutTests` (app bundle) renders a tree once per
+    scale (1.0 and 1.8) and finds ink inside the 12- and 14-point slots, none in
+    the gap or in a file row's chevron column. That restores
     **VoiceOver** actuation only: a trait is not a focusable control, so the
     chevron can no longer be reached under Full Keyboard Access. Accepted, and
     recorded rather than fixed — the tree has no keyboard navigation at all (a
@@ -1578,10 +1585,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     accent bar starts at y 0 and is 28 tall, one hairline run sits at each
     row's bottom, and the selected row's middle is the `bgPanel` ground. The icon is
     **`TabFileIcon`**, the second of the two views the orientations share (both
-    live in `TabStripView.swift`): the monochrome `FileIcon` symbol in
+    live in `TabStripView.swift`): `FileGlyph`'s design glyph at 13 in
     `textSecondary` (the monochrome-icon decision in `core-theme.md`), with an
-    untitled buffer asked about under its display name so the fallback symbol is
-    still `FileIcon`'s own. The trailing slot is the first,
+    untitled buffer asked about under its display name so the fallback is still
+    `FileGlyph`'s own plain-text answer. The trailing slot is the first,
     **`TabStatusMark`**: the
     three-claimant precedence exists once, so the two orientations cannot drift
     into two rules. Both are one view rather than one rule restated twice, for
@@ -1606,9 +1613,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the opposite of what the comment beside it claimed. Gating rule sixteen pins
     the construct here and in `DockTabRow.swift`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
-    shares with the strip: a monochrome file icon
-    (`textSecondary`; `FileIcon`'s tint is deliberately unread — see the
-    monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
+    shares with the strip: `FileGlyph`'s design glyph at 13 in `textSecondary`
+    (see the monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
     trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, the
@@ -1620,15 +1626,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — and the mark still shows on an active tab with nothing to report, so the
     tab most likely to be closed does not have to be hunted for. An untitled
     buffer has no url and is asked about under its display name, so the fallback
-    symbol is still `FileIcon`'s own rather than a second guess spelled here —
-    that rule is `TabFileIcon`'s, spelled once and asked by both orientations,
-    which is also what keeps `FileIcon(` off a second gated file's lines (each
-    such line is exempt from the suite's no-system-colour rule, the icon tints
-    sharing SwiftUI's hue names).
+    glyph is still `FileGlyph`'s own rather than a second guess spelled here —
+    that rule is `TabFileIcon`'s, spelled once and asked by both orientations.
+    The close mark is the design's `x` glyph at 12, inside a plain button that
+    names itself "Close", since the helper hides the glyph from accessibility.
     Every **chrome** measurement goes through `ChromeGeometry` and
     `metrics.scaled(_:)` — the strip's height, the bottom and trailing hairlines,
-    the row padding, the accent indicator. The cell's own glyph sizes (icon 11,
-    close mark 9, dot 7, the 14-point slot they share, the 6-point item spacing)
+    the row padding, the accent indicator. The cell's own glyph sizes (icon 13,
+    close mark 12, dot 7, the 14-point slot they share, the 6-point item spacing)
     stay local and scaled, as the sweep guide permits: they are this surface's
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
@@ -1649,7 +1654,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ChromeGeometry.breadcrumbHeight` tall (a fixed height keeps the editor from
     jumping as the path changes) with `rowPaddingX` horizontal padding and
     `metrics.scaledFont(.subheadline)` text, and — like the tab strip — draws its
-    **own** bottom hairline, which is why its host's `Divider()` is gone.
+    **own** bottom hairline, which is why its host's `Divider()` is gone. The
+    separators are the design's `chevron-right` glyph at 10 points, scaled with
+    the interface, set inline in the one `Text` run with a space either side:
+    `DesignGlyphDrawing.inlineImage(_:pointSize:)` bakes the size into a template
+    image (a frame cannot reach inside a `Text`), and the run's `textSecondary`
+    foreground tints it, so truncation still treats the path as one string.
     **Two views in one file**: a thin outer `BreadcrumbBarView` reading
     `@Environment(\.chromeTheme)` and `\.interfaceMetrics`, and a private,
     `.equatable()` `BreadcrumbSegments` storing `fileURL`, `projectRoot`,

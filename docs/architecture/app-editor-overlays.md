@@ -781,9 +781,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     windows. The rest of the source viewer's chrome was swept in part five (b):
     its window ground is `EscClosableWindow`'s `bgPanel` (`core-theme.md`).
     **The fold chevron column** sits between the diagnostic markers and the
-    numbers: `chevron.down` on the header line of every fold candidate,
-    `chevron.right` on a folded one — **both in `textSecondary`**, the distinction
-    carried by the symbol rather than by two greys, because the gutter's chrome
+    numbers: the design's `chevron-down` glyph on the header line of every fold
+    candidate, `chevron-right` on a folded one, drawn through
+    `DesignGlyphDrawing.image` — **both in `textSecondary`**, the distinction
+    carried by the glyph rather than by two greys, because the gutter's chrome
     text is one weight and a second one would be a second opinion about it (this
     replaces the earlier louder-when-folded treatment, which spelled
     `labelColor` against the open one's `secondaryLabelColor`) — and nothing on
@@ -801,10 +802,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     guard reads both for the same reason: a chevron that is drawn must be
     clickable. Its width is derived from `rulerFont` and from nothing else, so it
     scales with code zoom like the numbers and the severity dots and needs no
-    thickness recomputation when the fold sets change; the image is configured at
-    draw time, so a zoom, a font change and a light/dark switch each need no
-    bookkeeping at all, and a chevron (which is not square) is centered inside its
-    square cell rather than stretched. **The ruler is *told* both sets and decides
+    thickness recomputation when the fold sets change. The **glyph** is a code-zone
+    measurement of its own: `foldGlyphSide` is the design's 11 points at
+    `SettingsStore.defaultFontSize`, times the code font's size over that default,
+    and `foldGlyphRect(cellY:)` centres that square on the unchanged cell
+    (`foldCellRect(cellY:)`), so the click target is exactly what it was and the
+    glyph overhangs into the gaps either side when it is the larger. The image is
+    built at draw time, inside `draw(_:)` so the tint resolves in the drawing
+    appearance, so a zoom, a font change and a light/dark switch each need no
+    bookkeeping at all; `GutterFoldTests` pins the side and the centring at two
+    code font sizes. **The ruler is *told* both sets and decides
     neither**: `setFoldRegions(_:folded:)` takes the candidates and the `FoldState`
     together — together, because a chevron's *direction* is decided by the two and a
     line's number is drawn or skipped by the folded set alone, so handing them over

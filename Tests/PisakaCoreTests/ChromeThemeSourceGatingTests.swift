@@ -858,9 +858,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule eight: the tab icon rule is spelled once
 
     /// The untitled-buffer icon fallback — an `OpenFile` with no url asked about
-    /// under its `displayName`, so the symbol is `FileIcon`'s own fallback
-    /// rather than a second guess — is one rule, and `TabFileIcon` is its one
-    /// spelling.
+    /// under its `displayName`, so the glyph is `FileGlyph`'s own plain-text
+    /// answer rather than a second guess — is one rule, and `TabFileIcon` is its
+    /// one spelling.
     ///
     /// It was pasted into both orientations once already, which is the failure
     /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
@@ -878,7 +878,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if code.contains("struct TabFileIcon") { declarers.insert(name) }
-            if Self.spellsCall("file.url ?? URL(fileURLWithPath: file.displayName)", in: code) {
+            // Whitespace-free, so a re-wrapped spelling is the same spelling.
+            if code.filter({ !$0.isWhitespace }).contains("file.url?.lastPathComponent??file.displayName") {
                 fallbackSpellers.insert(name)
             }
             let constructsIcon = code
@@ -899,22 +900,22 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Eight, and named: the tree's rows, the inline draft field drawing the
-        // placeholder icon a real row would have, the shared tab icon both
-        // orientations now ask, and — since part four (a) — the Problems and
-        // Usages panels' file-group headers, each of whose exempted line is a
-        // `let icon = FileIcon(…)` binding read for its symbol alone (the glyph
-        // is drawn in `textSecondary`, a role, on a line rule one still scans).
+        // Five, and named. The tree's rows, the inline draft field and the
+        // shared tab icon left the set in part eight, when they moved to
+        // `FileGlyph`'s design glyphs. What stays: since part four (a), the
+        // Problems and Usages panels' file-group headers, each of whose
+        // exempted line is a `let icon = FileIcon(…)` binding read for its
+        // symbol alone (the glyph is drawn in `textSecondary`, a role, on a line
+        // rule one still scans).
         // Part four (b) adds the Log's changed-file row and Local Changes' rows
         // and folder headers, whose exempted lines are the same binding.
-        // Part five (b) adds the commit dialog's file row, the eighth, whose
-        // exempted line is that binding again (its glyph takes
-        // `changedFileRole(for:)`, a role, on a line rule one still scans).
-        // A ninth is a line that has quietly bought itself out of rule one.
+        // Part five (b) adds the commit dialog's file row, whose exempted line
+        // is that binding again (its glyph takes `changedFileRole(for:)`, a
+        // role, on a line rule one still scans).
+        // A sixth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
-                "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
                 "CommitLogView.swift", "LocalChangesView.swift",
                 "CommitDialogView.swift",
@@ -4027,13 +4028,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ProblemsPanelView.swift", "struct ProblemRow", 1, .containerFont),
         ("UsagesPanelView.swift", "private func fileGroup(", 1, .containerFont),
         ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
-        // and the tree's rows.
-        ("ProjectTreeView.swift", "struct DirectoryNodeView", 1, .containerFont),
-        ("ProjectTreeView.swift", "struct FileRowView", 1, .containerFont),
-        // The create draft's icon column is drawn twice — beside the field, and
-        // as a hidden twin measuring the reason line's inset — each under a font
-        // of its own at the use site.
-        ("ProjectTreeDraftField.swift", "private var iconColumn", 2, .useSiteFont("iconColumn")),
+        // (The tree's rows, their inline draft and both tab orientations draw
+        // design glyphs since part eight, sized by the helper.)
         // The unified diff's per-line checkbox is fixed geometry belonging to a
         // *code* row, left off both scales on purpose (the file's own `metrics`
         // comment states it — the Find in Files rows' rule), so neither zone
