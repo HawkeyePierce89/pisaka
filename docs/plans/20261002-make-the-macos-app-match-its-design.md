@@ -331,24 +331,24 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/LocalChangesView.swift`, `ChromeThemeSourceGatingTests` (rules 17/20/35, where they name the removed toggle or row shape)
 - Create: `Tests/PisakaAppTests/LocalChangesLayoutTests.swift`
 
-- [ ] Toolbar at the leading edge:
+- [x] Toolbar at the leading edge:
   1. "Commit…" in `.chromePrimary`;
   2. the revert icon button (`undo-2`, 15);
   3. the refresh icon button (`refresh-cw`, 15).
 
   Each keeps its help and accessibility label. Remove the list/tree segmented control from the macOS view. `groupingMode` stays in Core for iOS.
-- [ ] `ChangedFileGroups.group(_ files:, rootName:)` returns one group per parent directory, sorted by path, with files sorted by name. Root-level files go under a group labelled `rootName`.
+- [x] `ChangedFileGroups.group(_ files:, rootName:)` returns one group per parent directory, sorted by path, with files sorted by name. Root-level files go under a group labelled `rootName`.
   - The list defaults to 320 wide.
   - A folder row shows the disclosure chevron, the folder glyph and the path. Folders start expanded.
   - A file row is indented beneath its folder and shows the checkbox, then the status letter (M/A/D/R/C/U in its status colour), then the name.
-- [ ] To the right of the list, embed `DiffView` for the selected file, headed by its project-relative path:
+- [x] To the right of the list, embed `DiffView` for the selected file, headed by its project-relative path:
   - rows come from `localChanges.rows(for:)`, ordered by a generation token captured before the hop, so a superseded selection never publishes;
   - with no selection, show an empty state;
   - double-click and ⌘D still open the diff window.
-- [ ] Tests:
+- [x] Tests:
   - grouping: nested paths, root files, renames, and stable ordering;
   - app-layer: the list's default width of 320, the toolbar order, and the status letter left of the name.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 11: Commit dialog layout and footer
 

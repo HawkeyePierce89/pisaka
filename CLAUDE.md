@@ -108,7 +108,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-  `LocalChangesModel.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
+  `LocalChangesModel.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`

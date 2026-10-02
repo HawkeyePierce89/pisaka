@@ -1006,10 +1006,13 @@ choosing hues that sit on the design's ground is an open design question.
     box (4 pt radius, `bgEditor`, a `hairline` border that becomes a two-point
     `accent` one on focus). Full entry in `app-git-views.md`.
   - **The Local Changes panel** — `LocalChangesView.swift`, the environment
-    path, keeping its single-list structure: a 32 pt toolbar whose Commit is the
-    primary button, a hand-drawn folder header, a drawn checkbox, the two
-    context-menu `Divider()`s become `Section`s rendering the same separators.
-    Full entry in `app-git-views.md`.
+    path. Since the design pass: a 36 pt toolbar leading with Commit… in the
+    shared `.chromePrimary`, then the `undo-2` and `refresh-cw` design glyphs at
+    15; a 320 pt list of hand-drawn folder rows (the design's chevron and folder
+    glyph, `textSecondary`) over checkbox / status letter / name file rows; a
+    `hairline` divider to the inline `DiffView`. The context-menu `Divider()`s
+    are `Section`s rendering the same separators. Full entry in
+    `app-git-views.md`.
   - **The Pull Requests panel** — `PullRequestsPanelView.swift`, the environment
     path: 40 pt rows with primary and secondary buttons, the checks glyph and job
     dots from Core, review decisions as bordered capsules; the indicator beside
@@ -2579,7 +2582,7 @@ The forty-six rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set, five today. Since
+   files carrying such a line are themselves a counted set, four today. Since
    part eight the fallback is `file.url?.lastPathComponent ?? file.displayName`
    handed to `FileGlyph`, matched whitespace-free, and the tree, its draft field
    and `TabStripView.swift` construct no `FileIcon` at all and left the set.
@@ -2587,9 +2590,11 @@ The forty-six rules, each invisible to the compiler:
    `UsagesPanelView.swift`, whose one exempted line each is the file-group
    header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
    glyph is drawn in `textSecondary` on a line rule one still scans — and since
-   part four (b) `CommitLogView.swift` and `LocalChangesView.swift`, whose
-   changed-file rows and folder headers carry the same binding, and since part
-   five (b) `CommitDialogView.swift`'s file row).
+   part four (b) `CommitLogView.swift`, whose changed-file row carries the same
+   binding, and since part five (b) `CommitDialogView.swift`'s file row.
+   `LocalChangesView.swift` carried it too until the design pass, when its file
+   rows stopped drawing a file glyph and its folder rows took `FileGlyph`'s, and
+   it left the set).
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a
@@ -2905,12 +2910,14 @@ The forty-six rules, each invisible to the compiler:
    the drag's `onEnded`; neither arrives when the divider leaves the tree with
    the pointer on it or mid-drag — the Log's list/detail divide goes when the
    model clears its selection or the dock switches tabs, the database viewer's
-   sidebar divide when its tab closes or its sidebar folds — and `NSCursor`'s stack
+   sidebar divide when its tab closes or its sidebar folds, Local Changes' divider
+   when the list empties or the dock switches tabs — and `NSCursor`'s stack
    is global, so the cursor stays pushed after the flag that would have popped
    it is gone. The set of pushing functions is pinned by equality (the Log
    divide's, the two `ContentView` dividers', — since part five (d) — the
-   statement pane's resize handle, `syncResizeHandleCursor`, and the database
-   viewer's sidebar divide, `syncSidebarDivideCursor`), so a scanner that stopped
+   statement pane's resize handle, `syncResizeHandleCursor`, the database
+   viewer's sidebar divide, `syncSidebarDivideCursor`, and — since the design
+   pass — Local Changes' list/diff divider, `syncDividerCursor`), so a scanner that stopped
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
@@ -3091,7 +3098,9 @@ The forty-six rules, each invisible to the compiler:
     items) and `LeetCodeLoginView.swift` 1/1. The same part adds the
     open-problem sheet to `chromePrimary`'s callers; the console, the browser,
     the judge, the sheet and the sign-in sheet to `chromeSecondary`'s; and the
-    browser to `ChromeCheckbox`'s.
+    browser to `ChromeCheckbox`'s. The design pass adds the consent banner and
+    then Local Changes, whose toolbar Commit… left its hand-drawn accent button
+    for the shared style, to `chromePrimary`'s callers.
 31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
     `DiffView.swift` and `MergeView.swift`; the rule is **total and resolves no

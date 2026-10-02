@@ -900,25 +900,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Five, and named. The tree's rows, the inline draft field and the
+        // Four, and named. The tree's rows, the inline draft field and the
         // shared tab icon left the set in part eight, when they moved to
         // `FileGlyph`'s design glyphs. What stays: since part four (a), the
         // Problems and Usages panels' file-group headers, each of whose
         // exempted line is a `let icon = FileIcon(…)` binding read for its
         // symbol alone (the glyph is drawn in `textSecondary`, a role, on a line
         // rule one still scans).
-        // Part four (b) adds the Log's changed-file row and Local Changes' rows
-        // and folder headers, whose exempted lines are the same binding.
+        // Part four (b) adds the Log's changed-file row, whose exempted line is
+        // the same binding. (Local Changes' rows and folder headers named it
+        // too until the design pass: its file rows draw no file glyph and its
+        // folder rows draw `FileGlyph`'s, so it left the set.)
         // Part five (b) adds the commit dialog's file row, whose exempted line
         // is that binding again (its glyph takes `changedFileRole(for:)`, a
         // role, on a line rule one still scans).
-        // A sixth is a line that has quietly bought itself out of rule one.
+        // A fifth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
-                "CommitLogView.swift", "LocalChangesView.swift",
-                "CommitDialogView.swift",
+                "CommitLogView.swift", "CommitDialogView.swift",
             ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
@@ -2023,8 +2024,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("LocalChangesView.swift", [
             ControlBuilder(path: ["private var toolbar: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
-            ControlBuilder(path: ["private func groupingSegment("],
-                           required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private var folderHeader: some View"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
             ControlBuilder(path: ["private struct ChangedFileRow", "var body: some View"],
@@ -2487,6 +2486,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ContentView.swift: syncMarkdownDividerCursor",
         "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
         "DatabaseViewerView.swift: syncSidebarDivideCursor",
+        "LocalChangesView.swift: syncDividerCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2497,9 +2497,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all five
-    /// (the statement pane's resize handle joined in part five (d), and the
-    /// database viewer's sidebar divide when that sidebar became resizable).
+    /// released from `onDisappear`, which is the rule this states for all six
+    /// (the statement pane's resize handle joined in part five (d), the
+    /// database viewer's sidebar divide when that sidebar became resizable, and
+    /// Local Changes' list/diff divider in the design pass).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
@@ -3381,7 +3382,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("chromePrimary", [
             "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift", "LeetCodeOpenProblemSheet.swift",
-            "LSPConsentBanner.swift",
+            "LSPConsentBanner.swift", "LocalChangesView.swift",
         ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",

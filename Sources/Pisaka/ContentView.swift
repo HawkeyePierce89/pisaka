@@ -767,12 +767,14 @@ struct ContentView: View {
                 // panel here is a scrollable list, table or terminal.
                 CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
             case .changes:
-                // Local Changes is now a bottom dock panel (beside Terminal and Log),
-                // rendered as the file list only — the diff opens in a separate window
-                // on double-click via `onOpenDiff`.
+                // Local Changes is a bottom dock panel (beside Terminal and Log):
+                // the file list with the selected file's diff inline beside it,
+                // drawn at the code font; double-click still opens the diff in a
+                // separate window via `onOpenDiff`.
                 LocalChangesView(
                     model: localChanges,
                     projectRoot: model.projectRoot,
+                    codeFontSize: settings.fontSize,
                     onRevert: onRevert,
                     onOpenDiff: onOpenDiff,
                     onResolveConflict: onResolveConflict,

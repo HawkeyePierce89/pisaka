@@ -613,12 +613,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     no controller sets one (rule twenty-eight). The problem browser's window
     gains `bgPanel` with the rest.
   - `LocalChangesView.swift` — the Local Changes bottom dock panel (no longer a
-    left-panel mode). Observes
-    `LocalChangesModel` and renders `changedFiles` flat or grouped by folder
-    (`ChangeTree`, recursing in-memory `ChangeNode.children` — no disk read), per
-    `model.groupingMode`. A two-segment glyph control in the toolbar toggles
-    flat/by-folder and a glyph refreshes against the project root; it also
-    auto-refreshes on appear and on `projectRoot` change. That
+    left-panel mode): the changed files on the left, the selected file's diff on
+    the right. Observes `LocalChangesModel`. **Since the design pass** the
+    macOS view draws no flat/by-folder choice — `model.groupingMode` stays in
+    Core because iOS still reads it — and the list is one level of folder rows,
+    Core's `ChangedFileGroups.group(_:rootName:)` (one row per distinct parent
+    directory, sorted by path; root-level files under the project folder's name;
+    every folder starts expanded). The toolbar sits at the leading edge:
+    **Commit…** in the shared `.chromePrimary`, then a revert glyph button
+    (`undo-2`, 15) and a refresh glyph button (`refresh-cw`, 15), each with its
+    help and accessibility label. Revert acts on `model.toolbarRevertTarget` —
+    the first checked file when any is checked (which `filesToRevert(contextFile:)`
+    widens to the checked set, exactly as a checked row's context-menu Revert
+    does), else the selected file — through the same `onRevert` and its
+    confirmation, and is disabled (dimmed) when that is `nil`. The list defaults
+    to 320 pt wide and a hand-rolled `hairline` divider drags it between 200 and
+    640 pt (unscaled), its resize cursor balanced through `syncDividerCursor()`
+    and released from `onDisappear` (rule twenty-two). To the right, the
+    selected file's project-relative path heads an embedded `DiffView` drawn at
+    `codeFontSize` (`settings.fontSize`, threaded from `ContentView` — the panes
+    are the code zone, and `DiffView` already declares itself a zoom surface);
+    its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
+    claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
+    hop** on appear, on every selection change and on every `listRevision`
+    advance (a refresh that left the list equal — an already-modified file
+    edited again — still re-reads). The diff is shown only while
+    `selectionDiff.file == selected`, "Loading…" otherwise, and an empty state
+    with nothing selected. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
     and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the
@@ -627,14 +648,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     bumped it, so a stale-root refresh pinning the *current* generation is accepted,
     re-derives a switch back inside `refreshImpl` and strands the panel on the
     previous repository. `refreshIfPossible` (the `onAppear`/manual-button form,
-    where the property is current) now forwards to the same `refresh(root:)`. Each row
-    (`ChangedFileRow`, used by both the flat list and the by-folder
-    `ChangeNodeView` leaf) shows a leading checkbox bound to
-    `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
-    multi-file revert, a monochrome `FileIcon(for:)` glyph, the name, plus a
-    one-letter badge — `FileStatus.letter`, coloured by
+    where the property is current) now forwards to the same `refresh(root:)`. Each
+    file row (`ChangedFileRow`, indented beneath its `ChangedFileGroupView`
+    folder row) shows a leading checkbox bound to `model.revertSelection`
+    (toggled via `model.toggleChecked(file)`) for multi-file revert, then the
+    one-letter status — `FileStatus.letter`, coloured by
     `ChromeColorRole.changedFileRole(for:)` and spoken as `FileStatus.spokenName`
-    (Core's one answer; the letter carries the identity, the colour the weight).
+    (Core's one answer; the letter carries the identity, the colour the weight)
+    in a fixed 12 pt column — then the name.
     Four triggers share one activation path through `LocalChangesModel`: (1) a
     *double*-click (`.onTapGesture(count: 2)`, declared before the single-tap
     select) calls `onSelect()` first (so the panel focuses on that row) then
@@ -654,8 +675,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     item calls `onCommitFile(file)` and a **Revert**
     item calls `onRevert(file)`. The
     callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
-    through the rows (and through `ChangeNodeView`, recursively, for the by-folder
-    mode; same shape as `onOpenFile`/`onOpenFolder`). `onJumpToSource` is threaded
+    through the folder rows to the file rows (same shape as
+    `onOpenFile`/`onOpenFolder`). `onJumpToSource` is threaded
     the same way and, in `ContentView`, resolves
     `LocalChangesModel.jumpToSourceURL(for:root:)` against `localChanges.root`
     before calling the existing `onOpenFile` — no new callback from `PisakaApp`, no
@@ -707,34 +728,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at
     no font at all, so it does not declare `ZoomSurfaceProviding`. Placeholders
     cover no-folder / error / no-changes. The toolbar's primary button is
-    **Commit**, calling `onCommit()` — the same handler
+    **Commit…**, calling `onCommit()` — the same handler
     the ⌘K menu item runs, so button and command behave identically — disabled on
     exactly the one condition that item is (no project root; see there for why an
     empty change list deliberately does *not* disable it).
-    **On the chrome roles** since part four (b) of the chrome theme; the shared
-    `statusColor(_:)`/`statusLetter(_:)` helpers and the private `iconColor(for:)`
-    are gone, the status mapping being Core's. The measurements, in a private
-    `LocalChangesLayout`, scaled at the use site: the toolbar is 32 pt tall with
-    10 pt padding and an 8 pt gap and draws its own bottom `hairline`; Commit is an
-    `accent` ground with an `onAccent` `.subheadline` semibold label,
-    `ChromeGeometry.buttonPaddingX` and `buttonCornerRadius`; the grouping control
-    is two 22 pt glyph segments in a hairline-bordered box, the chosen one on
-    `accentTint`, each segment named and speaking its selection; refresh is a
-    15 pt `textSecondary` glyph with an accessibility label and its symbol hidden.
-    A folder header is drawn by hand rather than by a `DisclosureGroup` (whose
-    system triangle would bring its own colour): 22 pt tall, 10 pt padding, 6 pt
-    gap, a `textSecondary` chevron, the monochrome folder glyph and the name in
-    `.subheadline` monospaced, speaking expanded/collapsed as its value; each
-    level indents by `treeIndentStep`. A file row is `rowHeight` tall, inset 26 pt
-    under a folder (level with the folder's glyph) or 10 pt in the flat list; its
-    checkbox is the shared `ChromeCheckbox` (part five (b)), lifted from this
-    very row: `checkboxSide` 14 at `checkboxCornerRadius` 3 — a `hairline` border
-    off, an `accent` ground with an `onAccent` check on — labelled with the file
-    it includes and speaking on/off. The check **grew from 8 to 10 points**: the
-    shared shape takes the design's glyph, and the private builder and its three
-    `LocalChangesLayout` numbers are gone; the status letter is `.callout` monospaced
-    semibold; the glyph is `textSecondary` and the name `textPrimary` `.body`.
-    Washes are `accentTintStrong` (selection) and `hoverTint` (hover).
+    **On the chrome roles** since part four (b) of the chrome theme; the status
+    mapping is Core's. The measurements, in `LocalChangesLayout` (internal so
+    `LocalChangesLayoutTests` measures against the same numbers), scaled at the
+    use site: the toolbar is 36 pt tall (the primary button's 28 plus 4 above
+    and below) with 10 pt padding and an 8 pt gap and draws its own bottom
+    `hairline`; the two glyph buttons are `textSecondary` design glyphs in a
+    15 pt slot, the revert one at half opacity while disabled. A folder row is
+    drawn by hand rather than by a `DisclosureGroup` (whose system triangle would
+    bring its own colour): `rowHeight` tall, 10 pt padding, 6 pt gap, the
+    `chevron-down`/`chevron-right` glyph at 12, `FileGlyph.forFolder(expanded:)`
+    at 14 and the path in `.callout`, all `textSecondary`, speaking
+    expanded/collapsed as its value. A file row is `rowHeight` tall, inset 28 pt
+    (past the chevron, level with the folder glyph); its checkbox is the shared
+    `ChromeCheckbox` (part five (b)), lifted from this very row: `checkboxSide`
+    14 at `checkboxCornerRadius` 3 — a `hairline` border off, an `accent` ground
+    with an `onAccent` check on — labelled with the file it includes and
+    speaking on/off; the status letter is `.callout` monospaced semibold; the
+    name `textPrimary` `.body`. The diff's path header is a 28 pt strip in
+    `.callout` `textSecondary` over its own bottom `hairline`. Washes are
+    `accentTintStrong` (selection) and `hoverTint` (hover). Measured headlessly
+    by `LocalChangesLayoutTests` at scales 1.0 and 1.8: the divider at 320, the
+    toolbar's order (the `accent` Commit… leading at the padding, then two
+    glyph-sized clusters) and the status letter left of the name.
   - `DiffView.swift` — `NSViewRepresentable` rendering a pre-computed `[DiffRow]`
     (`HEAD` left, working copy right) as two side-by-side read-only TextKit-1
     `NSTextView`s (no soft-wrap, so one logical line = one visual row and the

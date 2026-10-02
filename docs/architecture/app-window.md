@@ -554,9 +554,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (an existing terminal keeps its start directory — only `newSession` reads the
     current root), `.log` → `CommitLogView(model: commitLog, projectRoot:,
     onOpenCommitDiff:)`, `.changes` →
-    `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
-    rendered as the file list only (the diff opens in a separate window on
-    double-click via `onOpenDiff`), `.problems` → `ProblemsPanelView(model:
+    `LocalChangesView(model: localChanges, projectRoot:, codeFontSize:,
+    onRevert:, onOpenDiff:)` — the file list with the selected file's diff
+    inline beside it at `settings.fontSize`, while double-click still opens the
+    diff in a separate window via `onOpenDiff` — `.problems` → `ProblemsPanelView(model:
     diagnostics, projectRoot:, onActivate:)`, `.usages` →
     `UsagesPanelView(model: usages, onActivate:)` and `.pullRequests` →
     `PullRequestsPanelView(model:coordinator:)`, both read off the

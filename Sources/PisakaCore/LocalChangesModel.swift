@@ -436,6 +436,7 @@ public final class LocalChangesModel: ObservableObject {
             )
             revertSelection = reconciliation.revertSelection
             selected = reconciliation.selected
+            listRevision += 1
         } catch {
             // Same stale-result guards on the failure path: a superseded refresh —
             // whether superseded by a newer refresh of the same folder
@@ -754,6 +755,58 @@ public final class LocalChangesModel: ObservableObject {
     public func selectedRows() async -> [DiffRow] {
         guard let selected else { return [] }
         return await rows(for: selected)
+    }
+
+    /// The file the macOS toolbar's revert button acts on, or `nil` (button
+    /// disabled) when nothing is checked or selected.
+    ///
+    /// The first checked file in list order when any is checked — handed to the
+    /// app's revert path as its context file, `filesToRevert(contextFile:)`
+    /// widens it to the whole checked set, exactly as a context-menu Revert on a
+    /// checked row does — otherwise the selected file alone.
+    public var toolbarRevertTarget: ChangedFile? {
+        changedFiles.first { revertSelection.contains($0.id) } ?? selected
+    }
+
+    /// The inline diff the macOS panel shows beside its list: the rows of one
+    /// file, tagged with the file they were computed for.
+    public struct SelectionDiff: Equatable {
+        public let file: ChangedFile
+        public let rows: [DiffRow]
+    }
+
+    /// The selected file's inline diff as of the last load that was not
+    /// superseded, or `nil` once a load finds nothing selected.
+    @Published public private(set) var selectionDiff: SelectionDiff?
+
+    /// Bumped on every successful refresh publish, so a view can reload the
+    /// inline diff after a refresh that left the list *equal* (an already
+    /// modified file edited again) and therefore fired no change of its own.
+    @Published public private(set) var listRevision = 0
+
+    /// Orders overlapping inline-diff loads; see `beginSelectionDiffLoad()`.
+    private var selectionDiffGeneration = 0
+
+    /// Claim the next inline-diff load's token. Called **synchronously** at the
+    /// trigger, before the `Task` hop, so a load started for a newer selection
+    /// always holds the larger token however the hops are scheduled.
+    public func beginSelectionDiffLoad() -> Int {
+        selectionDiffGeneration += 1
+        return selectionDiffGeneration
+    }
+
+    /// Load the selected file's inline diff under `token`. A load whose token
+    /// has been superseded by the time its `git show` returns discards its rows
+    /// instead of publishing over the newer selection's.
+    public func loadSelectionDiff(token: Int) async {
+        guard token == selectionDiffGeneration else { return }
+        guard let file = selected else {
+            selectionDiff = nil
+            return
+        }
+        let rows = await rows(for: file)
+        guard token == selectionDiffGeneration else { return }
+        selectionDiff = SelectionDiff(file: file, rows: rows)
     }
 
     /// Build the side-by-side diff (working copy vs `HEAD`) for `file`.
