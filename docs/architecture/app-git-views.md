@@ -496,6 +496,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `textSecondary` when off, and the line numbers and the placeholder are
     `textSecondary`. The dialog around the panel is swept too — its own entry's
     chrome paragraph above.
+    **A changed line is washed across the whole pane.** The rows sit in a
+    `LazyVStack` inside a two-axis `ScrollView`, and the horizontal axis proposes
+    no width, so a row's `maxWidth: .infinity` alone resolves to the content's own
+    width and its wash would stop after its text; a `LazyVStack` also takes its
+    width from its first row rather than its widest, so an overflowing line
+    could not widen the content either. So the content's width is the larger of
+    two *measured* values — the pane's visible width, read from AppKit as the
+    enclosing clip view's width by a small representable probe
+    (`VisibleWidthProbe`, re-reporting on every clip-frame change), and the
+    widest realized row's
+    natural width, which each row reports through `onGeometryChange` before its
+    fill (the row hugs its content there, holding no spacer, so it reports its
+    own width and never the width it is given) and which resets when the lines
+    change — and every row fills that width. A diff that fits does not scroll;
+    one that overflows is washed to the visible trailing edge once scrolled to
+    the far right. The widest row is the widest *laid out*, so the content
+    widens as a longer line scrolls into view. `CommitUnifiedDiffWashTests`
+    (app-layer bundle) renders both cases and samples the washes at the pane's
+    trailing edge against the palette's resolved colours, the context row
+    unwashed. **The visible width is AppKit's, not SwiftUI's**: with legacy
+    scroll bars ("Show scroll bars: Always") the vertical scroller takes about
+    17 points of the pane, and both a `GeometryReader` around the scroll view
+    and `containerRelativeFrame` inside it still report the whole pane, so every
+    diff overflowed by the scroller's width and scrolled horizontally. A case in
+    the same suite forces `.legacy` onto the hosted scroll view itself — no
+    preference is read or written, so it holds on any machine — and holds the
+    content to the clip view's width.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle
@@ -594,7 +621,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
-    and macOS 13's `onChange(of:perform:)` runs the closure captured *before* the
+    and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the
     change, so off `self` it is still the folder the user just left. The pinned
     request generation does not cover that case — the folder-open path has already
     bumped it, so a stale-root refresh pinning the *current* generation is accepted,
@@ -870,11 +897,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     directly (`draft = LogFilterDraft(filter: filter, defaultDate: Date())`),
     because at appearance the properties are current — and a bar that has never
     been shown also has no chosen day to preserve, which is exactly the
-    from-scratch seeding form's case. The **single-parameter `onChange` spelling is
-    deliberate**, not an inconsistency with the iOS bar: the deployment target is
-    macOS 13, whose only overload is `onChange(of:perform:)` and whose one closure
-    parameter *is* the new value; the two-parameter form is macOS 14+ and will not
-    compile here. No value-equality suppression is involved anywhere: the
+    from-scratch seeding form's case. The **single-parameter `onChange` spelling**
+    is the macOS call sites' idiom, whose one closure parameter *is* the new value:
+    it was the only overload while the floor was macOS 13, and now that the floor
+    is 14 it is deprecated in favour of the two-parameter form the iOS bar uses —
+    migrating the macOS call sites is a separate change, which is why the two bars
+    are still spelled differently. No value-equality suppression is involved anywhere: the
     previous mirrored-`@State` + `.onChange` construction *was* suppressed by value
     equality, which failed under interleaved applies when the published `filter`
     lagged `requestedFilter` and an echo built from the published value was accepted
@@ -921,7 +949,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     in one line — branch, author, path, Since, Until, then the message search —
     each in one 22 pt box: 4 pt radius, `bgEditor` ground, one-point `hairline`
     border, a two-point `accent` border while a text field holds focus
-    (`@FocusState`), 8 pt inset and 6 pt inner gap. The text fields are drawn
+    (`@FocusState`), 8 pt inset and 6 pt inner gap. The 22 pt reaches each box
+    as the shared field's (or box's) `height:` — `FilterBarLayout.controlHeight`
+    — so the ground and border are drawn at the full 22 points; a `.frame(height:)`
+    outside the field only added room around a box that hugged its text line
+    (`core-theme.md`, `ChromeControls.swift`). The text fields are drawn
     `.plain` with their own `textSecondary` `.callout` placeholder (a plain
     field's own is the system's value) and `textPrimary` text; widths author 140,
     path 160, search 220. The branch menu is, since part five (c), the shared
@@ -929,8 +961,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     first caller: the borderless, indicator-less `Menu` beside a `textSecondary`
     chevron is the same, but its items are plain `Button`s with the chosen one
     labelled by a checkmark, replacing the inline platform `Picker` chrome rule
-    thirty-six forbids; the bar still frames the field at its own
-    `FilterBarLayout.controlHeight` and hands it the bar's 8 pt inset and 6 pt
+    thirty-six forbids; the bar passes the menu field its own
+    `FilterBarLayout.controlHeight` as `height:`, which reaches the shared box
+    exactly as the text fields' does (an outside frame left the menu's box one
+    label high beside 22-point fields), and hands it the bar's 8 pt inset and 6 pt
     gap, and the computed binding below is unchanged; each date bound keeps
     its checkbox — the shared `ChromeCheckbox` plus its label since part five
     (b), replacing a platform `Toggle` — and the system date field, an `NSDatePicker` drawn with no

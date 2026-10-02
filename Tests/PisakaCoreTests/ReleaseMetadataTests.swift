@@ -40,6 +40,9 @@ import XCTest
 /// pairs rather than a "contains" check, so a category added without an audit,
 /// dropped after a refactor, or silently re-coded fails here until the manifest
 /// and the audit recorded in `docs/architecture/core-services.md` are reconciled.
+///
+/// It also holds the macOS floor to one value: `project.yml`'s deployment target
+/// and `Package.swift`'s platform are compared, so a restated floor cannot drift.
 final class ReleaseMetadataTests: XCTestCase {
     /// The category the app ships under. A code editor is a developer tool.
     private static let expectedCategory = "public.app-category.developer-tools"
@@ -544,6 +547,52 @@ final class ReleaseMetadataTests: XCTestCase {
             configuration — the one developers and CI use — the gate that catches \
             the typesetter's unimplemented initializer trap.
             """)
+    }
+
+    /// The macOS floor is stated twice — `options.deploymentTarget.macOS` in
+    /// `project.yml`, which is what the app ships with, and `.macOS(...)` in
+    /// `Package.swift`, which is what `swift test` compiles `PisakaCore` against —
+    /// and nothing in the build notices when the two disagree: a Core lower than
+    /// the app lets the Core gate pass an API the app's floor would refuse, and a
+    /// Core higher than the app fails only at the app link. Both are read with
+    /// their comments stripped, because each file's header comment restates the
+    /// floor in prose and a raw match would stay green with the setting deleted.
+    func testProjectAndPackageNameTheSameMacOSFloor() throws {
+        let settings = try activeProjectLines()
+        let anchor = try XCTUnwrap(settings.firstIndex(of: "deploymentTarget:"),
+                                   "project.yml no longer declares options.deploymentTarget")
+        let projectLine = try XCTUnwrap(
+            settings[(anchor + 1)...].prefix(2).first { $0.hasPrefix("macOS:") },
+            "project.yml's deploymentTarget no longer names a macOS version")
+        let projectFloor = Self.normalizedVersion(
+            projectLine.dropFirst("macOS:".count)
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        )
+
+        let package = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try text(atRepositoryPath: "Package.swift"))
+        let pattern = try NSRegularExpression(pattern: #"\.macOS\(\s*\.v(\d+)(?:_(\d+))?\s*\)"#)
+        let matches = pattern.matches(in: package, range: NSRange(package.startIndex..., in: package))
+        XCTAssertEqual(matches.count, 1, "Package.swift must name exactly one .macOS(.vN) platform")
+        let match = try XCTUnwrap(matches.first)
+        let major = String(package[try XCTUnwrap(Range(match.range(at: 1), in: package))])
+        let minor = Range(match.range(at: 2), in: package).map { String(package[$0]) } ?? "0"
+        let packageFloor = Self.normalizedVersion("\(major).\(minor)")
+
+        XCTAssertEqual(projectFloor, packageFloor, """
+            project.yml's macOS deployment target (\(projectFloor)) and Package.swift's macOS \
+            platform (\(packageFloor)) disagree. The app ships with the first and swift test \
+            compiles PisakaCore against the second, so a drift lets one gate accept what the \
+            other refuses. Raise or lower both together.
+            """)
+    }
+
+    /// `"14"`, `"14.0"` and `"14.0.0"` name one floor: drop trailing zero components.
+    private static func normalizedVersion(_ raw: String) -> String {
+        var parts = raw.split(separator: ".").map(String.init)
+        while parts.count > 1, parts.last == "0" { parts.removeLast() }
+        return parts.joined(separator: ".")
     }
 
     /// `project.yml`'s *active* settings: every line that is neither blank nor a

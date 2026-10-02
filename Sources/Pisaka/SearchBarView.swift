@@ -295,7 +295,7 @@ struct SearchBarView: View {
 }
 
 /// Reports the `NSWindow` hosting a SwiftUI view, which SwiftUI itself does not
-/// expose on macOS 13. The window is `nil` until the backing view is in a
+/// expose. The window is `nil` until the backing view is in a
 /// hierarchy, so both hooks resolve it one main-loop turn later.
 private struct WindowAccessor: NSViewRepresentable {
     let onResolve: (NSWindow?) -> Void

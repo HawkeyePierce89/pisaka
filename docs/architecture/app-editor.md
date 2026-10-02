@@ -1921,7 +1921,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       `ContentView` is gone), the query and replace fields through
       `ChromeThemedTextField` (the system rounded-border style gone, the field's
       `.callout` default and `6`-point inner gap kept; Find in Files' three and
-      the branch switcher's filter pass `.body`), the `Aa`/`ab`/`.*` toggles as the
+      the branch switcher's filter pass `.body`; it passes no `height:`, so each
+      field is one text line high inside the bar however tall the editor below
+      it is, and the platform's focus ring is suppressed in the shared field), the `Aa`/`ab`/`.*` toggles as the
       shared `ChromeQueryToggle` in `ChromeControls.swift` (`subheadline` semibold
       monospaced, `accent` on `accentTint` while on and `textPrimary` with no
       ground while off), the match counter and labels in `textSecondary` at
@@ -1942,7 +1944,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
      field with its text selected.
     That select-all resolves the field editor through **this bar's own window**
     (captured by a small private `WindowAccessor` `NSViewRepresentable`, since
-    SwiftUI exposes no window on macOS 13) and only while that window is key —
+    SwiftUI exposes no window) and only while that window is key —
     *not* through `NSApp.keyWindow`. ⌘F is an app-wide `CommandMenu` item, so it
     fires with the Find in Files window key too, and that window's shared field
     editor is an `NSTextView` with `isFieldEditor == true`: a key-window read
@@ -1979,10 +1981,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
      chrome roles since part five (a) (`core-theme.md`): the root is `bgPanel`
      (the window's own ground is `EscClosableWindow`'s `bgPanel` since part five
      (b)), content body padding 16 top/sides 0 bottom
-      gap 12, query row 33 high in the shared field with the shared
+      gap 12, query row 33 high in the shared field — the 33 passed to it as
+      `height: SearchLayout.queryFieldHeight`, so the box itself is 33 high, not
+      framed from outside (`core-theme.md`, `ChromeControls.swift`) — with the shared
       `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
       monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
-      while off), replace row the shared field gap 8
+      while off), replace row the shared field at the same `height:` gap 8
      then Replace All in the secondary button style, scope line `callout` in
      `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
      the path in `callout` and the count in `subheadline` all in `textSecondary`,
@@ -1992,7 +1996,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       paddings so the insets are the click target (group header's `24`-point
       `headerHeight` stays interface-scaled by design), footer 32 high with its own top
      `hairline` padding 16 and the summary in `callout` `textSecondary`, the
-     file-mask field also the shared field at `.body`, the `Divider()` between header and
+     file-mask field also the shared field at `.body` and the same `height:`, the `Divider()` between header and
      results replaced by a `hairline` rule the content draws, numbers with no
      `ChromeGeometry` home in a private layout enum and existing tokens reused where
      they fit, the group header icon monochrome `textSecondary`, the preview text on

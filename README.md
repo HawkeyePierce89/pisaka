@@ -127,7 +127,7 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## Install
 
-Requires macOS 13+. The git features use your own `git` CLI; the Pull Requests
+Requires macOS 14+. The git features use your own `git` CLI; the Pull Requests
 panel uses GitHub's own `gh` (2.50.0 or newer, signed in — `brew install gh`,
 then `gh auth login`), and says so with the exact command when it is missing;
 the language servers are optional — Xcode unlocks Swift, a Go/Rust toolchain unlocks

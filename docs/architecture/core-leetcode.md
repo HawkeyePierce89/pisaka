@@ -1695,6 +1695,8 @@ the limits the design carries.
     changed none of the above (`core-theme.md`): it stands on `bgPanel`, title
     `textPrimary`, captions and the parse hint `textSecondary`, the refusal
     `statusRed`; the input is the shared themed field over a private focus enum,
+    given `OpenProblemSheetLayout.inputHeight` as its `height:` so its box is the
+    full 26 points (`core-theme.md`, `ChromeControls.swift`),
     and the language picker is the shared `ChromeMenuField` over the same
     `settings.leetCodeLanguage` binding (its visible "Language" caption hidden
     from accessibility, the field speaking the name); Open is `.chromePrimary`,
@@ -1972,7 +1974,7 @@ the limits the design carries.
     container; `onMoveCommand` moves the selection up and down and the
     `ScrollViewReader` keeps it visible; Return opens through a zero-sized
     shortcut button enabled only while the list holds focus (the database grid's
-    idiom, since `onKeyPress` is macOS 14); single tap selects, double tap opens,
+    idiom); single tap selects, double tap opens,
     the context menu offers Open, and the Open button stays. Below the last row
     a right-click offers Open for the current selection (nothing without one)
     and a plain click clears the selection, as the `Table` did — a clear
@@ -1983,7 +1985,8 @@ the limits the design carries.
     status filters are the shared `ChromeCheckbox` — set-membership filters, an
     option of one action rather than a single choice — over the unchanged
     bindings; the query is the shared themed field with the magnifying-glass
-    glyph, the language the shared `ChromeMenuField`; the window root resolves
+    glyph, given `LeetCodeBrowserLayout.queryFieldHeight` as its `height:` so its
+    box is the full 26 points, the language the shared `ChromeMenuField`; the window root resolves
     its colours through a private `chromeColor(_:)` on a `bgPanel` ground; Open,
     Sign In… and Refresh are `.chromeSecondary`, the message and the error
     `statusRed`, and the activity indicator the shared `ChromeSpinner`, labelled

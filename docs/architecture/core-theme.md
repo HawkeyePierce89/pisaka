@@ -811,9 +811,12 @@ fifteen, then to sixteen with the review round's fix below.
     title at `.callout` — `textPrimary` when selected, `textSecondary` otherwise,
     **regular weight in both states**, because a label that turned semibold would
     widen and shift every tab after it on each click — padded by
-    `dockTabLabelPaddingX`, above an `accentIndicator`-thick strip spanning the
-    tab: `accent` when selected, `Color.clear` otherwise, so the tab's height
-    never changes with selection. A click asks Core's
+    `dockTabLabelPaddingX`. The padded title alone sizes the tab; the
+    `accentIndicator`-thick strip is a bottom overlay that takes its width from
+    the title and so can never ask for width of its own (a stacked strip that
+    accepted any width made every tab greedy and spread the row;
+    `app-window.md`, `DockTabRowLayoutTests`): `accent` when selected,
+    `Color.clear` otherwise, so the tab's height never changes with selection. A click asks Core's
     `BottomPanel.tabActivation(_:tab:)` and hands a `.show` answer to the bar's
     own funnel, `onTogglePanel` — which is also what creates the first terminal
     session, so the scene file was not touched; the showing tab answers
@@ -975,9 +978,15 @@ choosing hues that sit on the design's ground is an open design question.
     The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
    - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
      the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
-     `accent`/`textSecondary`, line numbers `textSecondary`. Gated in full; the
-     commit dialog around it is untouched except for reading the status answer.
-     Full entry in `app-git-views.md`.
+     `accent`/`textSecondary`, line numbers `textSecondary`. A changed line's
+     wash spans the whole pane: the horizontal scroll axis proposes no width, so
+     a row's own fill resolved to its text's width, and the content is now as
+     wide as the larger of the pane's measured visible width and the widest
+     realized row's natural width, every row filling it —
+     `CommitUnifiedDiffWashTests` (app-layer bundle) samples the washes at the
+     trailing edge, before and after scrolling an overflowing diff. Gated in
+     full; the commit dialog around it is untouched except for reading the
+     status answer. Full entry in `app-git-views.md`.
 
 #### Part five (a) — the popovers and the search surfaces
 
@@ -999,8 +1008,31 @@ colour). The suite grows from twenty-two rules to twenty-seven.
 **`ChromeControls.swift` — the shared field shape, the query toggle and the secondary button.**
 `ChromeControlBox` has a `bgEditor` ground, a one-point `hairline` border,
 `accent` at `fieldFocusedBorderWidth` while focused, and `fieldCornerRadius`,
-taking its horizontal inset as a parameter and stating no height so the container
-decides (22 in the filter strip, 33 in Find in Files). `ChromeThemedTextField`
+taking its horizontal inset as a parameter and an **optional height from its
+caller**: given one (unscaled, scaled by the box like its padding), the box frames
+itself at exactly that height and draws its ground and border on that frame, the
+content vertically centred — 22 in the Log filter strip (its three fields and its
+two date bounds), 33 in Find in Files' three fields, 26 in the two LeetCode
+inputs; given none, it is sized by its content and is never greedy, which is what
+the in-editor find bar, the branch switcher's filter, the commit dialog's author
+fields, the two pull-request sheets' fields and the grid's cell editor get.
+`ChromeThemedTextField` threads the height through both initialisers as
+`height:`. **Why the height is stated to the box.** Those callers used to frame
+the height *outside* the field, which only added transparent room around a box
+that still hugged its text line — a one-line box, its border lost under the
+platform's focus ring. The box cannot instead fill whatever height it is offered:
+a stack's spare room reaches it exactly as a caller's fixed frame does, so a
+filling box grew the find bar above the editor from about 29 points to about 239.
+Only the caller knows which of the two it means, so the caller says it.
+`ChromeThemedTextFieldLayoutTests` (app bundle) renders a field given 33 points
+and samples its `bgEditor` ground and `hairline` border above and below the text
+line, and hosts an unheighted field above a flexible view in a tall window and
+holds it to one text line, both at interface scale 1 and 1.8. **The platform's
+focus ring is suppressed** on the inner field (`.focusEffectDisabled()`), so the
+box's `accent` border is the one focus indication; the platform draws that ring
+only on a key window with real first-responder focus, which the headless bundle
+cannot reliably reach, so that half is pinned by gating rule forty-five and the
+live check. `ChromeThemedTextField`
 is a plain `TextField` with `textPrimary` content, an optional leading glyph
 hidden from accessibility, and a spoken name — drawn as a `textSecondary`
 placeholder while the field is empty when built with `title:`, never drawn when
@@ -1535,7 +1567,10 @@ own body (rule twenty).
   both inside the `Menu`'s own label, so clicking the arrow opens the menu (the
   lift carried the Log bar's sibling chevron, which opened nothing, until the
   part's review round; rule thirty-seven). The
-  caller supplies the height and the width limits. One definition, three
+  caller supplies the width limits and, as `height:`, the height, which reaches
+  the shared box the way the text field's does — an outside `.frame(height:)`
+  left the box one label high, out of line with the fixed-height text fields
+  beside it (`ChromeThemedTextFieldLayoutTests` measures both). One definition, three
   callers — the Log bar, the catalog tab's default language, the create sheet's
   base branch — the way the checkbox was lifted in part five (b).
 
@@ -1574,11 +1609,11 @@ layout enum (`LeetCodeBrowserLayout.queryFieldHeight`,
 `OpenProblemSheetLayout.inputHeight`, both 26, so nothing renders differently),
 the way `SearchLayout.queryFieldHeight` and `FilterBarLayout.controlHeight` size
 the other pinned-height fields. Rule thirty-seven pins the token's spellings per
-file by count over every source file — the declaration plus four frames, each a
-`ChromeMenuField` (`SettingsView.swift`, `NewPullRequestSheet.swift`,
+file by count over every source file — the declaration plus four `height:`
+arguments, each a `ChromeMenuField`'s (`SettingsView.swift`, `NewPullRequestSheet.swift`,
 `LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`) — and checks each
 count against that file's pinned menu field constructions. What a spelling
-frames is not something a token rule can see; that is checked by reading.
+sizes is not something a token rule can see; that is checked by reading.
 
 **Why the settings tab bar is not the dock's.** Both draw one pattern — an
 accent indicator under the selected label, `accentIndicator` on both, the rule
@@ -1821,7 +1856,7 @@ differed:
    the list is one focusable container, `onMoveCommand` moves the selection and
    the `ScrollViewReader` keeps it visible, and Return opens through a
    zero-sized shortcut button enabled only while the list holds focus (the
-   viewer's `returnOpensTheFocusedCell` idiom, since `onKeyPress` is macOS 14);
+   viewer's `returnOpensTheFocusedCell` idiom);
    single tap selects, double tap opens, the context menu offers Open, and the
    explicit Open button stays. Below the last row — where the rows' container is
    stretched to the viewport and a clear, hit-testable background sits behind
@@ -2318,7 +2353,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-four rules, each invisible to the compiler:
+The forty-five rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3162,6 +3197,14 @@ The forty-four rules, each invisible to the compiler:
     colour or a new sink" and "TerminalTheme.swift no longer names the role
     .accent — its four chrome colours are roles" — and green again once
     restored.
+45. **The shared field suppresses the platform's focus ring.** Inside
+    `ChromeThemedTextField`'s declaration (ordinary scanner), the inner
+    `TextField(` construction's modifier chain — up to the end of its enclosing
+    block — applies `focusEffectDisabled`. One modifier fixes every caller, so the
+    rule reads the declaration alone and sweeps no other file for bare
+    `TextField(` constructions. The ring compiles, and only a key window with real
+    first-responder focus shows it, which the headless app bundle cannot reliably
+    reach — so this rule and the live check are the only nets for it.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine

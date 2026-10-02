@@ -778,13 +778,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **behind** the tabs with `.background(alignment: .bottom)` — never as an
     overlay, which paints over the lower point of the selected tab's two-point
     accent strip (the first cut's defect; gating rule sixteen). A tab is
-    a `.plain` `Button` over a `VStack(spacing: 0)`: the title from
-    `BottomPanel.title` at `.callout`, one line, padded by
-    `dockTabLabelPaddingX`, `textPrimary` selected and `textSecondary` otherwise,
-    regular weight in both states (a weight change would widen the label and
-    shift every tab after it); under it an `accentIndicator`-high strip,
-    `accent` selected and `Color.clear` otherwise, so selection never moves the
-    title. The tab carries `.accessibilityLabel(panel.title)` and
+    a `.plain` `Button` whose label is the title from `BottomPanel.title` at
+    `.callout`, one line, padded by `dockTabLabelPaddingX`, `textPrimary`
+    selected and `textSecondary` otherwise, regular weight in both states (a
+    weight change would widen the label and shift every tab after it); the title
+    reserves `accentIndicator` of height below itself, and the strip of that
+    height is an `.overlay(alignment: .bottom)` on the title's box, `accent`
+    selected and `Color.clear` otherwise, so selection never moves the title.
+    **The padded title alone sizes a tab**: the strip takes its width from the
+    title and can never ask for width of its own. A strip stacked under the
+    title as a sibling was the cause of the tabs spreading across the row — a
+    shape accepts any width it is offered, so every tab was width-flexible and
+    the row shared its spare width among the six instead of giving it to the
+    `Spacer`. `DockTabRowLayoutTests` (app-layer bundle) hosts the row in a
+    1000-point window, at interface scale 1 and 1.8, and measures it off a
+    rendered bitmap: each selected strip as wide as its padded title (measured
+    apart, from the font), the six packed from the leading padding a tab gap
+    apart, the close glyph at the trailing padding, and the rest of the row
+    between the last tab and the close action. The tab carries `.accessibilityLabel(panel.title)` and
     `.accessibilityValue("Selected"/"Not selected")`, and the strip is
     `.accessibilityHidden(true)` — it *is* the selection, which the value
     speaks. The close action is an `xmark` at `.body` in `textSecondary`, named

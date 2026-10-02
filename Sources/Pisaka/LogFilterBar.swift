@@ -13,8 +13,8 @@ import PisakaCore
 /// structurally unable to reach the apply path, which lives only in user-intent
 /// binding setters (and `onSubmit`). **A change handler seeds from its
 /// parameter**, never from the view's own stored property: `filter` and
-/// `searchQuery` are plain `let`s of this view value, and macOS 13's only
-/// `onChange` overload runs the closure captured *before* the change, so off
+/// `searchQuery` are plain `let`s of this view value, and the single-parameter
+/// `onChange` overload this bar uses runs the closure captured *before* the change, so off
 /// `self` they still hold the *previous* value — re-reading them seeds the bar
 /// one publish behind forever and the next apply, assembled from the lagging
 /// draft, writes the stale state back. (`@State` and `@ObservedObject` reads are
@@ -135,10 +135,11 @@ struct LogFilterBar: View {
         // Re-seed if the model swaps in a different filter/search out from under us
         // (e.g. switching repositories resets to the default filter). Both handlers
         // seed from the closure's *new value*; `filter`/`searchQuery` still hold the
-        // previous one here. The single-parameter `onChange` spelling is deliberate:
-        // the deployment target is macOS 13, whose only overload hands the new value
-        // as that one parameter — the two-parameter form is macOS 14+ (and is what
-        // the iOS bar uses, which is why the two bars are spelled differently).
+        // previous one here. The single-parameter `onChange` spelling hands the new
+        // value as its one parameter. It was the only overload while the floor was
+        // macOS 13; the floor is now 14, where it is deprecated in favour of the
+        // two-parameter form the iOS bar uses, and migrating the macOS call sites is
+        // a separate change — which is why the two bars are still spelled differently.
         .onChange(of: filter) { newFilter in seed(from: newFilter) }
         .onChange(of: searchQuery) { newQuery in search = newQuery }
     }
@@ -220,9 +221,9 @@ struct LogFilterBar: View {
             selection: refSelectionBinding,
             currentTitle: currentRefLabel,
             horizontalPadding: FilterBarLayout.controlPaddingX,
-            spacing: FilterBarLayout.innerGap
+            spacing: FilterBarLayout.innerGap,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.branchMinWidth),
             maxWidth: metrics.scaled(FilterBarLayout.branchMaxWidth)
@@ -269,9 +270,9 @@ struct LogFilterBar: View {
             text: draftAuthorBinding,
             focus: $focusedField,
             focusedEquals: .author,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.authorMinWidth),
@@ -287,9 +288,9 @@ struct LogFilterBar: View {
             text: draftPathBinding,
             focus: $focusedField,
             focusedEquals: .path,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.pathMinWidth),
@@ -316,9 +317,9 @@ struct LogFilterBar: View {
             glyph: "magnifyingglass",
             focus: $focusedField,
             focusedEquals: .search,
-            horizontalPadding: FilterBarLayout.controlPaddingX
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
         )
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
         .frame(
             minWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
             idealWidth: metrics.scaled(FilterBarLayout.searchMinWidth),
@@ -345,7 +346,11 @@ struct LogFilterBar: View {
         enabled: Binding<Bool>,
         date: Binding<Date>
     ) -> some View {
-        ChromeControlBox(isFocused: false, horizontalPadding: FilterBarLayout.controlPaddingX) {
+        ChromeControlBox(
+            isFocused: false,
+            horizontalPadding: FilterBarLayout.controlPaddingX,
+            height: FilterBarLayout.controlHeight
+        ) {
             HStack(spacing: metrics.scaled(FilterBarLayout.innerGap)) {
                 ChromeCheckbox(state: enabled.wrappedValue ? .on : .off, label: label, title: label) {
                     enabled.wrappedValue.toggle()
@@ -376,7 +381,6 @@ struct LogFilterBar: View {
                 }
             }
         }
-        .frame(height: metrics.scaled(FilterBarLayout.controlHeight))
     }
 
     /// Whether `bound`'s calendar popover is open; closing it clears the state.

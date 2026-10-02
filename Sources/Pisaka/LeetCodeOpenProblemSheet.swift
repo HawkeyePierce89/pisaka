@@ -168,9 +168,9 @@ struct LeetCodeOpenProblemSheet: View {
                 text: $text,
                 focus: $focus,
                 focusedEquals: .input,
-                textStyle: .body
+                textStyle: .body,
+                height: OpenProblemSheetLayout.inputHeight
             )
-            .frame(height: metrics.scaled(OpenProblemSheetLayout.inputHeight))
             // Enter submits, but only when the text names something — the
             // same condition the Open button is under, so the two cannot
             // disagree.
@@ -190,9 +190,9 @@ struct LeetCodeOpenProblemSheet: View {
                     label: "Language",
                     options: LeetCodeSolutionFile.offerableLanguages.map { (value: $0, title: $0.displayName) },
                     selection: $settings.leetCodeLanguage,
-                    currentTitle: settings.leetCodeLanguage.displayName
+                    currentTitle: settings.leetCodeLanguage.displayName,
+                    height: ChromeGeometry.menuFieldHeight
                 )
-                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
                 .fixedSize(horizontal: true, vertical: false)
                 .disabled(model.isOpening)
             }

@@ -189,7 +189,7 @@ import XCTest
 ///   each caller's construction count by file, so a control changing shape
 ///   changes a count even inside a file already spelling both shapes. The
 ///   menu field's chevron lies inside its `Menu`'s label, so the arrow it
-///   draws is the control. `menuFieldHeight` frames menu fields alone, its
+///   draws is the control. `menuFieldHeight` sizes menu fields alone, its
 ///   spellings pinned per file by count.
 /// - **No gated file builds a platform table.** A `Table` draws its header,
 ///   grounds, alternation and selection box in the platform's colours; no gated
@@ -225,6 +225,12 @@ import XCTest
 ///   its two converters, names no system colour (its `.…Color` members pinned
 ///   by set equality), and it names its four chrome roles. A colour slipped in beside the arrays
 ///   compiles and draws, sheltered by a reason that does not cover it.
+/// - **The shared field suppresses the platform's focus ring.** The inner
+///   `TextField` of `ChromeThemedTextField` applies `focusEffectDisabled`, so the
+///   box's `accent` border is the only focus indication. Without it the platform
+///   draws its ring around the text line, over the box's border: it compiles,
+///   and only a key window with real first-responder focus shows it, which the
+///   headless app bundle cannot reliably reach.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -4392,12 +4398,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    /// The files that frame something at `ChromeGeometry.menuFieldHeight`, with
-    /// how many times each spells it. Every one of these is a `ChromeMenuField`
-    /// frame — the token is the shared menu field's height and nothing else's;
-    /// `ChromeGeometry.swift` is the declaration. The Log bar builds a menu field
-    /// too but frames it at its own `FilterBarLayout.controlHeight`, so it is not
-    /// a key.
+    /// The files that size something at `ChromeGeometry.menuFieldHeight`, with
+    /// how many times each spells it. Every one of these is a `ChromeMenuField`'s
+    /// `height:` argument — the token is the shared menu field's height and
+    /// nothing else's; `ChromeGeometry.swift` is the declaration. The Log bar
+    /// builds a menu field too but sizes it at its own
+    /// `FilterBarLayout.controlHeight`, so it is not a key.
     private static let menuFieldHeightSpellings: [String: Int] = [
         "ChromeGeometry.swift": 1,
         "SettingsView.swift": 1,
@@ -4433,7 +4439,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for (file, count) in Self.menuFieldHeightSpellings where file != "ChromeGeometry.swift" {
             XCTAssertEqual(
                 count, menuFieldCounts[file],
-                "\(file) frames \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
+                "\(file) sizes \(count) control(s) at menuFieldHeight but constructs \(menuFieldCounts[file] ?? 0) menu field(s)"
             )
         }
     }
@@ -5191,6 +5197,38 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return count
     }
 
+    // MARK: - Rule forty-five: the shared field suppresses the platform's focus ring
+
+    /// Rule forty-five. Inside `ChromeThemedTextField`'s declaration, the inner
+    /// `TextField(` construction's modifier chain — from the construction to the
+    /// end of its enclosing block — applies `.focusEffectDisabled()` with an
+    /// empty argument list, so `focusEffectDisabled(false)` (which keeps the
+    /// ring) does not satisfy it. Every caller
+    /// of the shared field is fixed by this one modifier, so the rule reads the
+    /// declaration alone and sweeps no other file.
+    ///
+    /// The headless app bundle cannot pin this half: the platform draws the ring
+    /// only on a key window holding real first-responder focus, which
+    /// `ChromeThemedTextFieldLayoutTests` does not reliably reach.
+    func testTheSharedFieldSuppressesThePlatformsFocusRing() throws {
+        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(try Self.source(named: "ChromeControls.swift"))
+        )
+        let field = try XCTUnwrap(
+            Self.matchedBody(after: "struct ChromeThemedTextField", in: controls),
+            "ChromeThemedTextField's declaration is gone or renamed — re-point this rule"
+        )
+        let construction = try XCTUnwrap(
+            field.range(of: "TextField("),
+            "ChromeThemedTextField no longer constructs a TextField — re-point this rule"
+        )
+        let chain = field[construction.lowerBound...].prefix { $0 != "}" }.filter { !$0.isWhitespace }
+        XCTAssertTrue(
+            chain.contains(".focusEffectDisabled()"),
+            "ChromeThemedTextField's TextField no longer applies focusEffectDisabled — the platform's ring is back over the box"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5285,6 +5323,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
+        45: "forty-five",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

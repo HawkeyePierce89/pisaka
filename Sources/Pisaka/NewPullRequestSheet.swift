@@ -110,9 +110,9 @@ struct NewPullRequestSheet: View {
                     label: "Base",
                     options: baseOptions,
                     selection: $base,
-                    currentTitle: base.isEmpty ? Self.noBaseTitle : base
+                    currentTitle: base.isEmpty ? Self.noBaseTitle : base,
+                    height: ChromeGeometry.menuFieldHeight
                 )
-                .frame(height: metrics.scaled(ChromeGeometry.menuFieldHeight))
                 .frame(maxWidth: metrics.scaled(280))
                 .onChange(of: base) { model.setCreateBase($0) }
 

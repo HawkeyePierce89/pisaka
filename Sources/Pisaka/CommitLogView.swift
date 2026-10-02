@@ -94,7 +94,7 @@ struct CommitLogView: View {
         //
         // The change handler refreshes the root its *parameter* carries, never
         // `self.projectRoot`: `projectRoot` is a plain stored property of this view
-        // value, and the macOS 13 `onChange(of:perform:)` overload runs the closure
+        // value, and the single-parameter `onChange(of:perform:)` overload runs the closure
         // captured before the change, so off `self` it is still the folder the user
         // just left. Refreshing that root is not a harmless one-behind display here —
         // `prepareForRefresh` *bumps* the request generation, so the stale request

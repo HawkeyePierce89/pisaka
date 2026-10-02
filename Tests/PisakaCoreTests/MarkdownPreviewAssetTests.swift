@@ -220,8 +220,9 @@ final class MarkdownPreviewAssetTests: XCTestCase {
     /// whole destination is resolved against the document's directory and lands
     /// *inside* the project root — so it resolves, the navigation rule answers
     /// `openInEditor`, and clicking an external link opens a missing file
-    /// instead of the browser. macOS 13, the deployment target, refuses every
-    /// non-ASCII character here, which makes an ordinary link the common case.
+    /// instead of the browser. macOS 13 — the floor when this was found —
+    /// refuses every non-ASCII character here, which made an ordinary link the
+    /// common case; the rule does not depend on which parser answers.
     func testAnUnparseableSchemeIsStillASchemeAndResolvesToNothing() {
         for target in [
             "https://ru.wikipedia.org/wiki/Привет",

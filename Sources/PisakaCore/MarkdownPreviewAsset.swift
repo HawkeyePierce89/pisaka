@@ -180,8 +180,8 @@ public enum MarkdownPreviewAsset {
     /// whole**, and a `nil` there is indistinguishable from a scheme-less
     /// target, so an unparseable external destination falls through to the
     /// relative-path branch below and comes back out as a project file that
-    /// does not exist. That is not hypothetical on the deployment target:
-    /// macOS 13's parser refuses a space and every non-ASCII character, so
+    /// does not exist. That was not hypothetical while the floor was macOS 13,
+    /// whose parser refuses a space and every non-ASCII character, so
     /// `https://ru.wikipedia.org/wiki/Привет` — an ordinary link — resolved to
     /// `<document directory>/https:/ru.wikipedia.org/…`, which is inside the
     /// root, and clicking it opened a missing file in the editor instead of

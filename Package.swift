@@ -4,7 +4,7 @@ import PackageDescription
 // The Pisaka *app* (the `Pisaka` executable, AppKit/SwiftUI/UIKit views, the
 // syntax-highlighting and terminal dependencies, and — for iOS — libgit2) is
 // built by the XcodeGen-generated Xcode project (`project.yml`), which targets
-// both macOS 13 and iOS 17. `swift run Pisaka` is gone.
+// both macOS 14 and iOS 17. `swift run Pisaka` is gone.
 //
 // This SwiftPM manifest now builds *only* the platform-agnostic `PisakaCore`
 // library and its test suite, so `swift test` stays the fast, dependency-free
@@ -20,7 +20,7 @@ import PackageDescription
 let package = Package(
     name: "Pisaka",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v14),
         .iOS(.v17)
     ],
     products: [

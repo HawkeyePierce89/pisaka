@@ -100,8 +100,8 @@ struct DatabaseConsoleView: View {
             Text(console.pendingConfirmation?.prompt ?? "")
         }
         // The model asks and answers; this only mirrors the ask onto the flag
-        // SwiftUI presents from. The macOS 13 `onChange(of:perform:)` overload,
-        // the repository's idiom.
+        // SwiftUI presents from. The single-parameter `onChange(of:perform:)`
+        // overload, the repository's idiom on macOS.
         .onChange(of: console.pendingConfirmation) { pending in isConfirming = pending != nil }
         // And once on the way in, because `onChange` fires on a *change* and a
         // rebuild is not one. `DatabaseViewerHost` keys the viewer on the tab's

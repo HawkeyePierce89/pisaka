@@ -78,6 +78,14 @@ struct DockTabRow: View {
 
     /// One tab: its title above an accent strip as wide as the tab.
     ///
+    /// **The padded title alone sizes the tab.** The strip is an overlay on the
+    /// title's box, so it takes its width from the title and can never ask for
+    /// width of its own: a shape stacked beside the title accepts any width it
+    /// is offered, which made every tab width-flexible and let the row share
+    /// its spare width among the six instead of giving it to the `Spacer`
+    /// (`DockTabRowLayoutTests` measures the packing). The title reserves the
+    /// strip's height below itself, so the strip sits under it, not over it.
+    ///
     /// The strip is drawn in both states — `Color.clear` when not selected — so
     /// a tab's height and its title's position never change with selection. It
     /// is hidden from accessibility because it *is* the selection, which the
@@ -87,19 +95,20 @@ struct DockTabRow: View {
         return Button {
             onSelect(panel)
         } label: {
-            VStack(spacing: 0) {
-                Text(panel.title)
-                    .font(metrics.scaledFont(.callout))
-                    .lineLimit(1)
-                    .foregroundStyle(theme.color(isSelected ? .textPrimary : .textSecondary))
-                    .padding(.horizontal, metrics.scaled(ChromeGeometry.dockTabLabelPaddingX))
-                    .frame(maxHeight: .infinity)
-                Rectangle()
-                    .fill(isSelected ? theme.color(.accent) : Color.clear)
-                    .frame(height: metrics.scaled(ChromeGeometry.accentIndicator))
-                    .accessibilityHidden(true)
-            }
-            .contentShape(Rectangle())
+            Text(panel.title)
+                .font(metrics.scaledFont(.callout))
+                .lineLimit(1)
+                .foregroundStyle(theme.color(isSelected ? .textPrimary : .textSecondary))
+                .padding(.horizontal, metrics.scaled(ChromeGeometry.dockTabLabelPaddingX))
+                .frame(maxHeight: .infinity)
+                .padding(.bottom, metrics.scaled(ChromeGeometry.accentIndicator))
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(isSelected ? theme.color(.accent) : Color.clear)
+                        .frame(height: metrics.scaled(ChromeGeometry.accentIndicator))
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(panel.title)
