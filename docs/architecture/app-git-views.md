@@ -520,8 +520,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     17 points of the pane, and both a `GeometryReader` around the scroll view
     and `containerRelativeFrame` inside it still report the whole pane, so every
     diff overflowed by the scroller's width and scrolled horizontally. A case in
-    the same suite sets that preference through the defaults key `NSScroller`
-    reads and holds the content to the clip view's width.
+    the same suite forces `.legacy` onto the hosted scroll view itself — no
+    preference is read or written, so it holds on any machine — and holds the
+    content to the clip view's width.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle

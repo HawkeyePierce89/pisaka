@@ -32,7 +32,9 @@ import PisakaCore
 /// same pipeline (the cached bitmap carries a colour-space conversion the
 /// palette's raw values do not). The context row directly below them must carry
 /// neither. The overflow case scrolls the hosted `NSScrollView` to its far right
-/// before rendering.
+/// before rendering, and the legacy-scroller case sets that scroll view's
+/// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
+/// setting or touches a preference.
 ///
 /// **Live updates.** The content's width is measured state, so the cases that
 /// change the hosted diff in place — a file switch, a placeholder in between,
@@ -89,23 +91,16 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
     /// With legacy scroll bars ("Show scroll bars: Always") the vertical
     /// scroller takes part of the pane, so the content is as wide as the clip
     /// view, not as the pane: a diff whose lines all fit still does not scroll
-    /// horizontally. The preference is set the way the system sets it, through
-    /// the defaults key `NSScroller` reads, because a style forced onto the
-    /// hosted scroll view from outside is not something SwiftUI lays out for.
-    /// Verified by mutation: measured from the pane's frame — or from SwiftUI's
-    /// `containerRelativeFrame`, which reports the same 600 points — the
-    /// content is 600 points wide in a 583-point clip view.
+    /// horizontally. The style is forced onto the hosted scroll view itself and
+    /// re-applied after every settle, so the case depends on neither the
+    /// machine's scroll-bar setting nor its input devices, and touches no
+    /// preference. Verified by mutation: measured from the pane's frame — or
+    /// from SwiftUI's `containerRelativeFrame`, which reports the same 600
+    /// points — the content is wider than the clip view.
     func testShortChangedLinesDoNotScrollWithLegacyScrollers() throws {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: "AppleShowScrollBars")
-        defaults.set("Always", forKey: "AppleShowScrollBars")
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        addTeardownBlock { @MainActor in
-            defaults.set(previous, forKey: "AppleShowScrollBars")
-            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        }
         let render = try DiffRender(lines: Self.tall, scrollToTrailingEdge: false)
         addTeardownBlock { @MainActor in render.window.close() }
+        try render.forceLegacyScrollers()
         let visible = try XCTUnwrap(render.visibleWidth, "no hosted scroll view")
         XCTAssertLessThan(visible, render.width - 1, "the scrollers are not legacy — the case is not exercised")
         let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
@@ -249,6 +244,23 @@ private final class DiffRender {
     func update(file: StaticString = #filePath, line: UInt = #line, _ change: (DiffInput) -> Void) throws {
         change(input)
         render.settle(file: file, line: line)
+        try render.capture()
+    }
+
+    /// Sets the hosted scroll view's scroller style to `.legacy` and lets the
+    /// layout settle, so the clip view shrinks by the vertical scroller's width
+    /// and `VisibleWidthProbe` reports it. Should the hosting framework's own
+    /// update pass reset the style, it is applied again and settled once more;
+    /// the case's guard on the visible width catches a style that still did not
+    /// hold.
+    func forceLegacyScrollers() throws {
+        guard let scroll = Self.scrollView(in: render.host) else { return }
+        scroll.scrollerStyle = .legacy
+        render.settle()
+        if scroll.scrollerStyle != .legacy {
+            scroll.scrollerStyle = .legacy
+            render.settle()
+        }
         try render.capture()
     }
 
