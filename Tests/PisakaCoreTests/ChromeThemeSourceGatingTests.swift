@@ -250,6 +250,11 @@ import XCTest
 ///   template intent, the fitted aspect and the hidden-from-accessibility rule
 ///   are stated once. `AppIcon` is not a glyph and stays exempt. A glyph loaded
 ///   inline compiles and draws, untinted by the theme or announced by its name.
+///   The rule relies on asset symbols staying off — a generated accessor is a
+///   load it cannot see — which `DesignGlyphAssetTests` pins in `project.yml`.
+///   Its horizon is the argument list: a glyph name passed through a local
+///   variable, or interpolated into a string, passes. That is the local-variable
+///   form, named rather than fixed, because following a value needs data flow.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -5443,6 +5448,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///
     /// The helper must itself spell both loads through `assetName`, so a
     /// renamed property cannot empty the rule into a vacuous pass.
+    ///
+    /// The rule relies on asset symbols staying off, which
+    /// `DesignGlyphAssetTests` pins: a generated accessor loads a glyph with no
+    /// call this matcher reads. **Known gap, named rather than fixed.** The
+    /// matcher reads argument lists only, so the local-variable form — a glyph
+    /// name bound to a `let` and passed on, or interpolated into a string —
+    /// passes.
     func testDesignGlyphsAreDrawnOnlyThroughTheHelper() throws {
         var offenders: [String] = []
         var helperLoads = 0

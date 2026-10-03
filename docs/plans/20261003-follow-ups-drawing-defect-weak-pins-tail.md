@@ -327,19 +327,19 @@ Dependencies: none new.
 - Modify: `Tests/PisakaCoreTests/DesignGlyphAssetTests.swift`, `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] **The asset-symbols pin.** `DesignGlyphAssetTests` gains a test that reads `project.yml` through `#filePath`, comment-stripped through `activeYAMLLines`. It asserts:
+- [x] **The asset-symbols pin.** `DesignGlyphAssetTests` gains a test that reads `project.yml` through `#filePath`, comment-stripped through `activeYAMLLines`. It asserts:
   - exactly one active line equals `ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO`;
   - no active line sets `ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS` or `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS` to anything else.
 
   The failure message names the generated-accessor form of glyph loading, which the gating rule cannot see.
-- [ ] Add that pin to the suite header's bullet list.
-- [ ] **The rule's entry.** Update the glyph-load rule's entry in `ChromeThemeSourceGatingTests`' header, and item 46 in `core-theme.md`, with two points:
+- [x] Add that pin to the suite header's bullet list.
+- [x] **The rule's entry.** Update the glyph-load rule's entry in `ChromeThemeSourceGatingTests`' header, and item 46 in `core-theme.md`, with two points:
   - **The dependency.** The rule relies on asset symbols staying off, which `DesignGlyphAssetTests` pins.
   - **The horizon.** The matcher reads argument lists only, so a glyph name passed through a local variable, or interpolated into a string, passes. Call this "the local-variable form", as other entries do.
 
   The matcher is not widened, and the rule count stays forty-six.
-- [ ] Check every place that restates the rule's wording, and update it there.
-- [ ] Run the gates. They must pass before Task 5.
+- [x] Check every place that restates the rule's wording, and update it there.
+- [x] Run the gates. They must pass before Task 5.
 
 ### Task 5: Main window chrome: the title label's colour in both appearances, and its gap
 

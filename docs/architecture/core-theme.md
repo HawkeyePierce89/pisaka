@@ -290,8 +290,9 @@ two new geometry tokens) and each with its readers pinned by a gating
     `DesignGlyphTests` pins the names and sizes; `DesignGlyphAssetTests` holds
     the case set equal to the catalog's imagesets by set equality, each PDF to
     the export manifest's sha256 prefix, each imageset to the template intent
-    and preserved vector data, and each `nativeSize` to the size
-    `Resources/DesignGlyphs/VENDORED.md` records. The one helper that draws them
+    and preserved vector data, each `nativeSize` to the size
+    `Resources/DesignGlyphs/VENDORED.md` records, and `project.yml`'s asset
+    symbols to off, which rule forty-six relies on. The one helper that draws them
     is `DesignGlyphImage.swift`, under "The design's glyphs" below.
   - `FileGlyph.swift` — which design glyph stands for a file or a folder on the
     macOS chrome. `forFile(named:)` has three answers: `database` when
@@ -3471,7 +3472,16 @@ The forty-six rules, each invisible to the compiler:
     every bypass — the raw value, a literal through each spelling, the resource
     loaders — requiring each to be flagged and the symbol loads to pass. The helper must itself load by `assetName` exactly twice, once per
     half, so the rule cannot read nothing. A glyph loaded inline compiles and
-    draws — untinted by the theme, or announced by its asset name.
+    draws — untinted by the theme, or announced by its asset name. The rule
+    **relies on asset symbols staying off**: a generated accessor is a glyph
+    load with no call the matcher reads, so `DesignGlyphAssetTests` pins
+    `ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO` in `project.yml` — once,
+    and no active line setting it or
+    `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS` to anything
+    else. **Its horizon is the argument list**: a glyph name passed through a
+    local variable, or interpolated into a string, passes. That is the
+    local-variable form, named rather than fixed — following a value through a
+    `let` needs data flow — and the matcher is deliberately not widened.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
