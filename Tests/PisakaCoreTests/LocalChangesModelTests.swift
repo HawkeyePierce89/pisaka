@@ -126,15 +126,36 @@ final class LocalChangesModelTests: XCTestCase {
     }
 
     /// In-memory `FileServicing`: working-copy text keyed by absolute path.
+    ///
+    /// The inline diff reads it off the main thread, so a test configures it
+    /// fully before a load begins, and what `read` records is lock-protected.
     private final class StubFiles: FileServicing {
         var contentsByPath: [String: String] = [:]
         /// Symlink targets keyed by absolute path (the git-blob target string).
         var symlinkTargetsByPath: [String: String] = [:]
+        /// Working-copy stamps keyed by absolute path; a missing entry is the
+        /// protocol's "unknown".
+        var stampsByPath: [String: FileStamp] = [:]
+
+        private let lock = NSLock()
+        private var recordedReads: [(path: String, onMainThread: Bool)] = []
+
+        /// Every `read`, in order, with whether it ran on the main thread.
+        var reads: [(path: String, onMainThread: Bool)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedReads
+        }
 
         func read(url: URL) throws -> String {
+            let onMainThread = Thread.isMainThread
+            lock.lock()
+            recordedReads.append((url.path, onMainThread))
+            lock.unlock()
             if let text = contentsByPath[url.path] { return text }
             throw CocoaError(.fileReadNoSuchFile)
         }
+        func fileStamp(at url: URL) -> FileStamp? { stampsByPath[url.path] }
         func write(_ text: String, to url: URL) throws {}
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? {
@@ -1868,6 +1889,90 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertNil(model.selectionDiff)
         // Refused before the hop: the stale load never reads HEAD at all.
         XCTAssertEqual(git.headReads, [])
+    }
+
+    // MARK: - inline diff: rebuild only when the selected file changed
+
+    private let stampA = FileStamp(byteCount: 4, modificationDate: Date(timeIntervalSince1970: 1_000))
+    private let stampB = FileStamp(byteCount: 9, modificationDate: Date(timeIntervalSince1970: 2_000))
+
+    /// A refreshed, selected, loaded `a.swift` whose HEAD object and stamp are
+    /// both known, ready for a second refresh + load.
+    private func loadedModifiedFile() async -> (LocalChangesModel, StubGit, StubFiles) {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified, headObject: "h1")]
+        git.headByPath["a.swift"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.swift"] = "new\n"
+        files.stampsByPath["/repo/a.swift"] = stampA
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(git.files[0])
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "new\n"))
+        return (model, git, files)
+    }
+
+    func testAnUnchangedRefreshDoesNoInlineDiffWork() async {
+        let (model, git, files) = await loadedModifiedFile()
+        let published = model.selectionDiff
+        let headReads = git.headReads.count
+        let workingReads = files.reads.count
+
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(git.headReads.count, headReads)
+        XCTAssertEqual(files.reads.count, workingReads)
+        XCTAssertEqual(model.selectionDiff, published)
+    }
+
+    func testAnEditToTheSelectedFileRefreshesItsDiff() async {
+        let (model, _, files) = await loadedModifiedFile()
+
+        files.contentsByPath["/repo/a.swift"] = "newer\n"
+        files.stampsByPath["/repo/a.swift"] = stampB
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "newer\n"))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
+    }
+
+    func testAHeadOnlyChangeRefreshesTheDiff() async {
+        // A partial commit of the selected file: HEAD moves, the status, path
+        // and working copy (stamp included) do not.
+        let (model, git, _) = await loadedModifiedFile()
+
+        git.files = [ChangedFile(path: "a.swift", status: .modified, headObject: "h2")]
+        git.headByPath["a.swift"] = "committed\n"
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "committed\n", new: "new\n"))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.headObject, "h2")
+    }
+
+    func testAnUnknownStampAlwaysRebuilds() async {
+        let (model, git, files) = await loadedModifiedFile()
+        files.stampsByPath["/repo/a.swift"] = nil
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        let headReads = git.headReads.count
+        let workingReads = files.reads.count
+
+        // Nothing changed, but the stamp is unknown: every load reads again.
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(git.headReads.count, headReads + 1)
+        XCTAssertEqual(files.reads.count, workingReads + 1)
+    }
+
+    func testTheWorkingCopyReadRunsOffTheMainThread() async {
+        let (_, _, files) = await loadedModifiedFile()
+        let diffReads = files.reads.filter { $0.path == "/repo/a.swift" }
+        XCTAssertEqual(diffReads.count, 1)
+        XCTAssertEqual(diffReads.first?.onMainThread, false)
     }
 
     func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {

@@ -671,7 +671,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
     hop** on appear, on every selection change and on every `listRevision`
     advance (a refresh that left the list equal — an already-modified file
-    edited again — still re-reads). The diff is shown only while
+    edited again — still re-reads). **Whether a trigger does any work is the
+    model's decision, not the view's**: the view fires on every one of those
+    triggers, and `loadSelectionDiff(token:)` compares the selected file's
+    fingerprint (status, path, old path, `HEAD` object, working-copy stamp)
+    with the published diff's and returns without reading when nothing
+    changed; when something did, the working-copy read and the line diff run
+    off the main actor and only the publish lands on it (`core-git-models.md`).
+    The diff is shown only while
     `selectionDiff.file == selected`, "Loading…" otherwise, and an empty state
     with nothing selected. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never

@@ -21,7 +21,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 .M N... 100644 100644 100644 abc123 abc123 file.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "file.txt", status: .modified)]
+            [ChangedFile(path: "file.txt", status: .modified, headObject: "abc123")]
         )
     }
 
@@ -29,7 +29,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 M. N... 100644 100644 100644 abc123 def456 staged.swift"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "staged.swift", status: .modified)]
+            [ChangedFile(path: "staged.swift", status: .modified, headObject: "abc123")]
         )
     }
 
@@ -37,7 +37,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 A. N... 000000 100644 100644 0000000 def456 newfile.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "newfile.txt", status: .added)]
+            [ChangedFile(path: "newfile.txt", status: .added, headObject: "0000000")]
         )
     }
 
@@ -45,7 +45,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 D. N... 100644 000000 000000 ghi789 0000000 gone.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "gone.txt", status: .deleted)]
+            [ChangedFile(path: "gone.txt", status: .deleted, headObject: "ghi789")]
         )
     }
 
@@ -53,7 +53,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 .D N... 100644 100644 000000 ghi789 ghi789 vanished.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "vanished.txt", status: .deleted)]
+            [ChangedFile(path: "vanished.txt", status: .deleted, headObject: "ghi789")]
         )
     }
 
@@ -63,7 +63,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "2 R. N... 100644 100644 100644 jkl012 jkl012 R100 new.txt\told.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt")]
+            [ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt", headObject: "jkl012")]
         )
     }
 
@@ -76,7 +76,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "2 C. N... 100644 100644 100644 jkl012 jkl012 C100 copy.txt\tsource.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "copy.txt", status: .added)]
+            [ChangedFile(path: "copy.txt", status: .added, headObject: "jkl012")]
         )
     }
 
@@ -115,7 +115,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 .M N... 100644 100644 100644 abc abc my file name.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "my file name.txt", status: .modified)]
+            [ChangedFile(path: "my file name.txt", status: .modified, headObject: "abc")]
         )
     }
 
@@ -123,7 +123,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "2 R. N... 100644 100644 100644 a a R090 new name.txt\told name.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "new name.txt", status: .renamed, oldPath: "old name.txt")]
+            [ChangedFile(path: "new name.txt", status: .renamed, oldPath: "old name.txt", headObject: "a")]
         )
     }
 
@@ -139,7 +139,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 .M N... 100644 100644 100644 abc abc файл.txt"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "файл.txt", status: .modified)]
+            [ChangedFile(path: "файл.txt", status: .modified, headObject: "abc")]
         )
     }
 
@@ -147,7 +147,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "1 .M N... 100644 100644 100644 abc abc Sources/PisakaCore/file.swift"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "Sources/PisakaCore/file.swift", status: .modified)]
+            [ChangedFile(path: "Sources/PisakaCore/file.swift", status: .modified, headObject: "abc")]
         )
     }
 
@@ -165,10 +165,10 @@ final class GitStatusParserTests: XCTestCase {
         XCTAssertEqual(
             GitStatusParser.parse(output),
             [
-                ChangedFile(path: "Sources/app.swift", status: .modified),
-                ChangedFile(path: "README.md", status: .added),
-                ChangedFile(path: "docs/new.md", status: .renamed, oldPath: "docs/old.md"),
-                ChangedFile(path: "obsolete.txt", status: .deleted),
+                ChangedFile(path: "Sources/app.swift", status: .modified, headObject: "a"),
+                ChangedFile(path: "README.md", status: .added, headObject: "0"),
+                ChangedFile(path: "docs/new.md", status: .renamed, oldPath: "docs/old.md", headObject: "c"),
+                ChangedFile(path: "obsolete.txt", status: .deleted, headObject: "d"),
                 ChangedFile(path: "scratch.tmp", status: .untracked),
             ]
         )
@@ -178,7 +178,7 @@ final class GitStatusParserTests: XCTestCase {
         let output = "\n1 .M N... 100644 100644 100644 a a file.txt\n\n"
         XCTAssertEqual(
             GitStatusParser.parse(output),
-            [ChangedFile(path: "file.txt", status: .modified)]
+            [ChangedFile(path: "file.txt", status: .modified, headObject: "a")]
         )
     }
 
@@ -210,7 +210,7 @@ final class GitStatusParserTests: XCTestCase {
         XCTAssertEqual(
             GitStatusParser.parse(output),
             [
-                ChangedFile(path: "Sources/app.swift", status: .modified),
+                ChangedFile(path: "Sources/app.swift", status: .modified, headObject: "a"),
                 ChangedFile(path: "merge/target.swift", status: .conflicted),
                 ChangedFile(path: "scratch.tmp", status: .untracked),
             ]
@@ -221,6 +221,30 @@ final class GitStatusParserTests: XCTestCase {
         // Fewer than the 10 fixed fields before the path: drop the line, don't crash.
         let output = "u UU N... 100644 100644"
         XCTAssertEqual(GitStatusParser.parse(output), [])
+    }
+
+    // MARK: - headObject (`hH`)
+
+    func testOrdinaryRecordCarriesTheHeadObject() {
+        let output = "1 .M N... 100644 100644 100644 9f2c1e0 4b7d2a1 file.txt"
+        XCTAssertEqual(GitStatusParser.parse(output).first?.headObject, "9f2c1e0")
+    }
+
+    func testRenameRecordCarriesTheHeadObject() {
+        let output = "2 R. N... 100644 100644 100644 5e8a3b2 5e8a3b2 R100 new.txt\told.txt"
+        XCTAssertEqual(GitStatusParser.parse(output).first?.headObject, "5e8a3b2")
+    }
+
+    func testUntrackedRecordHasNoHeadObject() {
+        let parsed = GitStatusParser.parse("? untracked.txt")
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertNil(parsed.first?.headObject)
+    }
+
+    func testUnmergedRecordHasNoHeadObject() {
+        let parsed = GitStatusParser.parse("u UU N... 100644 100644 100644 100644 h1 h2 h3 conflicted.txt")
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertNil(parsed.first?.headObject)
     }
 
     func testChangedFileIdentityIsPath() {

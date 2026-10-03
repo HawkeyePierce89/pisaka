@@ -126,10 +126,10 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/GitStatusParserTests.swift`, `Tests/PisakaCoreTests/LocalChangesModelTests.swift`
 - Modify: `docs/architecture/core-git.md`, `docs/architecture/core-git-models.md`, `docs/architecture/app-git-views.md`, `CLAUDE.md` (index name only)
 
-- [ ] `ChangedFile` gains `public let headObject: String?`, defaulted to `nil` in `init` so every existing construction compiles unchanged, iOS included.
+- [x] `ChangedFile` gains `public let headObject: String?`, defaulted to `nil` in `init` so every existing construction compiles unchanged, iOS included.
   - `GitStatusParser` fills it from the `hH` field of ordinary (`1`) and rename (`2`) records. Untracked (`?`) and unmerged (`u`) records leave it `nil`.
   - Add parser tests for both record kinds and both `nil` kinds. Document the field in `core-git.md`.
-- [ ] New `LocalChangesInlineDiff` (Core, pure) holds `Fingerprint: Equatable`, built from the file's status, path, old path and head object, plus the working copy's `FileStamp?`.
+- [x] New `LocalChangesInlineDiff` (Core, pure) holds `Fingerprint: Equatable`, built from the file's status, path, old path and head object, plus the working copy's `FileStamp?`.
   - `static func needsRebuild(published: Fingerprint?, current: Fingerprint) -> Bool` answers `true` in any of these cases:
     - nothing is published;
     - the fingerprints differ;
@@ -138,16 +138,16 @@ Facts established while planning, which the tasks rely on:
   - A `nil` means unknown, and unknown means re-read.
   - It answers `false` only for an equal fingerprint whose stamps are known.
   - Tests cover each branch, including added, untracked and deleted files, which have one side only.
-- [ ] `LocalChangesModel.loadSelectionDiff(token:)`:
+- [x] `LocalChangesModel.loadSelectionDiff(token:)`:
   1. Keeps the existing synchronous token capture.
   2. Computes the selected file's current fingerprint. `fileStamp` is a stat call and runs on the main actor.
   3. Returns without any read when `needsRebuild` is `false` and the published diff is for this file.
   4. Otherwise awaits the HEAD side. The git subprocess is already off the main actor.
   5. Runs the working-copy read and `LineDiff` inside a private serial-queue `offMain { }` block, through a `nonisolated static` helper, in `ProjectSearchModel`'s mould.
   6. Re-checks the token and publishes only on the main actor. `SelectionDiff` carries its fingerprint, and a superseded load still discards its result.
-- [ ] `rows(for:)`, which the diff window uses on double click, keeps its current behaviour.
-- [ ] `LocalChangesView` keeps reacting to `listRevision` and `selected` as today. The skip decision is the model's.
-- [ ] Tests (Core):
+- [x] `rows(for:)`, which the diff window uses on double click, keeps its current behaviour.
+- [x] `LocalChangesView` keeps reacting to `listRevision` and `selected` as today. The skip decision is the model's.
+- [x] Tests (Core):
   - **Unchanged refresh does no work.** Refresh, load, then refresh and load again with the same stub status, the same head object and the same stamp. No HEAD read and no working-copy read happen on the second load, counted on the stubs, and the published value is unchanged.
   - **An edit to the selected file refreshes its diff.** Refresh and load, then change the stub's content and stamp, refresh, and load. The new rows are published. This is a new test; none exists today.
   - **A HEAD-only change refreshes.** A new head object with the same status and stamp rebuilds.
@@ -155,11 +155,11 @@ Facts established while planning, which the tasks rely on:
   - **The working-copy read runs off the main thread.** The stub records `Thread.isMainThread` under a lock, and the test asserts `false`.
   - **The existing superseded-load and pre-hop token tests stay green,** adapted to the new stubs.
   - Stubs that a `nonisolated` path reads must be fully configured before the load begins, and any recording they do is lock-protected.
-- [ ] Docs:
+- [x] Docs:
   - In `core-git-models.md`, document the ordering: token, then fingerprint, then skip-or-load, then off-main read and diff, then token re-check, then main-actor publish. Also the "unchanged" rule and why the head object is part of it (a partial commit of the selected file).
   - Document the same in `app-git-views.md`'s `LocalChangesView` entry.
   - Add `LocalChangesInlineDiff.swift` to `CLAUDE.md`'s `core-git-models.md` index line.
-- [ ] Run the gates. They must pass before Task 3.
+- [x] Run the gates. They must pass before Task 3.
 
 ### Task 3: Refuse binary and oversized files inline
 

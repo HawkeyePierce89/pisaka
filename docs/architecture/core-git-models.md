@@ -270,18 +270,56 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hands the app's revert path as its context file, so
     `filesToRevert(contextFile:)` widens a checked target to the whole checked
     set exactly as a checked row's context-menu Revert does. `selectionDiff`
-    (`SelectionDiff`: the rows *and* the `ChangedFile` they were computed for)
-    is the inline diff beside the list, loaded by `loadSelectionDiff(token:)`
-    under a token from `beginSelectionDiffLoad()`, which the view calls
-    **synchronously before the `Task` hop**; a load whose token is superseded
-    before it starts does nothing, and one superseded while its `git show` is
-    in flight discards its rows, so an older selection's diff never publishes
+    (`SelectionDiff`: the rows, the `ChangedFile` they were computed for and
+    the `LocalChangesInlineDiff.Fingerprint` they were computed from) is the
+    inline diff beside the list, loaded by `loadSelectionDiff(token:)` under a
+    token from `beginSelectionDiffLoad()`, which the view calls
+    **synchronously before the `Task` hop**. A load runs in one fixed order:
+    **token, then fingerprint, then skip-or-load, then the off-main read and
+    diff, then the token re-check, then the main-actor publish.** The
+    fingerprint is taken on the main actor (the working-copy stamp is one stat
+    call); when `LocalChangesInlineDiff.needsRebuild` answers `false` the load
+    returns having read nothing, so the refresh after saving *another* file
+    costs the selected file no `git show`, no read and no diff. Otherwise the
+    `HEAD` side is awaited (the git subprocess is already off the main actor),
+    and the working-copy read plus `LineDiff` run inside an `offMain { }` block
+    on the model's private serial queue through the `nonisolated static`
+    `diffRows`, in `ProjectSearchModel`'s mould. A load whose token is
+    superseded before it starts does nothing, and one superseded at either
+    `await` discards its rows, so an older selection's diff never publishes
     over a newer one's (the generation-token invariant). With nothing selected
-    the load publishes `nil`. `listRevision` advances on every successful
+    the load publishes `nil`. The fingerprint precedes the reads on purpose: a
+    write landing between the stamp and the read publishes newer content under
+    the older stamp, which the next load sees differ — one extra rebuild, never
+    a stale diff left standing. `rows(for:)`, which the diff window reads on
+    double click, is untouched by all of this: it reads both sides every time. `listRevision` advances on every successful
     refresh publish — not on a failed one — so the view can re-read the diff
     after a refresh whose list came out *equal* (an already-modified file
     edited again), which fires no change of its own. Tests stage the race with
     a gated `headContents` read, resolved out of order.
+  - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**,
+    pure. `Fingerprint` is everything a file's inline diff is computed from as
+    far as it can be known without reading a side: the repository root, the
+    file's status, path, old path and `headObject`, plus the working copy's
+    `FileStamp?`. `needsRebuild(published:current:)` answers `true` when
+    nothing is published, when the fingerprints differ, when the working stamp
+    is `nil` for a file with a working side (every status but deleted), or when
+    the head object is `nil` for a file with a `HEAD` side (modified, deleted,
+    renamed, conflicted) — **unknown means re-read**, the `fileStamp`
+    convention, so a stub, a volume without metadata, iOS's service (which
+    supplies no head object) and every unmerged record degrade to always
+    correct. `false` only for an equal fingerprint whose every read side is
+    known. **The head object is part of it because of a partial commit of the
+    selected file**: `HEAD` moves, the status stays modified, and the working
+    copy — stamp included — is untouched, so without `hH` the panel would keep
+    diffing against the old `HEAD`. The root is part of it so a same-path file
+    in another repository never matches a diff published for this one.
+    Tests: `LocalChangesInlineDiffTests` covers each branch (added, untracked
+    and deleted files having one side only); `LocalChangesModelTests` pins
+    that an unchanged refresh reads nothing (counted on the stubs), that an
+    edit to the selected file and a `HEAD`-only change each rebuild, that a
+    `nil` stamp always rebuilds, and that the working-copy read runs off the
+    main thread.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
     grouping. `group(_:rootName:)` returns one `ChangedFileGroup` (`path`,
     `label`, `files`; identity `path`) per distinct parent directory — no row

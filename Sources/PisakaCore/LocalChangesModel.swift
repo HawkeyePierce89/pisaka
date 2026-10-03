@@ -773,6 +773,10 @@ public final class LocalChangesModel: ObservableObject {
     public struct SelectionDiff: Equatable {
         public let file: ChangedFile
         public let rows: [DiffRow]
+        /// What the rows were computed from — the next load compares against
+        /// it to decide whether there is anything to rebuild
+        /// (`LocalChangesInlineDiff.needsRebuild`).
+        public let fingerprint: LocalChangesInlineDiff.Fingerprint
     }
 
     /// The selected file's inline diff as of the last load that was not
@@ -795,18 +799,74 @@ public final class LocalChangesModel: ObservableObject {
         return selectionDiffGeneration
     }
 
-    /// Load the selected file's inline diff under `token`. A load whose token
-    /// has been superseded by the time its `git show` returns discards its rows
-    /// instead of publishing over the newer selection's.
+    /// Load the selected file's inline diff under `token`, in this order:
+    ///
+    /// 1. the token, claimed synchronously by `beginSelectionDiffLoad()` at the
+    ///    trigger, is checked first;
+    /// 2. the selected file's current fingerprint is taken on the main actor —
+    ///    its working-copy stamp is one stat call;
+    /// 3. when `LocalChangesInlineDiff.needsRebuild` says the published diff
+    ///    still describes the file, the load returns with no read at all — the
+    ///    common refresh after saving *another* file;
+    /// 4. otherwise the `HEAD` side is awaited (the git subprocess already runs
+    ///    off the main actor), then the working-copy read and `LineDiff` run on
+    ///    the model's private serial queue;
+    /// 5. the token is re-checked and the result published on the main actor,
+    ///    tagged with its fingerprint. A load superseded at any `await` discards
+    ///    its rows instead of publishing over the newer selection's.
+    ///
+    /// The fingerprint is taken *before* the reads, so a write landing between
+    /// the stamp and the read publishes newer content under an older stamp —
+    /// the next load sees a different stamp and rebuilds. The race can only
+    /// cost one extra rebuild, never a stale diff left standing.
     public func loadSelectionDiff(token: Int) async {
         guard token == selectionDiffGeneration else { return }
         guard let file = selected else {
             selectionDiff = nil
             return
         }
-        let rows = await rows(for: file)
+        guard let root else { return }
+        let url = root.appendingPathComponent(file.path)
+        let fingerprint = LocalChangesInlineDiff.Fingerprint(
+            file: file,
+            root: root,
+            workingStamp: file.status == .deleted ? nil : fileService.fileStamp(at: url)
+        )
+        guard LocalChangesInlineDiff.needsRebuild(published: selectionDiff?.fingerprint, current: fingerprint) else {
+            return
+        }
+        let head = await headText(for: file, root: root)
         guard token == selectionDiffGeneration else { return }
-        selectionDiff = SelectionDiff(file: file, rows: rows)
+        let fileService = self.fileService
+        let rows = await offMain {
+            Self.diffRows(old: head, file: file, url: url, fileService: fileService)
+        }
+        guard token == selectionDiffGeneration else { return }
+        selectionDiff = SelectionDiff(file: file, rows: rows, fingerprint: fingerprint)
+    }
+
+    /// Serial, so inline-diff work runs one load after another off the main
+    /// thread and an injected file service is never touched concurrently by it.
+    private let diffQueue = DispatchQueue(label: "ws.karmanov.pisaka.local-changes-diff", qos: .userInitiated)
+
+    /// Run `work` on `diffQueue` and resume with its result — the
+    /// `ProjectSearchModel.offMain` shape, so the working-copy read and the line
+    /// diff never land on the main thread while the model stays `@MainActor`.
+    private func offMain<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            diffQueue.async { continuation.resume(returning: work()) }
+        }
+    }
+
+    /// The inline diff's off-main half: read the working side of `file` and
+    /// diff it against `old`. Touches nothing on the model.
+    nonisolated static func diffRows(
+        old: String,
+        file: ChangedFile,
+        url: URL,
+        fileService: FileServicing
+    ) -> [DiffRow] {
+        LineDiff.rows(old: old, new: workingText(for: file, url: url, fileService: fileService))
     }
 
     /// Build the side-by-side diff (working copy vs `HEAD`) for `file`.
@@ -819,7 +879,7 @@ public final class LocalChangesModel: ObservableObject {
         guard let root else { return [] }
         return LineDiff.rows(
             old: await headText(for: file, root: root),
-            new: workingText(for: file, root: root)
+            new: Self.workingText(for: file, url: root.appendingPathComponent(file.path), fileService: fileService)
         )
     }
 
@@ -839,10 +899,11 @@ public final class LocalChangesModel: ObservableObject {
         }
     }
 
-    private func workingText(for file: ChangedFile, root: URL) -> String {
+    /// `nonisolated` because the inline diff reads it on `diffQueue`, while
+    /// `rows(for:)` reads it on the main actor.
+    private nonisolated static func workingText(for file: ChangedFile, url: URL, fileService: FileServicing) -> String {
         // A deleted file has no working copy; the new side is empty.
         guard file.status != .deleted else { return "" }
-        let url = root.appendingPathComponent(file.path)
         // Git stores a symlink's *target string* as its blob (so `HEAD` reads it
         // back), so the working side must compare against that target, not the
         // dereferenced target file's contents — reading through the link would
