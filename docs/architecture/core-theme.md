@@ -2681,7 +2681,13 @@ The forty-six rules, each invisible to the compiler:
    `completionToggleButton` each spell `BarToolTip(` — the AppKit `toolTip`
    that replaced `.help`, which never showed on these toggles in the shipped
    window (`app-window.md` records the diagnosis) — and `.accessibilityLabel(`,
-   and neither spells `.help(`, so the bar keeps one tooltip mechanism; and
+   and neither spells `.help(`; the **whole bar** owes the same pair and the
+   same refusal — the brace-matched `BottomBar` struct and each of the three
+   widget files (`ProjectSwitcherView.swift`, `BranchSwitcherView.swift`,
+   `PullRequestIndicatorView.swift`, read whole) must spell `BarToolTip(` and
+   `.accessibilityLabel(` and none may spell `.help(` — so the bar keeps one
+   tooltip mechanism, and no accessibility hint is required (the toggles'
+   former `.help` texts were word for word their label and value); and
    `bottomBarButton(` occurs exactly twice — one declaration and one call inside
    `panelToggles`, which `bottomBar` draws, which builds the toggles from
    `BottomPanel.allCases` and names no panel case in its body, so the bar keeps

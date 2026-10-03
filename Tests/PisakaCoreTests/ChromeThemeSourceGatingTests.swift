@@ -81,9 +81,11 @@ import XCTest
 ///   widgets owe the same rule from the other side: they hide every symbol they
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
-///   with the counts looking healthy. Each toggle's tooltip is an AppKit
-///   `toolTip` through `BarToolTip(`, and `.help(` is refused in the two
-///   toggle builders, because `.help` never showed there in the shipped window.
+///   with the counts looking healthy. The whole bar has one tooltip mechanism,
+///   an AppKit `toolTip` through `BarToolTip(`: the two toggle builders, the
+///   `BottomBar` body and the three widget files each spell it and an
+///   `.accessibilityLabel(`, and `.help(` is refused in all of them, because
+///   `.help` never showed on the bar in the shipped window.
 /// - **Every label the bar draws stays on one line.** The bar states its own
 ///   height, so a label that wraps is clipped rather than accommodated — and it
 ///   wraps only at the width, scale or project name the reviewer did not try.
@@ -1001,6 +1003,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// diagnosis; `BottomBarToolTipTests` finds each tooltip view by text and
     /// frame).
     ///
+    /// The same pair is required, and `.help(` refused, across the **whole
+    /// bar**: the brace-matched `BottomBar` struct, and each of the three widget
+    /// files — project, branch, pull request — read whole, since each is the
+    /// widget's own view. A widget's tooltip through `.help` is the mechanism
+    /// that never showed; a second one beside `BarToolTip(` is two. No
+    /// accessibility *hint* is required: the toggles' former `.help` texts were
+    /// word for word their label and value, so a hint would be read twice
+    /// (`app-window.md`).
+    ///
     /// Part three made both icon-only. That is a visual decision with an
     /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
     /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
@@ -1132,6 +1143,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
                 panelToggles names \(panelCase) — a panel spelled here is a second list beside \
                 BottomPanel.allCases, and reordering the enum would reorder the tab row alone
+                """
+            )
+        }
+    }
+
+    func testTheWholeBarCarriesOneToolTipMechanismAndALabelPerWidget() throws {
+        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        let bar = try XCTUnwrap(
+            Self.matchedBody(after: "struct BottomBar:", in: root),
+            "BottomBar is gone or renamed — re-point this rule rather than losing it"
+        )
+        var bodies = [("\(Self.windowRootFile)'s BottomBar", bar)]
+        for name in Self.barWidgetFiles + [Self.labelledBarWidgetFile] {
+            bodies.append((name, LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )))
+        }
+        for (site, code) in bodies {
+            XCTAssertTrue(
+                Self.spellsCall("BarToolTip(", in: code),
+                """
+                \(site) must carry its tooltip through BarToolTip( — the AppKit toolTip the \
+                shipped window actually shows, and the bar's one mechanism (app-window.md)
+                """
+            )
+            XCTAssertTrue(
+                Self.spellsCall(".accessibilityLabel(", in: code),
+                "\(site) must spell .accessibilityLabel( — every bar control names itself outright"
+            )
+            XCTAssertFalse(
+                Self.spellsCall(".help(", in: code),
+                """
+                \(site) spells .help( — the bar's tooltips are AppKit's, through BarToolTip(, \
+                and .help is the mechanism that never showed in the shipped window
                 """
             )
         }

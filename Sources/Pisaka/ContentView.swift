@@ -1533,10 +1533,10 @@ struct BottomBar: View {
     }
 }
 
-/// A bottom-bar toggle's tooltip, carried by an AppKit view's `toolTip` behind
-/// the toggle rather than by SwiftUI's `.help`.
+/// A bottom-bar control's tooltip, carried by an AppKit view's `toolTip` behind
+/// the control rather than by SwiftUI's `.help`.
 ///
-/// `.help` on these toggles never showed in the shipped window. Hosted headlessly
+/// `.help` on the bar's toggles never showed in the shipped window. Hosted headlessly
 /// — alone, and in the real main window — SwiftUI's tooltip bridge answers the
 /// right string at every toggle, with or without the bar's `.zIndex(1)`, the
 /// transparent title bar or the hit-transparent markers behind the content, so
@@ -1544,14 +1544,17 @@ struct BottomBar: View {
 /// that bridge on hover) is not one this app can reach or a headless test can
 /// drive (`app-window.md`). An `NSView.toolTip` is AppKit's own mechanism,
 /// registered on the view itself as a tracking rect, and does not route through
-/// that bridge at all. `BottomBarToolTipTests` finds each of these views by its
-/// text and frame; gating rule ten requires this and refuses `.help(` in the two
-/// toggle builders, so the bar keeps one tooltip mechanism.
+/// that bridge at all. The bar's three widgets — project, branch, pull request —
+/// carry theirs through it too, so the whole bar has one tooltip mechanism, which
+/// is why this is internal rather than private to this file.
+/// `BottomBarToolTipTests` finds each of these views by its text and frame;
+/// gating rule ten requires this and refuses `.help(` in the bar's body and in
+/// the three widget files.
 ///
-/// Placed with `.background(...)`, so it takes exactly the toggle's square. It
+/// Placed with `.background(...)`, so it takes exactly the control's frame. It
 /// draws nothing, answers no hit test — the click still lands on the SwiftUI
 /// button in front of it — and stays out of the accessibility tree, where the
-/// toggle's own `.accessibilityLabel` is the name.
+/// control's own `.accessibilityLabel` is the name.
 struct BarToolTip: NSViewRepresentable {
     let text: String
 

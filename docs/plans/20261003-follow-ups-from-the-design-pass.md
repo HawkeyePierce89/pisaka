@@ -282,21 +282,21 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`, `Tests/PisakaAppTests/BottomBarToolTipTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/app-window.md`
 
-- [ ] Make `BarToolTip` usable outside `ContentView.swift` (internal, not file-private). Replace `.help(...)` on the project, branch and pull-request widgets with `.background(BarToolTip(text: ...))`, keeping each text verbatim.
-- [ ] Each of the three widgets carries an `.accessibilityLabel`:
+- [x] Make `BarToolTip` usable outside `ContentView.swift` (internal, not file-private). Replace `.help(...)` on the project, branch and pull-request widgets with `.background(BarToolTip(text: ...))`, keeping each text verbatim.
+- [x] Each of the three widgets carries an `.accessibilityLabel`:
   - project and branch gain "Current project" and "Current branch", keeping their existing values;
   - the pull-request indicator keeps its label.
-- [ ] Rule ten (same number, same rule count) is extended from the two toggle idioms to the whole bar:
+- [x] Rule ten (same number, same rule count) is extended from the two toggle idioms to the whole bar:
   - the `BottomBar` body and the three widget files each spell `BarToolTip(` and `.accessibilityLabel(`;
   - `.help(` is refused in all of them;
   - read on comment- and literal-stripped text.
-- [ ] Update the rule's header bullet and `core-theme.md`'s canonical entry. The rule count stays forty-six in the suite, `CLAUDE.md` and `core-theme.md`.
-- [ ] `BottomBarToolTipTests`:
+- [x] Update the rule's header bullet and `core-theme.md`'s canonical entry. The rule count stays forty-six in the suite, `CLAUDE.md` and `core-theme.md`.
+- [x] `BottomBarToolTipTests`:
   - The exact tooltip set grows by the project and branch widgets' texts as the fixture draws them.
   - The square-frame assertion stays for the toggles. The widget tooltip views are asserted to lie inside the bar's band.
   - The pull-request indicator is not drawn without a current-branch pull request, so its tooltip is pinned by rule ten alone. The suite header says so.
-- [ ] Accessibility hint decision: no hint is added. The toggles' former `.help` text was the panel title and the completion state, word for word their accessibility label and value, so a hint would make VoiceOver read the same words twice. Record that in `app-window.md`. Rule ten does not require a hint.
-- [ ] Run the gates. They must pass before Task 8.
+- [x] Accessibility hint decision: no hint is added. The toggles' former `.help` text was the panel title and the completion state, word for word their accessibility label and value, so a hint would make VoiceOver read the same words twice. Record that in `app-window.md`. Rule ten does not require a hint.
+- [x] Run the gates. They must pass before Task 8.
 
 ### Task 8: Close the glyph rule's bypasses
 
