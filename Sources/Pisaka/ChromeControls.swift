@@ -335,12 +335,18 @@ private enum ChromeCheckboxLayout {
     static let titleGap: Double = 6
 }
 
-/// The query-mode toggle (`Aa`, `ab`, `.*`), drawn once for the two shapes that
-/// used to diverge: the find bar's and Find in Files' builders had drifted in
-/// size and colour (subheadline `textPrimary` off vs. a raw 16 `textSecondary`
-/// off), the latter reading an icon box as a font size.
+/// The query-mode toggle (match case, whole word, regular expression), drawn
+/// once for the two shapes that used to diverge: the find bar's and Find in
+/// Files' builders had drifted in size and colour (subheadline `textPrimary` off
+/// vs. a raw 16 `textSecondary` off), the latter reading an icon box as a font
+/// size.
+///
+/// The picture is the mode's design glyph at 16 in a 16-point slot, padded
+/// `ChromeQueryToggleLayout.inset` on every side: `accent` on an `accentTint`
+/// ground while on, `textPrimary` with no ground while off. The glyph is the
+/// control's picture, never its name — `help` is spoken as the label.
 struct ChromeQueryToggle: View {
-    let label: String
+    let glyph: DesignGlyph
     @Binding var isOn: Bool
     let help: String
 
@@ -351,19 +357,35 @@ struct ChromeQueryToggle: View {
         Button {
             isOn.toggle()
         } label: {
-            Text(label)
-                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, metrics.scaled(5))
-                .padding(.vertical, metrics.scaled(2))
-                .background(isOn ? theme.color(.accentTint) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
+            DesignGlyphImage(
+                glyph,
+                size: ChromeQueryToggleLayout.glyphSize,
+                slot: ChromeQueryToggleLayout.glyphSize,
+                role: isOn ? .accent : .textPrimary
+            )
+            .padding(metrics.scaled(ChromeQueryToggleLayout.inset))
+            .background(isOn ? theme.color(.accentTint) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(ChromeQueryToggleLayout.cornerRadius)))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isOn ? theme.color(.accent) : theme.color(.textPrimary))
         .help(help)
         .accessibilityLabel(help)
         .accessibilityValue(isOn ? "On" : "Off")
     }
+}
+
+/// The query toggle's own numbers, at interface scale 1.0.
+enum ChromeQueryToggleLayout {
+    /// The glyph's drawn size and its slot: the design draws the three query
+    /// glyphs at 16, above their exported 14.
+    static let glyphSize: Double = 16
+    /// Between the slot and the toggle's edge, on every side.
+    static let inset: Double = 3
+    /// The on-state ground's corner.
+    static let cornerRadius: Double = 4
+    /// The whole toggle's side: the slot plus the inset either side.
+    static var side: Double { glyphSize + inset * 2 }
 }
 
 /// A choice over a fixed, small, closed set (the picker rule above).

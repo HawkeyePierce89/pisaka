@@ -26,7 +26,8 @@ import SwiftUI
 /// fields are the shared `ChromeThemedTextField` (`bgEditor` ground, `hairline`
 /// border, `accent` on focus), toggles `accent` on `accentTint` while on and
 /// `textPrimary` with no ground while off, the scope line and counters in `callout`
-/// `textSecondary`, the group header monochrome `textSecondary`, the match row
+/// `textSecondary`, the group header monochrome `textSecondary` (the file's
+/// design glyph, its path and `N matches`), the match row
 /// on the code font with the line number in `textSecondary`, the highlight kept
 /// on the editor's current-match background, and the validation error in
 /// `statusRed`.
@@ -66,7 +67,7 @@ struct ProjectSearchView: View {
     @State private var wholeWord = false
     @State private var isRegex = false
     /// Whether the replace field and its button are shown (the Find/Replace switch).
-    @State private var isReplaceExpanded = false
+    @State private var isReplaceExpanded: Bool
     /// Raised while a Replace All batch runs, so the button can't be pressed twice.
     @State private var isReplacing = false
 
@@ -101,6 +102,25 @@ struct ProjectSearchView: View {
         case query
         case replace
         case mask
+    }
+
+    /// - Parameter replaceExpanded: whether the replace row starts shown. The
+    ///   window opens collapsed; the layout suite opens it expanded so the
+    ///   replace row can be measured without driving a click.
+    init(
+        model: ProjectSearchModel,
+        settings: SettingsStore,
+        root: @escaping () -> URL?,
+        onActivate: @escaping (URL, NSRange) -> Void,
+        onReplaceAll: @escaping (String, Int) async -> ReplaceSummary?,
+        replaceExpanded: Bool = false
+    ) {
+        self.model = model
+        self.settings = settings
+        self.root = root
+        self.onActivate = onActivate
+        self.onReplaceAll = onReplaceAll
+        _isReplaceExpanded = State(initialValue: replaceExpanded)
     }
 
     var body: some View {
@@ -144,6 +164,8 @@ struct ProjectSearchView: View {
             if isReplaceExpanded {
                 replaceRow
             }
+
+            maskRow
 
             scopeLine
 
@@ -199,9 +221,9 @@ struct ProjectSearchView: View {
                 onClear: { settings.clearSearchQueryHistory() }
             )
 
-            ChromeQueryToggle(label: "Aa", isOn: $caseSensitive, help: "Match case")
-            ChromeQueryToggle(label: "ab", isOn: $wholeWord, help: "Whole word")
-            ChromeQueryToggle(label: ".*", isOn: $isRegex, help: "Regular expression")
+            ChromeQueryToggle(glyph: .caseSensitive, isOn: $caseSensitive, help: "Match case")
+            ChromeQueryToggle(glyph: .wholeWord, isOn: $wholeWord, help: "Whole word")
+            ChromeQueryToggle(glyph: .regex, isOn: $isRegex, help: "Regular expression")
 
             if model.isSearching {
                 ChromeSpinner()
@@ -224,6 +246,8 @@ struct ProjectSearchView: View {
                 height: SearchLayout.queryFieldHeight
             )
 
+            // No spacer after it: the field takes the row's slack, so Replace
+            // All sits at the row's trailing end, under the query toggles.
             Button("Replace All") { confirmReplaceAll() }
                 .buttonStyle(.chromeSecondary)
                 .disabled(
@@ -232,12 +256,10 @@ struct ProjectSearchView: View {
                 )
                 .accessibilityLabel("Replace all")
                 .help("Replace all")
-
-            Spacer(minLength: metrics.scaled(4))
         }
     }
 
-    private var scopeLine: some View {
+    private var maskRow: some View {
         HStack(spacing: metrics.scaled(6)) {
             Spacer().frame(width: metrics.scaled(12))
 
@@ -258,6 +280,20 @@ struct ProjectSearchView: View {
             .onChange(of: mask) { _ in scheduleSearch() }
 
             Spacer(minLength: metrics.scaled(4))
+        }
+    }
+
+    /// What the search covers, worded by `SearchScopeLine` from the root the
+    /// next search will walk and the mask as typed. Nothing with no folder open:
+    /// the results area already says there is nothing to search.
+    @ViewBuilder
+    private var scopeLine: some View {
+        if let root = root() {
+            Text(SearchScopeLine.text(projectName: root.lastPathComponent, fileMask: mask))
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(chromeColor(.textSecondary))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
@@ -289,52 +325,51 @@ struct ProjectSearchView: View {
         } else if model.results.isEmpty {
             placeholder(emptyText)
         } else {
-            List {
-                ForEach(model.results, id: \.fileURL) { result in
-                    Section {
-                        ForEach(Array(result.matches.indices), id: \.self) { index in
-                            row(result: result, index: index)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(chromeColor(.bgPanel))
+            // A scroll view over a lazy stack rather than a `List`: the table a
+            // `List` is built on insets its rows and headers by a fixed margin
+            // of its own, whatever the style, so the header's padding and the
+            // 34-point match indent could not be measured from the window's
+            // edge as the design states them. The headers stay pinned.
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    ForEach(model.results, id: \.fileURL) { result in
+                        Section {
+                            // Identified by file *and* index: a bare index repeats
+                            // in every group.
+                            ForEach(result.matches.indices.map { MatchRowID(file: result.fileURL, index: $0) }) {
+                                row(result: result, index: $0.index)
+                            }
+                        } header: {
+                            groupHeader(for: result)
                         }
-                    } header: {
-                        groupHeader(for: result)
+                    }
+                    if model.truncated {
+                        Text("Results truncated — narrow the query or the file mask to see the rest.")
+                            .font(metrics.scaledFont(.callout))
+                            .foregroundStyle(chromeColor(.textSecondary))
+                            .padding(.vertical, metrics.scaled(4))
+                            .padding(.horizontal, metrics.scaled(SearchLayout.contentPadding))
                     }
                 }
-                if model.truncated {
-                    Text("Results truncated — narrow the query or the file mask to see the rest.")
-                        .font(metrics.scaledFont(.callout))
-                        .foregroundStyle(chromeColor(.textSecondary))
-                        .listRowInsets(EdgeInsets(
-                            top: 4,
-                            leading: metrics.scaled(SearchLayout.contentPadding),
-                            bottom: 4,
-                            trailing: metrics.scaled(SearchLayout.contentPadding)
-                        ))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(chromeColor(.bgPanel))
-                }
             }
-            .listStyle(.inset)
-            .scrollContentBackground(.hidden)
             .background(chromeColor(.bgPanel))
         }
     }
 
     private func groupHeader(for result: FileSearchResult) -> some View {
         HStack(spacing: metrics.scaled(6)) {
-            Image(systemName: "doc")
-                .font(.system(size: metrics.scaled(SearchLayout.headerIconSize)))
-                .foregroundStyle(chromeColor(.textSecondary))
-                .accessibilityHidden(true)
+            DesignGlyphImage(
+                FileGlyph.forFile(named: result.relativePath),
+                slot: SearchLayout.headerGlyphSlot,
+                role: .textSecondary
+            )
             Text(result.relativePath)
                 .font(metrics.scaledFont(.callout))
                 .foregroundStyle(chromeColor(.textSecondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: metrics.scaled(4))
-            Text("\(result.matchCount)")
+            Text(result.matchCountText)
                 .font(metrics.scaledFont(.subheadline))
                 .foregroundStyle(chromeColor(.textSecondary))
                 .lineLimit(1)
@@ -342,7 +377,8 @@ struct ProjectSearchView: View {
         .padding(.horizontal, metrics.scaled(SearchLayout.headerPadding))
         .frame(height: metrics.scaled(SearchLayout.headerHeight))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        // Pinned, so it scrolls over the rows beneath it: an opaque ground.
+        .background(chromeColor(.bgPanel))
     }
 
     /// One match: its line number and the clipped preview with the hit
@@ -361,7 +397,10 @@ struct ProjectSearchView: View {
                     .font(.system(size: settings.fontSize - 2, design: .monospaced))
                     .foregroundStyle(chromeColor(.textSecondary))
                     .lineLimit(1)
-                    .frame(minWidth: 44, alignment: .trailing)
+                    // Leading, so the row's first ink is the number at the
+                    // 34-point indent; the fixed column still lines the
+                    // previews up for any number up to four digits.
+                    .frame(minWidth: 44, alignment: .leading)
 
                 Text(previewText(result.previews[index]))
                     .font(.system(size: settings.fontSize, design: .monospaced))
@@ -656,7 +695,9 @@ struct ProjectSearchView: View {
 
 /// The Find in Files window's layout numbers. Bare numbers scaled once at the
 /// use site (gating rule seven: none is derived from a `ChromeGeometry` token).
-private enum SearchLayout {
+/// Internal rather than private so `ProjectSearchLayoutTests` measures against
+/// the same numbers.
+enum SearchLayout {
     /// Content padding at the top and on both sides.
     static let contentPadding: Double = 16
     /// Gap between the content rows.
@@ -669,18 +710,28 @@ private enum SearchLayout {
     static let replaceGap: Double = 8
     /// Group header height — interface-scaled, because the header draws at callout, not the code font.
     static let headerHeight: Double = 24
-    /// Group header horizontal padding.
-    static let headerPadding: Double = 8
-    /// Group header icon point size.
-    static let headerIconSize: Double = 14
+    /// Group header horizontal padding: the content padding, so the glyph
+    /// lines up under the fields and the path — padding, the 12-point glyph
+    /// slot and the 6-point gap — starts at the match indent, 34.
+    static let headerPadding: Double = 16
+    /// The group header glyph's slot: the file glyph's own 12.
+    static let headerGlyphSlot: Double = 12
     /// Match row trailing padding.
     static let rowPaddingTrailing: Double = 8
-    /// Match row leading padding.
+    /// Match row leading padding: the design's 34-point match indent.
     static let rowPaddingLeading: Double = 34
     /// Footer height.
     static let footerHeight: Double = 32
     /// Footer horizontal padding.
     static let footerPadding: Double = 16
+}
+
+/// One match row's identity inside the result list: its file and its index
+/// among that file's matches.
+private struct MatchRowID: Hashable, Identifiable {
+    let file: URL
+    let index: Int
+    var id: Self { self }
 }
 
 /// The Find in Files debounce: one pending `DispatchWorkItem`, replaced whenever a

@@ -44,6 +44,11 @@ public struct FileSearchResult: Equatable {
     }
 
     public var matchCount: Int { matches.count }
+
+    /// The group header's trailing count: `1 match`, otherwise `N matches`.
+    public var matchCountText: String {
+        "\(matchCount) match\(matchCount == 1 ? "" : "es")"
+    }
 }
 
 /// What a project-wide Replace All did, counted per file so the view can state

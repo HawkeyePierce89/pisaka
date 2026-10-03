@@ -1949,10 +1949,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       `.callout` default and `6`-point inner gap kept; Find in Files' three and
       the branch switcher's filter pass `.body`; it passes no `height:`, so each
       field is one text line high inside the bar however tall the editor below
-      it is, and the platform's focus ring is suppressed in the shared field), the `Aa`/`ab`/`.*` toggles as the
-      shared `ChromeQueryToggle` in `ChromeControls.swift` (`subheadline` semibold
-      monospaced, `accent` on `accentTint` while on and `textPrimary` with no
-      ground while off), the match counter and labels in `textSecondary` at
+      it is, and the platform's focus ring is suppressed in the shared field), the match-case, whole-word and
+      regular-expression toggles as the shared `ChromeQueryToggle` in
+      `ChromeControls.swift` (each mode's design glyph — `case-sensitive`,
+      `whole-word`, `regex` — drawn through `DesignGlyphImage` at 16 in a
+      16-point slot padded 3, `ChromeQueryToggleLayout`, 22 square; `accent` on
+      an `accentTint` ground while on and `textPrimary` with no ground while
+      off), the match counter and labels in `textSecondary` at
       `.subheadline` (`.caption` before), the inline regex error in `statusRed` at
       `.subheadline`, the navigation/close/disclosure glyphs in roles with symbols
       hidden, Replace and Replace All in the shared secondary button style, and
@@ -2010,13 +2013,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       gap 12, query row 33 high in the shared field — the 33 passed to it as
       `height: SearchLayout.queryFieldHeight`, so the box itself is 33 high, not
       framed from outside (`core-theme.md`, `ChromeControls.swift`) — with the shared
-      `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
-      monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
-      while off), replace row the shared field at the same `height:` gap 8
-     then Replace All in the secondary button style, scope line `callout` in
-     `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
-     the path in `callout` and the count in `subheadline` all in `textSecondary`,
-     match row padding 8 right 34 left
+      `ChromeQueryToggle` triple at its trailing end gap 10 (the shared toggle's
+      design glyphs, see `SearchBarView` above), replace row the shared field at
+      the same `height:` gap 8 then Replace All in the secondary button style at
+      the row's **trailing end** — no spacer after it, the field takes the slack —
+      under the toggles, then the file-mask row, then the scope line from
+      `SearchScopeLine.text(projectName:fileMask:)` (`In: <project> · [Files:
+      <mask> · ]Exclude: ignored files`, the root's last component and the mask as
+      typed, nothing with no folder open) in `callout` `textSecondary`; the
+      results a `ScrollView` over a `LazyVStack` with pinned section headers —
+      not a `List`, whose table insets rows and headers by a fixed margin of its
+      own in every style, so neither the header's padding nor the match indent
+      could be measured from the window's edge — each match row identified by
+      file *and* index (`MatchRowID`; a bare index repeated in every group and the
+      list reused one group's row for another's, the second file drawing the
+      first file's preview line); group header 24 high padding 16 on a `bgPanel`
+      ground (it is pinned over the rows), the file's `FileGlyph` at its own 12 in
+      a 12 slot, gap 6 — so the path starts at 34, the match indent — the path in
+      `callout` and `FileSearchResult.matchCountText` (`1 match` / `N matches`)
+      in `subheadline` at the trailing edge, all in `textSecondary`;
+     match row padding 8 right 34 left, the line number drawn leading in its
+     44-point column so the row's first ink is at the 34-point indent
       with no fixed height — its height is the code-font content's
       (`settings.fontSize`) so it never overflows and `.contentShape` follows the
       paddings so the insets are the click target (group header's `24`-point
@@ -2033,7 +2050,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       the code
      font multiplied by the interface scale and vice versa, no selection added, the
      regex/validation error in `statusRed`, fields/toggles/Replace All named and
-     decorative symbols hidden. Otherwise the same window as before: results grouped
+     decorative symbols hidden. Measured headlessly by `ProjectSearchLayoutTests`
+     at scale 1.0 and 1.8 over a two-file project searched through the real model
+     (one render per scale): every inked column at the query row's trailing end
+     falls inside one of the three toggles' 16-point glyph slots and each slot
+     holds ink; Replace All's border is the replace row's last ink, at the
+     trailing padding; a match row — told from a header by its hit's highlight —
+     starts at 34, the header glyph inside its slot at the content padding; and
+     an on toggle draws its glyph in `accent` inside the slot on `accentTint`
+     (`SearchLayout` is internal so the suite reads its numbers, and an
+     `init(…, replaceExpanded:)` opens the replace row without a click).
+     Otherwise the same window as before: results grouped
      by file with per-match preview lines (the match highlighted inside the clipped
      line `MatchPreview` carries), a "results truncated" note at the cap,
      `.preferredColorScheme` and the shared `SettingsStore` font as in the diff/merge

@@ -1080,7 +1080,9 @@ Only the caller knows which of the two it means, so the caller says it.
 `ChromeThemedTextFieldLayoutTests` (app bundle) renders a field given 33 points
 and samples its `bgEditor` ground and `hairline` border above and below the text
 line, and hosts an unheighted field above a flexible view in a tall window and
-holds it to one text line, both at interface scale 1 and 1.8. **The platform's
+holds it to one text line — the find bar to its tallest control, the field's
+line or the query toggle's fixed 22-point square since the toggles draw a
+16-point glyph — both at interface scale 1 and 1.8. **The platform's
 focus ring is suppressed** on the inner field (`.focusEffectDisabled()`), so the
 box's `accent` border is the one focus indication; the platform draws that ring
 only on a key window with real first-responder focus, which the headless bundle
@@ -1095,10 +1097,12 @@ coming in as a `FocusState` binding plus the value it equals — taking a
 text-style parameter defaulting to `.callout` (so the Log filter bar's pixels stay
 as they are) and an inner gap defaulting to `6`, with Find in Files' three
 fields and the branch switcher's filter passing `.body`. `ChromeQueryToggle` is
-the one query-mode toggle (label, `isOn` binding, help text), drawing the label
-at `subheadline` semibold monospaced — `accent` on `accentTint` while on,
-`textPrimary` with no ground while off — with the spoken name, tooltip and
-on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
+the one query-mode toggle (glyph, `isOn` binding, help text), drawing the mode's
+design glyph through `DesignGlyphImage` at 16 in a 16-point slot padded 3 — the
+design's size, above the export's 14 — `accent` on `accentTint` while on,
+`textPrimary` with no ground while off (it drew an `Aa`/`ab`/`.*` label at
+`subheadline` semibold monospaced until the design-match pass), with the spoken
+name, tooltip and on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
 is 28 high (`secondaryButtonHeight`), with a one-point `hairline` border, radius
 `buttonCornerRadius`, padding `secondaryButtonPaddingX` and a `callout` label in
 `textPrimary`. Everything is scaled through `InterfaceMetrics` and colours come
@@ -1187,8 +1191,8 @@ now pass `.body`; the bar keeps the field's `.callout` default and its `6`-point
 gap default); the system rounded-border style is gone. Colours: the match
 counter and the labels are `textSecondary`, the inline regex error is
 `statusRed`, the three query-mode toggles are the shared `ChromeQueryToggle` —
-`subheadline` semibold monospaced, `accent` on `accentTint` while on,
-`textPrimary` with no ground while off — the navigation/close/disclosure glyphs
+the mode's design glyph at 16 since the design-match pass, `accent` on
+`accentTint` while on, `textPrimary` with no ground while off — the navigation/close/disclosure glyphs
 take roles, Replace and Replace All use the shared secondary button style, and
 `.caption` becomes `.subheadline`. Accessibility: each toggle has a spoken name,
 a `.help` tooltip and an on/off `.accessibilityValue`; Previous, Next, Close
@@ -1207,12 +1211,16 @@ remains and no comment pins an exception.
 `ChromePalette.nsColor(.bgPanel)`, the standard title bar and its style mask
 unchanged. Design values: content body padding 16 at the top and on both sides,
 0 at the bottom, gap 12; query row 33 high in the shared field with the shared
-`ChromeQueryToggle` triple at its trailing end (gap 10), each toggle at
-`subheadline` semibold monospaced — `accent` on `accentTint` while on,
-`textPrimary` with no ground while off; replace row the shared field gap 8 then
-Replace All in the secondary button style; scope line `callout` in
-`textSecondary`; results gap 8; group header 24 high padding 8 a 14-point icon
-the path in `callout` and the count in `subheadline` all in `textSecondary`;
+`ChromeQueryToggle` triple at its trailing end (gap 10), each toggle its
+mode's design glyph at 16 — `accent` on `accentTint` while on, `textPrimary`
+with no ground while off; replace row the shared field gap 8 then Replace All
+in the secondary button style at the row's trailing end; the file-mask row, then
+the scope line (`SearchScopeLine`) in `callout` `textSecondary`; results gap 8;
+group header 24 high padding 16 the file's `FileGlyph` at 12, gap 6, so the path
+starts at the 34-point match indent, the path in `callout` and `N matches` in
+`subheadline` all in `textSecondary` (padding 8 and a 14-point `doc` symbol
+before the design-match pass, inside a `List` whose own inset the window's
+`ScrollView` no longer has);
 match row padding 8 on the right and 34 on the left, no fixed height — its height
 is the content's, at the code font (`settings.fontSize`) so it never overflows,
 and `.contentShape` comes after the paddings so the insets are the click target;
@@ -3036,8 +3044,10 @@ The forty-six rules, each invisible to the compiler:
     `ChromeControls.swift` declares a toggle builder. Because the toggle speaks
     its `help` as its accessibility label, the two rows must also speak one name
     per mode — each caller's `help:` literals are exactly "Match case", "Whole
-    word", "Regular expression", in that order, read from comment-stripped text
-    with literals kept, since the names under test are the literals. This
+    word", "Regular expression", in that order, each paired with its one
+    `glyph:` (`.caseSensitive`, `.wholeWord`, `.regex`), read from
+    comment-stripped text with literals kept, since the names under test are
+    the literals. This
     entry's file set and the shared field's `Callers:` paragraph are both
     checked against the suite's own set, since both once stopped a caller
     short.

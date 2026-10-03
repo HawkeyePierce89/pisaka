@@ -320,6 +320,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rewrites precisely what matched — and ICU offers no option to exclude VT/FF
     alone, so it is recorded and pinned by a test
     (`testRegexAnchorsFollowICUTerminatorsIncludingFormFeed`) rather than fixed.
+  - `SearchScopeLine.swift` — the Find in Files window's scope line, the one
+    sentence under its fields saying what the search covers:
+    `In: <project> · Exclude: ignored files`, or with a file mask
+    `In: <project> · Files: <mask> · Exclude: ignored files`. The mask is shown
+    as typed, trimmed; a blank mask is no mask, as `ProjectSearchModel` reads
+    it. The exclusion clause is constant because the walk always honours the
+    project's `.gitignore` and no control turns that off. The project name is
+    the root's last path component as spelled, the `MainWindowTitle` rule.
+    Beside it, `FileSearchResult.matchCountText` (in `ProjectSearchModel.swift`)
+    words a group header's trailing count — `1 match`, otherwise `N matches`.
+    Tests: `SearchScopeLineTests` (with a mask, without, blank, trimmed) and
+    `ProjectSearchModelTests.testMatchCountTextSingularAndPlural`.
   - `SearchQueryHistory.swift` — the recently-searched queries, newest first:
     **one** list shared by the find bar (⌘F) and the Find in Files window,
     because the engine behind them is one (`TextSearch.swift`) and so is the

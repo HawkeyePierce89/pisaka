@@ -87,7 +87,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
 
 `docs/architecture/core-search.md` — Find in Files & the search query history:
-  `GitignoreMatcher.swift`, `ProjectSearchModel.swift`, `SearchQueryHistory.swift`
+  `GitignoreMatcher.swift`, `ProjectSearchModel.swift`, `SearchScopeLine.swift`, `SearchQueryHistory.swift`
 
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`

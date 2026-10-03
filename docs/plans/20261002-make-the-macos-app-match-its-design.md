@@ -395,14 +395,14 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/ProjectSearchView.swift`, `SearchBarView.swift`, `ChromeControls.swift` (`ChromeQueryToggle` takes a glyph)
 - Create: `Tests/PisakaAppTests/ProjectSearchLayoutTests.swift`
 
-- [ ] Each file's group header shows the file glyph (`FileGlyph`), the project-relative path in `textSecondary`, and `N matches` (`1 match` for one) at the trailing edge. Match lines sit directly beneath, indented 34, each with its hit highlighted as today.
-- [ ] Under the fields, show the scope line from `SearchScopeLine.text(projectName:fileMask:)` in `callout` `textSecondary`. The file-mask field stays.
-- [ ] Replace All sits at the trailing end of the replace field's row.
-- [ ] `ChromeQueryToggle` draws a `DesignGlyph` at 16 (`case-sensitive`, `whole-word` and `regex`) in both Find in Files and the in-editor find bar. Help and accessibility stay.
-- [ ] Tests:
+- [x] Each file's group header shows the file glyph (`FileGlyph`), the project-relative path in `textSecondary`, and `N matches` (`1 match` for one) at the trailing edge. Match lines sit directly beneath, indented 34, each with its hit highlighted as today.
+- [x] Under the fields, show the scope line from `SearchScopeLine.text(projectName:fileMask:)` in `callout` `textSecondary`. The file-mask field stays.
+- [x] Replace All sits at the trailing end of the replace field's row.
+- [x] `ChromeQueryToggle` draws a `DesignGlyph` at 16 (`case-sensitive`, `whole-word` and `regex`) in both Find in Files and the in-editor find bar. Help and accessibility stay.
+- [x] Tests:
   - Core: the scope line with a mask, without one, and with an empty mask;
   - app-layer, at scale 1.0 and 1.8: the 34-point match indent, Replace All's trailing position, and the toggle glyph slots.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 14: Settings and the editor font family
 
