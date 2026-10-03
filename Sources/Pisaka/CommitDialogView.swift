@@ -439,6 +439,7 @@ struct CommitDialogView: View {
             HStack(spacing: metrics.scaled(CommitDialogLayout.authorGap)) {
                 DesignGlyphImage(
                     .userRound,
+                    size: CommitDialogLayout.authorGlyphSize,
                     slot: CommitDialogLayout.authorGlyphSize,
                     role: .textSecondary
                 )
