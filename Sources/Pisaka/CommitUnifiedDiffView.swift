@@ -42,8 +42,8 @@ struct CommitUnifiedDiffView: View {
     ///
     /// `CommitDialogModel.commit` pins the whole selection at entry, so a unit
     /// toggled mid-run changes nothing while the checkbox visibly moves: the file
-    /// is still committed exactly as it was pinned. The same reason the Amend and
-    /// "Push after commit" switches are disabled there.
+    /// is still committed exactly as it was pinned. The same reason Amend and the
+    /// two commit buttons are disabled there.
     var isMutable: Bool = true
     /// Toggle one unit (a `.modified` pair's two lines report the same index).
     var onToggleUnit: (Int) -> Void = { _ in }

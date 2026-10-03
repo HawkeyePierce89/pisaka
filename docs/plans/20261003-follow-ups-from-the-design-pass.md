@@ -258,22 +258,22 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/CommitDialogModelTests.swift`, `Tests/PisakaAppTests/CommitDialogLayoutTests.swift`
 - Modify: `docs/architecture/core-commit.md`, `docs/architecture/app-git-views.md`
 
-- [ ] Add an internal counter, `unifiedLinesComputations`, incremented inside `unifiedLines(for:)`. `unifiedLines` stays uncached and its doc keeps saying so, because that claim stays true. One test pins it: two direct reads count two.
-- [ ] Replace the two memo tests with tests on `unifiedDisplayRows(for:)`:
+- [x] Add an internal counter, `unifiedLinesComputations`, incremented inside `unifiedLines(for:)`. `unifiedLines` stays uncached and its doc keeps saying so, because that claim stays true. One test pins it: two direct reads count two.
+- [x] Replace the two memo tests with tests on `unifiedDisplayRows(for:)`:
   - Repeated reads compute once.
   - `toggleFile` and `toggleUnit` leave the memo in place: no further computation, and the rows are equal.
   - A reload that changes the rows recomputes, and the new rows are the reloaded ones.
   - One test for every other assignment to `files` in the model, which drops the memo. Enumerate every `files` write site other than the two toggles, so a new write site that bypasses `didSet` fails.
   - Each test asserts the counter, not only equality.
-- [ ] Core: `CommitDialogModel.pushUnavailableMessage: String?` is the `PushPlan.unavailable` reason's message, and `nil` when the plan is available or there is no context. Test each of the three reasons and both `nil` cases.
-- [ ] View: whenever `pushUnavailableMessage` is non-`nil`, the footer shows it as one line of `.callout` `textSecondary` text after the Amend checkbox, before the spacer, tail-truncated. That is exactly when the Commit and Push button is disabled for a push-specific reason. The tooltip stays.
-- [ ] `CommitDialogLayoutTests` renders the dialog once with an unavailable push plan, one extra render. It asserts that the footer keeps its 64-point height, that the reason's text ink lies between the Amend checkbox and the Cancel button, and that the buttons keep their positions.
-- [ ] Stale text:
+- [x] Core: `CommitDialogModel.pushUnavailableMessage: String?` is the `PushPlan.unavailable` reason's message, and `nil` when the plan is available or there is no context. Test each of the three reasons and both `nil` cases.
+- [x] View: whenever `pushUnavailableMessage` is non-`nil`, the footer shows it as one line of `.callout` `textSecondary` text after the Amend checkbox, before the spacer, tail-truncated. That is exactly when the Commit and Push button is disabled for a push-specific reason. The tooltip stays.
+- [x] `CommitDialogLayoutTests` renders the dialog once with an unavailable push plan, one extra render. It asserts that the footer keeps its 64-point height, that the reason's text ink lies between the Amend checkbox and the Cancel button, and that the buttons keep their positions.
+- [x] Stale text:
   - `CommitDialogModel`'s header: Amend only, plus the two commit buttons.
   - `CommitUnifiedDiffView`'s `isMutable` comment.
   - `PushPlan.swift`'s header about the former switch and checkbox.
   - `core-commit.md`'s memo paragraph: `unifiedDisplayRows` is memoized by path, invalidated by `files`' `didSet` and preserved across the two toggles; `unifiedLines` is uncached and read by the memo and the tests.
-- [ ] Run the gates. They must pass before Task 7.
+- [x] Run the gates. They must pass before Task 7.
 
 ### Task 7: One tooltip mechanism across the bottom bar
 

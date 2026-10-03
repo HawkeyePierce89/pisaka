@@ -348,8 +348,9 @@ struct CommitDialogView: View {
             .padding(.top, metrics.scaled(CommitDialogLayout.statusPaddingY))
     }
 
-    /// The footer: `footerHeight` tall, the author and Amend on the left, the
-    /// three buttons on the right.
+    /// The footer: `footerHeight` tall, the author, Amend and — while the push
+    /// plan is unavailable — its reason on the left, the three buttons on the
+    /// right.
     private var footer: some View {
         HStack(spacing: metrics.scaled(CommitDialogLayout.footerGap)) {
             authorButton
@@ -364,6 +365,16 @@ struct CommitDialogView: View {
             // rewrites the message field — so a mid-run toggle would visibly
             // change the composed message while the commit records neither.
             .disabled(model.isRunning)
+            // Why Commit and Push is disabled when the reason is the push's own
+            // — the tooltip alone hid it behind a hover. One line, tail-truncated,
+            // so the footer keeps its height and the buttons their places.
+            if let reason = model.pushUnavailableMessage {
+                Text(reason)
+                    .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Spacer(minLength: metrics.scaled(CommitDialogLayout.footerGap))
             // Disabled while the commit runs: dismissing then would fire
             // `onDismiss`, releasing the modal autosave suspension in the
@@ -382,9 +393,9 @@ struct CommitDialogView: View {
                 .buttonStyle(.chromeSecondary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.canCommit)
-            // Disabled in exactly the cases the former "Push after commit"
-            // switch was, on top of Commit's own — `canCommitAndPush`. Its
-            // tooltip is where the push goes, or why it cannot.
+            // Disabled when Commit is, or when the push plan is unavailable —
+            // `canCommitAndPush`. Its tooltip is where the push goes, or why it
+            // cannot.
             Button("Commit and Push") { commit(push: true) }
                 .buttonStyle(.chromePrimary)
                 .disabled(!model.canCommitAndPush)

@@ -252,7 +252,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `CommitDialogModel.commit`'s re-read immediately before the push, and lives
     here so its wording sits with the other push refusals) and `PushPlan`
     (`.push(upstream:)` / `.setUpstream(remote:branch:)` /
-    `.unavailable(reason:)`, plus `isAvailable`) built by
+    `.unavailable(reason:)`, plus `isAvailable` and `unavailableMessage`, the
+    `.unavailable` reason's sentence or `nil`) built by
     `plan(context:)` in three ordered branches: an upstream exists → a plain `git
     push` (decided **before** the remote list, since a configured upstream is
     something git can push through on its own — withdrawing the push because `git
@@ -361,18 +362,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `isLoading`, `isRunning` and `root`, with computed `selectedFiles`/
     `selectedFileCount`, `conflictedPaths`, `block`/`canCommit` (through
     `CommitGate`), `pushPlan`, `canCommitAndPush` (Commit's own `canCommit` *and*
-    an available `pushPlan` — the Commit and Push button's enablement, exactly the
-    cases the former "Push after commit" switch was enabled in; the plan is
+    an available `pushPlan` — the Commit and Push button's enablement; the plan is
     re-derived after the commit regardless, so this decides what is offered,
-    never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)`,
-    `unifiedDisplayRows(for:)` (the `internal`, uncached
-    `unifiedLines(for:)` — which only the tests read — laid out by
-    `UnifiedDiffDisplayRows`) — both **empty for every whole-only file** (asked
-    after `wholeOnlyMessage`, so a line-endings-only change flattens nothing the
-    panel would ignore) and **memoized by path**, invalidated from `files`'
-    `didSet` so the cache cannot drift: the sheet's body re-evaluates on every
-    keystroke in the message field, and rebuilding a `UnifiedDiffLine` per row
-    there puts the diff's size on the typing path, the same reason
+    never what the push does), `pushUnavailableMessage` (the loaded plan's
+    `unavailableMessage` — the sentence the footer shows exactly while Commit and
+    Push is disabled for a push-specific reason, `nil` for an available plan or
+    before a load), `checkboxState(for:)`, `wholeOnlyMessage(for:)` and
+    `unifiedDisplayRows(for:)` — the rows `UnifiedDiffDisplayRows` lays out from
+    the `internal` `unifiedLines(for:)`, both **empty for every whole-only file**
+    (asked after `wholeOnlyMessage`, so a line-endings-only change flattens
+    nothing the panel would ignore). **`unifiedDisplayRows` is memoized by path;
+    `unifiedLines` is uncached**, read only by that memo and the tests. The memo
+    is invalidated from `files`' `didSet`, so any write to `files` drops it and no
+    future writer has to remember to — except the two selection toggles
+    (`toggleFile`/`toggleUnit`), which go through `preservingUnifiedCache` and put
+    it back, because each rebuilds its element from that element's own `facts`
+    and so cannot change any `rows`. The memo exists because the sheet's body
+    re-evaluates on every keystroke in the message field and every checkbox
+    click, and rebuilding a `UnifiedDiffLine` per row there puts the diff's size
+    on the typing path, the same reason
     `CommitFileFacts` derives `eligibility`/`units` once. **The diff is built here, not through
     `LocalChangesModel.rows(for:)`**: that path takes the old side from
     `headContents` and would turn a file binary in `HEAD` into "wholly added" with
@@ -570,7 +578,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     them would decide by scheduling which identity the commit records, the one
     thing that line exists to make certain. The plan it runs is a `PushPlan` built from a
     context read
-    **immediately before it**, never the `pushPlan` the checkbox was drawn from at
+    **immediately before it**, never the `pushPlan` the button was drawn from at
     load, since the window everything else here is re-checked against applies to
     it too: a `git checkout` in the embedded terminal while the sheet is up leaves
     the load-time plan naming the *previous* branch, and `.setUpstream` spells that

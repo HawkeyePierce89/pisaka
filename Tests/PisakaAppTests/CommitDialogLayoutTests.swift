@@ -21,23 +21,38 @@ import PisakaCore
 /// box's top and side edges are its first pixels off the panel ground, its
 /// bottom its border's `hairline` row; the buttons are the
 /// runs of inked columns across the footer's right half, clustered.
+///
+/// **The push reason.** One extra render, at scale one, over the same fixture
+/// with no remote — so the push plan is unavailable and the footer carries its
+/// reason as one line after Amend. The footer keeps its 64, the reason's ink lies
+/// strictly between Amend's last ink and Cancel's first, and the left-hand
+/// controls and the three buttons sit exactly where the available render put them.
 @MainActor
 final class CommitDialogLayoutTests: XCTestCase {
 
     func testTheDialogAtScaleOne() async throws {
-        try await assertDialog(scale: 1)
+        let available = try await assertDialog(scale: 1)
+        try await assertPushReasonFooter(matching: available)
     }
 
     func testTheDialogAtScaleOnePointEight() async throws {
-        try await assertDialog(scale: 1.8)
+        _ = try await assertDialog(scale: 1.8)
     }
 
-    private func assertDialog(scale: Double, file: StaticString = #filePath, line: UInt = #line) async throws {
+    /// The available render's footer ink, clustered across the full width.
+    private struct FooterInk {
+        let clusters: [Range<CGFloat>]
+        let width: CGFloat
+        var buttons: [Range<CGFloat>] { clusters.filter { $0.lowerBound >= width / 2 } }
+        var leading: [Range<CGFloat>] { clusters.filter { $0.lowerBound < width / 2 } }
+    }
+
+    /// Render the dialog over `git` once, at `scale`, with a message typed.
+    private func render(git: StubGit, scale: Double) async throws -> (CommitDialogModel, SettingsStore, HostedRender) {
         let metrics = InterfaceMetrics(scale: scale)
-        let model = CommitDialogModel(gitService: StubGit(), fileService: StubFiles())
+        let model = CommitDialogModel(gitService: git, fileService: StubFiles())
         await model.load(root: URL(fileURLWithPath: "/repo"))
         model.message = "subject"
-        XCTAssertTrue(model.canCommitAndPush, "the fixture must offer Commit and Push", file: file, line: line)
 
         let suite = "CommitDialogLayoutTests"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -45,16 +60,97 @@ final class CommitDialogLayoutTests: XCTestCase {
         let settings = SettingsStore(defaults: defaults)
 
         let theme = ChromeTheme(.dark)
-        let panel = theme.color(.bgPanel)
-        let width = metrics.scaled(1000)
-        let height = metrics.scaled(640)
         let render = try HostedRender(
-            size: CGSize(width: width, height: height),
+            size: CGSize(width: metrics.scaled(1000), height: metrics.scaled(640)),
             root: CommitDialogView(model: model, settings: settings)
                 .environment(\.interfaceMetrics, metrics)
                 .environment(\.chromeTheme, theme)
         )
         addTeardownBlock { @MainActor in render.window.close() }
+        return (model, settings, render)
+    }
+
+    /// The footer's top rule, scanning up from the bottom edge.
+    private func footerRule(in render: HostedRender, metrics: InterfaceMetrics) -> CGFloat? {
+        let width = metrics.scaled(1000)
+        let height = metrics.scaled(640)
+        let panel = ChromeTheme(.dark).color(.bgPanel)
+        let step = 1 / render.pixelScale
+        return stride(from: height - step, to: height - metrics.scaled(120), by: -step).first {
+            render.matches(.hairline, atX: width / 2, y: $0, ground: panel)
+        }
+    }
+
+    private func assertPushReasonFooter(
+        matching available: FooterInk, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let metrics = InterfaceMetrics(scale: 1)
+        let git = StubGit()
+        git.remotes = []
+        git.upstream = nil
+        let (model, _, render) = try await render(git: git, scale: 1)
+        XCTAssertNotNil(model.pushUnavailableMessage, "the fixture must make the push unavailable",
+                        file: file, line: line)
+        XCTAssertTrue(model.canCommit, "the fixture must leave Commit enabled", file: file, line: line)
+
+        let width = metrics.scaled(1000)
+        let height = metrics.scaled(640)
+        let hairline = metrics.scaled(ChromeGeometry.hairlineWidth)
+        let step = 1 / render.pixelScale
+        let rule = try XCTUnwrap(footerRule(in: render, metrics: metrics),
+                                 "no rule above the footer with the push reason shown", file: file, line: line)
+        XCTAssertEqual(
+            height - (rule + hairline), metrics.scaled(CommitDialogLayout.footerHeight), accuracy: 1,
+            "the push reason changed the footer's height", file: file, line: line
+        )
+
+        let clusters = inkClusters(
+            in: render,
+            rows: (rule + hairline + step)..<(height - step),
+            columns: 0..<width,
+            mergeGap: metrics.scaled(4)
+        )
+        let amendEnd = try XCTUnwrap(available.leading.last?.upperBound, "no Amend ink in the available render",
+                                     file: file, line: line)
+        let cancelStart = try XCTUnwrap(available.buttons.first?.lowerBound, "no Cancel in the available render",
+                                        file: file, line: line)
+
+        // The left-hand controls and the three buttons are where they were.
+        let before = clusters.filter { $0.upperBound <= amendEnd + step }
+        let buttons = clusters.filter { $0.lowerBound >= cancelStart - step }
+        XCTAssertEqual(before.count, available.leading.count, "the author and Amend moved: \(before)",
+                       file: file, line: line)
+        for (got, want) in zip(before, available.leading) {
+            XCTAssertEqual(got.lowerBound, want.lowerBound, accuracy: 1, "the author or Amend moved",
+                           file: file, line: line)
+        }
+        XCTAssertEqual(buttons.count, 3, "the footer's right end did not draw three buttons: \(buttons)",
+                       file: file, line: line)
+        for (got, want) in zip(buttons, available.buttons) {
+            XCTAssertEqual(got.lowerBound, want.lowerBound, accuracy: 1, "a button moved", file: file, line: line)
+            XCTAssertEqual(got.upperBound, want.upperBound, accuracy: 1, "a button moved", file: file, line: line)
+        }
+
+        // The reason's ink: present, and strictly between Amend and Cancel.
+        let reason = clusters.filter { $0.lowerBound > amendEnd + step && $0.upperBound < cancelStart - step }
+        XCTAssertFalse(reason.isEmpty, "no push reason ink between Amend and Cancel", file: file, line: line)
+        XCTAssertEqual(before.count + reason.count + buttons.count, clusters.count,
+                       "footer ink outside the author, Amend, the reason and the buttons: \(clusters)",
+                       file: file, line: line)
+    }
+
+    private func assertDialog(
+        scale: Double, file: StaticString = #filePath, line: UInt = #line
+    ) async throws -> FooterInk {
+        let metrics = InterfaceMetrics(scale: scale)
+        let (model, settings, render) = try await render(git: StubGit(), scale: scale)
+        XCTAssertTrue(model.canCommitAndPush, "the fixture must offer Commit and Push", file: file, line: line)
+        XCTAssertNil(model.pushUnavailableMessage, "the fixture must show no push reason", file: file, line: line)
+
+        let theme = ChromeTheme(.dark)
+        let panel = theme.color(.bgPanel)
+        let width = metrics.scaled(1000)
+        let height = metrics.scaled(640)
 
         let hairline = metrics.scaled(ChromeGeometry.hairlineWidth)
         let step = 1 / render.pixelScale
@@ -140,9 +236,7 @@ final class CommitDialogLayoutTests: XCTestCase {
 
         // The footer: its top rule opens a 64-point strip at the bottom.
         let footerRule = try XCTUnwrap(
-            stride(from: height - step, to: height - metrics.scaled(120), by: -step).first {
-                render.matches(.hairline, atX: width / 2, y: $0, ground: panel)
-            },
+            footerRule(in: render, metrics: metrics),
             "no rule above the footer at scale \(scale)", file: file, line: line
         )
         XCTAssertEqual(
@@ -167,15 +261,19 @@ final class CommitDialogLayoutTests: XCTestCase {
         // The buttons, leading first across the footer's right half: Cancel,
         // Commit, Commit and Push — the last the one on the accent ground.
         let footerTop = footerRule + hairline + step
-        let buttons = inkClusters(
-            in: render,
-            rows: footerTop..<(height - step),
-            columns: (width / 2)..<width,
-            mergeGap: metrics.scaled(4)
+        let ink = FooterInk(
+            clusters: inkClusters(
+                in: render,
+                rows: footerTop..<(height - step),
+                columns: 0..<width,
+                mergeGap: metrics.scaled(4)
+            ),
+            width: width
         )
+        let buttons = ink.buttons
         XCTAssertEqual(buttons.count, 3, "the footer's right end did not draw three buttons: \(buttons)",
                        file: file, line: line)
-        guard buttons.count == 3 else { return }
+        guard buttons.count == 3 else { return ink }
         let footerMiddle = footerTop + metrics.scaled(CommitDialogLayout.footerHeight) / 2
         let accented = buttons.map { button in
             stride(from: button.lowerBound, to: button.upperBound, by: step).contains {
@@ -189,6 +287,7 @@ final class CommitDialogLayoutTests: XCTestCase {
             width - buttons[2].upperBound, metrics.scaled(CommitDialogLayout.messagePadding), accuracy: 1,
             "the primary does not end 20 from the trailing edge at scale \(scale)", file: file, line: line
         )
+        return ink
     }
 
     // MARK: - Sampling (all off the one bitmap)
@@ -230,6 +329,8 @@ final class CommitDialogLayoutTests: XCTestCase {
     /// One modified text file on a branch with an upstream, under a complete
     /// identity — so Commit and Push is offered.
     private final class StubGit: GitServicing {
+        var upstream: String? = "origin/main"
+        var remotes = ["origin"]
         func repositoryRoot(for url: URL) async throws -> URL { url }
         func changedFiles(root: URL) async throws -> [ChangedFile] {
             [ChangedFile(path: "Sources/a.txt", status: .modified)]
@@ -243,8 +344,8 @@ final class CommitDialogLayoutTests: XCTestCase {
                 isUnbornHEAD: false,
                 isDetachedHEAD: false,
                 currentBranch: "main",
-                upstream: "origin/main",
-                remotes: ["origin"],
+                upstream: upstream,
+                remotes: remotes,
                 inProgress: nil
             )
         }

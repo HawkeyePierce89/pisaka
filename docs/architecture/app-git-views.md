@@ -419,7 +419,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     at 13 (`DesignGlyphImage`, `textSecondary`) and `CommitIdentity.displayName`
     (`textPrimary`, or `statusRed` when the identity is incomplete, which also
     blocks Commit) as one `.plain` button that opens `AuthorEditorView` (→
-    `CommitDialogModel.setLocalIdentity`) — then the Amend `ChromeCheckbox`.
+    `CommitDialogModel.setLocalIdentity`) — then the Amend `ChromeCheckbox`,
+    then, **whenever `model.pushUnavailableMessage` is non-`nil`** — exactly
+    when Commit and Push is disabled for a push-specific reason — that reason
+    as one tail-truncated line of `.callout` `textSecondary` text, before the
+    spacer, so the footer keeps its 64 and the buttons their places (the
+    tooltip on Commit and Push still carries it too). `CommitDialogLayoutTests`
+    pins that with one extra render at scale one over a fixture with no remote:
+    the footer's height, the reason's ink strictly between Amend's and Cancel's,
+    and every other footer cluster where the available render put it.
     The author's **tooltip** carries what the old author line spelled out: the
     role — **"Committer" while Amend is ticked**, with "(amend keeps the original
     author)", because `git commit --amend` without `--reset-author` keeps the
@@ -442,8 +450,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pre-commit Local History capture finds every control disabled instead of
     starting a second commit or rewriting the first one's intent; a refused
     reservation starts no task — and Commit and Push is enabled by `model.canCommitAndPush`, i.e.
-    exactly when Commit is and the loaded `PushPlan` is available, the cases the
-    old switch was enabled in. Its tooltip is the push target ("Push to
+    exactly when Commit is and the loaded `PushPlan` is available. Its tooltip is the push target ("Push to
     origin/main", "… (new upstream)") or the plan's unavailable reason. Cancel is
     disabled while `model.isRunning` — dismissing mid-commit would fire
     `onDismiss` and release the modal autosave suspension in the middle of git
