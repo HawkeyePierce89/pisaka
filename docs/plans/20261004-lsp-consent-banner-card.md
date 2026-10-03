@@ -199,8 +199,8 @@ The design's Banner values are restated here as literals. The design file is not
 
 ### Task 5: Update documentation
 
-- [ ] Leave `README.md` and `docs/FEATURES.md` as they are, unless they describe the banner's look or copy; if they do, correct them.
-- [ ] Leave `CLAUDE.md` unchanged: the file index, the invariants and the gating-suite list are untouched by this work. Confirm it stays under its measured size limit.
+- [x] Leave `README.md` and `docs/FEATURES.md` as they are, unless they describe the banner's look or copy; if they do, correct them.
+- [x] Leave `CLAUDE.md` unchanged: the file index, the invariants and the gating-suite list are untouched by this work. Confirm it stays under its measured size limit.
 
 ## Post-Completion
 

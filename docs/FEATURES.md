@@ -494,7 +494,7 @@ user sees it.
   no stall. Quitting the app stops every server it started.
 - Semantic code intelligence for **TypeScript / JavaScript, Python and YAML**
   (macOS), if you want it. These servers are not bundled — the app offers to download them,
-  once, the first time you open a file of that kind: a strip above the editor names
+  once, the first time you open a file of that kind: a card above the editor names
   the server and its size, with **Download** and **No Thanks** and nothing else.
   Nothing is fetched until you press Download, and nothing is fetched again if you
   don't.
@@ -547,7 +547,7 @@ user sees it.
   publishes no official binaries: **it is never downloaded by Pisaka.** If you
   already have one (`~/go/bin/gopls`, `$GOBIN`, `$GOPATH/bin`), it is found and
   used with **no prompt at all**. If you don't, the first Go file you open in a
-  project offers once — *Install gopls with your Go toolchain?* — and accepting
+  project offers once — *Build gopls 0.23.0 with your own Go toolchain?* — and accepting
   runs `go install golang.org/x/tools/gopls@v0.23.0` with **your own `go`**,
   which fetches the module through Go's tooling and verifies it against Go's
   checksum database. A Go toolchain is required either way; on a Mac without one
