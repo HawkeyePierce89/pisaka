@@ -1340,13 +1340,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     at the row's call site: a second copy of this sequence is exactly how one of
     those gates goes missing on one of the paths. What a preselect means, and what
     a path absent from the fresh `git status` means, are `CommitDialogModel`'s
-    decisions, not this method's. `commitFromDialog(originGeneration:)` takes its pin as a
+    decisions, not this method's. `commitFromDialog(originGeneration:push:)` takes its pin as a
     *parameter* rather than reading it: the whole body runs inside the view's
     `Task`, i.e. after the window the pin exists to close, so a token read here
     would be compared against itself and could never fire — `CommitDialogView`'s
     Commit button reads `model.currentRequestGeneration` synchronously in its
-    action and threads it through `onCommit: (Int) async -> Void`, the
-    `ProjectSearchView.confirmReplaceAll`/`onReplaceAll` shape. It also raises the
+    action and threads it through `onCommit: (Int, Bool) async -> Void`, the
+    `ProjectSearchView.confirmReplaceAll`/`onReplaceAll` shape; the `Bool` is the
+    pressed button's push choice, forwarded to `commit(originGeneration:push:)`. It also raises the
     **full writer bracket** every sibling takes — `autosave.suspend()` +
     `localChanges.beginRevert()` synchronously before the first `await`, and
     lowered again the instant `commit()` returns, **before any modal**

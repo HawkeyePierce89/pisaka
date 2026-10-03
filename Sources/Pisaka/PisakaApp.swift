@@ -970,7 +970,7 @@ struct PisakaApp: App {
                 isCommitDialogPresented: $isCommitDialogPresented,
                 onOpenCommitDialog: { openCommitDialog() },
                 onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
-                onCommit: { origin in await commitFromDialog(originGeneration: origin) },
+                onCommit: { origin, push in await commitFromDialog(originGeneration: origin, push: push) },
                 onCommitDialogDismissed: { autosave.resumeFromModal() }
             )
             // The two things the window's environment carries. The database
@@ -2551,7 +2551,7 @@ struct PisakaApp: App {
     /// whole body already runs inside that task, i.e. after the window the pin
     /// exists to close, so reading the token here would compare it against itself
     /// and could never fire.
-    private func commitFromDialog(originGeneration: Int) async {
+    private func commitFromDialog(originGeneration: Int, push: Bool) async {
         // A commit can rewrite the working tree: a `pre-commit` hook that formats
         // (prettier, eslint --fix, gofmt) edits the files on disk, and git runs it
         // before reading the index it commits. This is the one worktree-mutating
@@ -2591,7 +2591,7 @@ struct PisakaApp: App {
             buffers: openBufferTexts(),
             targets: changedFileURLs(localChanges.changedFiles, root: repoRoot)
         )
-        let outcome = await commitDialog.commit(originGeneration: originGeneration)
+        let outcome = await commitDialog.commit(originGeneration: originGeneration, push: push)
         // Git op done: lower the disk-writer gates *before* any modal, the
         // `runBranchOperation` rule and for its reason. `PlatformAlert
         // .presentMessage` is `NSAlert.runModal()`, a nested run loop, and

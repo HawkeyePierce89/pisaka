@@ -434,10 +434,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`.chromeSecondary`, Esc), **Commit** (`.chromeSecondary`, **⌘Return** — not
     Return, the message being a multiline editor; it stays on Commit so the
     shortcut never publishes) and **Commit and Push** (`.chromePrimary`, the
-    one primary). The "Push after commit" switch is gone: each button writes
-    `model.pushAfterCommit` (false / true) **synchronously in its action**,
-    beside the generation pin, before the `Task` hop — `commit()` pins the flag
-    at entry — and Commit and Push is enabled by `model.canCommitAndPush`, i.e.
+    one primary). The "Push after commit" switch is gone: each button passes
+    its push choice (false / true) as the operation's own argument through
+    `onCommit: (Int, Bool)`, and **synchronously in its action**, beside the
+    generation pin and before the `Task` hop, calls `model.reserveCommit()` —
+    which raises `isRunning` at once, so a second press during `PisakaApp`'s
+    pre-commit Local History capture finds every control disabled instead of
+    starting a second commit or rewriting the first one's intent; a refused
+    reservation starts no task — and Commit and Push is enabled by `model.canCommitAndPush`, i.e.
     exactly when Commit is and the loaded `PushPlan` is available, the cases the
     old switch was enabled in. Its tooltip is the push target ("Push to
     origin/main", "… (new upstream)") or the plan's unavailable reason. Cancel is
@@ -874,7 +878,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     after the search field. With no folder open the bar is not drawn and there is
     nothing to refresh. **The date column is relative**: `RelativeCommitDate`
     (`core-git-models.md`) answers from the raw `%aI` string, `now`, the user's
-    calendar and locale, and the row's tooltip is the exact date and time
+    calendar and locale — `now` being the date cell's own `TimelineView(.everyMinute)`,
+    so an idle Log advances "just now", the minute counts and the day boundaries
+    rather than waiting for an unrelated re-render — and the row's tooltip is the exact date and time
     (`.long` date, `.medium` time), or the raw string when it does not parse.
     **Chrome (part four (b)).** Every colour is a `ChromeColorRole` read from
     `\.chromeTheme`; the gutter's lane hues (`CommitGraphPalette`) are the one

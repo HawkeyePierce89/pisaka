@@ -607,9 +607,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `onRevert`/`onOpenDiff`/`onResolveConflict`/`onCommit`, and wired by `PisakaApp`
     to `openCommitDialog(preselectingPath: file.path)` so a row's "Commit…" item
     opens the dialog with only that file checked,
-    `onCommit: (Int) async -> Void` runs the commit under `PisakaApp`'s gates (the
+    `onCommit: (Int, Bool) async -> Void` runs the commit under `PisakaApp`'s gates (the
     `Int` being the project generation the sheet's Commit button captured
-    synchronously before its `Task` hop — the `onReplaceAll` shape), and the
+    synchronously before its `Task` hop — the `onReplaceAll` shape — and the
+    `Bool` whether to push), and the
     sheet's `onDismiss` is `onCommitDialogDismissed` — fired on *every* closing
     path (a successful Commit, Cancel, Esc), which is what makes the modal autosave
     suspension raised on open impossible to strand. The model is held as a plain

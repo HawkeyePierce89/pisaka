@@ -560,12 +560,17 @@ private struct CommitRow: View {
                 .lineLimit(1)
                 .frame(width: metrics.scaled(CommitLogLayout.authorWidth), alignment: .trailing)
 
-            Text(relativeDate)
-                .font(metrics.scaledFont(.callout))
-                .monospacedDigit()
-                .foregroundStyle(theme.color(.textSecondary))
-                .lineLimit(1)
-                .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
+            // A minute timeline, not a read of `Date()` alone: that ran only when
+            // SwiftUI happened to re-evaluate the row, so an idle Log kept saying
+            // "just now" indefinitely. Scoped to this one cell.
+            TimelineView(.everyMinute) { context in
+                Text(relativeDate(now: context.date))
+                    .font(metrics.scaledFont(.callout))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
+            }
+            .frame(width: metrics.scaled(CommitLogLayout.dateWidth), alignment: .trailing)
 
             Text(shortHash)
                 .font(metrics.scaledFont(.subheadline, design: .monospaced))
@@ -593,9 +598,9 @@ private struct CommitRow: View {
 
     /// The author date said relative to now — Core's one answer
     /// (`RelativeCommitDate`), in the user's calendar and locale; the raw string
-    /// when it does not parse.
-    private var relativeDate: String {
-        RelativeCommitDate.text(for: commit.date, now: Date(), calendar: .current, locale: .current)
+    /// when it does not parse. `now` is the cell's minute timeline's date.
+    private func relativeDate(now: Date) -> String {
+        RelativeCommitDate.text(for: commit.date, now: now, calendar: .current, locale: .current)
     }
 
     /// The row's tooltip: the exact author date and time, locale-aware, or the

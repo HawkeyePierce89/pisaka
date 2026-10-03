@@ -39,8 +39,10 @@ struct CommitDialogView: View {
     /// `model.errorMessage`. The `Int` is `model.currentRequestGeneration`, read
     /// **synchronously in the button's action** before the `Task` hop: the handler
     /// runs a later main-actor turn, so a pin taken there would compare the token
-    /// against itself and never catch a folder switch made in between.
-    var onCommit: (Int) async -> Void = { _ in }
+    /// against itself and never catch a folder switch made in between. The
+    /// `Bool` is whether to push — which button was pressed, passed as the
+    /// operation's own input rather than written into shared state.
+    var onCommit: (Int, Bool) async -> Void = { _, _ in }
     /// Dismiss with no side effects (Cancel, Esc).
     var onCancel: () -> Void = {}
 
@@ -392,14 +394,17 @@ struct CommitDialogView: View {
         .frame(height: metrics.scaled(CommitDialogLayout.footerHeight))
     }
 
-    /// Arm or disarm the push and run the commit. Both are written
-    /// **synchronously in the action**, before the `Task` hop: `commit()` pins
-    /// the push flag at entry, and the generation pin has the same reason as
-    /// `onCommit`'s.
+    /// Reserve the commit and run it. The generation pin and the reservation
+    /// are both taken **synchronously in the action**, before the `Task` hop:
+    /// the pin for `onCommit`'s reason, the reservation because `PisakaApp`
+    /// awaits a Local History capture before the commit raises `isRunning`
+    /// itself, and a second press in that window must find every control
+    /// already disabled rather than start a second commit. `push` travels as
+    /// the operation's own argument, so no later press can rewrite it.
     private func commit(push: Bool) {
-        model.pushAfterCommit = push
         let origin = model.currentRequestGeneration
-        Task { await onCommit(origin) }
+        guard model.reserveCommit() else { return }
+        Task { await onCommit(origin, push) }
     }
 
     /// The identity git will resolve for this commit: the `user-round` glyph and

@@ -263,8 +263,8 @@ struct ContentView: View {
     /// post-success refreshes, and closes the sheet itself. The `Int` is the
     /// project generation the *view* captured synchronously before its `Task` hop
     /// (`onReplaceAll`'s shape and reason — read inside the task it would compare
-    /// against itself). Default no-op.
-    var onCommit: (Int) async -> Void = { _ in }
+    /// against itself); the `Bool` is whether to push. Default no-op.
+    var onCommit: (Int, Bool) async -> Void = { _, _ in }
     /// Called on *every* path that closes the commit sheet (Commit, Cancel, Esc),
     /// so the modal autosave suspension `PisakaApp` raises when opening it is
     /// always released. Default no-op.

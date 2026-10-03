@@ -357,7 +357,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `GitServicing`/`FileServicing`, every *decision* a pure function from the
     types above, pure Foundation — no `Process`/AppKit/SwiftUI). Publishes
     `context`, `files` (`[CommitFileSelection]` in git's order), `identity`,
-    `message`, `amend`, `pushAfterCommit`, `selectedPath`, `errorMessage`,
+    `message`, `amend`, `selectedPath`, `errorMessage`,
     `isLoading`, `isRunning` and `root`, with computed `selectedFiles`/
     `selectedFileCount`, `conflictedPaths`, `block`/`canCommit` (through
     `CommitGate`), `pushPlan`, `canCommitAndPush` (Commit's own `canCommit` *and*
@@ -443,14 +443,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `prepareForFolderChange(root:)` is the synchronous
     switch registration (the `LocalChangesModel` precedent, clearing the message
     along with the files — it was composed about another repository's changes).
-    Its `reset()` also drops `root`, `isLoading` and `pushAfterCommit`, each for
+    Its `reset()` also drops `root` and `isLoading`, each for
     its own reason: `root` is what every mutation runs against, so keeping the
     previous one would let the still-open author editor write `git config --local`
-    into the repository the user just left; a load *discarded* by this very switch
+    into the repository the user just left; and a load *discarded* by this very switch
     returns without clearing `isLoading`, so leaving it raised strands the dialog
-    on its loading placeholder with no path back; and the push flag must not
-    carry over silently. (The macOS dialog no longer has a switch for it: its
-    Commit and Commit and Push buttons each write it in their action.) A *reopen for the same
+    on its loading placeholder with no path back. A *reopen for the same
     root* takes `prepareForFolderChange`'s no-op path and so runs no `reset()`,
     which is why `load` additionally clears `files`/`selectedPath`/`errorMessage`
     itself before its first `await`: leaving them published let the sheet draw the
@@ -547,15 +545,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`CommitGate.evaluateRepositoryState`), the plan built from the **fresh** facts
     — both lookups over those facts going through `CommitStaleness.indexed(_:)`, so
     the check and the plan cannot resolve one path to two different sets of rows —
-    and only then the push — *whether* it runs being the `pushAfterCommit` value
-    **pinned at entry** beside `amendNow`/`messageNow`/the file selection, since the
-    flag is a published input like the others, written by whichever button was
-    pressed, and stays writable while the commit runs (a sheet disables its own controls no
-    more than it disables the main menu) and the commit is the long part: reading
-    the flag afterwards let a tick made in that window publish to a remote the user
-    had not armed when they pressed Commit, and an untick silently drop a push they
-    had. On macOS the view writes the flag synchronously in the pressed button's
-    action, beside the generation pin, so the value pinned is the button's. The view disables **every control feeding a pinned input** while
+    and only then the push — *whether* it runs being `commit(push:)`'s **argument**,
+    the pressed button's immutable intent, never a published flag: a shared flag
+    written by each button was overwritable by a second press landing before the
+    first one's `commit()` read it, so a plain Commit could push.
+    **`reserveCommit()`** closes the window between the press and `commit()`: the
+    app awaits a Local History capture there, so the view calls it synchronously in
+    the button's action, beside the generation pin — it refuses (raising nothing)
+    when the gate does, and otherwise raises `isRunning` at once, so a second press
+    finds every control disabled and the gate shut. A `true` owes exactly one
+    `commit()`, which releases the reservation at entry, in the same turn as its own
+    `isRunning = true`, so the gate does not block the commit it was taken for and
+    no turn ever observes it lowered — including the `.abandoned` return, which a
+    project switch during the capture produces. The view disables **every control feeding a pinned input** while
     `isRunning` — the message field, the Amend switch, the file and per-line
     checkboxes, and the author control — so what is on screen
     cannot disagree with the pinned value. The message field is the case that

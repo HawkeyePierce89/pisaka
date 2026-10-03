@@ -108,12 +108,6 @@ public final class CommitDialogModel: ObservableObject {
     /// also moves the message field — see `setAmend(_:)`.
     @Published public private(set) var amend = false
 
-    /// Whether a successful commit is followed by a push. The macOS dialog has
-    /// no switch for it: its Commit and Commit and Push buttons each write it
-    /// synchronously in their action, before the `Task` hop, and `commit()`
-    /// pins it at entry with the rest of the intent.
-    @Published public var pushAfterCommit = false
-
     /// The path shown in the right-hand diff panel, or `nil` when nothing is
     /// selected (no files, or the dialog was invalidated).
     @Published public private(set) var selectedPath: String?
@@ -128,6 +122,10 @@ public final class CommitDialogModel: ObservableObject {
     /// a second commit while one runs is `.blocked(.alreadyRunning)` rather than a
     /// second `git commit` against a half-built index.
     @Published public private(set) var isRunning = false
+
+    /// Whether `isRunning` is currently raised by `reserveCommit()` rather than
+    /// by `commit()` itself — see `reserveCommit()`.
+    private var holdsCommitReservation = false
 
     /// `true` while `setLocalIdentity` is writing the repository's config and
     /// re-reading the author line. The gate reads it, so a Commit pressed in that
@@ -326,14 +324,12 @@ public final class CommitDialogModel: ObservableObject {
         // `git config --local` into the project the user has just navigated away
         // from. `isLoading` goes for the same class of reason — an in-flight load
         // discarded by this switch returns without clearing it, so leaving it
-        // raised strands the dialog on its loading placeholder. `pushAfterCommit`
-        // is a per-project opt-in and must not carry over silently.
+        // raised strands the dialog on its loading placeholder.
         root = nil
         context = nil
         files = []
         selectedPath = nil
         isLoading = false
-        pushAfterCommit = false
         identity = CommitIdentity(name: "", email: "", nameSource: .unset, emailSource: .unset)
         message = ""
         amend = false
@@ -793,6 +789,21 @@ public final class CommitDialogModel: ObservableObject {
 
     // MARK: - Commit
 
+    /// Raise `isRunning` **synchronously, in the button's action**, before the
+    /// `Task` hop that eventually calls `commit()`. The app awaits a Local History
+    /// capture between the press and `commit()`, and without this the gate stays
+    /// open for that whole window: a second press would launch a second commit
+    /// orchestration, and the controls would still accept edits to an intent the
+    /// first press already stands for. Returns `false`, raising nothing, when the
+    /// gate refuses — the caller then starts no task. A `true` must be followed by
+    /// exactly one `commit()`, which releases the reservation at entry.
+    public func reserveCommit() -> Bool {
+        guard block == nil else { return false }
+        holdsCommitReservation = true
+        isRunning = true
+        return true
+    }
+
     /// Create the commit the dialog describes, and push it when asked to.
     ///
     /// The order is the substance:
@@ -826,8 +837,18 @@ public final class CommitDialogModel: ObservableObject {
     ///    that is not available, a branch that moved and a failed push are all
     ///    reported as `.committedPushFailed`; a push the user asked for is never
     ///    skipped silently.
+    ///
+    /// `push` is the caller's immutable intent — which button was pressed — and
+    /// never shared state another press could overwrite before this runs.
     @discardableResult
-    public func commit(originGeneration: Int? = nil) async -> CommitOutcome {
+    public func commit(originGeneration: Int? = nil, push: Bool = false) async -> CommitOutcome {
+        // Release a reservation first, in the same turn as everything below up to
+        // `isRunning = true`, so the gate does not block the very commit the
+        // reservation was taken for, and no other turn ever sees it lowered.
+        if holdsCommitReservation {
+            holdsCommitReservation = false
+            isRunning = false
+        }
         if let originGeneration, originGeneration != rootRequestGeneration { return .abandoned }
         guard let root else { return .blocked(.noRepository) }
         if let block { return .blocked(block) }
@@ -841,15 +862,7 @@ public final class CommitDialogModel: ObservableObject {
         let planned = selectedFiles
         let amendNow = amend
         let messageNow = message
-        // Pinned at entry with the rest of the intent, not re-read after the
-        // commit. The switches stay live while this runs (a sheet disables the main
-        // menu no more than it disables its own controls), and the commit is the
-        // long part — hooks, signing — so reading it afterwards let a tick made in
-        // that window publish to a remote the user had not armed at the moment they
-        // pressed Commit, and an untick silently drop a push they had. Every other
-        // input above is pinned for exactly this reason; the view disables the
-        // toggle while `isRunning` so what is on screen cannot disagree with it.
-        let pushNow = pushAfterCommit
+        let pushNow = push
         // The branch the push is decided *for*, read now rather than taken from
         // the `context` published at load: a `git checkout` in the embedded
         // terminal while the sheet was up leaves the load-time plan naming the
