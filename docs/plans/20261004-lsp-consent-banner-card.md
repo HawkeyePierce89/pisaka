@@ -186,12 +186,12 @@ The design's Banner values are restated here as literals. The design file is not
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run `swift test`: all suites green, including every `ChromeThemeSourceGatingTests` pin naming `LSPConsentBanner.swift`.
-- [ ] Run `make test-app`: the app-layer bundle is green, including `LSPConsentCardLayoutTests`.
-- [ ] Run `swiftlint --strict` from the repository root: clean.
-- [ ] Run `make build`: the macOS Release build succeeds.
-- [ ] The iOS build is not required, because no Core file changed. Confirm that with `git diff --stat`, and run `make build-ios` if anything under `Sources/PisakaCore` did change.
-- [ ] Confirm by reading the diff that:
+- [x] Run `swift test`: all suites green, including every `ChromeThemeSourceGatingTests` pin naming `LSPConsentBanner.swift`.
+- [x] Run `make test-app`: the app-layer bundle is green, including `LSPConsentCardLayoutTests`.
+- [x] Run `swiftlint --strict` from the repository root: clean.
+- [x] Run `make build`: the macOS Release build succeeds.
+- [x] The iOS build is not required, because no Core file changed. Confirm that with `git diff --stat`, and run `make build-ios` if anything under `Sources/PisakaCore` did change. (Confirmed: nothing under `Sources/PisakaCore` changed.)
+- [x] Confirm by reading the diff that:
   - no `Divider()`, no hex literal and no numeric font size was introduced, other than the icon's `metrics.scaled(16)`;
   - no `.keyboardShortcut` was introduced;
   - no glyph-size exemption names `LSPConsentBanner.swift`;
