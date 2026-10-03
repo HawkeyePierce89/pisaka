@@ -304,7 +304,7 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`
 
-- [ ] Rule forty-six still reads with the literal-keeping scanner, because the subject is a literal. Extensions:
+- [x] Rule forty-six still reads with the literal-keeping scanner, because the subject is a literal. Extensions:
   - The load needles grow from `Image(` and `NSImage(named:` to also cover:
     - `Image.init(`
     - `NSImage.init(named:`
@@ -314,9 +314,9 @@ Facts established while planning, which the tasks rely on:
   - `Image(systemName:`, `Image.init(systemName:` and `NSImage(systemSymbolName:` stay exempt as symbol loads.
   - An argument naming the token `rawValue` is refused alongside `assetName` and the glyph-name literals.
   - The helper's own two loads stay counted at exactly two.
-- [ ] The rule's matcher becomes a static function. A self-check test feeds it inline snippets of every bypass and requires each to be flagged: the raw value, a literal through each new spelling, and the resource loaders. It also requires the two symbol-load spellings to pass.
-- [ ] Update the suite header's rule bullet. In the "stated exceptions" paragraph, record the extended literal-keeping reading and its reason. Correct the two stale "three" counts of literal-keeping rules to "four". Update `core-theme.md`'s rule forty-six entry. The rule count stays forty-six.
-- [ ] Run the gates. They must pass before Task 9.
+- [x] The rule's matcher becomes a static function. A self-check test feeds it inline snippets of every bypass and requires each to be flagged: the raw value, a literal through each new spelling, and the resource loaders. It also requires the two symbol-load spellings to pass.
+- [x] Update the suite header's rule bullet. In the "stated exceptions" paragraph, record the extended literal-keeping reading and its reason. Correct the two stale "three" counts of literal-keeping rules to "four". Update `core-theme.md`'s rule forty-six entry. The rule count stays forty-six.
+- [x] Run the gates. They must pass before Task 9.
 
 ### Task 9: Log filter bar spinner slot and the window-width probe
 

@@ -3452,11 +3452,19 @@ The forty-six rules, each invisible to the compiler:
 46. **Design glyphs are drawn only through the helper.** Every macOS source
     under `Sources/Pisaka/` (the iOS directory aside) other than
     `DesignGlyphImage.swift` is read through the comments-only scanner, literals
-    kept — the name an image is loaded by *is* a literal — and no `Image(` or
-    `NSImage(named:` call in it may name a glyph: neither a string literal equal
-    to a `DesignGlyph` raw value nor the token `assetName`. `Image(systemName:`
-    is a different call and is not matched; `AppIcon` is not a glyph and stays
-    exempt. The helper must itself load by `assetName` exactly twice, once per
+    kept — the name an image is loaded by *is* a literal, and a resource's name
+    is the same literal — and no load in it may name a glyph. A load is
+    `Image(` or `NSImage(named:`, each also spelled through `.init(`, or one of
+    the resource loaders `ImageResource(`, `NSImage(resource:` and
+    `image(forResource:`; naming a glyph is a string literal equal to a
+    `DesignGlyph` raw value, or the token `assetName` or `rawValue`. The symbol
+    loads — `Image(systemName:`, `Image.init(systemName:` and
+    `NSImage(systemSymbolName:` — are different calls and are not matched;
+    `AppIcon` is not a glyph and stays exempt. The matcher is a static function,
+    `glyphLoadsNamingAGlyph(in:)`, and a self-check
+    (`testTheGlyphRuleFlagsEveryLoadSpelling`) feeds it an inline snippet of
+    every bypass — the raw value, a literal through each spelling, the resource
+    loaders — requiring each to be flagged and the symbol loads to pass. The helper must itself load by `assetName` exactly twice, once per
     half, so the rule cannot read nothing. A glyph loaded inline compiles and
     draws — untinted by the theme, or announced by its asset name.
 
