@@ -864,7 +864,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     with a hairline divider — a plain `DiffDividerView` filling itself with the
     `hairline` role, `ChromeGeometry.hairlineWidth` wide and *unscaled* under
     the token's stated code-zoom exception (the panes have no interface scale to
-    ask). **It fills `bounds`, never the rect `draw(_:)` is handed.** It once
+    ask). **The split is pixel-aligned**: the left pane's width is rounded down
+    to the window's backing pixel grid, so the divider starts on a pixel
+    boundary and the right pane takes what remains (no frame goes negative at
+    any width). At a fractional offset the one-point rule was drawn as two
+    half-covered columns — a blurred two-pixel line — and the render test's
+    read of the straddled column depended on the machine. **It fills `bounds`, never the rect `draw(_:)` is handed.** It once
     filled `dirtyRect`, and since macOS 14 `NSView.clipsToBounds` defaults to
     `false`, so that rect is not limited to the view: the divider painted
     `hairline` over everything beneath it in z-order — everything in the

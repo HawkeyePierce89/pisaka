@@ -526,10 +526,17 @@ final class DiffContainerView: NSView {
         let width = bounds.width
         let height = bounds.height
         let dividerWidth = CGFloat(ChromeGeometry.hairlineWidth)
-        let paneWidth = max(0, (width - dividerWidth) / 2)
+        // The left pane's width is rounded to the backing pixel grid so the
+        // divider starts on a pixel boundary: a one-point rule at a fractional
+        // offset is drawn as two half-covered columns — a blurred two-pixel line
+        // — and the render test reads it as one whole column.
+        let pixels = window?.backingScaleFactor ?? 1
+        let paneWidth = max(0, ((width - dividerWidth) / 2 * pixels).rounded(.down) / pixels)
+        let dividerVisible = min(dividerWidth, max(0, width - paneWidth))
         leftScroll.frame = NSRect(x: 0, y: 0, width: paneWidth, height: height)
-        divider.frame = NSRect(x: paneWidth, y: 0, width: dividerWidth, height: height)
-        rightScroll.frame = NSRect(x: paneWidth + dividerWidth, y: 0, width: width - paneWidth - dividerWidth, height: height)
+        divider.frame = NSRect(x: paneWidth, y: 0, width: dividerVisible, height: height)
+        let rightX = paneWidth + dividerVisible
+        rightScroll.frame = NSRect(x: rightX, y: 0, width: max(0, width - rightX), height: height)
     }
 }
 

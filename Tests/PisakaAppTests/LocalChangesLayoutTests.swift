@@ -43,10 +43,15 @@ import PisakaCore
 /// Positive: the modified letter's colour and the name's `textPrimary` in the
 /// file row, the header's `textSecondary` path, and the divider between the
 /// panes (found from the hosted `DiffContainerView`'s subviews) carrying
-/// `hairline` — read as the leftmost pixel column's blend between the left
-/// pane's `bgEditor` and `hairline`, against the share of that pixel the
-/// one-point divider covers, because at 1.8 the split lands it on a half pixel
-/// and its right half is drawn over by the right pane. Negative: no pixel
+/// `hairline` — read as one pixel column lying wholly inside the divider's
+/// hosted frame, matched exactly against the left pane's `bgEditor` ground, and
+/// failing loudly when no column is whole. The split rounds the left pane to the
+/// backing pixel grid, so the one-point divider covers whole columns. This read
+/// replaced a blend of the straddled column against the share the divider
+/// covered: on the macOS 15 CI runner that column read darker than the ground
+/// itself at 1.8, which the developer machine never reproduced with either
+/// scroller style — the reading of a half-covered column is the machine's, not
+/// the product's. Negative: no pixel
 /// matching `hairline` in exactly these bands, computed from the hosted frames
 /// (the list's `NSScrollView` and the `DiffContainerView`) and the panel's
 /// scaled measurements, never from pixel offsets:
@@ -365,11 +370,17 @@ final class LocalChangesLayoutTests: XCTestCase {
             container.subviews.first { $0 is DiffDividerView }, file: file, line: line
         )
         let dividerFrame = render.host.convert(divider.bounds, from: divider)
-        let share = try XCTUnwrap(dividerLeftShare(in: render, frame: dividerFrame), file: file, line: line)
-        XCTAssertEqual(
-            share.painted, share.expected, accuracy: 0.15,
-            "the divider between the diff panes is not hairline at scale \(scale): \(share)",
+        let column = try XCTUnwrap(
+            Self.wholeColumn(inside: dividerFrame, pixelScale: render.pixelScale),
+            "no pixel column lies wholly inside the divider \(dividerFrame) at scale \(scale)",
             file: file, line: line
+        )
+        XCTAssertTrue(
+            render.matches(
+                .hairline, atX: (CGFloat(column) + 0.5) / render.pixelScale, y: dividerFrame.midY,
+                ground: theme.color(.bgEditor)
+            ),
+            "the divider between the diff panes is not hairline at scale \(scale)", file: file, line: line
         )
 
         // No `hairline` pixel in either band. The rows band runs from the
@@ -401,30 +412,13 @@ final class LocalChangesLayoutTests: XCTestCase {
         }
     }
 
-    /// The `hairline` share of the leftmost pixel column `frame` overlaps,
-    /// read at `frame`'s vertical middle as that pixel's blend between the left
-    /// pane's `bgEditor` ground and `hairline` — against the fraction of the
-    /// pixel the frame covers. The divider is one point wide at a position the
-    /// split computes, so at a fractional scale it straddles two pixels and
-    /// neither is pure `hairline`; its right half is the right pane's (added
-    /// after it, so drawn over it), which is why only the left column is read.
-    private func dividerLeftShare(
-        in render: HostedRender, frame: CGRect
-    ) -> (painted: Double, expected: Double)? {
-        guard
-            let hairline = HostedRender.swatch(.hairline, ground: nil),
-            let ground = HostedRender.swatch(.bgEditor, ground: nil)
-        else { return nil }
-        let left = frame.minX * render.pixelScale
-        let column = left.rounded(.down)
-        let covered = min(column + 1, frame.maxX * render.pixelScale) - left
-        guard let c = render.color(atPixelX: Int(column), y: frame.midY) else { return nil }
-        let shares = [
-            (c.redComponent - ground.redComponent) / (hairline.redComponent - ground.redComponent),
-            (c.greenComponent - ground.greenComponent) / (hairline.greenComponent - ground.greenComponent),
-            (c.blueComponent - ground.blueComponent) / (hairline.blueComponent - ground.blueComponent),
-        ]
-        return (Double(shares.reduce(0, +) / 3), Double(covered))
+    /// The first pixel column whose span `[column, column + 1) / pixelScale`
+    /// lies wholly inside `frame`'s horizontal extent, or `nil` when the frame
+    /// covers no column whole — a one-point divider at a fractional offset.
+    private static func wholeColumn(inside frame: CGRect, pixelScale: CGFloat) -> Int? {
+        let column = (frame.minX * pixelScale).rounded(.up)
+        guard column + 1 <= frame.maxX * pixelScale else { return nil }
+        return Int(column)
     }
 
     /// The separate diff window's content over the same rows: the left pane's
