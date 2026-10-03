@@ -1582,13 +1582,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     window's content view with nobody calling the method. It asserts the
     system title is hidden and `window.title` applied, and measures the label on
     **one window created once for the suite** (in the class `setUp`, closed in
-    the class `tearDown`) whose style mask is the app window's — titled,
+    the class `tearDown`, and reset by each test's `setUp` to 900 points with no
+    label, so every test's first apply is an install whatever ran before it)
+    whose style mask is the app window's — titled,
     closable, miniaturizable, resizable, `.fullSizeContentView`: the label's
     midX in window coordinates within one point of half the window's width,
     inside the title bar band, carrying the applied string; the centre following
     a resize from 900 to 1200 points; a long title truncated with the label
     still centred and its leading edge clear of the zoom button; and exactly one
-    label after a second `apply`. It drives the title the way the app does: the
+    label after a second `apply`, a long title applied over it still clearing
+    the zoom button (the update path keeps the width cap). It drives the title the way the app does: the
     representable hosted over a real `WorkspaceModel` in a titled window, both
     `window.title` and the label's string read back as the workspace opens a
     folder, opens two files and switches back — so a marker that titled the

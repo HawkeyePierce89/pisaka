@@ -147,6 +147,10 @@ final class LocalChangesModelTests: XCTestCase {
         /// Working-copy stamps keyed by absolute path; a missing entry is the
         /// protocol's "unknown".
         var stampsByPath: [String: FileStamp] = [:]
+        /// When set, the next `read` blocks in it — a causal rendezvous for a
+        /// test superseding a load during its working-copy read. Cleared on
+        /// entry, so only one read is held.
+        var readGate: Gate?
 
         private let lock = NSLock()
         private var recordedReads: [(path: String, onMainThread: Bool)] = []
@@ -162,7 +166,10 @@ final class LocalChangesModelTests: XCTestCase {
             let onMainThread = Thread.isMainThread
             lock.lock()
             recordedReads.append((url.path, onMainThread))
+            let gate = readGate
+            readGate = nil
             lock.unlock()
+            gate?.wait()
             if let text = contentsByPath[url.path] { return text }
             throw CocoaError(.fileReadNoSuchFile)
         }
@@ -2054,6 +2061,149 @@ final class LocalChangesModelTests: XCTestCase {
         let diffReads = files.reads.filter { $0.path == "/repo/a.swift" }
         XCTAssertEqual(diffReads.count, 1)
         XCTAssertEqual(diffReads.first?.onMainThread, false)
+    }
+
+    // MARK: - inline diff: a failed read is shown empty but never remembered
+
+    func testAFailedWorkingReadIsReReadOnTheNextRefresh() async {
+        // The stat succeeds but the read throws: the side shows empty, and the
+        // next refresh with the same stamp reads it again rather than keeping
+        // "every line deleted" as the file's diff.
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified, headObject: "h1")]
+        git.headByPath["a.swift"] = "old\n"
+        let files = StubFiles()
+        files.stampsByPath["/repo/a.swift"] = stampA
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(git.files[0])
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "")))
+        XCTAssertNil(model.selectionDiff?.fingerprint.workingStamp)
+
+        files.contentsByPath["/repo/a.swift"] = "new\n"
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "new\n")))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampA)
+    }
+
+    func testAFailedHeadReadIsReReadOnTheNextRefresh() async {
+        // A modified file's `git show HEAD:` answers nothing: the old side shows
+        // empty, and the next refresh with the same object id reads it again.
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified, headObject: "h1")]
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.swift"] = "new\n"
+        files.stampsByPath["/repo/a.swift"] = stampA
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(git.files[0])
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "", new: "new\n")))
+        XCTAssertNil(model.selectionDiff?.fingerprint.headObject)
+
+        git.headByPath["a.swift"] = "old\n"
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(git.headReads, ["a.swift", "a.swift"])
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "new\n")))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.headObject, "h1")
+    }
+
+    // MARK: - inline diff: which sides each status reads
+
+    func testARenamedFilesInlineDiffReadsHeadAtTheOldPath() async {
+        let git = StubGit()
+        let file = ChangedFile(path: "new/b.swift", status: .renamed, oldPath: "old/b.swift", headObject: "h1")
+        git.files = [file]
+        git.headByPath["old/b.swift"] = "before\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/new/b.swift"] = "after\n"
+        files.stampsByPath["/repo/new/b.swift"] = stampA
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(file)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(git.headReads, ["old/b.swift"])
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "before\n", new: "after\n")))
+    }
+
+    func testAddedAndUntrackedFilesReadNoHead() async {
+        for status in [FileStatus.added, .untracked] {
+            let git = StubGit()
+            let file = ChangedFile(path: "a.swift", status: status)
+            git.files = [file]
+            git.headByPath["a.swift"] = "never read\n"
+            let files = StubFiles()
+            files.contentsByPath["/repo/a.swift"] = "a\n"
+            files.stampsByPath["/repo/a.swift"] = stampA
+            let model = makeModel(git: git, files: files)
+            await model.refresh(root: root)
+            model.select(file)
+            await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+            XCTAssertEqual(git.headReads, [], "\(status)")
+            XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "", new: "a\n")), "\(status)")
+
+            // Both sides known (no HEAD side to identify): an unchanged refresh skips.
+            await model.refresh(root: root)
+            await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+            XCTAssertEqual(files.reads.count, 1, "\(status)")
+        }
+    }
+
+    func testADeletedFileReadsNoWorkingCopyAndSkipsAnUnchangedRefresh() async {
+        let git = StubGit()
+        let file = ChangedFile(path: "a.swift", status: .deleted, headObject: "h1")
+        git.files = [file]
+        git.headByPath["a.swift"] = "gone\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.swift"] = "never read\n"
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(file)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(files.reads.count, 0)
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "gone\n", new: "")))
+
+        await model.refresh(root: root)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(git.headReads, ["a.swift"], "an unchanged deleted file is not read again")
+    }
+
+    func testALoadSupersededDuringItsWorkingReadNeverReadsHead() async {
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified, headObject: "h1")
+        let newer = ChangedFile(path: "newer.swift", status: .modified, headObject: "h2")
+        git.files = [older, newer]
+        git.headByPath = ["older.swift": "o1\n", "newer.swift": "n1\n"]
+        let files = StubFiles()
+        files.contentsByPath = ["/repo/older.swift": "o2\n", "/repo/newer.swift": "n2\n"]
+        let gate = Gate()
+        files.readGate = gate
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+
+        model.select(older)
+        let olderToken = model.beginSelectionDiffLoad()
+        let olderLoad = Task { await model.loadSelectionDiff(token: olderToken) }
+        await gate.waitUntilReached()
+
+        model.select(newer)
+        let newerToken = model.beginSelectionDiffLoad()
+        gate.release()
+        await olderLoad.value
+        XCTAssertEqual(git.headReads, [], "the superseded load went on to read HEAD")
+        XCTAssertNil(model.selectionDiff)
+
+        await model.loadSelectionDiff(token: newerToken)
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "n1\n", new: "n2\n")))
     }
 
     // MARK: - inline diff: binary and oversized files are refused

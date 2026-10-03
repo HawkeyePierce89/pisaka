@@ -868,18 +868,26 @@ public final class LocalChangesModel: ObservableObject {
             LocalChangesInlineDiff.workingSide(for: file, url: url, stamp: stamp, fileService: fileService)
         }
         guard token == selectionDiffGeneration else { return }
+        let head: LocalChangesInlineDiff.Side
         let content: LocalChangesInlineDiff.Content
         if working.isRefusal {
-            content = LocalChangesInlineDiff.content(head: .absent, working: working)
+            head = .absent
+            content = LocalChangesInlineDiff.content(head: head, working: working)
         } else {
-            let headData = await headBlob(for: file, root: root)
+            let expected = fingerprint.hasHeadSide
+            let headData = expected ? await headBlob(of: file.oldPath ?? file.path, root: root) : nil
             guard token == selectionDiffGeneration else { return }
-            content = await offMain {
-                LocalChangesInlineDiff.content(head: LocalChangesInlineDiff.headSide(headData), working: working)
+            (head, content) = await offMain {
+                let side = LocalChangesInlineDiff.headSide(headData, expected: expected)
+                return (side, LocalChangesInlineDiff.content(head: side, working: working))
             }
         }
         guard token == selectionDiffGeneration else { return }
-        selectionDiff = SelectionDiff(file: file, content: content, fingerprint: fingerprint)
+        selectionDiff = SelectionDiff(
+            file: file,
+            content: content,
+            fingerprint: fingerprint.remembering(head: head, working: working)
+        )
     }
 
     /// Serial, so inline-diff work runs one load after another off the main
@@ -905,7 +913,7 @@ public final class LocalChangesModel: ObservableObject {
         guard let root else { return [] }
         return LineDiff.rows(
             old: await headText(for: file, root: root),
-            new: Self.workingText(for: file, url: root.appendingPathComponent(file.path), fileService: fileService)
+            new: workingText(for: file, root: root)
         )
     }
 
@@ -926,23 +934,19 @@ public final class LocalChangesModel: ObservableObject {
     }
 
     /// The inline diff's `HEAD` side as bytes, so a binary blob is classified
-    /// rather than lossily decoded into lines; `nil` for a file `HEAD` does not
-    /// hold, or when the read fails (an empty old side, as `headText`). For a
-    /// rename, `HEAD` is read from `oldPath`.
-    private func headBlob(for file: ChangedFile, root: URL) async -> Data? {
-        switch file.status {
-        case .added, .untracked:
-            return nil
-        case .modified, .deleted, .renamed, .conflicted:
-            return (try? await gitService.headBlob(of: file.oldPath ?? file.path, root: root)).flatMap { $0 }
-        }
+    /// rather than lossily decoded into lines; `nil` when `HEAD` does not hold
+    /// `path` or the read fails. Asked only for a file with a `HEAD` side
+    /// (`Fingerprint.hasHeadSide`), at `oldPath` for a rename.
+    private func headBlob(of path: String, root: URL) async -> Data? {
+        (try? await gitService.headBlob(of: path, root: root)).flatMap { $0 }
     }
 
     /// The diff window's working side (`rows(for:)`); the inline diff classifies
     /// its own through `LocalChangesInlineDiff.workingSide`.
-    private static func workingText(for file: ChangedFile, url: URL, fileService: FileServicing) -> String {
+    private func workingText(for file: ChangedFile, root: URL) -> String {
         // A deleted file has no working copy; the new side is empty.
         guard file.status != .deleted else { return "" }
+        let url = root.appendingPathComponent(file.path)
         // Git stores a symlink's *target string* as its blob (so `HEAD` reads it
         // back), so the working side must compare against that target, not the
         // dereferenced target file's contents — reading through the link would

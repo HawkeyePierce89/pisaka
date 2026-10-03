@@ -95,10 +95,7 @@ public enum ChangedFileGroups {
     /// the project folder when the file lies under it, repository-relative
     /// otherwise.
     public static func displayPath(_ path: String, projectPrefix: String) -> String {
-        guard !projectPrefix.isEmpty else { return path }
-        let lead = projectPrefix + "/"
-        guard path.hasPrefix(lead) else { return path }
-        return String(path.dropFirst(lead.count))
+        projectRelative(directory: path, projectPrefix: projectPrefix) ?? path
     }
 
     /// A repository-relative directory relative to the project folder: `""`

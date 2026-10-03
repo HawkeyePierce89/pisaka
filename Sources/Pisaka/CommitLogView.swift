@@ -387,7 +387,8 @@ struct CommitLogView: View {
 /// so a spinner that came and went would change the measured width on every
 /// load and could flip the strip between its layouts while the history
 /// loads. Hidden, the slot is also hidden from accessibility, so VoiceOver
-/// never announces a load that is not happening.
+/// never announces a load that is not happening, and its schedule is paused
+/// (`isTurning`), so an invisible arc is never redrawn frame after frame.
 struct CommitLogRefreshControls: View {
     let isLoading: Bool
     let isEnabled: Bool
@@ -400,7 +401,7 @@ struct CommitLogRefreshControls: View {
 
     var body: some View {
         HStack(spacing: metrics.scaled(CommitLogLayout.refreshGap)) {
-            ChromeSpinner()
+            ChromeSpinner(isTurning: isLoading)
                 .accessibilityLabel("Loading commits")
                 .opacity(isLoading ? 1 : 0)
                 .accessibilityHidden(!isLoading)

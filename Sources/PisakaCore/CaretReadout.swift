@@ -131,16 +131,12 @@ public enum CaretReadout {
             let search = anchor(in: text, from: lower, lineStart: lineStart)
             work += search.examined
             if let anchor = search.anchor {
-                let back = memo.offset - anchor
-                let forward = caret - anchor
-                work += back + forward
-                let atAnchor = memo.column - clusterCount(text, from: anchor, to: memo.offset)
-                let column = atAnchor + clusterCount(text, from: anchor, to: caret)
+                let atAnchor = memo.column - clusterCount(text, from: anchor, to: memo.offset, work: &work)
+                let column = atAnchor + clusterCount(text, from: anchor, to: caret, work: &work)
                 return (index + 1, column, ColumnMemo(lineStart: lineStart, offset: caret, column: column), work)
             }
         }
-        work += caret - lineStart
-        let column = clusterCount(text, from: lineStart, to: caret) + 1
+        let column = clusterCount(text, from: lineStart, to: caret, work: &work) + 1
         return (index + 1, column, ColumnMemo(lineStart: lineStart, offset: caret, column: column), work)
     }
 
@@ -172,8 +168,12 @@ public enum CaretReadout {
         unit >= 0x20 && unit <= 0x7E
     }
 
-    private static func clusterCount(_ text: NSString, from start: Int, to end: Int) -> Int {
-        text.substring(with: NSRange(location: start, length: end - start)).count
+    /// The grapheme clusters in `[start, end)`, charging `work` with the units
+    /// it scans — here, where the scan happens, so a count over a wider range
+    /// than the incremental path needs is charged for that range.
+    private static func clusterCount(_ text: NSString, from start: Int, to end: Int, work: inout Int) -> Int {
+        work += end - start
+        return text.substring(with: NSRange(location: start, length: end - start)).count
     }
 
     /// `position(text:caretOffset:lineStarts:)` over the whole text's table.

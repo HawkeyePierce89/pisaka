@@ -29,7 +29,8 @@ import PisakaCore
 ///
 /// **The inline-diff placeholders.** A selected binary or over-cap file is
 /// rendered once per state; the detail area beside the list must draw
-/// `textSecondary` text where the rows would sit, and no diff-row wash — its
+/// `textSecondary` text where the rows would sit, shaped like a reference render
+/// of that state's sentence rather than of "Loading…", and no diff-row wash — its
 /// two outer strips are the panel's ground and nothing else.
 @MainActor
 final class LocalChangesLayoutTests: XCTestCase {
@@ -149,18 +150,19 @@ final class LocalChangesLayoutTests: XCTestCase {
     func testABinaryFileShowsThePlaceholderInPlaceOfTheRows() async throws {
         let files = StubFiles()
         files.text = "a\u{0}b\n"
-        try await assertPlaceholder(files: files, expected: .binary)
+        try await assertPlaceholder(files: files, expected: .binary, text: "Binary file")
     }
 
     func testAnOverCapFileShowsThePlaceholderInPlaceOfTheRows() async throws {
         let files = StubFiles()
         files.stamp = FileStamp(byteCount: LocalChangesInlineDiff.maxSideBytes + 1, modificationDate: nil)
-        try await assertPlaceholder(files: files, expected: .tooLarge)
+        try await assertPlaceholder(files: files, expected: .tooLarge, text: "Too large to show inline")
     }
 
     private func assertPlaceholder(
         files: StubFiles,
         expected: LocalChangesInlineDiff.Content,
+        text expectedText: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -209,6 +211,41 @@ final class LocalChangesLayoutTests: XCTestCase {
             }
             XCTAssertNil(drawn, "the detail drew a diff row under a placeholder at \(strip)", file: file, line: line)
         }
+
+        // Which sentence it is: every placeholder is drawn alike, so the ink is
+        // read by shape — its mask compared with reference renders of the
+        // expected sentence and of "Loading…", the one a stale
+        // `diff.file == selected` check would leave standing — and must be the
+        // closer to the expected one. ("Binary file" and "Loading…" are within
+        // two points of each other in width, so width alone cannot tell.)
+        guard let text else { return }
+        let drawn = inkMask(in: render, rows: rows, columns: text)
+        let expectedDistance = distance(drawn, try referenceMask(of: expectedText, theme: theme))
+        let loadingDistance = distance(drawn, try referenceMask(of: "Loading…", theme: theme))
+        XCTAssertLessThan(
+            expectedDistance, loadingDistance,
+            "the placeholder reads closer to \"Loading…\" than to \"\(expectedText)\"", file: file, line: line
+        )
+    }
+
+    /// The ink mask of `sentence` drawn as the panel's placeholders are:
+    /// `textSecondary`, the callout size, on the panel ground.
+    private func referenceMask(of sentence: String, theme: ChromeTheme) throws -> Set<InkPixel> {
+        let panel = theme.color(.bgPanel)
+        let metrics = InterfaceMetrics(scale: 1)
+        let render = try HostedRender(
+            size: CGSize(width: 568, height: 60),
+            root: Text(sentence)
+                .foregroundStyle(theme.color(.textSecondary))
+                .font(metrics.scaledFont(.callout))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(panel)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let extent = try XCTUnwrap(xExtent(in: render, rows: 0..<60, columns: 0..<568) {
+            render.matches(.textSecondary, atX: $0, y: $1, ground: panel)
+        })
+        return inkMask(in: render, rows: 0..<60, columns: extent)
     }
 
     // MARK: - Glyph shapes

@@ -187,6 +187,18 @@ final class MainWindowChromeTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Every placement test starts from the same state whatever ran before it:
+    /// the shared window back at 900 points with no label, so each one's first
+    /// apply is an install and only a test's own second apply is an update.
+    override func setUp() {
+        super.setUp()
+        guard let window = Self.placementWindow else { return }
+        window.standardWindowButton(.closeButton)?.superview?.subviews
+            .filter { $0.identifier == MainWindowChrome.titleLabelIdentifier }
+            .forEach { $0.removeFromSuperview() }
+        window.setContentSize(NSSize(width: 900, height: 600))
+    }
+
     /// The label the chrome installed, its frame in window coordinates, and the
     /// title bar's band in window coordinates.
     private func titleLabel(in window: NSWindow) throws -> (label: NSTextField, frame: NSRect, band: NSRect) {
@@ -236,8 +248,15 @@ final class MainWindowChromeTests: XCTestCase {
         let window = try XCTUnwrap(Self.placementWindow)
         MainWindowChrome.apply(to: window, title: "first")
         MainWindowChrome.apply(to: window, title: "second")
-        let placed = try titleLabel(in: window)
+        var placed = try titleLabel(in: window)
         XCTAssertEqual(placed.label.stringValue, "second", "a repeated apply updates the label")
+
+        // The update path keeps the width cap: a long title applied over an
+        // installed label still clears the window buttons.
+        MainWindowChrome.apply(to: window, title: String(repeating: "very-long-project-name ", count: 20))
+        placed = try titleLabel(in: window)
+        let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+        XCTAssertGreaterThanOrEqual(placed.frame.minX, zoom.convert(zoom.bounds, to: nil).maxX, "never under the window buttons")
     }
 
     func testTheHostedChromeTitlesTheWindowFromTheWorkspace() throws {

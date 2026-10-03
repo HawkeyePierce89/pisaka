@@ -113,11 +113,10 @@ struct MainWindowChrome: NSViewRepresentable {
     private static func applyTitleLabel(to window: NSWindow, title: String) {
         guard let close = window.standardWindowButton(.closeButton),
               let titleBar = close.superview else { return }
-        let buttonsTrailing = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+        let buttonsTrailing = [NSWindow.ButtonType.miniaturizeButton, .zoomButton]
             .compactMap { window.standardWindowButton($0) }
             .filter { $0.superview === titleBar }
-            .map(\.frame.maxX)
-            .max() ?? close.frame.maxX
+            .reduce(close.frame.maxX) { max($0, $1.frame.maxX) }
         let widthInset = -2 * (buttonsTrailing + titleLabelButtonGap)
 
         if let label = titleBar.subviews.first(where: { $0.identifier == titleLabelIdentifier }) as? NSTextField {

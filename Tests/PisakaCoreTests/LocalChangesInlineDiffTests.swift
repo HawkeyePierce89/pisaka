@@ -192,11 +192,44 @@ final class LocalChangesInlineDiffTests: XCTestCase {
         )
     }
 
-    func testASymlinkIsItsTargetStringAndAFailedReadIsAbsent() {
+    func testASymlinkIsItsTargetStringAndAFailedReadIsUnreadable() {
         let files = Files()
         files.symlinkTarget = "/elsewhere"
         XCTAssertEqual(working(files), .text("/elsewhere"))
         XCTAssertEqual(files.reads, 0)
-        XCTAssertEqual(working(Files()), .absent)
+        XCTAssertEqual(working(Files()), .unreadable)
+    }
+
+    func testAMissingExpectedHeadIsUnreadableAndAnUnexpectedOneAbsent() {
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(nil, expected: true), .unreadable)
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(nil, expected: false), .absent)
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(Data("a\n".utf8), expected: true), .text("a\n"))
+    }
+
+    func testAnUnreadableSideIsShownEmpty() {
+        XCTAssertEqual(
+            LocalChangesInlineDiff.content(head: .unreadable, working: .text("a\n")),
+            .rows(LineDiff.rows(old: "", new: "a\n"))
+        )
+        XCTAssertEqual(
+            LocalChangesInlineDiff.content(head: .text("a\n"), working: .unreadable),
+            .rows(LineDiff.rows(old: "a\n", new: ""))
+        )
+        XCTAssertFalse(LocalChangesInlineDiff.Side.unreadable.isRefusal)
+    }
+
+    func testRememberingForgetsOnlyTheUnreadableSidesIdentity() {
+        let file = ChangedFile(path: "a.swift", status: .modified, headObject: "h1")
+        let full = fingerprint(file, stamp: stamp)
+        XCTAssertEqual(full.remembering(head: .text(""), working: .text("")), full)
+        let noHead = full.remembering(head: .unreadable, working: .text(""))
+        XCTAssertNil(noHead.headObject)
+        XCTAssertEqual(noHead.workingStamp, stamp)
+        let noWorking = full.remembering(head: .absent, working: .unreadable)
+        XCTAssertEqual(noWorking.headObject, "h1")
+        XCTAssertNil(noWorking.workingStamp)
+        // Forgotten means the next load rebuilds even with nothing changed.
+        XCTAssertTrue(needsRebuild(noHead, full))
+        XCTAssertTrue(needsRebuild(noWorking, full))
     }
 }

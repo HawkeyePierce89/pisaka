@@ -35,9 +35,14 @@ public enum LocalChangesInlineDiff {
 
     /// One side of the diff, classified before it is ever turned into lines.
     public enum Side: Equatable {
-        /// The side does not exist: an added/untracked file's `HEAD`, a deleted
-        /// file's working copy, or a working read that failed.
+        /// The side does not exist: an added/untracked file's `HEAD` or a
+        /// deleted file's working copy.
         case absent
+        /// The side should exist but its read failed. Shown as an empty side,
+        /// like `.absent`, but never remembered: `Fingerprint.remembering`
+        /// forgets that side's identity, so the next load re-reads it rather
+        /// than leaving one transient failure standing as the file's diff.
+        case unreadable
         case text(String)
         case binary
         case tooLarge
@@ -47,7 +52,7 @@ public enum LocalChangesInlineDiff {
         public var isRefusal: Bool {
             switch self {
             case .binary, .tooLarge: return true
-            case .absent, .text: return false
+            case .absent, .unreadable, .text: return false
             }
         }
     }
@@ -60,8 +65,9 @@ public enum LocalChangesInlineDiff {
     /// over `maxSideBytes` is `.tooLarge` with no read at all; otherwise the file
     /// is read through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
     /// `.binary` (an unknown size that turns out over the cap lands there too —
-    /// either way there are no lines to show). A read that throws is `.absent`,
-    /// the empty side the diff has always shown for an unreadable file.
+    /// either way there are no lines to show). A read that throws is
+    /// `.unreadable`: shown as the empty side the diff has always shown for an
+    /// unreadable file, but not remembered.
     ///
     /// Runs off the main actor: it touches nothing but `fileService`.
     public static func workingSide(
@@ -79,13 +85,17 @@ public enum LocalChangesInlineDiff {
             }
             return .text(text)
         } catch {
-            return .absent
+            return .unreadable
         }
     }
 
     /// The `HEAD` blob, classified: over `maxSideBytes` is `.tooLarge`, otherwise
-    /// `GitBlobText.classify` decides — `nil` (no object) is `.absent`.
-    public static func headSide(_ data: Data?) -> Side {
+    /// `GitBlobText.classify` decides. `nil` (no object, or a read that failed)
+    /// is `.absent` — unless the side was `expected` (`Fingerprint.hasHeadSide`),
+    /// when it is `.unreadable`: `HEAD` holds a file of that status, so a missing
+    /// answer is a failed read, not an empty side to remember.
+    public static func headSide(_ data: Data?, expected: Bool = false) -> Side {
+        if data == nil && expected { return .unreadable }
         if let data, data.count > maxSideBytes { return .tooLarge }
         switch GitBlobText.classify(data) {
         case .absent: return .absent
@@ -105,7 +115,7 @@ public enum LocalChangesInlineDiff {
             switch side {
             case .tooLarge: return .tooLarge
             case .binary: return .binary
-            case .absent, .text: continue
+            case .absent, .unreadable, .text: continue
             }
         }
         return .rows(LineDiff.rows(old: head.text, new: working.text))
@@ -131,12 +141,45 @@ public enum LocalChangesInlineDiff {
         public let workingStamp: FileStamp?
 
         public init(file: ChangedFile, root: URL, workingStamp: FileStamp?) {
+            self.init(
+                root: root,
+                status: file.status,
+                path: file.path,
+                oldPath: file.oldPath,
+                headObject: file.headObject,
+                workingStamp: workingStamp
+            )
+        }
+
+        private init(
+            root: URL,
+            status: FileStatus,
+            path: String,
+            oldPath: String?,
+            headObject: String?,
+            workingStamp: FileStamp?
+        ) {
             self.root = root
-            self.status = file.status
-            self.path = file.path
-            self.oldPath = file.oldPath
-            self.headObject = file.headObject
+            self.status = status
+            self.path = path
+            self.oldPath = oldPath
+            self.headObject = headObject
             self.workingStamp = workingStamp
+        }
+
+        /// The fingerprint to publish with content built from `head` and
+        /// `working`: this one, with the identity of each `.unreadable` side
+        /// forgotten, so `needsRebuild` treats it as unknown and the next load
+        /// re-reads it.
+        public func remembering(head: Side, working: Side) -> Fingerprint {
+            Fingerprint(
+                root: root,
+                status: status,
+                path: path,
+                oldPath: oldPath,
+                headObject: head == .unreadable ? nil : headObject,
+                workingStamp: working == .unreadable ? nil : workingStamp
+            )
         }
 
         /// Whether the diff reads a working copy: every status but `.deleted`.

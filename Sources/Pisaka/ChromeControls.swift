@@ -704,7 +704,13 @@ struct ChromeMenuField<Value: Hashable>: View {
 /// There is no label parameter and no default label: a default would be exactly
 /// the duplicate the first marker avoids, and a missing marker would be an
 /// unnamed element. The body carries `.updatesFrequently`, inert when hidden.
+///
+/// `isTurning` is for the one site that keeps a spinner laid out while nothing
+/// loads (`CommitLogRefreshControls`): `false` pauses the schedule exactly as
+/// Reduce Motion does, so a slot faded to zero opacity costs no frame.
 struct ChromeSpinner: View {
+    var isTurning = true
+
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -712,7 +718,7 @@ struct ChromeSpinner: View {
     var body: some View {
         let side = metrics.scaled(ChromeGeometry.spinnerSide)
         let lineWidth = metrics.scaled(ChromeGeometry.spinnerLineWidth)
-        TimelineView(.animation(minimumInterval: nil, paused: reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: nil, paused: reduceMotion || !isTurning)) { context in
             // Inset by half the stroke so the arc's outer edge meets the frame
             // rather than overhanging it.
             Circle()

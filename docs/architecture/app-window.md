@@ -1604,7 +1604,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     default width rather than a maximum computed from nothing (a split view
     adopts the ideal once). `TabColumnWidthProbeTests` pins the publishing with
     no view: two widths above the threshold publish once, a narrow one
-    publishes new bounds.
+    publishes new bounds, the bounds are `nil` before the first update, and a
+    zoom at an unchanged width publishes the zoomed bounds.
     A row is `ChromeGeometry.verticalTabRowHeight` (28) tall with `rowPaddingX`
     horizontal padding and a one-point `hairline` rule along its bottom edge
     (`hairlineWidth`, scaled), and states the strip's vocabulary turned through

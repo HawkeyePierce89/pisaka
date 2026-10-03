@@ -1846,7 +1846,11 @@ first shape latched a `@State` flag in `onAppear` and fed it to a value-scoped
 `.animation`; a spinner that appeared under Reduce Motion then stayed still for
 its whole life once the setting was switched off, because the flag never changed
 again — rule twenty's body clause (no `onAppear`, no `@State`, the reduce-motion
-property as the `TimelineView`'s `paused:` value) names that regression. Its accessibility is a **call-site contract**: a spinner
+property as the `TimelineView`'s `paused:` value) names that regression. One
+parameter, `isTurning` (default `true`), joins that value with an `||`: the Log's
+refresh controls keep their spinner laid out at zero opacity while idle and pass
+`false`, so the invisible arc's schedule is paused rather than redrawing every
+frame. Its accessibility is a **call-site contract**: a spinner
 speaks either its activity or nothing, decided where it is constructed, never
 both and never neither. A spinner whose neighbour already names the activity —
 a sentence or caption beside it — is `.accessibilityHidden(true)`, so VoiceOver

@@ -706,7 +706,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the panel's existing placeholder style: "Binary file" or "Too large to show
     inline". Double click, Show Diff and ⌘D still open the diff window through
     `rows(for:)`, unchanged. `LocalChangesLayoutTests` renders each placeholder
-    state once and asserts `textSecondary` text where the rows would sit and no
+    state once and asserts `textSecondary` text where the rows would sit, shaped
+    (by ink mask) more like a reference render of that state's sentence than of
+    "Loading…" — the two are too close in width for width alone — and no
     diff-row wash. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
@@ -911,8 +913,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     "Loading commits") and the refresh button (its label and help unchanged) —
     is handed to the bar as its `trailing` content, after the search field.
     **The spinner's slot is always laid out**: it is faded with
-    `.opacity(isLoading ? 1 : 0)` and hidden from accessibility while idle,
-    never inserted and removed, because `LogFilterBar`'s `ViewThatFits`
+    `.opacity(isLoading ? 1 : 0)`, hidden from accessibility and paused
+    (`ChromeSpinner(isTurning: isLoading)` — an invisible arc that kept its
+    animation schedule would redraw every frame while the Log sat idle) while
+    idle, never inserted and removed, because `LogFilterBar`'s `ViewThatFits`
     measures this trailing view and a spinner that came and went would change
     the measured width on every load, flipping the strip between its layouts
     while the history loads. `LogRefreshControlsLayoutTests` pins it off two

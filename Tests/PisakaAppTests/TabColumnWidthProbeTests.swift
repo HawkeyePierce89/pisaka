@@ -30,5 +30,19 @@ final class TabColumnWidthProbeTests: XCTestCase {
         XCTAssertEqual(probe.bounds?.maximum, 250)
         XCTAssertEqual(probe.bounds, TabColumnWidthRule.bounds(metrics: metrics, windowWidth: 750))
     }
+
+    func testNothingIsPublishedBeforeTheFirstUpdateAndAZoomAtTheSameWidthPublishes() {
+        let probe = TabColumnWidthProbe()
+        XCTAssertNil(probe.bounds, "the first layout falls back to the unbounded window's bounds")
+        var publishes = 0
+        let subscription = probe.objectWillChange.sink { publishes += 1 }
+        defer { subscription.cancel() }
+
+        probe.update(windowWidth: 1500, metrics: InterfaceMetrics(scale: 1))
+        let zoomed = InterfaceMetrics(scale: 1.8)
+        probe.update(windowWidth: 1500, metrics: zoomed)
+        XCTAssertEqual(publishes, 2, "a zoom at an unchanged width did not publish")
+        XCTAssertEqual(probe.bounds, TabColumnWidthRule.bounds(metrics: zoomed, windowWidth: 1500))
+    }
 }
 #endif

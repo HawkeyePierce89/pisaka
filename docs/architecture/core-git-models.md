@@ -301,7 +301,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the load publishes `nil`. The fingerprint precedes the reads on purpose: a
     write landing between the stamp and the read publishes newer content under
     the older stamp, which the next load sees differ — one extra rebuild, never
-    a stale diff left standing. `rows(for:)`, which the diff window reads on
+    a stale diff left standing. **A failed read is shown but never
+    remembered**: the published fingerprint is
+    `Fingerprint.remembering(head:working:)`, which forgets the identity of
+    each `.unreadable` side, so a transient failure costs the next refresh a
+    re-read instead of standing as the file's diff until something else
+    changes. Tests also drive each status through the load — a rename reads
+    `HEAD` at its old path, added and untracked files read no `HEAD`, a deleted
+    file reads no working copy and skips an unchanged refresh — and stage a
+    load superseded during its working-copy read, which never reads `HEAD`.
+    `rows(for:)`, which the diff window reads on
     double click, is untouched by all of this: it reads both sides every time. `listRevision` advances on every successful
     refresh publish — not on a failed one — so the view can re-read the diff
     after a refresh whose list came out *equal* (an already-modified file
@@ -342,13 +351,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is known**: `workingSide` makes a deleted file absent, a symlink its target
     string (what git stores), a stamp over the cap `.tooLarge` with no read, and
     otherwise reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
-    `.binary` (a read that throws is the empty side it always was). `headSide`
+    `.binary`; a read that throws is `.unreadable`. `headSide(_:expected:)`
     takes the raw blob — never the lossy `headContents`, which would decode a
     binary blob into plausible lines — so data over the cap is `.tooLarge` and
-    the rest goes through `GitBlobText.classify`; added and untracked files have
-    no `HEAD` side. `content(head:working:)` lets a refused working side win
+    the rest goes through `GitBlobText.classify`; no blob is `.absent`, or
+    `.unreadable` when the side was `expected` (`Fingerprint.hasHeadSide`, which
+    also decides whether the model asks for the blob at all) — `HEAD` holds a
+    file of that status, so a missing answer is a failed read. Added and
+    untracked files have no `HEAD` side. `.unreadable` diffs as an empty side,
+    exactly what an unreadable file always showed; it differs from `.absent`
+    only in what the fingerprint remembers. `content(head:working:)` lets a refused working side win
     outright (the model never reads `HEAD` after one), then a refused `HEAD`
-    side; only two text-or-absent sides reach `LineDiff`. `rows(for:)` and the
+    side; only text, absent or unreadable sides reach `LineDiff`. `rows(for:)` and the
     diff window are unaffected. Tests: `LocalChangesInlineDiffTests` covers a
     binary `HEAD` side, a binary working side, an over-cap working side (no read,
     counted on the stub), an over-cap `HEAD` side, an exactly-at-cap side and
