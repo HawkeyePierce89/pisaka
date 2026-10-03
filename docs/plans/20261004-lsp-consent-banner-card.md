@@ -133,34 +133,35 @@ The design's Banner values are restated here as literals. The design file is not
 
 **Suite setup**
 
-- [ ] Write a `@MainActor` XCTest suite. Give it a doc comment, in the style of `TerminalPanelInsetTests`, that states the design values it pins and how each is measured.
-- [ ] Render the shipped `LSPConsentCard` with representative content: the download arrow, a primary line, no secondary line, and no-op actions.
+- [x] Write a `@MainActor` XCTest suite. Give it a doc comment, in the style of `TerminalPanelInsetTests`, that states the design values it pins and how each is measured.
+- [x] Render the shipped `LSPConsentCard` with representative content: the download arrow, a primary line, no secondary line, and no-op actions.
   - Inject `\.interfaceMetrics` and `\.chromeTheme` (`ChromeTheme(.dark)`) on the root.
   - Pin the card to the top of a window taller than the band, through `HostedRender`.
   - Use one window per rendered state, each closed in teardown.
 
 **Ground, border, interior and corner (scale 1 and 1.8)**
 
-- [ ] Read these pixels off one render per scale:
+- [x] Read these pixels off one render per scale:
   - the band's ground at half the inset, left of, above and below the card, is `bgEditor`;
   - a column through the card's leading padding has `hairline` at its top and bottom edges (`extent(of: .hairline, atX:)`), with the edge at the scaled 8-point inset from the band's top and leading edges;
   - just inside the border, the interior is `bgPanel`;
   - half a point in from the card's top-leading corner, which is outside the radius, the pixel is `bgEditor` and not `bgPanel`.
-- [ ] Check that the border is one hairline wide and no wider, measured on the left edge. At scale 1.8 it spans the scaled width within the usual 0.6-point tolerance.
+- [x] Check that the border is one hairline wide and no wider, measured on the left edge. At scale 1.8 it spans the scaled width within the usual 0.6-point tolerance.
 
 **Text column width (scale 1)**
 
-- [ ] Render the card at a generous width. On that bitmap, take the card's interior rows: every pixel row strictly between the top and bottom `hairline` border rows. Measure:
+- [x] Render the card at a generous width. On that bitmap, take the card's interior rows: every pixel row strictly between the top and bottom `hairline` border rows. Measure:
   - the primary button's leading edge: in each interior row, the first `accent` pixel right of the card's horizontal middle; take the minimum across rows;
   - the primary line's trailing edge: in each interior row, the last non-`bgPanel` pixel left of that button edge; take the maximum across rows.
   - A single row cannot stand in for this: a row through the last character can carry no ink, which would underestimate the edge, wrap the line at the derived width even with the fix in place, and fail the test spuriously.
-- [ ] Derive a narrow width from those two measurements, never from hard-coded button widths. It leaves the line exactly enough room plus a small slack, so the line fits on one line only if the text column reaches the actions.
-- [ ] Render the card again at the narrow width. Assert that its height (the `hairline` extent in the leading-padding column) equals the generous render's height.
-- [ ] Run `make test-app` (the app-layer bundle; `xcodegen generate` runs first). It must pass.
-- [ ] Do the mutation check by hand:
+- [x] Derive a narrow width from those two measurements, never from hard-coded button widths. It leaves the line exactly enough room plus a small slack, so the line fits on one line only if the text column reaches the actions.
+- [x] Render the card again at the narrow width. Assert that its height (the `hairline` extent in the leading-padding column) equals the generous render's height.
+- [x] Run `make test-app` (the app-layer bundle; `xcodegen generate` runs first). It must pass.
+- [x] Do the mutation check by hand:
   - remove `.layoutPriority(1)` from the text column;
   - run the new suite and confirm that the width test fails;
   - restore the line. The mutation is never committed.
+  - Result (done, did NOT fail): with `.layoutPriority(1)` removed, and again set to -1, with and without a secondary line, the width test stayed green. The stack lays the spacer out after the text either way, so the line keeps its one line at the derived width. The suite gained a guard that the generous render is one line (as tall as a one-word card); a column capped at 400 points then fails it. Both findings are recorded in the suite's doc comment.
 
 ### Task 3: Documentation
 
