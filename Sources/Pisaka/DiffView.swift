@@ -539,7 +539,10 @@ final class DiffContainerView: NSView {
 final class DiffDividerView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         ChromePalette.nsColor(.hairline).setFill()
-        dirtyRect.fill()
+        // `bounds`, never `dirtyRect`: since macOS 14 `clipsToBounds` defaults to
+        // `false`, so the rect handed to `draw(_:)` may reach past this view, and
+        // filling it painted every view beneath the divider in z-order hairline.
+        bounds.fill()
     }
 }
 

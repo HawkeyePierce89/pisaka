@@ -425,7 +425,7 @@ silently, which is what keeps `swift test` dependency-free.
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `FoldingSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
-`DesignGlyphAssetTests`, `ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+`DesignGlyphAssetTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for
 anything that ships in the bundle with no Swift code behind it, and for any architectural
 rule `swift test` cannot otherwise see.

@@ -824,7 +824,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `accentTintStrong` (selection) and `hoverTint` (hover). Measured headlessly
     by `LocalChangesLayoutTests` at scales 1.0 and 1.8: the divider at 320, the
     toolbar's order (the `accent` Commit… leading at the padding, then two
-    glyph-sized clusters) and the status letter left of the name.
+    glyph-sized clusters) and the status letter left of the name; and, over a
+    selected file's published `.rows` diff, that the list, the header and the
+    panes' divider all draw and no list row or header pixel is `hairline` (the
+    `DiffDividerView` defect, below).
   - `DiffView.swift` — `NSViewRepresentable` rendering a pre-computed `[DiffRow]`
     (`HEAD` left, working copy right) as two side-by-side read-only TextKit-1
     `NSTextView`s (no soft-wrap, so one logical line = one visual row and the
@@ -858,7 +861,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     with a hairline divider — a plain `DiffDividerView` filling itself with the
     `hairline` role, `ChromeGeometry.hairlineWidth` wide and *unscaled* under
     the token's stated code-zoom exception (the panes have no interface scale to
-    ask).
+    ask). **It fills `bounds`, never the rect `draw(_:)` is handed.** It once
+    filled `dirtyRect`, and since macOS 14 `NSView.clipsToBounds` defaults to
+    `false`, so that rect is not limited to the view: the divider painted
+    `hairline` over everything beneath it in z-order — everything in the
+    hosting view but the right pane (added after it) and later siblings. With
+    a modified file selected the Local Changes panel's list and header went
+    blank, the separate diff window's whole left pane was `hairline`, and Local
+    History's diff likewise: all three hosts of `DiffView` (`LocalChangesView`,
+    `DiffWindowContent`, `LocalHistoryView`; the commit dialog's
+    `CommitUnifiedDiffView` has no divider). It was invisible to every frame —
+    each frame, and the accessibility tree, read correctly before and after the
+    click — so only a render sees it: `LocalChangesLayoutTests` draws the panel
+    over a published `.rows` diff and the diff window over the same rows. The
+    rule — **a `draw(_:)` override never fills its own dirty rect** — is pinned
+    across every app-layer override by `DrawDirtyRectSourceGatingTests`, which
+    also pins the set of files declaring one.
     **The shared code-pane ground (part five (b)).** `CodePaneGround.apply(scrollView:textView:)`
     lives here beside `DiffDividerView`: the text view, the scroll view and its
     clip view all `bgEditor`, since the editor's gutter (`LineNumberRulerView`)

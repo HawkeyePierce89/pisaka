@@ -182,7 +182,7 @@ Dependencies: none new.
 - Create: `Tests/PisakaCoreTests/DrawDirtyRectSourceGatingTests.swift`
 - Modify: `docs/architecture/app-git-views.md`, `CLAUDE.md` (add the new suite's name to the repository-file suite list)
 
-- [ ] **Write the panel render test first,** in `LocalChangesLayoutTests`.
+- [x] **Write the panel render test first,** in `LocalChangesLayoutTests`.
   - **The state.** Render `LocalChangesView` with a published `.rows` state, never a placeholder:
     - stub services, as the placeholder cases already use;
     - one modified text file, a handful of lines with one changed, so both panes carry text and gutter numbers;
@@ -202,7 +202,7 @@ Dependencies: none new.
 
     Compute the bands from the hosted frames, scaled by the interface scale, and never from hard-coded pixel offsets.
   - **Do not loosen the assertion.** If the test fails after the fix on a legitimate rule, the only permitted change is to narrow the sampled rects so they exclude that rule's frame. The colour match must not be loosened, and samples must not be skipped by any other criterion.
-- [ ] **Fail first.** Confirm that both renders fail on the unfixed code.
+- [x] **Fail first.** Confirm that both renders fail on the unfixed code.
   - A `cacheDisplay(in:to:)` render should hand `draw(_:)` the same unclipped rect.
   - If it does not, the fallback is still offscreen:
     - `displayIgnoringOpacity(_:in:)` into an `NSGraphicsContext` built on an `NSBitmapImageRep`;
@@ -211,16 +211,16 @@ Dependencies: none new.
     Keep one window per state.
   - Never read the window's backing, the screen or anything screen-shaped. `CGWindowListCreateImage`, `screencapture` and every other screen-recording API are forbidden, because they raise a system permission dialog.
   - The suite header says which render path was used, and why.
-- [ ] **Add the second render:** `DiffWindowContent` with the same rows, at scale 1, in one window, on the same offscreen path.
+- [x] **Add the second render:** `DiffWindowContent` with the same rows, at scale 1, in one window, on the same offscreen path.
   - `load` returns the rows, and `settings` is a fresh `SettingsStore`.
   - Wait until the hosted `DiffContainerView` is in the view tree, polling with a deadline and failing loudly.
   - Assert that the left pane draws: its gutter numbers' ink is present in the left pane's gutter.
   - Confirm it fails on the unfixed code.
-- [ ] **The fix.** `DiffDividerView.draw(_:)` fills `bounds`, never `dirtyRect`.
+- [x] **The fix.** `DiffDividerView.draw(_:)` fills `bounds`, never `dirtyRect`.
   - A comment states why: since macOS 14, `NSView.clipsToBounds` defaults to `false`, so the rect passed to `draw(_:)` may extend beyond the view, and filling it paints over every view beneath it in z-order.
   - The fix covers all three hosts of `DiffView`: the Local Changes panel, the separate diff window and Local History.
   - No other source change in this task.
-- [ ] **The gating rule.** Create `DrawDirtyRectSourceGatingTests`, a repository-file suite in the existing mould.
+- [x] **The gating rule.** Create `DrawDirtyRectSourceGatingTests`, a repository-file suite in the existing mould.
   - **The input.** It enumerates every `.swift` file under `Sources/Pisaka`, recursively and including `iOS/`, comment- and literal-stripped through `LSPSourceGatingTests`' scanner.
   - **Collecting the overrides.** For every `override func draw(_ <name>: NSRect)` or `override func draw(_ <name>: CGRect)`, the rule takes the body's text by brace matching.
   - **The rule.** That body never fills its own parameter. Each of these fails:
@@ -243,22 +243,22 @@ Dependencies: none new.
     - the audit: the six other overrides draw from `bounds` or row rects, or do not fill;
     - the pinned file set;
     - the horizon: a dirty rect copied into a local variable and filled through it passes, and is not chased.
-- [ ] **The architecture doc.** In `app-git-views.md`'s `DiffView` entry, at the `DiffDividerView` passage, record:
+- [x] **The architecture doc.** In `app-git-views.md`'s `DiffView` entry, at the `DiffDividerView` passage, record:
   - the measured cause: a hairline fill over everything beneath the divider, invisible to frames because every frame was correct;
   - the reach: the three hosts named above;
   - the rule: a draw override never fills its dirty rect;
   - the suite that pins the rule.
 
   `app-window.md` needs no change.
-- [ ] **The suite header.** Update `LocalChangesLayoutTests`' header to cover:
+- [x] **The suite header.** Update `LocalChangesLayoutTests`' header to cover:
   - the rows state;
   - the diff-window render;
   - the offscreen render path and why it was chosen;
   - the exact sampled bands, and the legitimate hairlines they exclude by frame;
   - the total window count;
   - why the placeholder-only renders and any frame assertion could not see this defect.
-- [ ] **`CLAUDE.md`.** Add the new suite's name to the list of repository-file suites. Nothing else changes there.
-- [ ] Run the gates. They must pass before Task 2.
+- [x] **`CLAUDE.md`.** Add the new suite's name to the list of repository-file suites. Nothing else changes there.
+- [x] Run the gates. They must pass before Task 2.
 
 ### Task 2: Current-line invalidation recorded, both bands
 
