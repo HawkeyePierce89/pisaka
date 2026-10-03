@@ -170,19 +170,19 @@ The design's Banner values are restated here as literals. The design file is not
 - Modify: `docs/architecture/core-provisioning.md`
 - Modify only if no longer truthful: `docs/architecture/app-window.md`, the `Sources/Pisaka/ContentView.swift` comment
 
-- [ ] Rewrite `core-theme.md`'s consent-strip entry for the card. Name the design's Banner component as its source and restate its values as literals:
+- [x] Rewrite `core-theme.md`'s consent-strip entry for the card. Name the design's Banner component as its source and restate its values as literals:
   - panel ground, 1-point hairline border, radius 6 (`cornerRadiusMax`), padding 14/18, gaps 16 and 10, 16-point accent icon, 13-point primary line;
   - the 8-point inset band on `bgEditor` that replaces the bottom rule;
   - text roles: `textPrimary` for the primary line, `textSecondary` for the secondary line, `accent` for the icon;
   - the shared `.chromePrimary` / `.chromeSecondary` buttons, 8 apart, with the design's 12-point semibold label recorded as the known, accepted chrome-wide difference;
   - the layout-priority fix and the new bitmap suite that pins it.
-- [ ] In rule thirty-four's prose, state that the file carries no glyph-size exemption: the card's glyph takes its own scaled font, like the files already listed there. If any other place in that doc names the strip's three row exemptions, remove the mention rather than restating it.
-- [ ] Update the `LSPConsentBanner.swift` entry in `core-provisioning.md`:
+- [x] In rule thirty-four's prose, state that the file carries no glyph-size exemption: the card's glyph takes its own scaled font, like the files already listed there. If any other place in that doc names the strip's three row exemptions, remove the mention rather than restating it.
+- [x] Update the `LSPConsentBanner.swift` entry in `core-provisioning.md`:
   - describe the card in place of the strip, and the new copy: one primary line, with a secondary line only for the YAML runtime note and for the Go build's toolchain path and two narrowed claims;
   - keep the D15 statement that the pending size and the runtime network note are printed where consent is given;
   - keep the no-dismiss, no-shortcut, project-root and `VStack`-not-`Group` paragraphs unchanged in substance.
-- [ ] Read `app-window.md`'s mentions of the consent banner and the `ContentView` hosting comment. Edit them only where they describe the old strip in a way that is now false.
-- [ ] Run `swift test` again; it must pass. The doc-reading suites (`LintConfigurationTests` and the theme suite's document rules) must stay green.
+- [x] Read `app-window.md`'s mentions of the consent banner and the `ContentView` hosting comment. Edit them only where they describe the old strip in a way that is now false. (Read: both still truthful — the empty case draws no layout and no divider — so neither was edited.)
+- [x] Run `swift test` again; it must pass. The doc-reading suites (`LintConfigurationTests` and the theme suite's document rules) must stay green.
 
 ### Task 4: Verify acceptance criteria
 
