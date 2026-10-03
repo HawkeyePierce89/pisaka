@@ -276,7 +276,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     HEAD:<path>` as `headContents` with two deliberate differences — absence is
     decided by the **exit code** alone (a blob that happens not to decode is
     emphatically *not* reported missing) and the bytes come back through
-    `stdoutData`. `commitContext(root:)` is six independent reads, because
+    `stdoutData`. `headBlobSize(of:root:)` runs `git cat-file -s HEAD:<path>` —
+    the blob's size from its object header, no blob read — so the callers can
+    refuse an over-cap blob before fetching it; a non-zero exit or a
+    non-numeric answer is `nil`, "unknown", which sends them to the fetch. `commitContext(root:)` is six independent reads, because
     conflating them is how a fresh repository gets misread: `rev-parse
     --absolute-git-dir` (also the one probe distinguishing "not a repository"),
     `rev-parse --verify --quiet HEAD` (fails exactly on an **unborn** HEAD),

@@ -95,6 +95,11 @@ final class CommitDialogModelTests: XCTestCase {
             return headBlobs[path]
         }
 
+        /// `HEAD` blob sizes keyed by path; a missing key is "unknown".
+        var headBlobSizes: [String: Int] = [:]
+
+        func headBlobSize(of path: String, root: URL) async throws -> Int? { headBlobSizes[path] }
+
         func commitContext(root: URL) async throws -> CommitContext {
             contextCalls += 1
             if let onCommitContext { await onCommitContext(contextCalls) }
@@ -1771,6 +1776,42 @@ final class CommitDialogModelTests: XCTestCase {
         await model.load(root: root)
 
         XCTAssertEqual(model.files.first?.facts.eligibility, .selectable)
+    }
+
+    /// The cap is decided **before the fetch** when the size is known: an
+    /// over-cap `HEAD` blob is never asked for at all.
+    func testAnOverCapHeadSizeIsBinaryWithNoBlobFetch() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "big.txt", status: .modified)]
+        git.headBlobs = ["big.txt": Data("small\n".utf8)]
+        git.headBlobSizes = ["big.txt": CommitDialogModel.maxSelectableFileBytes + 1]
+        let files = StubFiles()
+        files.contents["/repo/big.txt"] = "small\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobCalls, [], "an over-cap HEAD blob was fetched anyway")
+        XCTAssertEqual(model.files.first?.facts.head, .binary)
+        XCTAssertEqual(model.files.first?.facts.eligibility, .wholeOnly(reason: .binaryInHead))
+    }
+
+    /// An at-cap size and an unknown one both fall through to the fetch.
+    func testAnAtCapOrUnknownHeadSizeStillFetches() async {
+        for size in [CommitDialogModel.maxSelectableFileBytes, nil] {
+            let git = StubGit()
+            git.changed = [ChangedFile(path: "a.txt", status: .modified)]
+            git.headBlobs = ["a.txt": Data("one\n".utf8)]
+            git.headBlobSizes["a.txt"] = size
+            let files = StubFiles()
+            files.contents["/repo/a.txt"] = "two\n"
+            let model = makeModel(git: git, files: files)
+
+            await model.load(root: root)
+
+            XCTAssertEqual(git.headBlobCalls, ["a.txt"], "size \(String(describing: size))")
+            XCTAssertEqual(model.files.first?.facts.eligibility, .selectable, "size \(String(describing: size))")
+        }
     }
 
     // MARK: - Reopening

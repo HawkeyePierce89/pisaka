@@ -120,6 +120,17 @@ final class LocalChangesModelTests: XCTestCase {
             return headBlobByPath[path] ?? headByPath[path].map { Data($0.utf8) }
         }
 
+        /// `HEAD` blob sizes keyed by path; a missing entry is the protocol's
+        /// "unknown".
+        var headSizeByPath: [String: Int] = [:]
+        /// Every `headBlobSize` question, in order.
+        private(set) var headSizeReads: [String] = []
+
+        func headBlobSize(of path: String, root: URL) async throws -> Int? {
+            headSizeReads.append(path)
+            return headSizeByPath[path]
+        }
+
         /// Release the suspended `headContents` read for `path`.
         func releaseHead(_ path: String) {
             headContinuations.removeValue(forKey: path)?.resume()
@@ -147,6 +158,8 @@ final class LocalChangesModelTests: XCTestCase {
         /// Working-copy stamps keyed by absolute path; a missing entry is the
         /// protocol's "unknown".
         var stampsByPath: [String: FileStamp] = [:]
+        /// Byte counts keyed by absolute path; a missing entry is "unknown".
+        var byteCountsByPath: [String: Int] = [:]
         /// When set, the next `read` blocks in it — a causal rendezvous for a
         /// test superseding a load during its working-copy read. Cleared on
         /// entry, so only one read is held.
@@ -174,6 +187,7 @@ final class LocalChangesModelTests: XCTestCase {
             throw CocoaError(.fileReadNoSuchFile)
         }
         func fileStamp(at url: URL) -> FileStamp? { stampsByPath[url.path] }
+        func fileByteCount(at url: URL) -> Int? { byteCountsByPath[url.path] }
         func write(_ text: String, to url: URL) throws {}
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? {
@@ -2271,6 +2285,137 @@ final class LocalChangesModelTests: XCTestCase {
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
         XCTAssertEqual(model.selectionDiff?.content, .tooLarge)
+    }
+
+    // MARK: - inline diff: the HEAD side's cap is decided before the fetch
+
+    func testAnOverCapHeadSizePublishesTooLargeWithNoBlobRead() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "small\n"
+        git.headSizeByPath["a.bin"] = LocalChangesInlineDiff.maxSideBytes + 1
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "small\n"
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .tooLarge)
+        XCTAssertEqual(git.headSizeReads, ["a.bin"])
+        XCTAssertEqual(git.headReads, [], "an over-cap HEAD blob was fetched anyway")
+    }
+
+    func testAnAtCapOrUnknownHeadSizeStillFetchesTheBlob() async {
+        for size in [LocalChangesInlineDiff.maxSideBytes, nil] {
+            let git = StubGit()
+            git.headByPath["a.bin"] = "old\n"
+            git.headSizeByPath["a.bin"] = size
+            let files = StubFiles()
+            files.contentsByPath["/repo/a.bin"] = "new\n"
+            let model = await selectedFile(git: git, files: files)
+
+            await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+            XCTAssertEqual(git.headReads, ["a.bin"], "size \(String(describing: size))")
+            XCTAssertEqual(
+                model.selectionDiff?.content,
+                .rows(LineDiff.rows(old: "old\n", new: "new\n")),
+                "size \(String(describing: size))"
+            )
+        }
+    }
+
+    func testARefusedWorkingSideAsksNoHeadSize() async {
+        let git = StubGit()
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "PNG\u{0}"
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .binary)
+        XCTAssertEqual(git.headSizeReads, [])
+    }
+
+    func testAnOverCapWorkingCopyWithNoStampPublishesTooLargeWithNoRead() async {
+        let git = StubGit()
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        files.byteCountsByPath["/repo/a.bin"] = LocalChangesInlineDiff.maxSideBytes + 1
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .tooLarge)
+        XCTAssertTrue(files.reads.isEmpty)
+    }
+
+    // MARK: - inline diff: a folder switch drops the previous project's diff
+
+    func testAFolderChangeDropsThePublishedDiff() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let model = await selectedFile(git: git, files: files)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertNotNil(model.selectionDiff)
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+
+        XCTAssertNil(model.selectionDiff)
+    }
+
+    func testARefreshResolvingANewRootDropsThePublishedDiff() async {
+        // The folder stays the same while the repository it resolves to moves
+        // (e.g. a nested `git init`): no folder switch, only the resolved root.
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let model = await selectedFile(git: git, files: files)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertNotNil(model.selectionDiff)
+
+        git.repoRoot = URL(fileURLWithPath: "/elsewhere")
+        await model.refresh(root: root)
+
+        XCTAssertNil(model.selectionDiff)
+    }
+
+    func testASameRootRefreshKeepsThePublishedDiff() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let model = await selectedFile(git: git, files: files)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        let published = model.selectionDiff
+        XCTAssertNotNil(published)
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.selectionDiff, published)
+    }
+
+    func testALoadHeldPastAFolderSwitchPublishesNothing() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let gate = Gate()
+        files.readGate = gate
+        let model = await selectedFile(git: git, files: files)
+
+        let token = model.beginSelectionDiffLoad()
+        let load = Task { await model.loadSelectionDiff(token: token) }
+        await gate.waitUntilReached()
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+        gate.release()
+        await load.value
+
+        XCTAssertNil(model.selectionDiff, "a load from the previous project published after the switch")
+        XCTAssertEqual(git.headReads, [], "the superseded load went on to read HEAD")
     }
 
     func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {

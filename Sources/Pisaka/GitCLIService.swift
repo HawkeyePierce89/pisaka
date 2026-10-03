@@ -159,6 +159,20 @@ struct GitCLIService: GitServicing {
         return result.stdoutData
     }
 
+    /// The size in bytes of `path`'s blob at `HEAD`, through `git cat-file -s
+    /// HEAD:<path>` — one object-header lookup, no blob read
+    /// (`GitServicing.headBlobSize(of:root:)`). A non-zero exit (the path is
+    /// absent from `HEAD`) or an answer that is not a whole number is `nil`,
+    /// "unknown", so the caller falls back to fetching. Non-repo / git-missing
+    /// still surface as thrown errors via `run`.
+    func headBlobSize(of path: String, root: URL) async throws -> Int? {
+        let result = try await run(["cat-file", "-s", "HEAD:\(path)"], in: root)
+        guard result.exitCode == 0 else {
+            return nil
+        }
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// The files changed by `hash` relative to its first parent.
     ///
     /// Runs `git diff-tree --no-commit-id --name-status -r -M -m --first-parent --root

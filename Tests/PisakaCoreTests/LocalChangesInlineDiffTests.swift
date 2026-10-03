@@ -92,6 +92,8 @@ final class LocalChangesInlineDiffTests: XCTestCase {
     private final class Files: FileServicing {
         var text: String?
         var symlinkTarget: String?
+        /// The size `fileByteCount` reports; `nil` is "unknown".
+        var byteCount: Int?
         private(set) var reads = 0
         func read(url: URL) throws -> String {
             reads += 1
@@ -102,6 +104,7 @@ final class LocalChangesInlineDiffTests: XCTestCase {
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? { symlinkTarget }
         func isExecutableFile(at url: URL) -> Bool { false }
+        func fileByteCount(at url: URL) -> Int? { byteCount }
     }
 
     private let cap = LocalChangesInlineDiff.maxSideBytes
@@ -148,6 +151,23 @@ final class LocalChangesInlineDiffTests: XCTestCase {
         XCTAssertEqual(side, .tooLarge)
         XCTAssertEqual(files.reads, 0)
         XCTAssertEqual(LocalChangesInlineDiff.content(head: .text("a\n"), working: side), .tooLarge)
+    }
+
+    func testNoStampWithAnOverCapByteCountIsTooLargeWithNoRead() {
+        // Without a stamp the size is asked on its own: an over-cap text file
+        // is "too large", never "binary", and is not read to find that out.
+        let files = Files()
+        files.text = "small"
+        files.byteCount = cap + 1
+        XCTAssertEqual(working(files), .tooLarge)
+        XCTAssertEqual(files.reads, 0)
+    }
+
+    func testNoStampWithAnUnknownByteCountStillReads() {
+        let files = Files()
+        files.text = "a\n"
+        XCTAssertEqual(working(files), .text("a\n"))
+        XCTAssertEqual(files.reads, 1)
     }
 
     func testAnOverCapHeadSideIsTooLarge() {

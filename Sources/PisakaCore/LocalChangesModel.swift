@@ -375,6 +375,7 @@ public final class LocalChangesModel: ObservableObject {
         selected = nil
         revertSelection = []
         errorMessage = nil
+        clearSelectionDiff()
         return rootRequestGeneration
     }
 
@@ -407,6 +408,7 @@ public final class LocalChangesModel: ObservableObject {
             selected = nil
             revertSelection = []
             errorMessage = nil
+            clearSelectionDiff()
         }
         // The request generation this refresh's `root` corresponds to (captured
         // after the possible bump above). Committed with `self.root` once the git
@@ -444,6 +446,11 @@ public final class LocalChangesModel: ObservableObject {
             )
             revertSelection = reconciliation.revertSelection
             selected = reconciliation.selected
+            // A resolved root that differs from the published one means the
+            // inline diff on screen belongs to another repository: drop it, and
+            // any load still in flight for it, rather than leave it standing
+            // until the next selection load.
+            if previousRoot != repoRoot { clearSelectionDiff() }
             listRevision += 1
         } catch {
             // Same stale-result guards on the failure path: a superseded refresh —
@@ -823,6 +830,15 @@ public final class LocalChangesModel: ObservableObject {
         return selectionDiffGeneration
     }
 
+    /// Drop the published inline diff and supersede every load in flight — a
+    /// folder switch, or a refresh resolving a different repository root. The
+    /// token bump is what keeps a load suspended across the switch from
+    /// publishing the previous project's diff afterwards.
+    private func clearSelectionDiff() {
+        selectionDiffGeneration += 1
+        selectionDiff = nil
+    }
+
     /// Load the selected file's inline diff under `token`, in this order:
     ///
     /// 1. the token, claimed synchronously by `beginSelectionDiffLoad()` at the
@@ -835,9 +851,11 @@ public final class LocalChangesModel: ObservableObject {
     /// 4. otherwise the working side is classified on the model's private
     ///    serial queue — a stamp over `LocalChangesInlineDiff.maxSideBytes` is
     ///    refused with no read, a binary file is refused by its read;
-    /// 5. only a working side that was not refused awaits the `HEAD` blob (the
-    ///    git subprocess already runs off the main actor), and its
-    ///    classification plus `LineDiff` run on the same queue;
+    /// 5. only a working side that was not refused asks the `HEAD` blob's size
+    ///    (`GitServicing.headBlobSize`) — one over `maxSideBytes` is `.tooLarge`
+    ///    with no blob read — and only a size within the cap or unknown awaits
+    ///    the `HEAD` blob itself (the git subprocesses already run off the main
+    ///    actor), whose classification plus `LineDiff` run on the same queue;
     /// 6. the token is re-checked and the result published on the main actor,
     ///    tagged with its fingerprint. A load superseded at any `await` discards
     ///    its content instead of publishing over the newer selection's.
@@ -875,11 +893,19 @@ public final class LocalChangesModel: ObservableObject {
             content = LocalChangesInlineDiff.content(head: head, working: working)
         } else {
             let expected = fingerprint.hasHeadSide
-            let headData = expected ? await headBlob(of: file.oldPath ?? file.path, root: root) : nil
+            let headPath = file.oldPath ?? file.path
+            let headSize = expected ? await headBlobSize(of: headPath, root: root) : nil
             guard token == selectionDiffGeneration else { return }
-            (head, content) = await offMain {
-                let side = LocalChangesInlineDiff.headSide(headData, expected: expected)
-                return (side, LocalChangesInlineDiff.content(head: side, working: working))
+            if let headSize, headSize > LocalChangesInlineDiff.maxSideBytes {
+                head = .tooLarge
+                content = LocalChangesInlineDiff.content(head: head, working: working)
+            } else {
+                let headData = expected ? await headBlob(of: headPath, root: root) : nil
+                guard token == selectionDiffGeneration else { return }
+                (head, content) = await offMain {
+                    let side = LocalChangesInlineDiff.headSide(headData, expected: expected)
+                    return (side, LocalChangesInlineDiff.content(head: side, working: working))
+                }
             }
         }
         guard token == selectionDiffGeneration else { return }
@@ -939,6 +965,13 @@ public final class LocalChangesModel: ObservableObject {
     /// (`Fingerprint.hasHeadSide`), at `oldPath` for a rename.
     private func headBlob(of path: String, root: URL) async -> Data? {
         (try? await gitService.headBlob(of: path, root: root)).flatMap { $0 }
+    }
+
+    /// The `HEAD` blob's size, asked before the blob so an over-cap one is never
+    /// fetched; `nil` — unknown, or a lookup that failed — falls through to the
+    /// fetch.
+    private func headBlobSize(of path: String, root: URL) async -> Int? {
+        (try? await gitService.headBlobSize(of: path, root: root)).flatMap { $0 }
     }
 
     /// The diff window's working side (`rows(for:)`); the inline diff classifies

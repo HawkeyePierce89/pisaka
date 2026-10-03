@@ -388,13 +388,13 @@ Dependencies: none new.
 - Modify: `Tests/PisakaCoreTests/LocalChangesInlineDiffTests.swift`, `LocalChangesModelTests.swift`, `CommitDialogModelTests.swift`
 - Modify: `docs/architecture/core-git.md`, `core-git-models.md`, `core-commit.md`, `docs/FEATURES.md` (only if it is no longer truthful)
 
-- [ ] **No stamp.**
+- [x] **No stamp.**
   - When `stamp` is `nil`, ask `fileService.fileByteCount(at:)` before reading. Over `maxSideBytes`, the result is `.tooLarge`, with no read.
   - Correct the doc comment that says this case lands in `.binary`.
   - Tests:
     - a `nil` stamp with a byte count over the cap gives `.tooLarge`, and no read is recorded;
     - a `nil` stamp with an unknown byte count still reads.
-- [ ] **The HEAD size seam.**
+- [x] **The HEAD size seam.**
   - `GitServicing` gains `headBlobSize(of:root:) async throws -> Int?`, defaulting to `nil`, which means unknown.
   - `GitCLIService` implements it as `git cat-file -s HEAD:<path>`. A non-zero exit gives `nil`.
   - `LocalChangesModel.loadSelectionDiff` asks the size first. Over the cap, the HEAD side is `.tooLarge`, with no blob read.
@@ -404,7 +404,7 @@ Dependencies: none new.
     - an over-cap size causes zero blob reads, in both models;
     - an at-cap size still fetches, and so does an unknown size.
   - Document the seam in `core-git.md`, and its two uses in `core-git-models.md` and `core-commit.md`.
-- [ ] **Folder switch.**
+- [x] **Folder switch.**
   - `prepareForFolderChange(root:)` sets `selectionDiff = nil` and bumps the selection-diff token.
   - `refreshImpl`'s success path clears `selectionDiff` when the root changed.
   - Tests:
@@ -412,8 +412,8 @@ Dependencies: none new.
     - a refresh that resolves a new root clears it;
     - a load held at a `Gate` past a switch publishes nothing.
   - Document both clears in `core-git-models.md`.
-- [ ] Keep `FEATURES.md`'s inline-diff sentence truthful.
-- [ ] Run the gates, including the iOS build. They must pass before Task 8.
+- [x] Keep `FEATURES.md`'s inline-diff sentence truthful.
+- [x] Run the gates, including the iOS build. They must pass before Task 8.
 
 ### Task 8: Diff window title, and the commit dialog's inert counters
 

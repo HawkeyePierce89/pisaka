@@ -292,9 +292,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     working side is classified first, inside an `offMain { }` block on the
     model's private serial queue through `LocalChangesInlineDiff.workingSide`
     (in `ProjectSearchModel`'s mould); **only a working side that was not
-    refused reads `HEAD`** — as bytes, through `headBlob(of:root:)`, the git
-    subprocess already off the main actor — and the `HEAD` classification plus
-    `LineDiff` run on the same queue. A load whose token is superseded before
+    refused reads `HEAD`**: it first asks the blob's size through
+    `headBlobSize(of:root:)` — a size over `maxSideBytes` publishes `.tooLarge`
+    with **no blob read** — and only a size within the cap or unknown (`nil`)
+    reads the bytes through `headBlob(of:root:)`, the git subprocesses already
+    off the main actor; the `HEAD` classification plus `LineDiff` run on the
+    same queue. A load whose token is superseded before
     it starts does nothing, and one superseded at any `await` discards its
     content, so an older selection's diff never publishes
     over a newer one's (the generation-token invariant). With nothing selected
@@ -311,7 +314,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file reads no working copy and skips an unchanged refresh — and stage a
     load superseded during its working-copy read, which never reads `HEAD`.
     `rows(for:)`, which the diff window reads on
-    double click, is untouched by all of this: it reads both sides every time. `listRevision` advances on every successful
+    double click, is untouched by all of this: it reads both sides every time.
+    **A folder switch drops the published diff.** `prepareForFolderChange(root:)`
+    — and `refreshImpl`'s matching up-front switch block — clears
+    `selectionDiff` and bumps the selection-diff token, so the previous
+    project's diff never stands beside the new project's list and a load still
+    suspended across the switch publishes nothing; `refreshImpl`'s success path
+    does the same when the **resolved** repository root differs from the
+    published one (the folder unchanged, the repository it resolves to moved).
+    A same-root refresh keeps the diff, which is what lets the unchanged rule
+    skip it. Tests: a published diff is gone after `prepareForFolderChange`, a
+    refresh resolving a new root clears it while a same-root one keeps it, and
+    a load held at a `Gate` in its working-copy read past a switch publishes
+    nothing and never reads `HEAD`. `listRevision` advances on every successful
     refresh publish — not on a failed one — so the view can re-read the diff
     after a refresh whose list came out *equal* (an already-modified file
     edited again), which fires no change of its own. Tests stage the race with
@@ -349,8 +364,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.rows([DiffRow])`, `.binary` or `.tooLarge`, and a binary side is **never
     turned into lines**. The cap is decided **before any read wherever the size
     is known**: `workingSide` makes a deleted file absent, a symlink its target
-    string (what git stores), a stamp over the cap `.tooLarge` with no read, and
-    otherwise reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
+    string (what git stores), a stamp over the cap `.tooLarge` with no read —
+    and, with **no stamp**, asks `fileByteCount(at:)` on its own, a count over
+    the cap being `.tooLarge` with no read too, so a missing stamp never turns
+    an over-cap text file into "binary" — and only an unknown or within-cap size
+    reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
     `.binary`; a read that throws is `.unreadable`. `headSide(_:expected:)`
     takes the raw blob — never the lossy `headContents`, which would decode a
     binary blob into plausible lines — so data over the cap is `.tooLarge` and
@@ -365,10 +383,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     side; only text, absent or unreadable sides reach `LineDiff`. `rows(for:)` and the
     diff window are unaffected. Tests: `LocalChangesInlineDiffTests` covers a
     binary `HEAD` side, a binary working side, an over-cap working side (no read,
-    counted on the stub), an over-cap `HEAD` side, an exactly-at-cap side and
-    text on both sides; `LocalChangesModelTests` pins that a selected binary
-    file publishes `.binary` without reading `HEAD`, and that an over-cap stamp
-    publishes `.tooLarge` having read neither side.
+    counted on the stub), a `nil` stamp with an over-cap byte count (`.tooLarge`,
+    no read) and with an unknown one (read), an over-cap `HEAD` side, an
+    exactly-at-cap side and text on both sides; `LocalChangesModelTests` pins
+    that a selected binary file publishes `.binary` without reading `HEAD` or
+    asking its size, that an over-cap stamp — or, with no stamp, an over-cap
+    byte count — publishes `.tooLarge` having read neither side, that an
+    over-cap `HEAD` size publishes `.tooLarge` with no blob read, and that an
+    at-cap or unknown `HEAD` size still fetches.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
     grouping. `group(_:rootName:projectPrefix:repositoryName:)` returns one
     `ChangedFileGroup` (`path`, `label`, `files`; identity `path`, always the
