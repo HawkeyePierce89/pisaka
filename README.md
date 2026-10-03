@@ -28,8 +28,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   solution file seeded with the official snippet, read the statement in a
   themed pane beside the editor, and **Run / Submit the editor buffer** with
   full verdicts inline.
-- **A real git client** — Local Changes with side-by-side diffs and multi-file
-  revert, a commit dialog with per-line selection and amend, a 3-pane
+- **A real git client** — Local Changes grouped by folder with the selected
+  file's diff inline beside the list (macOS), side-by-side diff windows and
+  multi-file revert, a commit dialog with per-line selection, amend and
+  **Commit and Push**, a 3-pane
   merge-conflict resolver, a Git Log with branch graph and filters, a branch
   switcher, and git blame in the editor gutter. All through your own `git`.
 - **GitHub pull requests (macOS)** — a Pull Requests panel in the bottom dock
@@ -84,8 +86,10 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   matched-pair and rainbow bracket highlighting, indentation-level highlighting
   (leading whitespace tinted one unit at a time, cycling by level; macOS, on by
   default, one Preferences switch), Cmd+D duplicate, Cmd+/
-  toggle comment, middle-mouse column selection, a minimap, and per-tab
-  caret/scroll memory.
+  toggle comment, middle-mouse column selection, a minimap, per-tab
+  caret/scroll memory, a caret readout in the bottom bar (`Ln 12, Col 5 ·
+  UTF-8 · Swift`; macOS), and an editor font family chosen in Preferences
+  (any installed fixed-pitch family; macOS).
 - **Code folding** (macOS) — collapse a block behind its first line: a chevron in
   the gutter, a `…` you can click to open it again, and Cmd+Option+Left /
   Cmd+Option+Right for the block at the caret, plus Cmd+Option+Shift+Left /

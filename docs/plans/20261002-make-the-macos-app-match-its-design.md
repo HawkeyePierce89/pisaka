@@ -463,8 +463,8 @@ Decisions made at plan time, so nothing is decided at run time:
 
 ### Task 17: Update documentation
 
-- [ ] README.md and `docs/FEATURES.md`: mention the caret readout, the editor font family setting, the inline diff in Local Changes, and Commit and Push.
-- [ ] CLAUDE.md, kept under the size bound:
+- [x] README.md and `docs/FEATURES.md`: mention the caret readout, the editor font family setting, the inline diff in Local Changes, and Commit and Push.
+- [x] CLAUDE.md, kept under the size bound:
   - the index names for the new files, and the rule and file counts;
   - the new glyph asset class under Conventions: licence, pin suite, and provenance in `Resources/DesignGlyphs/VENDORED.md`, which is not bundled;
   - the `Vendor/` paragraph still names the four grammar packages and nothing else;

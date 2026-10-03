@@ -41,6 +41,9 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   `docs/architecture/core-services.md` + `core-intelligence.md` +
   `core-markdown-preview.md`. Release
   versioning and the build-number override are in `docs/RELEASING.md`.
+  One directory here is deliberately **not bundled**: `DesignGlyphs/`, holding
+  only `VENDORED.md`, the provenance record of the design's glyphs (which ship
+  from the asset catalog, not from here; see Conventions).
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library and
   its test target, so `swift test` stays the fast, dependency-free gate for the
   domain logic — compiled for the host and source-compatible with iOS. All
@@ -572,6 +575,13 @@ owed are documented in `docs/RELEASING.md`.
   `Resources/PrivacyInfo.xcprivacy` and the audit record in `core-services.md`, which carries
   the symbol check that catches the dependency half. `ReleaseMetadataTests` asserts the
   category/reason set by set equality.
+- **The design's glyphs are an asset class of their own**: template vector imagesets
+  under `Sources/Pisaka/Assets.xcassets/Glyphs/`, named only by Core's `DesignGlyph` and
+  drawn only through `DesignGlyphImage`. They ship a licence like a dependency
+  (`Resources/Licenses/` + manifest entry, `LicenseCoverageTests`), their bytes are pinned
+  to the export's manifest by `DesignGlyphAssetTests`, and their provenance is
+  `Resources/DesignGlyphs/VENDORED.md` — a record that is **not bundled** and **not under
+  `Vendor/`**, which holds the four grammar packages and nothing else (`core-theme.md`).
 - **Four tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
   directory content is the pin), for four different reasons, each recorded in full in its
   package's `VENDORED.md` — one of which carries a **mandatory verification recipe re-run on
