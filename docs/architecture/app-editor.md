@@ -683,8 +683,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     work worth skipping on every scroll frame. It carries an *offset* rather than a
     line because that is what the editor has.
     The caret has the same shape of channel: the optional `onCaretMoved`
-    closure, assigned to the coordinator's `reportCaret` on every update, receives
-    `(fileID, offset, buffer)` from `reportCaretPosition(of:)` — the selection's
+    closure, assigned to the coordinator's `reportCaret` on every update, is
+    `(UUID, (line: Int, column: Int))` and is called from `reportCaretPosition(of:)`
+    with the file id and the position of the selection's
     **trailing end** (`NSMaxRange`), so a selection still reads a position — at
     the end of every `textViewDidChangeSelection`, and at the end of an update
     that **switched tabs** or **gained the listener**, after the viewport restore
@@ -695,10 +696,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the scroll listener's own gained-listener idiom, and it keeps `makeNSView`
     inside the body-length limit).
     It reports a line and column, not an offset and a buffer:
-    `CaretReadout.position(text:caretOffset:lineStarts:)` over the storage's
-    `mutableString` and the ruler's `lineStarts`, so a caret move never copies
-    the buffer (`textView.string` would, on every keystroke — `textDidChange`'s
-    reason). What the position reads as is Core's (`CaretReadout`); the
+    `CaretReadout.position(text:caretOffset:lineStarts:memo:editFloor:)` over the
+    storage's `mutableString` and the ruler's `lineStarts`, so a caret move never
+    copies the buffer (`textView.string` would, on every keystroke —
+    `textDidChange`'s reason). The memo and the floor live on the coordinator:
+    `caretColumnMemo` is stored from each report's answer, `caretEditFloor` is
+    lowered to the edited range's location at the ruler's `onEdit`
+    (`bufferEdited`, ahead of its buffer-swap guard) and cleared by each report,
+    and both are dropped when an update switches the coordinator's file — so a
+    move along one line counts only what moved, and every other case is Core's
+    full count. What the position reads as is Core's (`CaretReadout`); the
     readout's model and its deferral are `app-window.md`'s.
     The current-line highlight is wired beside it: `updateCurrentLine(of:)` asks
     `CurrentLineRule` over the whole selection — first range's start to last

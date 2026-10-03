@@ -215,28 +215,28 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/CaretReadoutTests.swift`
 - Modify: `docs/architecture/core-editor.md`, `docs/architecture/app-editor.md`
 
-- [ ] Core:
+- [x] Core:
   - `CaretReadout.ColumnMemo` holds `(lineStart, offset, column)`.
   - `CaretReadout.position(text:caretOffset:lineStarts:memo:editFloor:)` returns `(line, column, memo)`. `editFloor` is the lowest UTF-16 offset any edit touched since the memo was taken, or `nil` when there was none.
   - The existing `position(text:caretOffset:lineStarts:)` stays as the full count and is the reference the tests compare against.
-- [ ] The incremental path is taken only when all of these hold:
+- [x] The incremental path is taken only when all of these hold:
   - a memo exists;
   - the caret's line start equals the memo's `lineStart`;
   - `editFloor` is `nil` or at least the memo's offset, so `[lineStart, memo.offset)` is unchanged.
-- [ ] The incremental count:
+- [x] The incremental count:
   - Let `lo = min(old, new)`. Search back from `lo` for an anchor `a ≥ lineStart`, at most `CaretReadout.anchorLookback = 64` UTF-16 units.
   - `a` is either `lineStart` itself, or a position whose preceding and following units are both printable ASCII (0x20–0x7E). Such a boundary is a grapheme boundary in every context, so counts on either side of it add.
   - Then: column(a) = memo.column − count(a..old), and column(new) = column(a) + count(a..new).
   - If no anchor is found, fall back to the full count.
   - Any other case also falls back to the full count.
   - The anchor rule and its reason are written beside the constant.
-- [ ] An internal seam returns the UTF-16 units examined, the anchor search plus the units counted. It is the work count the tests charge.
-- [ ] App wiring:
+- [x] An internal seam returns the UTF-16 units examined, the anchor search plus the units counted. It is the work count the tests charge.
+- [x] App wiring:
   - The coordinator keeps `caretColumnMemo` and `caretEditFloor`.
   - The floor is lowered at the existing ruler `onEdit` callback site from the edited range's location.
   - `reportCaretPosition(of:)` passes both, stores the returned memo and clears the floor.
   - A buffer swap (the coordinator's file changes) drops the memo.
-- [ ] Tests. In every case the column equals the full count:
+- [x] Tests. In every case the column equals the full count:
   - same line, moving forwards;
   - same line, moving backwards;
   - a different line;
@@ -245,11 +245,11 @@ Facts established while planning, which the tasks rely on:
   - a caret inside a surrogate pair, both as the old and as the new offset;
   - a caret inside a combining sequence, both as the old and as the new offset;
   - a sweep of every (old, new) pair over strings with combining marks, surrogate pairs, flags, ZWJ emoji, Hangul jamo and a prepend character.
-- [ ] Charged bound: on a 4,000,000-unit printable-ASCII line, a move from offset 2,000,000 to 2,000,005 reports work ≤ 5 + 64 + 2. The full-count path at the same caret reports work ≥ 2,000,000, which proves the seam counts the prefix when it is scanned.
-- [ ] Docs:
+- [x] Charged bound: on a 4,000,000-unit printable-ASCII line, a move from offset 2,000,000 to 2,000,005 reports work ≤ 5 + 64 + 2. The full-count path at the same caret reports work ≥ 2,000,000, which proves the seam counts the prefix when it is scanned.
+- [x] Docs:
   - Correct `core-editor.md`'s "a caret move never rescans" claim, and the matching doc comment in `CaretReadout.swift`. State what is now true, and when the full count still runs: other lines, edits before the caret, lines without an ASCII anchor nearby.
   - Correct `app-editor.md`'s caret channel. The closure is `(UUID, (line: Int, column: Int))`, and the memo and floor live on the coordinator.
-- [ ] Run the gates. They must pass before Task 6.
+- [x] Run the gates. They must pass before Task 6.
 
 ### Task 6: Commit dialog memo tests, the push reason in the footer, stale commit-dialog docs
 
