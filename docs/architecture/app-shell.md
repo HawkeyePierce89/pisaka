@@ -701,7 +701,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     terminates its own session). It also owns a `private let diffWindows =
     DiffWindowController()` for the separate diff windows and two open-diff handlers
     threaded into `ContentView` as `onOpenDiff`/`onOpenCommitDiff`:
-    `openLocalChangesDiff(_:)` (title via `DiffWindowTitle.localChanges(path:)`,
+    `openLocalChangesDiff(_:)` (title via
+    `DiffWindowTitle.localChanges(path:projectPrefix:)` with
+    `localChanges.projectPrefix`, so it matches the panel's detail header,
     `load = localChanges.rows(for:)`) and `openCommitDiff(_:in:)` (title via
     `DiffWindowTitle.commit(path:hash:subject:)`, `load = commitLog.rows(for:in:)`),
     each building a `DiffWindowContent` and calling `diffWindows.open(title:content:)`.

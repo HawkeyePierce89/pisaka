@@ -211,8 +211,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     off-by-one-prone short-hash truncation is unit-tested rather than living in the
     view layer). A `public enum DiffWindowTitle` with `shortHashLength = 7` (git's
     conventional short hash) and two static builders pairing the file path with its
-    context so several open diff windows stay distinguishable: `localChanges(path:)
-    -> String` (path + " — Local Changes") and `commit(path:hash:subject:) ->
+    context so several open diff windows stay distinguishable: `localChanges(path:projectPrefix:)
+    -> String` (the path as the Local Changes detail header shows it —
+    `ChangedFileGroups.displayPath(_:projectPrefix:)`, so relative to the project
+    folder when the file lies under it and repository-relative otherwise;
+    `projectPrefix` defaults to `""`, the repository root — + " — Local Changes") and `commit(path:hash:subject:) ->
     String` (path + " — " + the hash truncated to `shortHashLength` + subject; a
     full-length or already-short hash both yield a sensible prefix). Unit-tested in
     `DiffWindowTitleTests`.

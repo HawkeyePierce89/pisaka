@@ -9,6 +9,32 @@ final class DiffWindowTitleTests: XCTestCase {
         )
     }
 
+    func testLocalChangesTitleInTheRepositoryRootFolder() {
+        XCTAssertEqual(
+            DiffWindowTitle.localChanges(path: "app/Sources/X.swift", projectPrefix: ""),
+            "app/Sources/X.swift — Local Changes"
+        )
+    }
+
+    func testLocalChangesTitleIsProjectRelativeInANestedProject() {
+        XCTAssertEqual(
+            DiffWindowTitle.localChanges(path: "app/Sources/X.swift", projectPrefix: "app"),
+            "Sources/X.swift — Local Changes"
+        )
+    }
+
+    func testLocalChangesTitleOutsideTheProjectKeepsTheRepositoryPath() {
+        // `app2` is not under `app`: components are compared whole.
+        XCTAssertEqual(
+            DiffWindowTitle.localChanges(path: "app2/README.md", projectPrefix: "app"),
+            "app2/README.md — Local Changes"
+        )
+        XCTAssertEqual(
+            DiffWindowTitle.localChanges(path: "README.md", projectPrefix: "app"),
+            "README.md — Local Changes"
+        )
+    }
+
     func testCommitTitleTruncatesFullHash() {
         let title = DiffWindowTitle.commit(
             path: "README.md",

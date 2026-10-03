@@ -422,7 +422,7 @@ Dependencies: none new.
 - Modify: `Tests/PisakaCoreTests/DiffWindowTitleTests.swift`, `Tests/PisakaCoreTests/CommitDialogModelTests.swift`
 - Modify: `docs/architecture/core-services.md`, `docs/architecture/app-shell.md`
 
-- [ ] **The title.**
+- [x] **The title.**
   - `DiffWindowTitle.localChanges(path:projectPrefix:)` builds the path with `ChangedFileGroups.displayPath(_:projectPrefix:)`. `projectPrefix` defaults to `""`.
   - `PisakaApp.openLocalChangesDiff` passes `localChanges.projectPrefix`.
   - Tests cover three cases:
@@ -430,8 +430,8 @@ Dependencies: none new.
     - a nested project: `app/Sources/X.swift` under the prefix `app` reads `Sources/X.swift — Local Changes`;
     - a file outside the project, which takes the fallback form.
   - Update the file's header comment, `core-services.md` and `app-shell.md`.
-- [ ] **The inert counters.** In the three memo-drop tests, remove the `unifiedLinesComputations` assertions. Reword each doc comment to say what proves the drop: the empty answer, compared by equality.
-- [ ] Run the gates. They must pass before Task 9.
+- [x] **The inert counters.** In the three memo-drop tests, remove the `unifiedLinesComputations` assertions. Reword each doc comment to say what proves the drop: the empty answer, compared by equality.
+- [x] Run the gates. They must pass before Task 9.
 
 ### Task 9: Verify acceptance criteria
 

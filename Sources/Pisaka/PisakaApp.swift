@@ -4594,8 +4594,9 @@ struct PisakaApp: App {
 
     /// Open a Local Changes file's working-copy-vs-`HEAD` diff in a separate,
     /// non-modal window. The window's `load` closure binds the model and file so
-    /// `DiffWindowContent` stays model-agnostic; the title pairs the path with
-    /// "Local Changes" so several diff windows stay distinguishable.
+    /// `DiffWindowContent` stays model-agnostic; the title pairs the path, as the
+    /// panel's detail header shows it, with "Local Changes" so several diff
+    /// windows stay distinguishable.
     private func openLocalChangesDiff(_ file: ChangedFile) {
         let content = DiffWindowContent(
             fileID: file.id,
@@ -4603,7 +4604,7 @@ struct PisakaApp: App {
             load: { await localChanges.rows(for: file) },
             settings: settings
         )
-        diffWindows.open(title: DiffWindowTitle.localChanges(path: file.path), content: content)
+        diffWindows.open(title: DiffWindowTitle.localChanges(path: file.path, projectPrefix: localChanges.projectPrefix), content: content)
     }
 
     /// Open a commit's file diff (commit-vs-first-parent) in a separate, non-modal

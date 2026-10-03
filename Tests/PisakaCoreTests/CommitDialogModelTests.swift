@@ -955,13 +955,13 @@ final class CommitDialogModelTests: XCTestCase {
 
     /// `load`'s per-open clear drops the memo before the fresh read lands: while
     /// it is in flight the path names no file, so the answer is empty, not the
-    /// previous opening's rows.
+    /// previous opening's rows. The empty answer, compared by equality, is what
+    /// proves the drop — with `files` empty the counter could not move anyway.
     func testUnifiedDisplayRowsAreDroppedByTheLoadsPerOpenClear() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         var midFlight: [UnifiedDiffDisplayRow]?
         git.onFirstChangedFiles = { @MainActor in
@@ -970,36 +970,35 @@ final class CommitDialogModelTests: XCTestCase {
         await model.load(root: root)
 
         XCTAssertEqual(midFlight, [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
-    /// `load`'s failure clear drops the memo.
+    /// `load`'s failure clear drops the memo. The empty answer, compared by
+    /// equality, is what proves the drop — with `files` empty the counter could
+    /// not move anyway.
     func testUnifiedDisplayRowsAreDroppedByAFailedReload() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         git.contextError = CocoaError(.fileReadUnknown)
         await model.load(root: root)
 
         XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
-    /// `reset()`, reached through a folder switch, drops the memo.
+    /// `reset()`, reached through a folder switch, drops the memo. The empty
+    /// answer, compared by equality, is what proves the drop — with `files`
+    /// empty the counter could not move anyway.
     func testUnifiedDisplayRowsAreDroppedByAFolderSwitch() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         model.prepareForFolderChange(root: otherRoot)
 
         XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
     // MARK: - Gate and push plan wiring
