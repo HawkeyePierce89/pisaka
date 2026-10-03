@@ -346,7 +346,7 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Sources/PisakaCore/SearchScopeLine.swift`, `Sources/PisakaCore/ProjectSearchModel.swift`, `Tests/PisakaCoreTests/SearchScopeLineTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`, `docs/architecture/core-search.md`
 
-- [ ] Current line:
+- [x] Current line: (the invalidation is read off each view's backing layer in one never-ordered borderless window: AppKit drops `needsDisplay` on a windowless view, and a windowed view's own getter reads `false` while its layer carries the flag — measured; recorded in the suite header and app-editor-overlays.md)
   - The harness's `select` goes through a real `CodeEditorView.Coordinator(text: .constant(text))` whose `textView` and `lineNumberRuler` are the harness's. It calls `updateCurrentLine(of:)` rather than restating the rule.
   - A new test moves the caret from line 0 to line 3. First it clears `needsDisplay` on the text view and the ruler. After the move it asserts:
     - `needsDisplay` is set on the text view;
@@ -354,15 +354,15 @@ Facts established while planning, which the tasks rely on:
     - one render afterwards shows the old line with no tint and the new line tinted.
   - No `needsToDraw(_:)` assertion: that method is defined only while drawing and is unreliable outside `draw(_:)`.
   - One render per state, no window.
-- [ ] Diff wash:
+- [x] Diff wash:
   - `HostedRender`'s swatch key gains the appearance: `swatch(_:ground:appearance:)`, defaulting to dark. It is still rendered once per key.
   - `CommitUnifiedDiffWashTests` asserts the wash in light as well as dark, one render per appearance.
   - `HostedRenderTests`' no-extra-windows test covers a repeated light swatch.
-- [ ] Scope line:
+- [x] Scope line:
   - `SearchScopeLine.text` shows the mask only when `ProjectSearchModel.maskPatterns(_:)` returns at least one pattern. That is the same splitting the search uses, from that one place, marked `nonisolated` if it is not already.
   - Tests: ",", " , ,", "*.swift, ", and an empty mask.
   - Document it in `core-search.md`.
-- [ ] Run the gates. They must pass before Task 11.
+- [x] Run the gates. They must pass before Task 11.
 
 ### Task 11: Verify acceptance criteria
 

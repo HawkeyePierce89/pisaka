@@ -87,16 +87,22 @@ final class HostedRender {
         rep.colorAt(x: x, y: Int(y * pixelScale))?.usingColorSpace(.sRGB)
     }
 
-    /// Whether the pixel at (`x`, `y`) points is `role`'s dark value over `ground`.
-    func matches(_ role: ChromeColorRole, atX x: CGFloat, y: CGFloat, ground: Color? = nil) -> Bool {
-        guard let expected = Self.swatch(role, ground: ground) else { return false }
+    /// Whether the pixel at (`x`, `y`) points is `role`'s `appearance` value
+    /// (dark unless stated) over `ground`.
+    func matches(
+        _ role: ChromeColorRole, atX x: CGFloat, y: CGFloat, ground: Color? = nil,
+        appearance: ChromeAppearance = .dark
+    ) -> Bool {
+        guard let expected = Self.swatch(role, ground: ground, appearance: appearance) else { return false }
         return Self.close(color(atX: x, y: y), expected)
     }
 
     /// The vertical extent, in points, of the pixels in column `x` painted
-    /// `role` over `ground`.
-    func extent(of role: ChromeColorRole, atX x: CGFloat, ground: Color? = nil) -> (minY: CGFloat, maxY: CGFloat)? {
-        guard let expected = Self.swatch(role, ground: ground) else { return nil }
+    /// `role`'s `appearance` value (dark unless stated) over `ground`.
+    func extent(
+        of role: ChromeColorRole, atX x: CGFloat, ground: Color? = nil, appearance: ChromeAppearance = .dark
+    ) -> (minY: CGFloat, maxY: CGFloat)? {
+        guard let expected = Self.swatch(role, ground: ground, appearance: appearance) else { return nil }
         return extent(atX: x) { Self.close($0, expected) }
     }
 
@@ -117,27 +123,29 @@ final class HostedRender {
     private struct SwatchKey: Hashable {
         let role: ChromeColorRole
         let ground: Color?
+        let appearance: ChromeAppearance
     }
 
     /// Every swatch rendered so far, for the life of the test process.
     private static var swatches: [SwatchKey: NSColor] = [:]
 
-    /// `role`'s dark value over `ground` as the pipeline renders it — rendered
-    /// **once per `(role, ground)`** and cached. A swatch costs a window (a
+    /// `role`'s `appearance` value (dark unless stated) over `ground` as the
+    /// pipeline renders it — rendered **once per `(role, ground, appearance)`**
+    /// and cached. A swatch costs a window (a
     /// WindowServer drawing context), and `matches`/`extent` are called per
     /// pixel: rendering one per call once opened thousands of windows in a
     /// single bar scan and brought the machine's WindowServer down.
     /// `HostedRenderTests` pins that repeated sampling opens no further window.
-    static func swatch(_ role: ChromeColorRole, ground: Color?) -> NSColor? {
-        let key = SwatchKey(role: role, ground: ground)
+    static func swatch(_ role: ChromeColorRole, ground: Color?, appearance: ChromeAppearance = .dark) -> NSColor? {
+        let key = SwatchKey(role: role, ground: ground, appearance: appearance)
         if let cached = swatches[key] { return cached }
-        let rendered = autoreleasepool { renderSwatch(role, ground: ground) }
+        let rendered = autoreleasepool { renderSwatch(role, ground: ground, appearance: appearance) }
         if let rendered { swatches[key] = rendered }
         return rendered
     }
 
-    private static func renderSwatch(_ role: ChromeColorRole, ground: Color?) -> NSColor? {
-        let host = NSHostingView(rootView: Rectangle().fill(ChromeTheme(.dark).color(role))
+    private static func renderSwatch(_ role: ChromeColorRole, ground: Color?, appearance: ChromeAppearance) -> NSColor? {
+        let host = NSHostingView(rootView: Rectangle().fill(ChromeTheme(appearance).color(role))
             .frame(width: 4, height: 4)
             .background(ground ?? .clear))
         let window = NSWindow(

@@ -28,4 +28,18 @@ final class SearchScopeLineTests: XCTestCase {
         XCTAssertEqual(SearchScopeLine.text(projectName: "My Project", fileMask: ""), expected)
         XCTAssertEqual(SearchScopeLine.text(projectName: "My Project", fileMask: "   "), expected)
     }
+
+    /// The line asks the search's own splitting whether the mask filters
+    /// anything: separators alone are no mask, a trailing separator is kept as
+    /// typed.
+    func testAMaskOfSeparatorsAloneIsNoMask() {
+        let expected = "In: p · Exclude: ignored files"
+        XCTAssertEqual(SearchScopeLine.text(projectName: "p", fileMask: ","), expected)
+        XCTAssertEqual(SearchScopeLine.text(projectName: "p", fileMask: " , ,"), expected)
+        XCTAssertEqual(SearchScopeLine.text(projectName: "p", fileMask: ""), expected)
+        XCTAssertEqual(
+            SearchScopeLine.text(projectName: "p", fileMask: "*.swift, "),
+            "In: p · Files: *.swift, · Exclude: ignored files"
+        )
+    }
 }

@@ -556,7 +556,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     widens as a longer line scrolls into view. `CommitUnifiedDiffWashTests`
     (app-layer bundle) renders both cases and samples the washes at the pane's
     trailing edge against the palette's resolved colours, the context row
-    unwashed. **The visible width is AppKit's, not SwiftUI's**: with legacy
+    unwashed; the pane-width case in both appearances, one render each, the
+    light one on a white ground against `HostedRender`'s light swatches (the
+    swatch cache is keyed by role, ground and appearance). **The visible width is AppKit's, not SwiftUI's**: with legacy
     scroll bars ("Show scroll bars: Always") the vertical scroller takes about
     17 points of the pane, and both a `GeometryReader` around the scroll view
     and `containerRelativeFrame` inside it still report the whole pane, so every

@@ -11,10 +11,12 @@ import PisakaCore
 /// swatch is rendered in a window of its own. Rendering one per call once let a
 /// suite scanning a strip pixel by pixel open thousands of windows in two
 /// minutes and take the machine's WindowServer down, so the swatch is cached
-/// per `(role, ground)`. This suite samples one role thousands of times and
-/// asserts two things after an `autoreleasepool` drain:
+/// per `(role, ground, appearance)`. This suite samples one role thousands of
+/// times, alternating its dark and light values, and asserts two things after
+/// an `autoreleasepool` drain:
 ///
-/// - the app holds no more windows than before plus one (the one swatch);
+/// - the app holds no more windows than before plus two (one swatch per
+///   appearance — the light key is cached like the dark one);
 /// - the WindowServer spent almost no window numbers meanwhile. A closed
 ///   swatch window is released when the pool drains and leaves `NSApp.windows`,
 ///   so the count alone stays flat even while every call opens a window. The
@@ -39,14 +41,14 @@ final class HostedRenderTests: XCTestCase {
             for sample in 0..<5_000 {
                 let x = CGFloat(sample % 40)
                 let y = CGFloat(sample / 40 % 20)
-                _ = render.matches(.accentTint, atX: x, y: y)
+                _ = render.matches(.accentTint, atX: x, y: y, appearance: sample.isMultiple(of: 2) ? .dark : .light)
             }
         }
         let secondProbe = Self.probeWindowNumber()
         let after = Self.windowNumbers()
 
         XCTAssertLessThanOrEqual(
-            after.count, before.count + 1,
+            after.count, before.count + 2,
             "sampling left windows behind: before \(before.sorted()), after \(after.sorted())"
         )
         XCTAssertLessThan(
