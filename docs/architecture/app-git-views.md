@@ -96,9 +96,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     grammar) would let those dialogs adopt the same live validation with **no view
     change at all**, since `validator` is already threaded through.
   - `BranchSwitcherView.swift` — the macOS branch-switcher widget in the
-    always-visible bottom bar (the status-bar convention): its
-    `arrow.triangle.branch` glyph, the current branch label and — since the
-    chrome theme's part three — a trailing `chevron.down` caret, clicked to a
+    always-visible bottom bar (the status-bar convention): its branch glyph
+    (the design's `git-branch` at 12 since the design pass, drawn through
+    `DesignGlyphImage`; it was the `arrow.triangle.branch` symbol), the current
+    branch label and — since the chrome theme's part three — a trailing caret
+    (the design's `chevron-down` at 10 since the design pass), clicked to a
     popover with the Local/Remote branch list (the current one
     marked), a filter field, and a "New Branch…" item (name only, created from
     `HEAD`). That part is what restyled it: the three elements are drawn in

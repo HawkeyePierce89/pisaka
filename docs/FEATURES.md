@@ -288,8 +288,8 @@ user sees it.
   toggle. A menu item (Edit > Toggle Comment) exists, so the command works from
   the keyboard (Cmd+/) or the menu. macOS only for now — no iOS wiring.
 - Find and replace in a file (macOS): Cmd+F opens a search bar
-  above the editor with `Aa` (match case), `ab` (whole word), and `.*` (regular
-  expression) toggles, a `3/17` match counter, and ▲/▼ to step through the
+  above the editor with match case, whole word and regular expression toggles
+  (each drawn as its own glyph, named in its tooltip), a `3/17` match counter, and ▲/▼ to step through the
   matches — Cmd+G and Cmd+Shift+G do the same from the keyboard, wrapping around
   the ends. Every match is highlighted in the text and the current one gets its
   own color, coexisting with the rainbow brackets and the matched-pair highlight
@@ -322,7 +322,7 @@ user sees it.
   open folder since the search *is* a walk of the project) opens a separate,
   non-modal project-wide
   search window (a repeat press focuses the one already open). It has the same
-  `Aa`/`ab`/`.*` toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
+  match case / whole word / regular expression toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
   will not match `foo.ts`), and lists matches
   grouped by file with a preview line per match. The traversal honors your
   `.gitignore` files — the root's and every nested one, with negation and
@@ -897,7 +897,9 @@ user sees it.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
   Changes" in the View menu, the Local Changes button on the bottom bar, or
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
-  View the list flat or grouped by folder; each file shows a type icon plus a
+  On macOS the list is grouped by folder (one row per parent directory, every
+  folder starting expanded); on iPhone and iPad view it flat or grouped by
+  folder. Each file shows a type icon plus a
   one-letter status badge (M/A/D/R/U/C). On macOS the icon is a monochrome
   secondary glyph and the letter carries the status colour (green added,
   yellow modified or renamed, red deleted or conflicted, grey untracked); on

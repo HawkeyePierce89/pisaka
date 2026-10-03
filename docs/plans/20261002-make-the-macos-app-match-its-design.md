@@ -440,18 +440,18 @@ Decisions made at plan time, so nothing is decided at run time:
 **Files:**
 - Modify: `docs/architecture/core-theme.md` and every architecture doc named in Context
 
-- [ ] Write each deliberate departure into `core-theme.md`'s departures:
+- [x] Write each deliberate departure into `core-theme.md`'s departures:
   - the Log's richer filters and ref badges;
   - the terminal's session strip;
   - Find in Files' orange current match (already recorded; confirm);
   - blame behind its per-file toggle;
   - the unified diff's two line-number columns;
   - the dock's six tabs and single close button (already recorded; confirm).
-- [ ] Every changed and new file has an entry describing its new behaviour, in the doc CLAUDE.md names for it. Add the new Core files to CLAUDE.md's index lines. Grep the docs and make sure no sentence still describes:
+- [x] Every changed and new file has an entry describing its new behaviour, in the doc CLAUDE.md names for it. Add the new Core files to CLAUDE.md's index lines. Grep the docs and make sure no sentence still describes:
   - the old glyphs, the History row or the list/tree toggle;
   - the push checkbox or the label-only query toggles;
   - an unspent `currentLine`, or the deferred caret readout.
-- [ ] Run `swift test`; `LintConfigurationTests` keeps CLAUDE.md under 60,000 characters (must pass).
+- [x] Run `swift test`; `LintConfigurationTests` keeps CLAUDE.md under 60,000 characters (must pass).
 
 ### Task 16: Verify acceptance criteria
 

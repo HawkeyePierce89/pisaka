@@ -913,7 +913,8 @@ a placeholder, so it is left out; the six are exactly `BottomPanel`'s cases.
 "Terminal", "Log", "Local Changes", "Problems", "Usages" and "Pull Requests",
 and both the tab row and the bar's toggles read it (`bottomBarButton` lost its
 `title:` parameter, and in the review round its `systemImage:` one too — the
-glyph is `BottomPanel.systemImage`, the same table's second column, and the bar
+glyph was `BottomPanel.systemImage`, the same table's second column — since the
+design pass `BottomPanel.glyph`, a `DesignGlyph` — and the bar
 builds its six toggles from `allCases`, so neither strip keeps a second list), so a tab and a tooltip cannot disagree — which is how "Git"
 and "Changes" became "Log" and "Local Changes" on the bar. The View menu's item
 titles ("Show Git Log" and its siblings) are **deliberately left alone**: menu
@@ -1047,7 +1048,7 @@ The sweep's first floating surfaces and its two search surfaces: the completion
 panel and the hover popover, the find/replace bar above the editor, the Find in
 Files window and its window controller, the recent-searches menu, and the two
 bottom-bar popovers plus the Log calendar. It spends `bgPopover`, leaving three
-roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and takes
+roles unspent at the time (`currentLine`, `bracketMatch`, `conflictBackground`), and takes
 the gated set from twenty-seven to thirty-four. Seven files join the set:
 `ChromeControls.swift` (new, holding the shared field shape and the secondary
 button), `CompletionPanel.swift`, `HoverPanel.swift`, `SearchBarView.swift`,
@@ -1326,7 +1327,7 @@ box, author line, footer and author editor sheet), the three-pane merge editor,
 the four secondary windows that host code — diff, merge, Local History and the
 out-of-project source viewer — and `EscClosableWindow`, the subclass all six
 secondary windows are built from. It spends `conflictBackground`, leaving two
-roles unspent (`currentLine`, `bracketMatch`, both code zone), and takes the
+roles unspent at the time (`currentLine`, `bracketMatch`, both code zone), and takes the
 gated set from thirty-four to **forty-four**. Ten files join:
 `CommitDialogView.swift` (`CommitFileRow` and `AuthorEditorView` live in it),
 `MergeView.swift`, `MergeWindowController.swift`, `DiffWindowContent.swift`,
@@ -1582,7 +1583,7 @@ The settings surfaces: the Preferences window (its host, its tab bar and all
 four pages — General, Language Servers, the problem-catalog tab and
 Acknowledgements), the licence text pane behind Acknowledgements, and the
 create and merge pull-request sheets. It spends **no new colour role** —
-`currentLine` and `bracketMatch` stay unspent — and adds **controls** instead:
+`currentLine` and `bracketMatch` stayed unspent then — and adds **controls** instead:
 the design draws a replacement for every platform form control these files
 used, and those replacements live in `ChromeControls.swift`. Seven files join
 the gated set, taking it from forty-four to **fifty-one**: `SettingsView.swift`,
@@ -1815,7 +1816,7 @@ after it part five (f)'s fold placeholder a second. The database viewer tab and 
 console, and the problem-catalog browser window, the statement pane, the judge
 section, the open-problem sheet (with the menu-bar commands in the same file) and
 the sign-in sheet. It spends **no new colour role** — `ChromeColorRole` stays at
-twenty-one cases, `currentLine` and `bracketMatch` stay unspent — and adds three
+twenty-one cases, `currentLine` and `bracketMatch` stayed unspent then — and adds three
 Core colour answers and one shared control, the spinner, with two geometry
 tokens. Seven files join the gated set, taking it from fifty-one to
 **fifty-eight**: `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`,
@@ -2073,8 +2074,8 @@ keeps the mistake is what stops the next part repeating it (the surface itself
 was swept in part five (f), below), and rule forty-three is what now reads such
 a claim against the tree.
 **No new role**:
-`ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
-the two unspent. One Core value is added, `DocumentPageChrome` (its entry
+`ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stayed
+the two unspent then. One Core value is added, `DocumentPageChrome` (its entry
 above, with the role table), plus the palette's CSS reading. One file joins the
 gated set, taking it from fifty-eight to **fifty-nine**: `FilePanels.swift`,
 whose line now reads `ChromePalette.nsColor(.statusRed)` — the dynamic colour,
@@ -2195,7 +2196,7 @@ restoring the chevron's local palette call, each turned rule six red; each was
 restored.
 
 **No new role**: `ChromeColorRole` stays at twenty-one, `currentLine` and
-`bracketMatch` stay the two unspent, and nothing in Core changes. One file joins
+`bracketMatch` stayed the two unspent then, and nothing in Core changes. One file joins
 the gated set, taking it from fifty-nine to **sixty**:
 `BracketOverlayLayoutManager.swift`, and `unsweptColorSurfaces` empties. The
 suite's rule count stays forty-three.
@@ -2227,9 +2228,9 @@ colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
 stay named under *What is still waiting*: the terminal's own palette (its four
-chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph and
-changed-line text tint. (The caret readout was waiting here too; it is now
-drawn — see the bottom bar's caret readout below.)
+chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph. (The caret readout and the
+changed-line text tint were waiting here too; both are now drawn — see the
+bottom bar's caret readout below, and part five (b)'s departure seven.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2247,7 +2248,7 @@ request, so the third becomes a role, `dropTargetTint`, in the row-and-line
 states group after `hoverTint`: the accent's own hues, `0x4F8DFF` dark and
 `0x2F6FE0` light, at alpha `0x66` — 102 ÷ 255, exactly 0.4, so **no pixel
 changes**. `ChromeColorRole` goes from twenty-one to **twenty-two** cases;
-`currentLine` and `bracketMatch` stay the two unspent; the set stays closed
+`currentLine` and `bracketMatch` stayed the two unspent then; the set stays closed
 against call sites. The gated set stays at **sixty** files and the suite at
 **forty-three** rules.
 
@@ -2347,7 +2348,7 @@ ANSI entry clears 4.5:1 against the light `bgCanvas`, that each appearance
 installs its own array, and that both arrays have sixteen entries.
 
 **No new role**: `ChromeColorRole` stays at twenty-two, `currentLine` and
-`bracketMatch` stay the two unspent, and nothing in Core changes. The gated set
+`bracketMatch` stayed the two unspent then, and nothing in Core changes. The gated set
 stays at **sixty** files — `TerminalTheme.swift` stays one of the four
 exemptions, now narrowed — and the suite goes from forty-three rules to
 **forty-four**.
@@ -2424,7 +2425,8 @@ and paints its band over `bgEditor`, under the hairline and the numbers. Both
 fills are dynamic colours resolved inside the drawing pass, rule twenty-five's
 footing, so an appearance switch repaints them untold. Rule twenty-nine holds
 the files spelling `currentLine` to the palette and these two painters, by set
-equality; `ChromePaletteTests` keeps the wash distinct from
+equality; Until this highlight `currentLine` was one of the two unspent roles; the parts
+above that say so record their own moment. `ChromePaletteTests` keeps the wash distinct from
 `selectionInactive`; `CurrentLineHighlightTests` samples the band in both
 halves, on the caret's line and not its neighbour, and none under a multi-line
 selection.
@@ -2450,6 +2452,40 @@ on a live view in both appearances and the floor on the new ground;
 `TerminalPanelInsetTests` measures the margin at scale 1.0 and 1.8 and samples
 it as `bgPanel`.
 
+#### The design pass's departures
+
+The design pass matched every surface it found off, and drew six things other
+than the design does, each deliberately and in the repository's favour. Each is
+recorded where its surface is described, and gathered here:
+
+1. **The Log keeps its richer filters and its ref badges.** The design's filter
+   strip is sparser than `LogFilterBar`'s branch, author, path, message and
+   date-range filters, and its commit rows draw no ref badges. Both are working
+   features the drawing simply does not show; removing them would remove
+   behaviour, not restyle it. The badges keep `accent` on `accentTint` (part
+   four (b)).
+2. **The terminal keeps its session strip.** The design draws one terminal; the
+   app runs several sessions per project, and the strip is how one is chosen,
+   added and closed. It stays the panel's header strip (part four (a)).
+3. **Find in Files' current match stays orange.** The match ⌘G steps to is
+   `SyntaxTheme`'s saturated orange over the warm yellow of every other match —
+   one family, so it still reads as a match, but unmistakably the current one.
+   The design draws no distinct current match; losing it would lose the only
+   cue for where ⌘G landed (`app-editor-overlays.md`).
+4. **Blame stays behind its per-file toggle.** The design draws the gutter's
+   blame column; the app draws it only when "Annotate with Git Blame" is turned
+   on for that file. Annotate starts off for every tab, because a blame is a
+   `git` run per file and a column of authors is noise while editing
+   (`app-editor.md`, `app-editor-overlays.md`).
+5. **The unified diff keeps two line-number columns.** The design draws one;
+   the commit dialog's diff shows the old and the new line numbers side by side,
+   so a removed line and an added line each say where they were and where they
+   land (part five (b)'s departure seven).
+6. **The dock draws six tabs and a single close button.** The design's seventh
+   tab names a panel this application does not have, and its minimise and close
+   would perform the same action on a dock with one state (*Six tabs, not
+   seven* and *Close alone*, part four (a)).
+
 #### What is still waiting
 
 The dock is finished, the popovers and search surfaces are swept, and so are the
@@ -2468,9 +2504,11 @@ deferred** — part five (a) drew them on `bgPopover` and replaced their
 `Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
 and `secondaryButtonHeight` are spent on the shared field. The **caret
 readout** is **no longer deferred**: it sits after the bar's toggles (see *The
-bottom bar's caret readout*, below). What stays deferred: the **lane hues**, and
-the unified diff's **per-line checkbox glyph** and **changed-line text tint** (part five (b)'s departures six and
-seven), all open design questions. The terminal's own palette is **no longer
+bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
+**no longer deferred** either: the design pass drew it (part five (b)'s
+departure seven). What stays deferred: the **lane hues**, and the unified
+diff's **per-line checkbox glyph** (part five (b)'s departure six), both open
+design questions. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — but
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
 entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
