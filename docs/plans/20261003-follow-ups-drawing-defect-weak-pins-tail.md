@@ -267,22 +267,22 @@ Dependencies: none new.
 - Modify: `Tests/PisakaAppTests/EditorLayoutHarness.swift`, `Tests/PisakaAppTests/CurrentLineHighlightTests.swift`
 - Modify: `docs/architecture/app-editor-overlays.md`
 
-- [ ] **The harness.** `EditorLayoutHarness.init` takes the text view to install, defaulting to `NSTextView(usingTextLayoutManager: false)`. Every existing caller compiles unchanged.
-- [ ] **The ruler.** `LineNumberRulerView` loses `final`, so the test can subclass it. A one-line comment states that reason.
-- [ ] **Two recording subclasses** in the test file:
+- [x] **The harness.** `EditorLayoutHarness.init` takes the text view to install, defaulting to `NSTextView(usingTextLayoutManager: false)`. Every existing caller compiles unchanged.
+- [x] **The ruler.** `LineNumberRulerView` loses `final`, so the test can subclass it. A one-line comment states that reason.
+- [x] **Two recording subclasses** in the test file:
   - a text-view subclass that overrides `setNeedsDisplay(_:)` and appends each rect;
   - a ruler subclass that overrides `setNeedsDisplay(_:)` and the `needsDisplay` setter, recording `true` as the full bounds.
-- [ ] **`testACaretMoveInvalidatesBothPaintersAndMovesTheWash`.**
+- [x] **`testACaretMoveInvalidatesBothPaintersAndMovesTheWash`.**
   - **Setup.** Place the caret on line 0 and clear both records. Then move the caret to line 3 through `coordinator.updateCurrentLine(of:)`.
   - **Text view.** Its recorded rects cover line 0's band and line 3's band. Each band is `layoutManager.currentLineBand(for:)` offset by `textContainerOrigin`.
   - **Ruler.** Its recorded rects cover both bands' vertical ranges.
   - **Render.** Keep the render assertion: the old line is untinted and the new line is tinted.
   - **The window.** If recording works without a window, drop the borderless window and the layer-flag reading. Otherwise keep the window, and replace only the flag assertions.
-- [ ] **Mutation checks,** run by hand and never committed. Each must fail the test:
+- [x] **Mutation checks,** run by hand and never committed. Each must fail the test:
   - removing `previous` from `setCurrentLine`'s loop;
   - removing `ruler.needsDisplay = true`.
-- [ ] **Docs.** Rewrite the suite header to state what is now pinned (both bands, both painters) and the window count. Update the matching passage in `app-editor-overlays.md`.
-- [ ] Run the gates. They must pass before Task 3.
+- [x] **Docs.** Rewrite the suite header to state what is now pinned (both bands, both painters) and the window count. Update the matching passage in `app-editor-overlays.md`.
+- [x] Run the gates. They must pass before Task 3.
 
 ### Task 3: The caret column after a deletion ending at the caret
 

@@ -27,8 +27,9 @@ final class EditorLayoutHarness {
     let textContainer: NSTextContainer
     let textStorage: NSTextStorage
 
-    init() {
-        let view = NSTextView(usingTextLayoutManager: false)
+    /// `view` is the text view to install, so a test can hand over a recording
+    /// subclass; it must be a TextKit 1 view, as the default is.
+    init(textView view: NSTextView = NSTextView(usingTextLayoutManager: false)) {
         let manager = BracketOverlayLayoutManager()
         view.textContainer?.replaceLayoutManager(manager)
         assert(view.layoutManager === manager, "bracket overlay layout manager did not install")
