@@ -26,9 +26,11 @@ user sees it.
   and both row kinds highlight identically under the pointer.
   When the project pane is empty, clicking anywhere in it
   opens the folder picker. Opening a folder auto-expands its first level so the
-  immediate children are visible right away. Each entry shows a file-type icon
-  (tinted by type) so Swift, JS/TS, JSON, Markdown, images, archives, and other
-  common types are recognizable at a glance. Dotfiles are visible,
+  immediate children are visible right away. On macOS each entry shows one of
+  three monochrome glyphs — code file, text file or database — and a folder
+  shows an open or a closed folder; iPhone and iPad keep a per-type tinted icon
+  so Swift, JS/TS, JSON, Markdown, images, archives, and other common types are
+  recognizable at a glance. Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
   delete; only the service entries `.git` and `.DS_Store` are hidden (and cannot
   be created or renamed to from the tree — a create path refuses them in any
@@ -105,7 +107,9 @@ user sees it.
   the disk rather than by the highlight, so it surfaces as an "already exists"
   failure on release instead of as a refused drop.
 - Vertical tab list with active-tab highlight, an unsaved-changes dot, and a
-  per-tab close button.
+  per-tab close button. On macOS the column opens 220 points wide and can be
+  widened to at most a third of the window, and the window's centred title names
+  the project and the focused file (`pisaka — ContentView.swift`).
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
   line-number gutter on the left that tracks scrolling, edits, and the system
   light/dark appearance.
@@ -243,6 +247,9 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
+- Current-line highlight (macOS): the line holding the caret is tinted across
+  the text and the gutter; a selection spanning more than one line shows no
+  tint.
 - Indentation-level highlighting: the leading whitespace of every line is
   tinted one indentation unit at a time, in a translucent color that cycles with
   the unit's level, so nesting reads at a glance and a mis-nested line stands
@@ -324,7 +331,10 @@ user sees it.
   search window (a repeat press focuses the one already open). It has the same
   match case / whole word / regular expression toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
   will not match `foo.ts`), and lists matches
-  grouped by file with a preview line per match. The traversal honors your
+  grouped by file — each group's header shows the file's glyph, its path and
+  its match count (`3 matches`) — with a preview line per match; a line under the
+  fields states the scope (`In: <project> · Files: <mask> · Exclude: ignored
+  files`), and Replace All ends the replace row. The traversal honors your
   `.gitignore` files — the root's and every nested one, with negation and
   directory rules as git applies them — so a JS project's `node_modules` is
   skipped without configuring anything; `.git` and `.DS_Store` are always skipped,
@@ -429,8 +439,8 @@ user sees it.
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
   character, and works after a dot too. Nothing pops up mid-composition with an
   input method. If you would rather it stayed out of the way, there is a
-  **lightbulb button at the right end of the always-visible bottom bar** (beside
-  the branch switcher, and with a matching "Offer completions as you type"
+  **lightbulb button after the panel toggles on the always-visible bottom bar**
+  (followed by the caret readout, and with a matching "Offer completions as you type"
   checkbox in Preferences → General — the two are the
   same switch) that turns completion off entirely: no popup as you type, and
   Ctrl+Space / Find > Complete do nothing either, the menu item greying out to
@@ -827,7 +837,7 @@ user sees it.
   project you leave keeps its tabs and selection, and the one you open comes back
   exactly as you left it — empty the first time you open it, rather than showing
   the previous project's files behind the new tree. "Untitled" buffers travel with
-  their project. The bottom bar holds a **project switcher** (a folder icon on the right, next to the branch switcher) listing your recent projects; clicking one switches to it instantly, and its "Open Folder…" item is the same Cmd+Shift+O. Re-opening the folder already open changes nothing. Before the
+  their project. The bottom bar's left end holds a **project switcher** (a package glyph, the project name and a chevron, followed by the branch switcher) listing your recent projects; clicking one switches to it instantly, and its "Open Folder…" item is the same Cmd+Shift+O. Re-opening the folder already open changes nothing. Before the
   switch every unsaved titled file is written to disk; if one cannot be written
   the switch is refused and an alert names it, because switching would close it and
   lose those edits (save it elsewhere or close its tab, then switch). The very
@@ -1006,9 +1016,12 @@ user sees it.
   Changes, and closes the window. Non-binary text files only.
 - Git Log: a read-only commit history shown in the **Log** bottom panel (toggle
   with "Show/Hide Git Log" in the View menu, the Log button on the bottom bar, or
-  Cmd+Shift+L). It shows a commit table — short
-  hash, ref/branch/tag badges, subject, author, and date — with a colored branch
-  graph in the left gutter that draws lanes for branches and merges. A "Load
+  Cmd+Shift+L). It shows a commit table — message
+  (with ref/branch/tag badges), author, date and short hash, in that order — with a colored branch
+  graph in the left gutter that draws lanes for branches and merges. On macOS
+  dates read relative to now (`just now`, `5m ago`, `3h ago`, `Yesterday`,
+  `4 days ago`, then `Mar 2` / `Mar 2, 2025`), hovering a row shows the exact
+  date and time, and Refresh sits at the end of the filter bar. A "Load
   more" affordance fetches an additional page of history. Selecting a commit shows
   the files it changed (against its first parent; a merge shows its mainline diff);
   double-click a file to open its side-by-side diff in a separate window — the same

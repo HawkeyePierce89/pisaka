@@ -15,36 +15,51 @@ public enum CaretReadout {
     /// What the readout calls a file no language claims.
     public static let plainTextName = "Plain Text"
 
-    /// The readout for a caret at UTF-16 `caretOffset` in `text`.
+    /// The readout for a caret at UTF-16 `caretOffset` in `text`, indexing the
+    /// whole text. The editor asks `position(text:caretOffset:lineStarts:)` with
+    /// the gutter's own table instead, and formats that with
+    /// `text(position:language:encodingName:)`.
     public static func text(
         text: NSString,
         caretOffset: Int,
         language: SyntaxLanguage?,
         encodingName: String
     ) -> String {
-        let (line, column) = position(text: text, caretOffset: caretOffset)
+        self.text(position: position(text: text, caretOffset: caretOffset), language: language, encodingName: encodingName)
+    }
+
+    /// The readout for an already-computed 1-based line and column.
+    public static func text(
+        position: (line: Int, column: Int),
+        language: SyntaxLanguage?,
+        encodingName: String
+    ) -> String {
         let languageName = language?.displayName ?? plainTextName
-        return "Ln \(line), Col \(column) · \(encodingName) · \(languageName)"
+        return "Ln \(position.line), Col \(position.column) · \(encodingName) · \(languageName)"
     }
 
     /// The 1-based line and column of `caretOffset`, clamped into `text`.
     ///
-    /// Only the text before the caret is indexed, so a caret near the top of a
-    /// large file costs what it is near rather than the whole buffer; the line
-    /// starts at or before the caret are the same either way. The one place the
-    /// two readings differ is a caret between a CR and its LF: the prefix ends
-    /// in a bare CR and so opens a line at the caret, where the whole text's
-    /// CRLF pair does not — that trailing start is dropped.
-    static func position(text: NSString, caretOffset: Int) -> (line: Int, column: Int) {
+    /// `lineStarts` is `LineStartIndex.offsets(in:)`'s table of the whole text —
+    /// the editor passes the gutter's, which it keeps incrementally — so the line
+    /// is a binary search and the column counts only the caret's own line: a
+    /// caret move never copies or rescans the buffer. A caret between a CR and
+    /// its LF needs no special case, since the whole text's table opens no line
+    /// inside the pair. A stale table cannot read outside the text: the line
+    /// start used is never past the clamped caret.
+    public static func position(text: NSString, caretOffset: Int, lineStarts: [Int]) -> (line: Int, column: Int) {
         let caret = min(max(0, caretOffset), text.length)
-        var starts = LineStartIndex.offsets(in: text.substring(to: caret) as NSString)
-        if caret > 0, caret < text.length, starts.count > 1, starts.last == caret,
-           text.character(at: caret - 1) == 0x0D, text.character(at: caret) == 0x0A {
-            starts.removeLast()
+        guard !lineStarts.isEmpty else {
+            return (1, text.substring(to: caret).count + 1)
         }
-        // `starts` is ascending, begins at 0 and ends at or before the caret.
-        let lineStart = starts[starts.count - 1]
+        let index = CurrentLineRule.lineIndex(of: caret, in: lineStarts)
+        let lineStart = min(max(0, lineStarts[index]), caret)
         let column = text.substring(with: NSRange(location: lineStart, length: caret - lineStart)).count
-        return (starts.count, column + 1)
+        return (index + 1, column + 1)
+    }
+
+    /// `position(text:caretOffset:lineStarts:)` over the whole text's table.
+    static func position(text: NSString, caretOffset: Int) -> (line: Int, column: Int) {
+        position(text: text, caretOffset: caretOffset, lineStarts: LineStartIndex.offsets(in: text))
     }
 }

@@ -281,9 +281,12 @@ struct GeneralSettingsView: View {
     /// beside a value that is still whatever the editor is drawn at.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The installed fixed-pitch families, read once when the page is built:
-    /// the menu lists them after "System Monospaced".
-    @State private var fixedPitchFamilies = EditorFont.installedFixedPitchFamilies()
+    /// The installed fixed-pitch families, read once when the page appears:
+    /// the menu lists them after "System Monospaced". Filled in `onAppear`, not
+    /// as the state's initial value — that expression runs on every rebuild of
+    /// this struct (each settings or download-progress change), and the scan
+    /// asks every installed family for a font, on the main thread.
+    @State private var fixedPitchFamilies: [String] = []
 
     var body: some View {
         SettingsPage {
@@ -380,6 +383,9 @@ struct GeneralSettingsView: View {
             SettingsRow(label: "Highlight indentation levels") {
                 ChromeSwitch(label: "Highlight indentation levels", isOn: $settings.indentLevelHighlightingEnabled)
             }
+        }
+        .onAppear {
+            fixedPitchFamilies = EditorFont.installedFixedPitchFamilies()
         }
     }
 

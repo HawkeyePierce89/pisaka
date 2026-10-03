@@ -694,8 +694,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     as gaining the listener and reports the new editor's caret before any move
     (the scroll listener's own gained-listener idiom, and it keeps `makeNSView`
     inside the body-length limit).
-    What the offset reads as is Core's (`CaretReadout`); the readout's model and
-    its deferral are `app-window.md`'s.
+    It reports a line and column, not an offset and a buffer:
+    `CaretReadout.position(text:caretOffset:lineStarts:)` over the storage's
+    `mutableString` and the ruler's `lineStarts`, so a caret move never copies
+    the buffer (`textView.string` would, on every keystroke — `textDidChange`'s
+    reason). What the position reads as is Core's (`CaretReadout`); the
+    readout's model and its deferral are `app-window.md`'s.
     The current-line highlight is wired beside it: `updateCurrentLine(of:)` asks
     `CurrentLineRule` over the whole selection — first range's start to last
     range's end, so a column selection across lines is a multi-line one — and

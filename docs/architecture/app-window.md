@@ -184,7 +184,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `completionToggleButton` — are **icon-only squares**:
     `bottomBarToggleSide` on a side, `bottomBarToggleRadius` of corner radius,
     the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
-    while active and no ground under a `textSecondary` icon otherwise, each
+    while active and no ground under a `textSecondary` icon otherwise (since the
+    design pass: `BottomPanel.glyph` at 13 on an `accentTint` ground — see
+    below), each
     keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
     is what makes a tooltip and `.accessibilityLabel(` mandatory on every one of
     them rather than polite: the `Label(title, systemImage:)` they used to carry
@@ -661,8 +663,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `core-theme.md`'s *The bottom bar's caret readout*), handed in as
     `BottomBar.caretReadout` — a plain string, so the bar stays hostable alone.
     It comes from `CaretReadoutModel`, defined in this file: the editor reports
-    each caret move through `CodeEditorView.onCaretMoved` (`app-editor.md`), and
-    the model composes the readout on the **next main-queue turn**, coalescing a
+    each caret move's line and column through `CodeEditorView.onCaretMoved`
+    (`app-editor.md`), and the model composes the readout on the **next main-queue turn**, coalescing a
     burst of moves into one readout and never publishing from inside a SwiftUI
     update (the editor restores a tab's selection while installing it). It is
     keyed by tab id, and `readout(for:)` answers empty unless that id is the

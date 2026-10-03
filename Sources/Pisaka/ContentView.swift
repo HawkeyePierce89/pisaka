@@ -1092,11 +1092,10 @@ struct ContentView: View {
             onFindUsages: onFindUsages,
             onRenameSymbol: onRenameSymbol,
             onScrolled: onScrolled,
-            onCaretMoved: { [caretReadout] fileID, offset, text in
+            onCaretMoved: { [caretReadout] fileID, position in
                 caretReadout.publish(
                     fileID: fileID,
-                    caretOffset: offset,
-                    text: text,
+                    position: position,
                     language: SyntaxLanguage(forFileName: file.displayName)
                 )
             }
@@ -1599,12 +1598,12 @@ final class CaretReadoutModel: ObservableObject {
     /// The readout for that tab's caret.
     @Published private(set) var text = ""
 
-    private var pending: (fileID: UUID, caretOffset: Int, text: NSString, language: SyntaxLanguage?)?
+    private var pending: (fileID: UUID, position: (line: Int, column: Int), language: SyntaxLanguage?)?
 
     /// Record the caret of tab `fileID`; the readout follows on the next turn.
-    func publish(fileID: UUID, caretOffset: Int, text: NSString, language: SyntaxLanguage?) {
+    func publish(fileID: UUID, position: (line: Int, column: Int), language: SyntaxLanguage?) {
         let isScheduled = pending != nil
-        pending = (fileID, caretOffset, text, language)
+        pending = (fileID, position, language)
         guard !isScheduled else { return }
         DispatchQueue.main.async { [weak self] in self?.flush() }
     }
@@ -1621,8 +1620,7 @@ final class CaretReadoutModel: ObservableObject {
         guard let pending else { return }
         self.pending = nil
         let readout = CaretReadout.text(
-            text: pending.text,
-            caretOffset: pending.caretOffset,
+            position: pending.position,
             language: pending.language,
             encodingName: FileService.encodingName
         )

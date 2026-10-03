@@ -714,8 +714,9 @@ gated set.
     design glyph at 13 on an `accentTint` ground — see the design-pass bar
     entry below). That visual decision is what rule ten
     exists for: the `Label(title, systemImage:)` they carried *was* each one's
-    accessibility name, so every one of them now spells `.help(` and
-    `.accessibilityLabel(` — nothing misrenders without them, and the only
+    accessibility name, so every one of them now spells a tooltip and
+    `.accessibilityLabel(` (since the design pass the tooltip is `BarToolTip(`,
+    an AppKit `toolTip`, and `.help(` — which never showed — is refused) — nothing misrenders without them, and the only
     reader who notices is the one who cannot see the bar. Full entry in
     `app-window.md`.
   - **The sidebar's host and its header** — `ProjectTreeView.swift`, already

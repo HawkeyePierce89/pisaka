@@ -57,7 +57,7 @@ public final class CommitDialogModel: ObservableObject {
         didSet { unifiedCache = nil }
     }
 
-    /// The last `unifiedLines(for:)` answer, memoized by path.
+    /// The last `unifiedDisplayRows(for:)` answer, memoized by path.
     ///
     /// The flattened diff depends only on a file's `rows`, so `files`' `didSet` is
     /// the **fail-safe default**: any mutation whatsoever drops the memo, and no
@@ -74,10 +74,7 @@ public final class CommitDialogModel: ObservableObject {
     /// the element's own `facts`, leaving every `rows` identical), so they go
     /// through `preservingUnifiedCache` and put it back. The fail-safe stays the
     /// default; the exemption is stated at the one place it holds.
-    ///
-    /// It holds the display rows (`UnifiedDiffDisplayRows`) beside the lines,
-    /// built in the same pass, for the same reason.
-    private var unifiedCache: (path: String, lines: [UnifiedDiffLine], rows: [UnifiedDiffDisplayRow])?
+    private var unifiedCache: (path: String, rows: [UnifiedDiffDisplayRow])?
 
     /// The author of the future commit, per-field-sourced. Unset until loaded,
     /// which blocks the commit exactly as git itself would.
@@ -270,33 +267,30 @@ public final class CommitDialogModel: ObservableObject {
         selection(for: path)?.facts.wholeOnlyReason?.message
     }
 
-    /// The unified diff lines the right-hand panel draws for `path` — empty for a
-    /// whole-only file, which the panel replaces with a placeholder rather than a
-    /// diff whose checkboxes cannot be clicked.
-    public func unifiedLines(for path: String) -> [UnifiedDiffLine] {
-        unified(for: path).lines
+    /// The unified diff lines `unifiedDisplayRows(for:)` is built from — empty
+    /// for a whole-only file, which the panel replaces with a placeholder rather
+    /// than a diff whose checkboxes cannot be clicked. Uncached: the panel reads
+    /// the rows, and only the tests read the lines.
+    func unifiedLines(for path: String) -> [UnifiedDiffLine] {
+        guard let selection = selection(for: path) else { return [] }
+        // Every whole-only category, not just an ineligible one: a file whose only
+        // difference is its line endings *is* selectable and has rows, all of them
+        // context, and the panel draws the placeholder instead — so flattening the
+        // whole file per body pass built an array nobody reads.
+        guard selection.facts.wholeOnlyReason == nil else { return [] }
+        return CommitDiffUnits.unified(rows: selection.rows)
     }
 
     /// The rows the right-hand panel draws for `path`: the file's two header
     /// rows, then each hunk's `@@` row and lines (`UnifiedDiffDisplayRows`).
     /// Empty exactly when `unifiedLines(for:)` holds no changed line, so for every
-    /// whole-only file.
+    /// whole-only file. Memoized by path (`unifiedCache`).
     public func unifiedDisplayRows(for path: String) -> [UnifiedDiffDisplayRow] {
-        unified(for: path).rows
-    }
-
-    private func unified(for path: String) -> (lines: [UnifiedDiffLine], rows: [UnifiedDiffDisplayRow]) {
-        if let cached = unifiedCache, cached.path == path { return (cached.lines, cached.rows) }
-        guard let selection = selection(for: path) else { return ([], []) }
-        // Every whole-only category, not just an ineligible one: a file whose only
-        // difference is its line endings *is* selectable and has rows, all of them
-        // context, and the panel draws the placeholder instead — so flattening the
-        // whole file per body pass built an array nobody reads.
-        guard selection.facts.wholeOnlyReason == nil else { return ([], []) }
-        let lines = CommitDiffUnits.unified(rows: selection.rows)
-        let rows = UnifiedDiffDisplayRows.rows(for: selection.facts.file, lines: lines)
-        unifiedCache = (path, lines, rows)
-        return (lines, rows)
+        if let cached = unifiedCache, cached.path == path { return cached.rows }
+        guard let selection = selection(for: path) else { return [] }
+        let rows = UnifiedDiffDisplayRows.rows(for: selection.facts.file, lines: unifiedLines(for: path))
+        unifiedCache = (path, rows)
+        return rows
     }
 
     /// The `rootRequestGeneration` the dialog's current contents correspond to.

@@ -233,12 +233,11 @@ struct CodeEditorView: NSViewRepresentable {
     /// by the glue that receives it.
     var onScrolled: ((Int) -> Void)?
 
-    /// The caret moved: this tab's id, the caret's UTF-16 offset and the
-    /// buffer it is an offset into, for the bottom bar's readout
-    /// (`CaretReadout`). Sent on every selection change and once when the view
+    /// The caret moved: this tab's id and the caret's 1-based line and column
+    /// (`CaretReadout`), for the bottom bar's readout. Sent on every selection change and once when the view
     /// switches to another tab, so the readout follows the focused tab; `nil`
     /// for an editor nobody reads the caret of.
-    var onCaretMoved: ((UUID, Int, NSString) -> Void)?
+    var onCaretMoved: ((UUID, (line: Int, column: Int)) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
@@ -1597,13 +1596,21 @@ struct CodeEditorView: NSViewRepresentable {
         /// Report the caret to the bottom bar's readout, or `nil` when nobody
         /// reads it. Assigned from `CodeEditorView` on every update, like
         /// `reportScrolled`.
-        var reportCaret: ((UUID, Int, NSString) -> Void)?
+        var reportCaret: ((UUID, (line: Int, column: Int)) -> Void)?
 
         /// Tell the readout where the caret is: the selection's trailing end, so
-        /// a selection still reads a caret position rather than nothing.
+        /// a selection still reads a caret position rather than nothing. The line
+        /// comes off the ruler's incremental table and the text is read through
+        /// the storage's own string, so a caret move never copies the buffer —
+        /// `textView.string` would, on every keystroke (see `textDidChange`).
         func reportCaretPosition(of textView: NSTextView) {
-            guard let reportCaret, let fileID else { return }
-            reportCaret(fileID, NSMaxRange(textView.selectedRange()), textView.string as NSString)
+            guard let reportCaret, let fileID, let storage = textView.textStorage,
+                  let ruler = lineNumberRuler else { return }
+            reportCaret(fileID, CaretReadout.position(
+                text: storage.mutableString,
+                caretOffset: NSMaxRange(textView.selectedRange()),
+                lineStarts: ruler.lineStarts
+            ))
         }
 
         /// The one place the caret's word becomes a question, shared by the two

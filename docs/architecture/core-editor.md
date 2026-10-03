@@ -243,19 +243,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     exhaustive `switch` rather than derived from the lowercased raw value, so a
     new case cannot compile without one; `SyntaxLanguageTests` pins the table.
   - `CaretReadout.swift` — the bottom bar's caret readout,
-    `text(text:caretOffset:language:encodingName:)` →
-    `Ln <line>, Col <column> · <encoding> · <language>`. The line is 1-based,
+    `position(text:caretOffset:lineStarts:)` → a 1-based line and column, and
+    `text(position:language:encodingName:)` →
+    `Ln <line>, Col <column> · <encoding> · <language>`
+    (`text(text:caretOffset:language:encodingName:)` composes the two over the
+    whole text's table). The line is 1-based,
     split by `LineStartIndex` (all six separators, CRLF once), so it agrees with
     the gutter; the column is 1-based and counts **grapheme clusters** (Swift
     `Character`s) from the line start, so an emoji, a letter with a combining
     mark and a tab are each one column — the editor had no column counter to
     agree with, and a UTF-16 count would read an emoji as two. No language reads
-    `Plain Text`; an offset outside the text clamps into it, because the app
-    composes the readout a turn after the move and the buffer may have shrunk.
-    Only the text **before** the caret is indexed, so the cost is the caret's
-    distance from the top rather than the buffer's size; the one place that
-    reading differs from the whole text's — a caret between a CR and its LF,
-    where the prefix ends in a bare CR — drops the trailing start it opens.
+    `Plain Text`; an offset outside the text clamps into it, and the line start
+    used is never past the clamped caret, so a stale table cannot read outside
+    the text. The editor passes the **gutter's own incremental table**, so the
+    line is a binary search (`CurrentLineRule.lineIndex`) and the column counts
+    only the caret's line: a caret move never copies or rescans the buffer. A
+    caret between a CR and its LF needs no special case — the whole text's
+    table opens no line inside the pair.
     `CaretReadoutTests` covers ASCII, CRLF (and inside the pair), bare CR,
     NEL/LS/PS, emoji, combining marks, tabs, first and last lines, an
     unterminated last line, clamping, and the line agreeing with the whole

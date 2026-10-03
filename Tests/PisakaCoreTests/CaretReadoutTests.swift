@@ -76,6 +76,28 @@ final class CaretReadoutTests: XCTestCase {
         }
     }
 
+    /// The editor passes the gutter's table rather than letting the readout
+    /// index the text; the line is read off that table.
+    func testPositionReadsTheGivenTable() {
+        let text = "abc\ndefg\nhi" as NSString
+        let starts = LineStartIndex.offsets(in: text)
+        XCTAssertTrue(CaretReadout.position(text: text, caretOffset: 6, lineStarts: starts) == (2, 3))
+        XCTAssertTrue(CaretReadout.position(text: text, caretOffset: 11, lineStarts: starts) == (3, 3))
+        XCTAssertEqual(
+            CaretReadout.text(position: (2, 3), language: nil, encodingName: "UTF-8"),
+            "Ln 2, Col 3 · UTF-8 · Plain Text"
+        )
+    }
+
+    /// A stale table never reads a line start past the caret, and an empty one
+    /// reads the whole text as one line.
+    func testStaleOrEmptyTableStaysInsideTheText() {
+        let text = "ab" as NSString
+        XCTAssertTrue(CaretReadout.position(text: text, caretOffset: 2, lineStarts: [0, 10]) == (1, 3))
+        XCTAssertTrue(CaretReadout.position(text: text, caretOffset: 9, lineStarts: [0, 1, 2, 3]) == (3, 1))
+        XCTAssertTrue(CaretReadout.position(text: text, caretOffset: 1, lineStarts: []) == (1, 2))
+    }
+
     func testBareCRSplits() {
         XCTAssertEqual(readout("ab\rcd", 4), "Ln 2, Col 2 · UTF-8 · Swift")
     }

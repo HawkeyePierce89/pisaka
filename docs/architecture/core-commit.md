@@ -365,9 +365,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     cases the former "Push after commit" switch was enabled in; the plan is
     re-derived after the commit regardless, so this decides what is offered,
     never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)`,
-    `unifiedLines(for:)` and `unifiedDisplayRows(for:)` (the same lines laid out
-    by `UnifiedDiffDisplayRows`, built in the same pass and memoized with them) —
-    the last two **empty for every whole-only file** (asked
+    `unifiedDisplayRows(for:)` (the `internal`, uncached
+    `unifiedLines(for:)` — which only the tests read — laid out by
+    `UnifiedDiffDisplayRows`) — both **empty for every whole-only file** (asked
     after `wholeOnlyMessage`, so a line-endings-only change flattens nothing the
     panel would ignore) and **memoized by path**, invalidated from `files`'
     `didSet` so the cache cannot drift: the sheet's body re-evaluates on every

@@ -44,13 +44,18 @@ public enum RelativeCommitDate {
     }
 
     /// `MMM d`, plus `, yyyy` when `date` falls in another year than `now`.
+    ///
+    /// A format style rather than a `DateFormatter`: a Log row redraws on every
+    /// hover change and most of a real history lands here, and Foundation
+    /// caches the formatter a style resolves to where a `DateFormatter` would be
+    /// built and configured afresh per row per redraw.
     private static func shortDate(_ date: Date, now: Date, calendar: Calendar, locale: Locale) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
         let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-        formatter.dateFormat = sameYear ? "MMM d" : "MMM d, yyyy"
-        return formatter.string(from: date)
+        let format: Date.FormatString = sameYear
+            ? "\(month: .abbreviated) \(day: .defaultDigits)"
+            : "\(month: .abbreviated) \(day: .defaultDigits), \(year: .defaultDigits)"
+        return date.formatted(
+            Date.VerbatimFormatStyle(format: format, locale: locale, timeZone: calendar.timeZone, calendar: calendar)
+        )
     }
 }

@@ -330,7 +330,9 @@ because nothing else states them.
   code font the pointer can reach declares itself a surface**, including views merely
   *beside* a text view; unreachable ≡ chrome exempts the hover popover alone. The interface
   scale reaches views only as `InterfaceMetrics` through the environment, never inline and
-  never on a code-font site. `ZoomSourceGatingTests` pins both sets.
+  never on a code-font site. Every code-zone font — size and family — is built
+  through `EditorFont`; only it and the terminal call `monospacedSystemFont`.
+  `ZoomSourceGatingTests` pins both sets and that rule.
 - **A completion candidate is one identifier-shaped token** (`core-intelligence.md`): the
   symbol source of both completion surfaces is filtered by one predicate — `.heading` is
   excluded by name, and every candidate's name must satisfy the same boundary rule that
@@ -466,7 +468,8 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`, `StubFileTree`, `Gate`,
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
-`ScriptedGitHubCLI`, `ScriptedMarkdownSeams` and `MarkdownPreviewVendoredDoc`. A fake
+`ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc` and
+`DesignGlyphRecord`. A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
 writes into a `StubFileTree` must hop to the main actor first — two threads in one
 `Dictionary` is a corrupted hash table, not a flaky assertion.

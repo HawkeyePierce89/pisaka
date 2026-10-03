@@ -1979,7 +1979,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Side = vertical — `tabOrientation`); "Editor font", one row holding a
     `ChromeMenuField` over `settings.editorFontFamily` — "System Monospaced"
     (`nil`) first, then `EditorFont.installedFixedPitchFamilies()`, read once
-    when the page is built, plus a stored family no longer installed so the menu
+    in the page's `onAppear` (never as the `@State`'s initial value, which would
+    re-run the scan on every rebuild of the struct), plus a stored family no longer installed so the menu
     still shows what is selected — and a `ChromeStepper` for the size bound to
     `settings.fontSize` over `ZoomScaleRule.editorFont`; "Interface zoom", a
     `ChromeStepper` bound to `settings.interfaceScale` over
@@ -2007,8 +2008,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     wiring only (untested like the rest of the view layer). Settings application is
     spread across the views that read `settings`: the theme via
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
-    layout in `ContentView`, the shared editor font size in the
-    code views (`CodeEditorView`/`DiffView`/`MergeView`), completion on/off
+    layout in `ContentView`, the shared editor font size and
+    family on every code-zone surface, through `EditorFont`, completion on/off
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
     item's `.disabled` in `PisakaApp`, and indentation-level highlighting as a
     second such value on `CodeEditorView` (`app-editor-overlays.md`).
@@ -2016,8 +2017,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     editor's, bound to `settings.terminalFontSize` over `ZoomScaleRule.terminalFont`
     (both show `"<n> pt"` and step through the rule's `stepped(_:by:)`, pinned by
     `ZoomSourceGatingTests`), so the two font zones read as one pair of rows and
-    share the store's clamping; the interface zone has no row of its own (it is a gesture
-    and ⌘=/⌘−/⌘0, per `core-zoom.md`). The Preferences form is itself *scaled* by
+    share the store's clamping; the interface zone has the "Interface zoom" stepper
+    besides its gesture and ⌘=/⌘−/⌘0 (`core-zoom.md`). The Preferences form is itself *scaled* by
     the interface zone — `PisakaApp` applies `.interfaceScaled(settings)` to the
     `Settings` scene rather than inside `SettingsView`, because an environment
     write never reaches the view that makes it and the settings form has to grow

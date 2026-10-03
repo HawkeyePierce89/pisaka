@@ -94,8 +94,11 @@ final class LocalChangesModelTests: XCTestCase {
         /// The gated paths that have suspended so far, in order.
         private(set) var suspendedHeadPaths: [String] = []
         private var headContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+        /// Every `headContents` read, in order.
+        private(set) var headReads: [String] = []
 
         func headContents(of path: String, root: URL) async throws -> String? {
+            headReads.append(path)
             if let error { throw error }
             if gatedHeadPaths.contains(path) {
                 await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -149,6 +152,23 @@ final class LocalChangesModelTests: XCTestCase {
     /// have reached its git I/O before the next one starts).
     private func waitForGatedCalls(_ count: Int, in git: StubGit) async {
         while git.gatedCallIndices.count < count { await Task.yield() }
+    }
+
+    /// Wait for `condition`, failing loudly rather than spinning forever when a
+    /// regression means it never holds.
+    private func waitFor(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
     }
 
     // MARK: - refresh
@@ -1820,7 +1840,7 @@ final class LocalChangesModelTests: XCTestCase {
         model.select(older)
         let olderToken = model.beginSelectionDiffLoad()
         let olderLoad = Task { await model.loadSelectionDiff(token: olderToken) }
-        while git.suspendedHeadPaths != ["older.swift"] { await Task.yield() }
+        await waitFor("the older load to reach its HEAD read") { git.suspendedHeadPaths == ["older.swift"] }
 
         model.select(newer)
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
@@ -1846,6 +1866,8 @@ final class LocalChangesModelTests: XCTestCase {
         await model.loadSelectionDiff(token: stale)
 
         XCTAssertNil(model.selectionDiff)
+        // Refused before the hop: the stale load never reads HEAD at all.
+        XCTAssertEqual(git.headReads, [])
     }
 
     func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {
@@ -1860,5 +1882,25 @@ final class LocalChangesModelTests: XCTestCase {
         git.error = StubError.boom
         await model.refresh(root: root)
         XCTAssertEqual(model.listRevision, first + 1)
+    }
+
+    func testASupersededRefreshDoesNotAdvanceListRevision() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let before = model.listRevision
+
+        let older = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(1, in: git)
+        let newer = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(2, in: git)
+
+        git.release(call: 1)
+        await newer.value
+        git.release(call: 0)
+        await older.value
+
+        XCTAssertEqual(model.listRevision, before + 1)
     }
 }
