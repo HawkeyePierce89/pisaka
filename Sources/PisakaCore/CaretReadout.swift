@@ -97,7 +97,9 @@ public enum CaretReadout {
     /// reads column(anchor) = memo.column − count(anchor..old) and
     /// column(new) = column(anchor) + count(anchor..new). Every other case —
     /// another line, an edit before the old caret, a line with no ASCII anchor
-    /// nearby — is the full count. The returned memo is the next call's.
+    /// nearby — is the full count. The returned memo is the next call's. A
+    /// deletion ending at the caret keeps the incremental path only because the
+    /// editor first moves the memo below it with `rebasedMemo(_:text:editStart:)`.
     public static func position(
         text: NSString,
         caretOffset: Int,
@@ -138,6 +140,52 @@ public enum CaretReadout {
         }
         let column = clusterCount(text, from: lineStart, to: caret, work: &work) + 1
         return (index + 1, column, ColumnMemo(lineStart: lineStart, offset: caret, column: column), work)
+    }
+
+    /// `memo`, moved back below an edit about to start at `editStart`, so the
+    /// incremental path survives a deletion that ends at the caret. Read on the
+    /// **pre-edit** text, in the editor's pre-edit hook: an edit that only lowers
+    /// the floor below `memo.offset` would otherwise force the next readout into
+    /// the full count of the line's prefix.
+    ///
+    /// The rules, in order:
+    /// - `editStart` at or past `memo.offset` leaves the memo good as it is —
+    ///   returned unchanged, at zero work;
+    /// - `editStart` before `memo.lineStart` (an edit across a line start) is
+    ///   `nil`: the memo's line is not provably the caret's any more;
+    /// - otherwise an anchor at or below `editStart`, no lower than
+    ///   `memo.lineStart` and within `anchorLookback`, carries the memo:
+    ///   column(anchor) = memo.column − count(anchor..memo.offset). With no
+    ///   anchor there, `nil`.
+    ///
+    /// The handled shapes are backspace, word-delete-backward and cut: each
+    /// starts at most a lookback above an anchor and ends at the caret, so the
+    /// rebase counts the deleted span plus a bounded search. The unhandled
+    /// shapes still take the full count on the next readout: a deletion back
+    /// past the anchor (no ASCII anchor within the lookback below its start), a
+    /// paste replacing the line's head (the anchor is the line start, so the
+    /// whole old prefix is counted), and an edit across a line start (`nil`).
+    /// Idempotent: the rebased memo's offset is at or below `editStart`, so a
+    /// second call returns it unchanged.
+    public static func rebasedMemo(_ memo: ColumnMemo, text: NSString, editStart: Int) -> ColumnMemo? {
+        countedRebasedMemo(memo, text: text, editStart: editStart).memo
+    }
+
+    /// `rebasedMemo(_:text:editStart:)` plus the UTF-16 units it examined — the
+    /// anchor search plus the units counted — which the tests charge.
+    static func countedRebasedMemo(
+        _ memo: ColumnMemo,
+        text: NSString,
+        editStart: Int
+    ) -> (memo: ColumnMemo?, work: Int) {
+        if editStart >= memo.offset { return (memo, 0) }
+        guard editStart >= memo.lineStart, memo.offset <= text.length else { return (nil, 0) }
+        var work = 0
+        let search = anchor(in: text, from: editStart, lineStart: memo.lineStart)
+        work += search.examined
+        guard let anchor = search.anchor else { return (nil, work) }
+        let column = memo.column - clusterCount(text, from: anchor, to: memo.offset, work: &work)
+        return (ColumnMemo(lineStart: memo.lineStart, offset: anchor, column: column), work)
     }
 
     /// The nearest anchor at or below `offset` and no further back than

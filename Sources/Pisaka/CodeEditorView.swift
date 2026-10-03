@@ -3084,6 +3084,17 @@ struct CodeEditorView: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
+            // Move the caret readout's memo below the edit while the text is
+            // still pre-edit, so a deletion ending at the caret keeps the
+            // incremental column. Read through the storage's own string, which
+            // copies nothing (see `reportCaretPosition`). Idempotent, so a
+            // re-entrant call is harmless.
+            if let memo = caretColumnMemo, caretEditFloor.map({ $0 >= memo.offset }) ?? true,
+               let storage = textView.textStorage {
+                caretColumnMemo = CaretReadout.rebasedMemo(
+                    memo, text: storage.mutableString, editStart: affectedCharRange.location
+                )
+            }
             guard
                 !isApplyingProgrammaticEdit,
                 // The find bar's replace commands go through `insertText` too, so

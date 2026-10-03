@@ -705,7 +705,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`bufferEdited`, ahead of its buffer-swap guard) and cleared by each report,
     and both are dropped when an update switches the coordinator's file — so a
     move along one line counts only what moved, and every other case is Core's
-    full count. What the position reads as is Core's (`CaretReadout`); the
+    full count. A deletion ending at the caret is **rebased in the pre-edit
+    hook**: `textView(_:shouldChangeTextIn:replacementString:)` first, ahead of
+    its auto-pair guard and for every edit, replaces a memo whose floor is `nil`
+    or at least its offset with `CaretReadout.rebasedMemo` over the still
+    pre-edit storage `mutableString` (no copy) at the affected range's location,
+    and leaves an already-invalid memo alone. The floor `bufferEdited` then
+    lowers sits at or above the rebased offset, so backspace, word delete and
+    cut keep the incremental column; the rebase is idempotent, so the
+    re-entrant call `insertText` makes is harmless. What the position reads as is Core's (`CaretReadout`); the
     readout's model and its deferral are `app-window.md`'s.
     The current-line highlight is wired beside it: `updateCurrentLine(of:)` asks
     `CurrentLineRule` over the whole selection — first range's start to last

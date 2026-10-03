@@ -291,18 +291,18 @@ Dependencies: none new.
 - Modify: `Tests/PisakaCoreTests/CaretReadoutTests.swift`
 - Modify: `docs/architecture/core-editor.md`, `docs/architecture/app-editor.md`
 
-- [ ] **Core.** Add the public `CaretReadout.rebasedMemo(_ memo: ColumnMemo, text: NSString, editStart: Int) -> ColumnMemo?`, plus an internal counted twin that returns `work`. It reads the pre-edit text, is pure, and leaves `countedPosition` unchanged. Its rules, in order:
+- [x] **Core.** Add the public `CaretReadout.rebasedMemo(_ memo: ColumnMemo, text: NSString, editStart: Int) -> ColumnMemo?`, plus an internal counted twin that returns `work`. It reads the pre-edit text, is pure, and leaves `countedPosition` unchanged. Its rules, in order:
   1. If `editStart >= memo.offset`, return the memo unchanged, at zero work.
   2. If `editStart < memo.lineStart`, return `nil`.
   3. Otherwise, search for an anchor at or below `editStart` and at least `memo.lineStart`, within `anchorLookback`. Reuse `anchor(in:from:lineStart:)`.
      - **Anchor found:** return `ColumnMemo(lineStart: memo.lineStart, offset: anchor, column: memo.column − count(anchor..memo.offset))`. Charge both the search and the count.
      - **No anchor:** return `nil`.
-- [ ] **App.** In `textView(_:shouldChangeTextIn:replacementString:)`, before the existing guard:
+- [x] **App.** In `textView(_:shouldChangeTextIn:replacementString:)`, before the existing guard:
   - when `caretColumnMemo` exists and `caretEditFloor` is `nil` or at least `memo.offset`, replace the memo with `rebasedMemo(memo, text: textView.string as NSString, editStart: affectedCharRange.location)`;
   - otherwise, leave the memo alone.
 
   The rebase is idempotent, so a re-entrant call does no harm.
-- [ ] **Core tests.**
+- [x] **Core tests.**
   - **Correctness.** Cover deletions ending at the caret: one unit, a word and a selection. For each, rebase on the pre-edit text, then call `position(…memo:editFloor:)` on the post-edit text. The result equals the full count. Run this over the existing Unicode sweep strings.
   - **Charged bound.** Use a 4,000,000-unit printable-ASCII line with the memo at its end:
     - a one-unit backspace costs at most 2 × (`anchorLookback` + 2) + 1;
@@ -312,14 +312,14 @@ Dependencies: none new.
     - an edit starting before the line start returns `nil`;
     - a deletion spanning back to the line start is correct, and its work is at least the line prefix.
   - **No anchor.** With no ASCII anchor within the lookback, the result is `nil`.
-- [ ] **Docs.**
+- [x] **Docs.**
   - `CaretReadout.swift`'s doc comments and `core-editor.md` name the handled shapes: backspace, word-delete-backward and cut all rebase in the pre-edit hook.
   - The same two places name the unhandled shapes, which still take the full count:
     - a deletion back past the anchor;
     - a paste replacing the line's head;
     - an edit across a line start.
   - `app-editor.md` describes the coordinator's pre-edit rebase.
-- [ ] Run the gates, including the iOS build. They must pass before Task 4.
+- [x] Run the gates, including the iOS build. They must pass before Task 4.
 
 ### Task 4: Glyph pins: asset symbols stay off, and the glyph-load rule's horizon
 
