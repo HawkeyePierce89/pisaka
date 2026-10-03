@@ -112,7 +112,7 @@ document changes unless one stops being truthful.
 
 ### Task 2: Verify
 
-- [ ] `swift test` passes
-- [ ] the app-layer bundle passes, and `LocalChangesLayoutTests` passes three runs in a row
-- [ ] `swiftlint --strict` clean
-- [ ] the macOS Release build succeeds
+- [x] `swift test` passes
+- [x] the app-layer bundle passes, and `LocalChangesLayoutTests` passes three runs in a row
+- [x] `swiftlint --strict` clean
+- [x] the macOS Release build succeeds
