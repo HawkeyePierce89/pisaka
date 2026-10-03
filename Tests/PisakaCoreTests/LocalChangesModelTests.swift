@@ -126,9 +126,28 @@ final class LocalChangesModelTests: XCTestCase {
         /// Every `headBlobSize` question, in order.
         private(set) var headSizeReads: [String] = []
 
+        /// When set, the next `headBlobSize` question suspends until
+        /// `releaseHeadSize()`, so a test can supersede a load during it.
+        var gateHeadSize = false
+        private(set) var headSizeSuspended = false
+        private var headSizeContinuation: CheckedContinuation<Void, Never>?
+
         func headBlobSize(of path: String, root: URL) async throws -> Int? {
             headSizeReads.append(path)
+            if gateHeadSize {
+                gateHeadSize = false
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    headSizeContinuation = cont
+                    headSizeSuspended = true
+                }
+            }
             return headSizeByPath[path]
+        }
+
+        /// Release the suspended `headBlobSize` question.
+        func releaseHeadSize() {
+            headSizeContinuation?.resume()
+            headSizeContinuation = nil
         }
 
         /// Release the suspended `headContents` read for `path`.
@@ -2416,6 +2435,44 @@ final class LocalChangesModelTests: XCTestCase {
 
         XCTAssertNil(model.selectionDiff, "a load from the previous project published after the switch")
         XCTAssertEqual(git.headReads, [], "the superseded load went on to read HEAD")
+    }
+
+    func testALoadHeldAtTheHeadSizePastAFolderSwitchPublishesNothing() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        git.gateHeadSize = true
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let model = await selectedFile(git: git, files: files)
+
+        let token = model.beginSelectionDiffLoad()
+        let load = Task { await model.loadSelectionDiff(token: token) }
+        await waitFor("the load to reach its HEAD size question") { git.headSizeSuspended }
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+        git.releaseHeadSize()
+        await load.value
+
+        XCTAssertNil(model.selectionDiff, "a load from the previous project published after the switch")
+        XCTAssertEqual(git.headReads, [], "the superseded load went on to fetch the HEAD blob")
+    }
+
+    func testARefreshForANewFolderDropsTheDiffBeforeGitAnswers() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        let model = await selectedFile(git: git, files: files)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertNotNil(model.selectionDiff)
+
+        git.gateChangedFiles = true
+        let refresh = Task { await model.refresh(root: URL(fileURLWithPath: "/other")) }
+        await waitFor("the new folder's refresh to reach git") { !git.gatedCallIndices.isEmpty }
+
+        XCTAssertNil(model.selectionDiff, "the previous folder's diff stood while git answered")
+        git.release(call: git.gatedCallIndices[0])
+        await refresh.value
     }
 
     func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {

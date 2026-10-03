@@ -138,8 +138,10 @@ final class DesignGlyphAssetTests: XCTestCase {
             """
 
         XCTAssertEqual(lines.filter { $0 == wanted }.count, 1, "project.yml must set `\(wanted)` exactly once; \(why)")
+        // Any key spelled `: NO` is the setting this pin wants; only another
+        // value is a breach.
         let others = lines.filter { line in
-            line != wanted && keys.contains { line.hasPrefix($0) }
+            keys.contains { line.hasPrefix($0) && line != "\($0): NO" }
         }
         XCTAssertEqual(others, [], "project.yml sets an asset-symbol key to something else; \(why)")
     }

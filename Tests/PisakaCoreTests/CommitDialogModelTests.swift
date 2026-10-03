@@ -98,7 +98,16 @@ final class CommitDialogModelTests: XCTestCase {
         /// `HEAD` blob sizes keyed by path; a missing key is "unknown".
         var headBlobSizes: [String: Int] = [:]
 
-        func headBlobSize(of path: String, root: URL) async throws -> Int? { headBlobSizes[path] }
+        /// When set, every `headBlobSize` question throws it.
+        var headBlobSizeError: Error?
+        /// Every `headBlobSize` question, in order.
+        var headBlobSizeCalls: [String] = []
+
+        func headBlobSize(of path: String, root: URL) async throws -> Int? {
+            headBlobSizeCalls.append(path)
+            if let headBlobSizeError { throw headBlobSizeError }
+            return headBlobSizes[path]
+        }
 
         func commitContext(root: URL) async throws -> CommitContext {
             contextCalls += 1
@@ -1811,6 +1820,40 @@ final class CommitDialogModelTests: XCTestCase {
             XCTAssertEqual(git.headBlobCalls, ["a.txt"], "size \(String(describing: size))")
             XCTAssertEqual(model.files.first?.facts.eligibility, .selectable, "size \(String(describing: size))")
         }
+    }
+
+    /// A size lookup that fails is "unknown": the load still fetches and
+    /// publishes, rather than failing the dialog over one `cat-file`.
+    func testAFailedHeadSizeLookupFallsThroughToTheFetch() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "a.txt", status: .modified)]
+        git.headBlobs = ["a.txt": Data("one\n".utf8)]
+        git.headBlobSizeError = CocoaError(.fileReadUnknown)
+        let files = StubFiles()
+        files.contents["/repo/a.txt"] = "two\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobCalls, ["a.txt"])
+        XCTAssertEqual(model.files.first?.facts.eligibility, .selectable)
+    }
+
+    /// A rename's `HEAD` side lives at its old path, so the size is asked there.
+    func testARenamedFilesHeadSizeIsAskedAtItsOldPath() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt")]
+        git.headBlobs = ["old.txt": Data("small\n".utf8)]
+        git.headBlobSizes = ["old.txt": CommitDialogModel.maxSelectableFileBytes + 1]
+        let files = StubFiles()
+        files.contents["/repo/new.txt"] = "small\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobSizeCalls, ["old.txt"])
+        XCTAssertEqual(git.headBlobCalls, [], "an over-cap renamed HEAD blob was fetched anyway")
+        XCTAssertEqual(model.files.first?.facts.head, .binary)
     }
 
     // MARK: - Reopening

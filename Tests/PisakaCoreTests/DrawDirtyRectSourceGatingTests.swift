@@ -25,8 +25,11 @@ import XCTest
 ///   `override func draw(_ <name>: NSRect)` or `… CGRect)`, the body (taken by
 ///   brace matching, whitespace removed) must not contain `<name>.fill(`,
 ///   `fill(<name>` — which covers `context.fill(<name>)` and
-///   `__NSRectFill(<name>)` — or `NSRectFill(<name>`, each with `<name>` as a
-///   whole word.
+///   `__NSRectFill(<name>)` — `NSRectFill(<name>`,
+///   `NSRectFillUsingOperation(<name>`, `UIRectFill(<name>`, or
+///   `NSBezierPath(rect:<name>).fill(` / `UIBezierPath(rect:<name>).fill(`,
+///   each with `<name>` as a whole word. A path built on the parameter for
+///   anything but a fill (`addClip()`) is not a fill and passes.
 /// - **The audit, recorded.** The six overrides beside `DiffDividerView` are
 ///   clean: `MinimapView` fills `bounds`; `CompletionPanel` fills per-row
 ///   rects built from `bounds.width` and uses its dirty rect only in
@@ -44,7 +47,7 @@ import XCTest
 /// **The horizon.** A dirty rect copied into a local and filled through it
 /// (`let r = dirtyRect; r.fill()`) passes, and is not chased: the rule reads
 /// spellings, not data flow. `testTheRuleCatchesEachSpelling` pins that the
-/// three spellings it does read are caught.
+/// spellings it does read are caught.
 final class DrawDirtyRectSourceGatingTests: XCTestCase {
 
     /// The files under `Sources/Pisaka/` that declare a `draw(_:)` override,
@@ -88,6 +91,10 @@ final class DrawDirtyRectSourceGatingTests: XCTestCase {
             "__NSRectFill(dirtyRect)",
             "NSRectFill(dirtyRect)",
             "dirtyRect . fill ( )",
+            "NSRectFillUsingOperation(dirtyRect, .sourceOver)",
+            "UIRectFill(dirtyRect)",
+            "NSBezierPath(rect: dirtyRect).fill()",
+            "UIBezierPath(rect: dirtyRect).fill()",
         ]
         for body in spellings {
             let code = "override func draw(_ dirtyRect: NSRect) {\n    \(body)\n}"
@@ -95,7 +102,14 @@ final class DrawDirtyRectSourceGatingTests: XCTestCase {
             XCTAssertEqual(overrides.count, 1, "the override in `\(body)` was not found")
             XCTAssertNotNil(overrides.first.flatMap(Self.fillOfParameter), "`\(body)` passed the rule")
         }
-        let clean = "override func draw(_ rect: CGRect) {\n    bounds.fill()\n    context.fill(rectangle)\n}"
+        let clean = """
+            override func draw(_ rect: CGRect) {
+                bounds.fill()
+                context.fill(rectangle)
+                NSBezierPath(rect: rect).addClip()
+                UIRectFill(rectangle)
+            }
+            """
         XCTAssertNil(Self.drawOverrides(in: clean).first.flatMap(Self.fillOfParameter))
     }
 
@@ -137,14 +151,19 @@ final class DrawDirtyRectSourceGatingTests: XCTestCase {
     /// The first banned spelling in `override`'s body, or `nil`.
     private static func fillOfParameter(_ override: DrawOverride) -> String? {
         let name = override.parameter
-        let banned = ["\(name).fill(", "fill(\(name)", "NSRectFill(\(name)"]
+        let banned = [
+            "\(name).fill(", "fill(\(name)", "NSRectFill(\(name)", "NSRectFillUsingOperation(\(name)",
+            "UIRectFill(\(name)", "NSBezierPath(rect:\(name)).fill(", "UIBezierPath(rect:\(name)).fill(",
+        ]
         for needle in banned {
+            // Where `<name>` sits inside the needle; each spells it exactly once.
+            guard let nameInNeedle = needle.range(of: name) else { continue }
+            let nameOffset = needle.distance(from: needle.startIndex, to: nameInNeedle.lowerBound)
             var searchStart = override.body.startIndex
             while let found = override.body.range(of: needle, range: searchStart..<override.body.endIndex) {
                 // `<name>` must be a whole word on both sides.
-                let nameRange = needle.hasPrefix(name)
-                    ? found.lowerBound..<override.body.index(found.lowerBound, offsetBy: name.count)
-                    : override.body.index(found.upperBound, offsetBy: -name.count)..<found.upperBound
+                let nameStart = override.body.index(found.lowerBound, offsetBy: nameOffset)
+                let nameRange = nameStart..<override.body.index(nameStart, offsetBy: name.count)
                 let before = nameRange.lowerBound > override.body.startIndex
                     ? override.body[override.body.index(before: nameRange.lowerBound)] : nil
                 let after = nameRange.upperBound < override.body.endIndex ? override.body[nameRange.upperBound] : nil

@@ -116,11 +116,12 @@ struct MainWindowChrome: NSViewRepresentable {
         // Each button's extent converted into the title bar view — the space
         // the label's constraints live in — rather than read off `frame`, which
         // is only that space while the button is a direct subview.
-        let buttonsTrailing = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+        let buttonsTrailing = [NSWindow.ButtonType.miniaturizeButton, .zoomButton]
             .compactMap { window.standardWindowButton($0) }
             .filter { $0.isDescendant(of: titleBar) }
-            .map { $0.convert($0.bounds, to: titleBar).maxX }
-            .max() ?? 0
+            .reduce(close.convert(close.bounds, to: titleBar).maxX) {
+                max($0, $1.convert($1.bounds, to: titleBar).maxX)
+            }
 
         if let label = titleBar.subviews.first(where: { $0.identifier == titleLabelIdentifier }) as? NSTextField {
             if label.stringValue != title { label.stringValue = title }

@@ -308,14 +308,19 @@ final class CaretReadoutTests: XCTestCase {
 
     /// One unit, a word and a selection, each ending at the caret, over every
     /// caret of the sweep strings: the column always equals the full count.
+    /// A declined rebase asserts nothing, so each sample must also rebase at
+    /// least once mid-line — or the sweep would quietly check ASCII alone.
     func testDeletionsEndingAtTheCaretAgreeWithTheFullCount() {
         for sample in Self.sweepSamples {
             let text = sample as NSString
+            var midLineRebases = 0
             for caret in 1...text.length {
                 for width in [1, 5, caret] where width <= caret {
-                    deleteEndingAtCaret(text, caret: caret, editStart: caret - width)
+                    let work = deleteEndingAtCaret(text, caret: caret, editStart: caret - width)
+                    if work != nil, width < caret { midLineRebases += 1 }
                 }
             }
+            XCTAssertGreaterThan(midLineRebases, 0, "no deletion rebased mid-line in \(sample.debugDescription)")
         }
     }
 
