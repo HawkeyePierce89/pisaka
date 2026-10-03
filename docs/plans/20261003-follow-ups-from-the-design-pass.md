@@ -366,12 +366,12 @@ Facts established while planning, which the tasks rely on:
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Confirm the gating-rule count reads forty-six in `ChromeThemeSourceGatingTests`, `CLAUDE.md` and `core-theme.md`.
-- [ ] Confirm no new test helper creates a window, hosting view or bitmap inside a loop, and no test in the branch takes more than a few seconds (read the xcodebuild per-test durations).
+- [x] Run `swift test`. (6011 tests, 0 failures)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (209 tests, 0 failures)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 639 files)
+- [x] Confirm the gating-rule count reads forty-six in `ChromeThemeSourceGatingTests`, `CLAUDE.md` and `core-theme.md`.
+- [x] Confirm no new test helper creates a window, hosting view or bitmap inside a loop, and no test in the branch takes more than a few seconds (read the xcodebuild per-test durations). (every new window or bitmap is per-suite, per-state or swatch-cached; the slowest app test is 0.43 s and the slowest new Core test 0.06 s)
 
 ### Task 12: Update documentation
 
