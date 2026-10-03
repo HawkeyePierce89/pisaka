@@ -68,46 +68,46 @@ The design's Banner values are restated here as literals. The design file is not
 
 **Card view and band**
 
-- [ ] Factor the drawing into one shipped card view, `LSPConsentCard`, in the same file under `#if os(macOS)`. Give it internal access so the app-layer bundle can render it through `@testable import`.
+- [x] Factor the drawing into one shipped card view, `LSPConsentCard`, in the same file under `#if os(macOS)`. Give it internal access so the app-layer bundle can render it through `@testable import`.
   - It takes the leading symbol name, the primary line, an optional secondary line, the confirming action's title, and the two actions as closures.
   - It owns the two `Button`s: the confirming one `.chromePrimary`, the declining one `.chromeSecondary`, 8 apart.
   - It draws the whole band, so the bitmap test renders exactly what ships.
   - The banner's three branches each build this card from their prompt, and nothing else draws a question. It replaces `strip(_:)` and the three hand-built `HStack`s.
-- [ ] Draw the card:
+- [x] Draw the card:
   - a `bgPanel` fill in a `RoundedRectangle` of radius `metrics.scaled(ChromeGeometry.cornerRadiusMax)`;
   - over it, a `strokeBorder` in `hairline` of width `metrics.scaled(ChromeGeometry.hairlineWidth)`;
   - padding `metrics.scaled(14)` vertical and `metrics.scaled(18)` horizontal;
   - inside, an `HStack` with every item vertically centred: the message group (icon and text column, `metrics.scaled(10)` apart), then a `Spacer`, then the buttons, with `metrics.scaled(16)` between the message group and the actions.
-- [ ] Draw the band around the card:
+- [x] Draw the band around the card:
   - full width, on a `bgEditor` ground, with `metrics.scaled(8)` padding on every side;
   - the card's own border replaces the old bottom rule, so no `Rectangle` rule and no `Divider()` remains.
-- [ ] Keep the empty case as it is. The body's outer `VStack(spacing: 0)` stays (never a `Group`, for the reason already documented there), so it renders nothing and costs no height when no prompt applies. Leave the silent `.task(id: Trigger…)` half untouched.
+- [x] Keep the empty case as it is. The body's outer `VStack(spacing: 0)` stays (never a `Group`, for the reason already documented there), so it renders nothing and costs no height when no prompt applies. Leave the silent `.task(id: Trigger…)` half untouched.
 
 **Text column and icon**
 
-- [ ] Give the text column `.layoutPriority(1)` over the spacer.
+- [x] Give the text column `.layoutPriority(1)` over the spacer.
   - Primary line: `scaledFont(.body)`, `textPrimary`.
   - Optional secondary line: `scaledFont(.subheadline)`, `textSecondary`, with `.fixedSize(horizontal: false, vertical: true)` so it wraps across the whole column.
   - Buttons: `.fixedSize()`, so they keep their fitting width and never wrap or truncate.
-- [ ] Draw the leading symbol in `accent`: `arrow.down.circle` for the two downloads, `hammer` for Go.
+- [x] Draw the leading symbol in `accent`: `arrow.down.circle` for the two downloads, `hammer` for Go.
   - Size it on the `Image`'s own chain with `.font(.system(size: metrics.scaled(16)))`, the design's 16-point icon, as `LeetCodeBrowserView.swift` does.
   - No container font on the message group: a 16-point container font would be a size that nothing but the glyph uses. The primary and secondary lines set their own fonts.
 
 **Copy**
 
-- [ ] Pinned downloads:
+- [x] Pinned downloads:
   - Primary line: `Download the \(displayName) language server (\(size)) for completion and Go to Definition?`. The size comes from `downloadByteCount`, which is the pending byte count.
   - Lengths: Python is about 82 characters and YAML about 80. TypeScript/JavaScript is the longest at about 98 characters, and still fits on one line at a 1,100-point editor width.
   - Secondary line: shown only when `prompt.runtimeNetworkNote` is present, printed verbatim. Its presence is the whole condition, with no per-server branch.
-- [ ] Rust:
+- [x] Rust:
   - Primary line: `Download \(displayName) \(version) (\(size)) for completion and Go to Definition?`, with the date version folded in.
   - No secondary line.
-- [ ] Go:
+- [x] Go:
   - Primary line, kept short: `Build \(displayName) \(version) with your own Go toolchain?`.
   - Secondary line, carrying the toolchain path and the two narrowed claims: `The build runs as your own “go install” would with the Go at \(goExecutablePath), using and adding to your module and build caches; the result is installed only inside Pisaka's own folder.`
   - A long toolchain path therefore wraps the secondary line, never the primary one.
   - No sentence may claim that nothing outside the app's folder changes.
-- [ ] Rewrite the file's doc comments to describe the card and the new copy, not the old sentences. These must stay truthful:
+- [x] Rewrite the file's doc comments to describe the card and the new copy, not the old sentences. These must stay truthful:
   - the narrowed Go claim (`GOBIN` only; the caches are the user's), now with the path on the secondary line;
   - the date-as-version reason, now about the date folded into the line;
   - the verbatim printing of the runtime note;
@@ -117,14 +117,14 @@ The design's Banner values are restated here as literals. The design file is not
 
 **Gating pins**
 
-- [ ] Delete the three `LSPConsentBanner.swift` entries from `glyphSizeExemptions` (`downloadRow(` / `goRow(` / `rustRow(`) and their "the consent strip's three rows," comment outright, with no replacement.
+- [x] Delete the three `LSPConsentBanner.swift` entries from `glyphSizeExemptions` (`downloadRow(` / `goRow(` / `rustRow(`) and their "the consent strip's three rows," comment outright, with no replacement.
   - The card's one glyph sizes itself on its own chain through `metrics`, which rule thirty-four accepts without an entry.
   - Confirm rule thirty-four is green with the file carrying no exemption.
-- [ ] Confirm the other rules naming the file still hold, and that their wording is still true:
+- [x] Confirm the other rules naming the file still hold, and that their wording is still true:
   - rule thirty's caller sets still hold, because the file spells both shared styles;
   - rule seven (no arithmetic on a token) and rule twenty-four (no `Divider()`) both apply.
-- [ ] Run `swift test`; it must pass.
-- [ ] Run `swiftlint --strict`; it must be clean.
+- [x] Run `swift test`; it must pass.
+- [x] Run `swiftlint --strict`; it must be clean.
 
 ### Task 2: The bitmap test for the card's drawn contract
 
