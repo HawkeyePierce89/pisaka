@@ -348,15 +348,15 @@ Dependencies: none new.
 - Modify: `Tests/PisakaAppTests/MainWindowChromeTests.swift`
 - Modify: `docs/architecture/app-shell.md`
 
-- [ ] **The gap.**
+- [x] **The gap.**
   - **Measure.** On the suite's placement window, with a long title, record the zoom button's and the label's frames in the title bar view's space and in window space. From those, find where the six points come from.
   - **Fix.** `applyTitleLabel` computes the buttons' trailing edge in the same space as the label's constraints, by converting each button's bounds into the title bar view.
   - Make `titleLabelButtonGap` internal.
-- [ ] **Tests,** on the suite's one placement window:
+- [x] **Tests,** on the suite's one placement window:
   - **The gap.** With a truncating title, the label's window-space minX minus the zoom button's window-space maxX equals `MainWindowChrome.titleLabelButtonGap`, within 0.5. Also assert that the constant is 8.
   - **The colour.** Resolve the label's `textColor` under `.aqua` and under `.darkAqua`, with `performAsCurrentDrawingAppearance`. Each equals `ChromePalette.nsColor(.textPrimary, in:)` for that appearance, compared component by component.
-- [ ] Update the suite header and `app-shell.md`'s `MainWindowChrome.swift` entry.
-- [ ] Run the gates. They must pass before Task 6.
+- [x] Update the suite header and `app-shell.md`'s `MainWindowChrome.swift` entry.
+- [x] Run the gates. They must pass before Task 6.
 
 ### Task 6: Bottom-bar tooltip suite: a truthful cost claim and assertions that discriminate
 

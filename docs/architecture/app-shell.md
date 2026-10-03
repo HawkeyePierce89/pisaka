@@ -1536,8 +1536,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a dynamic colour, so a Theme change repaints it with no observer, and
     truncates in the middle. It is constrained `centerX`/`centerY` to the title
     bar view, with its width at most the title bar's width minus twice (the
-    window buttons' trailing edge + 8 points), so a long title truncates, stays
-    centred and never sits under the buttons. A window with no close button or
+    window buttons' trailing edge + `titleLabelButtonGap`, 8 points, + the
+    label's own horizontal alignment inset), so a long title truncates, stays
+    centred and never sits under the buttons. The buttons' trailing edge is
+    each button's bounds **converted into the title bar view**, the space the
+    label's constraints live in, rather than read off `frame`. The inset term is
+    where a measured six-point gap came from: the cap is a constraint, and
+    constraints act on the label's *alignment* rect, which a label field draws
+    inside by 2 points a side (macOS 27) — so with the gap alone the drawn frame
+    sat 8 − 2 = 6 points past the zoom button (zoom maxX 69, label minX 75 in a
+    900-point window; the buttons' frames already equalled their converted
+    bounds there, so the conversion is the robust spelling, not the fix).
+    `titleLabelButtonGap` is internal so the suite asserts against it. A window with no close button or
     no title bar view gets no label. The marker stays the window's one
     configurer — the title and its label are applied
     from the same `apply` the transparency is, so rule nine's single setter
@@ -1591,7 +1601,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a resize from 900 to 1200 points; a long title truncated with the label
     still centred and its leading edge clear of the zoom button; and exactly one
     label after a second `apply`, a long title applied over it still clearing
-    the zoom button (the update path keeps the width cap). It drives the title the way the app does: the
+    the zoom button (the update path keeps the width cap). On the same window
+    it asserts the **drawn gap**: with a truncating title, the label's
+    window-space minX minus the zoom button's window-space maxX equals
+    `titleLabelButtonGap` within half a point, and the constant is 8; and the
+    label's `textColor`, resolved under `.aqua` and `.darkAqua` with
+    `performAsCurrentDrawingAppearance`, equals `ChromePalette.nsColor(.textPrimary, in:)`
+    for that appearance component by component — the ground test's property for
+    the chrome's one other colour. Six windows in all: the placement window plus
+    one each for the transparency, ground, attachment, title and hosted tests. It drives the title the way the app does: the
     representable hosted over a real `WorkspaceModel` in a titled window, both
     `window.title` and the label's string read back as the workspace opens a
     folder, opens two files and switches back — so a marker that titled the
