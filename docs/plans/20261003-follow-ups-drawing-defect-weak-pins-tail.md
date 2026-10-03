@@ -449,13 +449,13 @@ Dependencies: none new.
 
 ### Task 10: Update documentation
 
-- [ ] Re-read every `docs/architecture/` entry touched above against the final code:
+- [x] Re-read every `docs/architecture/` entry touched above against the final code:
   - `app-git-views.md`, `app-editor-overlays.md`;
   - `core-editor.md`, `app-editor.md`;
   - `core-theme.md`, `app-shell.md`, `app-window.md`;
   - `core-git.md`, `core-git-models.md`, `core-commit.md`, `core-services.md`.
-- [ ] `CLAUDE.md` stays an index. Its only change is the new suite's name.
-- [ ] `README.md` / `docs/FEATURES.md`: keep the inline diff's placeholder text truthful. No other user-facing change.
+- [x] `CLAUDE.md` stays an index. Its only change is the new suite's name.
+- [x] `README.md` / `docs/FEATURES.md`: keep the inline diff's placeholder text truthful. No other user-facing change.
 
 ## Post-Completion
 
