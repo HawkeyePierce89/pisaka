@@ -6,7 +6,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Changes view, mirroring `WorkspaceModel`'s shape. Injects `GitServicing` (repo
     access) and `FileServicing` (working copy) so the real services run in `Pisaka`
     and in-memory stubs in tests. Publishes `changedFiles`, `groupingMode`
-    (`flat`/`byFolder`), `selected`, `errorMessage`, and `root`. The `git`-touching
+    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, and `projectPrefix` (the opened folder's
+    repository-relative path, set together with `root`). The `git`-touching
     entry points are `async` (the underlying `GitServicing` runs off the main
     thread): `refresh(root:) async`, `revert(_:) async -> [URL]`,
     `rows(for:) async -> [DiffRow]`, and `selectedRows() async -> [DiffRow]`;

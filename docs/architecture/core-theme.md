@@ -2538,10 +2538,11 @@ monochrome.
 In `ZoomSourceGatingTests`' mould: it reads `Sources/` through `#filePath` with
 Foundation only, so it runs in `swift test` with no Xcode build, and it matches
 against `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output —
-**comments and string literals stripped before almost every match**. Three
+**comments and string literals stripped before almost every match**. Four
 rules read `GitHubSourceGatingTests.strippingComments(_:)` instead, literals
 kept, because each one's subject is a literal — the query-toggle names, the
-merge editor's chevron symbols and clause (c)'s CSS hex — and the suite's
+merge editor's chevron symbols, clause (c)'s CSS hex and the design-glyph
+rule's load names — and the suite's
 header names them, held to the code by a self-check. The stripping is
 load-bearing rather than tidy here: the gated files document their own rules at
 length (the palette explains what a hex literal outside it would cost; the strip

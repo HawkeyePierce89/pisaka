@@ -375,9 +375,9 @@ Facts established while planning, which the tasks rely on:
 
 ### Task 12: Update documentation
 
-- [ ] Re-read every `docs/architecture/` entry touched above against the final code: `app-shell.md`, `app-window.md`, `app-git-views.md`, `app-editor.md`, `app-editor-overlays.md`, `core-git.md`, `core-git-models.md`, `core-commit.md`, `core-editor.md`, `core-search.md`, `core-theme.md`.
-- [ ] `CLAUDE.md`: only the new index name `LocalChangesInlineDiff.swift`. It stays under its 60,000-character limit.
-- [ ] `README.md` and `docs/FEATURES.md`: mention the inline diff's binary and too-large placeholders only if the Local Changes feature text there describes the inline diff.
+- [x] Re-read every `docs/architecture/` entry touched above against the final code: `app-shell.md`, `app-window.md`, `app-git-views.md`, `app-editor.md`, `app-editor-overlays.md`, `core-git.md`, `core-git-models.md`, `core-commit.md`, `core-editor.md`, `core-search.md`, `core-theme.md`.
+- [x] `CLAUDE.md`: only the new index name `LocalChangesInlineDiff.swift`. It stays under its 60,000-character limit.
+- [x] `README.md` and `docs/FEATURES.md`: mention the inline diff's binary and too-large placeholders only if the Local Changes feature text there describes the inline diff.
 
 ## Post-Completion
 

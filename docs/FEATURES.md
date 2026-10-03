@@ -916,8 +916,10 @@ user sees it.
   iPhone and iPad the icon itself is tinted by its git status. On macOS the
   selected file's diff is shown **inline, to the right of the list** (its
   project-relative path above it, drawn at the editor font and following
-  selection); the list's width is draggable. Double-click a file to open
-  a side-by-side diff (`HEAD` vs working copy) in a separate
+  selection; a binary file shows "Binary file" and a side over 1 MiB shows
+  "Too large to show inline" in place of the rows, the side-by-side diff
+  window still opening as usual); the list's width is draggable. Double-click
+  a file to open a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. A
   **"Show Diff"** item appears first in a non-conflicted file's context menu

@@ -16,8 +16,9 @@ public enum CaretReadout {
     public static let plainTextName = "Plain Text"
 
     /// The readout for a caret at UTF-16 `caretOffset` in `text`, indexing the
-    /// whole text. The editor asks `position(text:caretOffset:lineStarts:)` with
-    /// the gutter's own table instead, and formats that with
+    /// whole text. The editor asks
+    /// `position(text:caretOffset:lineStarts:memo:editFloor:)` with the gutter's
+    /// own table instead, and formats that with
     /// `text(position:language:encodingName:)`.
     public static func text(
         text: NSString,

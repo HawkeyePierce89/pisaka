@@ -5467,8 +5467,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     /// Rule forty-six's matcher, fed every bypass it closes: each must be
-    /// flagged, and the two symbol-load spellings must pass, so a matcher
-    /// narrowed back to its old needles fails here rather than in a review.
+    /// flagged, and the three symbol-load spellings and `AppIcon` must pass, so
+    /// a matcher narrowed back to its old needles fails here rather than in a
+    /// review.
     func testTheGlyphRuleFlagsEveryLoadSpelling() throws {
         let glyph = try XCTUnwrap(DesignGlyph.allCases.first).assetName
         let flagged = [
