@@ -278,6 +278,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that full count and is the tests' reference. The internal
     `countedPosition` seam also returns the UTF-16 units examined (anchor search
     plus units counted), which the tests charge rather than time.
+    **A deletion ending at the caret is rebased before it lands.**
+    `rebasedMemo(_:text:editStart:)` reads the **pre-edit** text and, in order:
+    returns the memo unchanged at zero work when `editStart` is at or past
+    `memo.offset`; returns `nil` when `editStart` is before `memo.lineStart`;
+    otherwise moves the memo to an anchor at or below `editStart` (no lower than
+    the line start, within `anchorLookback`) with column(anchor) = memo.column −
+    count(anchor..memo.offset), or returns `nil` when there is none. Pure,
+    idempotent, and `countedPosition` is unchanged by it; its internal counted
+    twin, `countedRebasedMemo`, returns the work the same way. The **handled
+    shapes** — backspace, word-delete-backward and cut — all rebase in the
+    editor's pre-edit hook (`app-editor.md`), so the floor the edit then lowers
+    sits at or above the memo and the next readout stays incremental. The
+    **unhandled shapes** still take the full count: a deletion back past the
+    anchor (no ASCII anchor within the lookback below its start), a paste
+    replacing the line's head (the anchor is the line start, so the old prefix
+    is counted) and an edit across a line start (`nil`).
     `CaretReadoutTests` covers ASCII, CRLF (and inside the pair), bare CR,
     NEL/LS/PS, emoji, combining marks, tabs, first and last lines, an
     unterminated last line, clamping, and the line agreeing with the whole
@@ -288,7 +304,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pairs, flags, ZWJ emoji, Hangul jamo, a conjunct and a prepend character —
     each against the full count — and the charged bound: a five-unit move at
     offset 2,000,000 of a 4,000,000-unit ASCII line costs at most 5 + 64 + 2
-    units, where the full count at the same caret costs at least 2,000,000. The encoding is the caller's
+    units, where the full count at the same caret costs at least 2,000,000;
+    for the rebase, deletions of one unit, five units and the whole prefix
+    ending at every caret of that same sweep, each rebased on the pre-edit text
+    and read on the post-edit text against the full count, the charged bound on
+    a 4,000,000-unit ASCII line with the memo at its end (a backspace at most
+    2 × (64 + 2) + 1 units, a five-unit word delete 5 more, a 1,000-unit cut
+    1,000 more — rebase plus the next readout), an edit at or past the memo
+    unchanged at zero work, idempotence, an edit before the line start (`nil`),
+    a deletion back to the line start (correct, and charged at least the
+    prefix) and no anchor within the lookback (`nil`). The encoding is the caller's
     (`FileService.encodingName`, `core-workspace.md`).
   - `CurrentLineRule.swift` — which line the editor's current-line highlight
     washes: `highlightedLine(selection:lineStarts:length:) -> NSRange?`. The

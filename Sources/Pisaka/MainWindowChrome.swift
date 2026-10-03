@@ -103,9 +103,9 @@ struct MainWindowChrome: NSViewRepresentable {
     /// The identifier the centred title label is found again by.
     static let titleLabelIdentifier = NSUserInterfaceItemIdentifier("PisakaCentredWindowTitle")
 
-    /// Gap between the window buttons' trailing edge and the label's widest
-    /// extent.
-    private static let titleLabelButtonGap: CGFloat = 8
+    /// Gap between the window buttons' trailing edge and the label's drawn
+    /// frame. Internal so the placement suite asserts against this value.
+    static let titleLabelButtonGap: CGFloat = 8
 
     /// Install — or, on a repeated call, update — the one centred title label
     /// in the title bar view, the close button's superview. A window without
@@ -113,16 +113,20 @@ struct MainWindowChrome: NSViewRepresentable {
     private static func applyTitleLabel(to window: NSWindow, title: String) {
         guard let close = window.standardWindowButton(.closeButton),
               let titleBar = close.superview else { return }
+        // Each button's extent converted into the title bar view — the space
+        // the label's constraints live in — rather than read off `frame`, which
+        // is only that space while the button is a direct subview.
         let buttonsTrailing = [NSWindow.ButtonType.miniaturizeButton, .zoomButton]
             .compactMap { window.standardWindowButton($0) }
-            .filter { $0.superview === titleBar }
-            .reduce(close.frame.maxX) { max($0, $1.frame.maxX) }
-        let widthInset = -2 * (buttonsTrailing + titleLabelButtonGap)
+            .filter { $0.isDescendant(of: titleBar) }
+            .reduce(close.convert(close.bounds, to: titleBar).maxX) {
+                max($0, $1.convert($1.bounds, to: titleBar).maxX)
+            }
 
         if let label = titleBar.subviews.first(where: { $0.identifier == titleLabelIdentifier }) as? NSTextField {
             if label.stringValue != title { label.stringValue = title }
             if let cap = titleBar.constraints.first(where: { $0.identifier == titleLabelIdentifier.rawValue }) {
-                cap.constant = widthInset
+                cap.constant = widthInset(buttonsTrailing: buttonsTrailing, label: label)
             }
             return
         }
@@ -136,13 +140,26 @@ struct MainWindowChrome: NSViewRepresentable {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleBar.addSubview(label)
-        let cap = label.widthAnchor.constraint(lessThanOrEqualTo: titleBar.widthAnchor, constant: widthInset)
+        let cap = label.widthAnchor.constraint(
+            lessThanOrEqualTo: titleBar.widthAnchor,
+            constant: widthInset(buttonsTrailing: buttonsTrailing, label: label)
+        )
         cap.identifier = titleLabelIdentifier.rawValue
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
             cap,
         ])
+    }
+
+    /// The width cap's constant: the label stays centred, so it gives up the
+    /// buttons' extent plus the gap on both sides. Constraints act on the
+    /// label's alignment rect, which a label field draws inside by an inset of
+    /// its own (two points a side, measured on macOS 27) — so the drawn frame
+    /// would land that much closer than the gap without the inset charged too.
+    private static func widthInset(buttonsTrailing: CGFloat, label: NSTextField) -> CGFloat {
+        let insets = label.alignmentRectInsets
+        return -2 * (buttonsTrailing + titleLabelButtonGap + max(insets.left, insets.right))
     }
 }
 

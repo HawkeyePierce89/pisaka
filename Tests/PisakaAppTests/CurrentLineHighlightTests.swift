@@ -12,18 +12,17 @@ import XCTest
 /// window, one bitmap per view per state. The line is handed over by a real
 /// `CodeEditorView.Coordinator` whose text view and ruler are the harness's, through
 /// `updateCurrentLine(of:)` itself, so the rule is exercised rather than restated.
-/// A caret move must also *invalidate* both painters. That one case puts the
-/// editor in a single borderless, never-ordered window, closed at teardown, and
-/// reads each view's **backing layer's** `needsDisplay()`: measured on this
-/// machine, AppKit drops `needsDisplay` on a windowless view (set `true`, it reads
-/// back `false`), and inside a window the view's own getter reads `false` too
-/// while the invalidation lands on its layer. The window is drawn once and both
-/// layers flushed after the selection changes and before the coordinator runs,
-/// so only the coordinator's own invalidation can set the flags again — removing
-/// either `setNeedsDisplay` in the layout manager or `ruler.needsDisplay = true`
-/// fails it. The render afterwards is detached and still goes through
-/// `cacheDisplay`. `needsToDraw(_:)` is not asserted: it is defined only while
-/// drawing.
+/// A caret move must also *invalidate* both painters, and that case records what
+/// each one is asked to redraw rather than reading a flag: the editor is built
+/// around a text-view subclass recording every `setNeedsDisplay(_:)` rect and a
+/// ruler subclass recording the same plus `needsDisplay = true` as its full
+/// bounds. The records are cleared after the selection moves and before the
+/// coordinator runs, so only the coordinator's own invalidation is read. The text
+/// view's rects must cover **both bands** — the line the caret left and the line
+/// it landed on, each `currentLineBand(for:)` offset by `textContainerOrigin` — and
+/// the ruler's must cover both bands' vertical ranges; removing `previous` from
+/// `setCurrentLine`'s loop or `ruler.needsDisplay = true` fails it. Recording a
+/// call needs no window, so **this suite creates no window at all**.
 /// The text side is
 /// sampled far right of every line's text, which is what "full width" means; the
 /// gutter at its leading edge, clear of the numbers.
@@ -79,30 +78,38 @@ final class CurrentLineHighlightTests: XCTestCase {
     }
 
     func testACaretMoveInvalidatesBothPaintersAndMovesTheWash() throws {
-        let editor = makeEditor(.dark)
-        let window = NSWindow(
-            contentRect: editor.harness.scrollView.frame, styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        addTeardownBlock { @MainActor in window.close() }
-        window.contentView = editor.harness.scrollView
+        let textView = RecordingTextView(usingTextLayoutManager: false)
+        let editor = makeEditor(.dark, textView: textView) { RecordingRuler(scrollView: $0, textView: $1) }
+        let ruler = try XCTUnwrap(editor.ruler as? RecordingRuler)
         editor.select(NSRange(location: 1, length: 0))
-        let textView = editor.harness.textView
+        let layoutManager = editor.harness.layoutManager
+        let oldLine = try XCTUnwrap(layoutManager.currentLineRange, "the caret on line 0 highlights no line")
         textView.setSelectedRange(NSRange(location: 18, length: 0))
-        // Draw what is pending, so both flags start the move clear.
-        window.displayIfNeeded()
-        let textLayer = try XCTUnwrap(textView.layer, "the windowed text view has no backing layer")
-        let rulerLayer = try XCTUnwrap(editor.ruler.layer, "the windowed ruler has no backing layer")
-        textLayer.displayIfNeeded()
-        rulerLayer.displayIfNeeded()
-        XCTAssertFalse(textLayer.needsDisplay(), "the text view's flag did not clear — the case is not exercised")
-        XCTAssertFalse(rulerLayer.needsDisplay(), "the ruler's flag did not clear — the case is not exercised")
+        textView.invalidations.removeAll()
+        ruler.invalidations.removeAll()
 
         editor.coordinator.updateCurrentLine(of: textView)
 
-        XCTAssertTrue(textLayer.needsDisplay(), "the caret move did not invalidate the text view")
-        XCTAssertTrue(rulerLayer.needsDisplay(), "the caret move did not invalidate the ruler")
-        window.contentView = nil
+        let newLine = try XCTUnwrap(layoutManager.currentLineRange, "the caret on line 3 highlights no line")
+        XCTAssertEqual(newLine.location, ruler.lineStarts[3], "the highlight did not move to line 3")
+        let origin = textView.textContainerOrigin
+        let bands = try [("old", oldLine), ("new", newLine)].map { name, line in
+            let band = try XCTUnwrap(layoutManager.currentLineBand(for: line), "the \(name) line has no band")
+            return (name, band.offsetBy(dx: origin.x, dy: origin.y))
+        }
+        for (name, band) in bands {
+            XCTAssertTrue(
+                textView.invalidations.contains { $0.insetBy(dx: -0.5, dy: -0.5).contains(band) },
+                "the \(name) line's band \(band) is not invalidated in the text view: \(textView.invalidations)"
+            )
+            let rulerBand = ruler.convert(band, from: textView)
+            XCTAssertTrue(
+                ruler.invalidations.contains {
+                    $0.minY <= rulerBand.minY + 0.5 && $0.maxY >= rulerBand.maxY - 0.5
+                },
+                "the \(name) line's rows \(rulerBand) are not invalidated in the ruler: \(ruler.invalidations)"
+            )
+        }
         try editor.render { sample in
             XCTAssertFalse(sample.isCurrentLine(textLine: 0), "the old line is still tinted")
             XCTAssertFalse(sample.isCurrentLine(gutterLine: 0), "the old gutter row is still tinted")
@@ -111,22 +118,63 @@ final class CurrentLineHighlightTests: XCTestCase {
         }
     }
 
+    // MARK: - Recording views
+
+    /// Records every rect it is asked to redraw.
+    private final class RecordingTextView: NSTextView {
+        var invalidations: [NSRect] = []
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            invalidations.append(invalidRect)
+            super.setNeedsDisplay(invalidRect)
+        }
+    }
+
+    /// Records every rect it is asked to redraw, and a whole-view request as its
+    /// full bounds.
+    private final class RecordingRuler: LineNumberRulerView {
+        var invalidations: [NSRect] = []
+
+        override var needsDisplay: Bool {
+            get { super.needsDisplay }
+            set {
+                if newValue { invalidations.append(bounds) }
+                super.needsDisplay = newValue
+            }
+        }
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            invalidations.append(invalidRect)
+            super.setNeedsDisplay(invalidRect)
+        }
+    }
+
     // MARK: - Harness
 
-    private func makeEditor(_ appearance: ChromeAppearance) -> Editor {
-        let editor = Editor(text: text, appearance: appearance)
+    private func makeEditor(
+        _ appearance: ChromeAppearance,
+        textView: NSTextView = NSTextView(usingTextLayoutManager: false),
+        ruler: @MainActor (NSScrollView, NSTextView) -> LineNumberRulerView = { LineNumberRulerView(scrollView: $0, textView: $1) }
+    ) -> Editor {
+        let editor = Editor(text: text, appearance: appearance, textView: textView, ruler: ruler)
         addTeardownBlock { @MainActor in editor.harness.scrollView.verticalRulerView = nil }
         return editor
     }
 
     @MainActor
     private final class Editor {
-        let harness = EditorLayoutHarness()
+        let harness: EditorLayoutHarness
         let ruler: LineNumberRulerView
         let coordinator: CodeEditorView.Coordinator
         let appearance: ChromeAppearance
 
-        init(text: String, appearance: ChromeAppearance) {
+        init(
+            text: String,
+            appearance: ChromeAppearance,
+            textView: NSTextView,
+            ruler makeRuler: @MainActor (NSScrollView, NSTextView) -> LineNumberRulerView
+        ) {
+            harness = EditorLayoutHarness(textView: textView)
             self.appearance = appearance
             coordinator = CodeEditorView.Coordinator(text: .constant(text))
             harness.scrollView.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)
@@ -135,7 +183,7 @@ final class CurrentLineHighlightTests: XCTestCase {
             harness.textView.drawsBackground = false
             harness.textView.string = text
             harness.layOut()
-            ruler = LineNumberRulerView(scrollView: harness.scrollView, textView: harness.textView)
+            ruler = makeRuler(harness.scrollView, harness.textView)
             harness.scrollView.hasVerticalRuler = true
             harness.scrollView.verticalRulerView = ruler
             harness.scrollView.rulersVisible = true

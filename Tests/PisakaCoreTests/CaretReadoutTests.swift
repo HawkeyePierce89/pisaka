@@ -232,18 +232,7 @@ final class CaretReadoutTests: XCTestCase {
     /// Every (old, new) pair over strings built from the clusters whose
     /// boundaries are context-dependent; the column always equals the full count.
     func testEveryPairAgreesWithTheFullCount() {
-        let samples = [
-            "ab e\u{0301}\u{0301} cd",
-            "x😀y👍🏽 z",
-            "go 🇫🇷🇩🇪🇯🇵 now",
-            "a 👨‍👩‍👧 b👩🏽‍💻c",
-            "\u{1100}\u{1161}\u{11A8} ab \u{1100}\u{1161}",
-            "ab \u{0915}\u{094D}\u{0937} cd \u{0915}\u{094D}x",
-            "a \u{0600}1 b\u{0600}\u{0600}23 c",
-            "plain ascii only here",
-            "ab\u{0301}\ncd 😀\r\nef",
-        ]
-        for sample in samples {
+        for sample in Self.sweepSamples {
             let text = sample as NSString
             for old in 0...text.length {
                 let start = memo(text, at: old)
@@ -279,5 +268,115 @@ final class CaretReadoutTests: XCTestCase {
         let old = memo(text, at: 150)
         let result = incremental(text, 160, memo: old)
         XCTAssertGreaterThanOrEqual(result.work, 160)
+    }
+
+    // MARK: - The pre-edit rebase
+
+    private static let sweepSamples = [
+        "ab e\u{0301}\u{0301} cd",
+        "x😀y👍🏽 z",
+        "go 🇫🇷🇩🇪🇯🇵 now",
+        "a 👨‍👩‍👧 b👩🏽‍💻c",
+        "\u{1100}\u{1161}\u{11A8} ab \u{1100}\u{1161}",
+        "ab \u{0915}\u{094D}\u{0937} cd \u{0915}\u{094D}x",
+        "a \u{0600}1 b\u{0600}\u{0600}23 c",
+        "plain ascii only here",
+        "ab\u{0301}\ncd 😀\r\nef",
+    ]
+
+    /// Deletes `[editStart, caret)` from `before` with the memo at `caret`:
+    /// rebases on the pre-edit text, then reads the post-edit caret through the
+    /// memoised path, asserted against the full count. Returns the total work,
+    /// or `nil` when the rebase declined.
+    @discardableResult
+    private func deleteEndingAtCaret(
+        _ before: NSString,
+        caret: Int,
+        editStart: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int? {
+        let old = memo(before, at: caret)
+        let rebased = CaretReadout.countedRebasedMemo(old, text: before, editStart: editStart)
+        guard let moved = rebased.memo else { return nil }
+        XCTAssertLessThanOrEqual(moved.offset, editStart, file: file, line: line)
+        let after = before.replacingCharacters(in: NSRange(location: editStart, length: caret - editStart), with: "")
+            as NSString
+        let result = incremental(after, editStart, memo: moved, editFloor: editStart, file: file, line: line)
+        return rebased.work + result.work
+    }
+
+    /// One unit, a word and a selection, each ending at the caret, over every
+    /// caret of the sweep strings: the column always equals the full count.
+    /// A declined rebase asserts nothing, so each sample must also rebase at
+    /// least once mid-line — or the sweep would quietly check ASCII alone.
+    func testDeletionsEndingAtTheCaretAgreeWithTheFullCount() {
+        for sample in Self.sweepSamples {
+            let text = sample as NSString
+            var midLineRebases = 0
+            for caret in 1...text.length {
+                for width in [1, 5, caret] where width <= caret {
+                    let work = deleteEndingAtCaret(text, caret: caret, editStart: caret - width)
+                    if work != nil, width < caret { midLineRebases += 1 }
+                }
+            }
+            XCTAssertGreaterThan(midLineRebases, 0, "no deletion rebased mid-line in \(sample.debugDescription)")
+        }
+    }
+
+    /// The rebase plus the next readout, on a 4,000,000-unit line with the memo
+    /// at its end, charges the deleted span and two bounded searches — never
+    /// the line's prefix.
+    func testRebaseWorkIsChargedNotTheLinePrefix() {
+        let length = 4_000_000
+        let text = String(repeating: "a", count: length) as NSString
+        let searches = 2 * (CaretReadout.anchorLookback + 2) + 1
+        for (width, bound) in [(1, searches), (5, 5 + searches), (1_000, 1_000 + searches)] {
+            let work = deleteEndingAtCaret(text, caret: length, editStart: length - width)
+            XCTAssertNotNil(work, "width \(width) rebased")
+            XCTAssertLessThanOrEqual(work ?? .max, bound, "width \(width)")
+        }
+    }
+
+    func testAnEditAtOrPastTheMemoLeavesItUnchangedForFree() {
+        let text = "abc def" as NSString
+        let old = memo(text, at: 4)
+        for start in [4, 6] {
+            let rebased = CaretReadout.countedRebasedMemo(old, text: text, editStart: start)
+            XCTAssertEqual(rebased.memo, old)
+            XCTAssertEqual(rebased.work, 0)
+        }
+    }
+
+    /// Idempotent: a second rebase at the same start returns the first answer.
+    func testRebaseIsIdempotent() {
+        let text = "let value = 42" as NSString
+        let old = memo(text, at: 14)
+        let once = CaretReadout.rebasedMemo(old, text: text, editStart: 10)
+        XCTAssertNotNil(once)
+        XCTAssertEqual(once.flatMap { CaretReadout.rebasedMemo($0, text: text, editStart: 10) }, once)
+    }
+
+    /// An edit starting before the memo's line start crosses a line start.
+    func testAnEditBeforeTheLineStartDeclines() {
+        let text = "first\nsecond line" as NSString
+        let old = memo(text, at: 12)
+        XCTAssertEqual(old.lineStart, 6)
+        XCTAssertNil(CaretReadout.rebasedMemo(old, text: text, editStart: 4))
+    }
+
+    /// A deletion back to the line start is correct, and its anchor is the line
+    /// start, so it pays for the whole prefix.
+    func testADeletionBackToTheLineStartCountsThePrefix() {
+        let text = "first\n" + String(repeating: "é😀", count: 50) as NSString
+        let work = deleteEndingAtCaret(text, caret: text.length, editStart: 6)
+        XCTAssertGreaterThanOrEqual(work ?? 0, text.length - 6)
+    }
+
+    /// With no ASCII anchor within the lookback below the edit, the rebase
+    /// declines and the next readout takes the full count.
+    func testNoAnchorBelowTheEditDeclines() {
+        let text = (String(repeating: "x", count: 10) + String(repeating: "é", count: 200)) as NSString
+        XCTAssertNil(deleteEndingAtCaret(text, caret: 200, editStart: 199))
     }
 }

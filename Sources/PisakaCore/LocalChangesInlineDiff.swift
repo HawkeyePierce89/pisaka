@@ -62,12 +62,13 @@ public enum LocalChangesInlineDiff {
     ///
     /// A deleted file is `.absent`. A symlink is its **target string** — what git
     /// stores as the blob — never the dereferenced file's contents. A `stamp`
-    /// over `maxSideBytes` is `.tooLarge` with no read at all; otherwise the file
-    /// is read through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
-    /// `.binary` (an unknown size that turns out over the cap lands there too —
-    /// either way there are no lines to show). A read that throws is
-    /// `.unreadable`: shown as the empty side the diff has always shown for an
-    /// unreadable file, but not remembered.
+    /// over `maxSideBytes` is `.tooLarge` with no read at all. With no stamp, the
+    /// size is asked on its own (`fileByteCount(at:)`), and a count over the cap
+    /// is `.tooLarge` with no read too — a missing stamp must not turn an
+    /// over-cap text file into "binary". Only a size still unknown, or within the
+    /// cap, reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
+    /// `.binary`. A read that throws is `.unreadable`: shown as the empty side
+    /// the diff has always shown for an unreadable file, but not remembered.
     ///
     /// Runs off the main actor: it touches nothing but `fileService`.
     public static func workingSide(
@@ -78,7 +79,9 @@ public enum LocalChangesInlineDiff {
     ) -> Side {
         guard file.status != .deleted else { return .absent }
         if let target = fileService.symbolicLinkDestination(at: url) { return .text(target) }
-        if let stamp, stamp.byteCount > maxSideBytes { return .tooLarge }
+        if let byteCount = stamp?.byteCount ?? fileService.fileByteCount(at: url), byteCount > maxSideBytes {
+            return .tooLarge
+        }
         do {
             guard let text = try fileService.readTextIfNotBinary(url: url, maxBytes: maxSideBytes) else {
                 return .binary

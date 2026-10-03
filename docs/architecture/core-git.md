@@ -122,6 +122,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `GIT_INDEX_FILE` and runs a **real `git commit`** against it (see
     `GitCLIService`), and `push(_:root:)` executes a `PushPlan`. The last two are
     defaulted to `throw GitError.gitUnavailable`.
+    `headBlobSize(of:root:) -> Int?` is the **size seam in front of
+    `headBlob`**, defaulted `nil`: the size of the path's blob at `HEAD`, so a
+    caller with a byte cap decides it before fetching. `nil` means **unknown**,
+    never "small" — absent from `HEAD`, a failed lookup, or a service that cannot
+    tell without reading — and both callers fall through to today's fetch on it,
+    so every stub and the iOS service keep their behaviour. `GitCLIService`
+    answers it with `git cat-file -s HEAD:<path>`, one object-header lookup with
+    no blob read; a non-zero exit or a non-numeric answer is `nil`. Its two
+    callers are the Local Changes inline diff (`core-git-models.md`, cap
+    `LocalChangesInlineDiff.maxSideBytes`, over it `.tooLarge`) and the commit
+    dialog's `headSide` (`core-commit.md`, cap `maxSelectableFileBytes`, over it
+    `.binary`).
     One more mutating method backs the Pull Requests feature's post-merge tail,
     defaulted the same way: `pull(root:)`, whose whole contract is
     **`git pull --ff-only` and nothing else**. The `--ff-only` is not a default it

@@ -587,12 +587,22 @@ public final class CommitDialogModel: ObservableObject {
     /// which is exactly the memory the cap exists to bound. Past the cap the side
     /// classifies `.binary`, i.e. the file is committed whole and no LCS runs over
     /// it, the same outcome the worktree cap already produces.
+    ///
+    /// The cap is decided **before the fetch** wherever the size is known: the
+    /// blob's size is asked first (`GitServicing.headBlobSize`), and one over the
+    /// cap is `.binary` with no `headBlob` call at all. An unknown size — `nil`,
+    /// or a lookup that failed — falls through to the fetch and the check after
+    /// it, so a service without the seam behaves exactly as before.
     private func headSide(for file: ChangedFile, root: URL) async throws -> BlobText {
         switch file.status {
         case .added, .untracked, .deleted:
             return .absent
         case .modified, .renamed, .conflicted:
             let path = file.oldPath ?? file.path
+            if let size = (try? await gitService.headBlobSize(of: path, root: root)).flatMap({ $0 }),
+               size > Self.maxSelectableFileBytes {
+                return .binary
+            }
             let data = try await gitService.headBlob(of: path, root: root)
             if let data, data.count > Self.maxSelectableFileBytes { return .binary }
             return GitBlobText.classify(data)

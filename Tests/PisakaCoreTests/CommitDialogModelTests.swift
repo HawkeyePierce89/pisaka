@@ -95,6 +95,20 @@ final class CommitDialogModelTests: XCTestCase {
             return headBlobs[path]
         }
 
+        /// `HEAD` blob sizes keyed by path; a missing key is "unknown".
+        var headBlobSizes: [String: Int] = [:]
+
+        /// When set, every `headBlobSize` question throws it.
+        var headBlobSizeError: Error?
+        /// Every `headBlobSize` question, in order.
+        var headBlobSizeCalls: [String] = []
+
+        func headBlobSize(of path: String, root: URL) async throws -> Int? {
+            headBlobSizeCalls.append(path)
+            if let headBlobSizeError { throw headBlobSizeError }
+            return headBlobSizes[path]
+        }
+
         func commitContext(root: URL) async throws -> CommitContext {
             contextCalls += 1
             if let onCommitContext { await onCommitContext(contextCalls) }
@@ -950,13 +964,13 @@ final class CommitDialogModelTests: XCTestCase {
 
     /// `load`'s per-open clear drops the memo before the fresh read lands: while
     /// it is in flight the path names no file, so the answer is empty, not the
-    /// previous opening's rows.
+    /// previous opening's rows. The empty answer, compared by equality, is what
+    /// proves the drop — with `files` empty the counter could not move anyway.
     func testUnifiedDisplayRowsAreDroppedByTheLoadsPerOpenClear() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         var midFlight: [UnifiedDiffDisplayRow]?
         git.onFirstChangedFiles = { @MainActor in
@@ -965,36 +979,35 @@ final class CommitDialogModelTests: XCTestCase {
         await model.load(root: root)
 
         XCTAssertEqual(midFlight, [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
-    /// `load`'s failure clear drops the memo.
+    /// `load`'s failure clear drops the memo. The empty answer, compared by
+    /// equality, is what proves the drop — with `files` empty the counter could
+    /// not move anyway.
     func testUnifiedDisplayRowsAreDroppedByAFailedReload() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         git.contextError = CocoaError(.fileReadUnknown)
         await model.load(root: root)
 
         XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
-    /// `reset()`, reached through a folder switch, drops the memo.
+    /// `reset()`, reached through a folder switch, drops the memo. The empty
+    /// answer, compared by equality, is what proves the drop — with `files`
+    /// empty the counter could not move anyway.
     func testUnifiedDisplayRowsAreDroppedByAFolderSwitch() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
-        let computed = model.unifiedLinesComputations
 
         model.prepareForFolderChange(root: otherRoot)
 
         XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
-        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
     // MARK: - Gate and push plan wiring
@@ -1771,6 +1784,76 @@ final class CommitDialogModelTests: XCTestCase {
         await model.load(root: root)
 
         XCTAssertEqual(model.files.first?.facts.eligibility, .selectable)
+    }
+
+    /// The cap is decided **before the fetch** when the size is known: an
+    /// over-cap `HEAD` blob is never asked for at all.
+    func testAnOverCapHeadSizeIsBinaryWithNoBlobFetch() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "big.txt", status: .modified)]
+        git.headBlobs = ["big.txt": Data("small\n".utf8)]
+        git.headBlobSizes = ["big.txt": CommitDialogModel.maxSelectableFileBytes + 1]
+        let files = StubFiles()
+        files.contents["/repo/big.txt"] = "small\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobCalls, [], "an over-cap HEAD blob was fetched anyway")
+        XCTAssertEqual(model.files.first?.facts.head, .binary)
+        XCTAssertEqual(model.files.first?.facts.eligibility, .wholeOnly(reason: .binaryInHead))
+    }
+
+    /// An at-cap size and an unknown one both fall through to the fetch.
+    func testAnAtCapOrUnknownHeadSizeStillFetches() async {
+        for size in [CommitDialogModel.maxSelectableFileBytes, nil] {
+            let git = StubGit()
+            git.changed = [ChangedFile(path: "a.txt", status: .modified)]
+            git.headBlobs = ["a.txt": Data("one\n".utf8)]
+            git.headBlobSizes["a.txt"] = size
+            let files = StubFiles()
+            files.contents["/repo/a.txt"] = "two\n"
+            let model = makeModel(git: git, files: files)
+
+            await model.load(root: root)
+
+            XCTAssertEqual(git.headBlobCalls, ["a.txt"], "size \(String(describing: size))")
+            XCTAssertEqual(model.files.first?.facts.eligibility, .selectable, "size \(String(describing: size))")
+        }
+    }
+
+    /// A size lookup that fails is "unknown": the load still fetches and
+    /// publishes, rather than failing the dialog over one `cat-file`.
+    func testAFailedHeadSizeLookupFallsThroughToTheFetch() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "a.txt", status: .modified)]
+        git.headBlobs = ["a.txt": Data("one\n".utf8)]
+        git.headBlobSizeError = CocoaError(.fileReadUnknown)
+        let files = StubFiles()
+        files.contents["/repo/a.txt"] = "two\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobCalls, ["a.txt"])
+        XCTAssertEqual(model.files.first?.facts.eligibility, .selectable)
+    }
+
+    /// A rename's `HEAD` side lives at its old path, so the size is asked there.
+    func testARenamedFilesHeadSizeIsAskedAtItsOldPath() async {
+        let git = StubGit()
+        git.changed = [ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt")]
+        git.headBlobs = ["old.txt": Data("small\n".utf8)]
+        git.headBlobSizes = ["old.txt": CommitDialogModel.maxSelectableFileBytes + 1]
+        let files = StubFiles()
+        files.contents["/repo/new.txt"] = "small\n"
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        XCTAssertEqual(git.headBlobSizeCalls, ["old.txt"])
+        XCTAssertEqual(git.headBlobCalls, [], "an over-cap renamed HEAD blob was fetched anyway")
+        XCTAssertEqual(model.files.first?.facts.head, .binary)
     }
 
     // MARK: - Reopening

@@ -24,7 +24,13 @@ import XCTest
 ///  * each imageset's `Contents.json` names its one PDF and carries
 ///    `"template-rendering-intent": "template"` and
 ///    `"preserves-vector-representation": true`;
-///  * each `nativeSize` equals the size that record states for it.
+///  * each `nativeSize` equals the size that record states for it;
+///  * `project.yml` keeps asset symbols off: exactly one active line reads
+///    `ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO`, and no active line sets
+///    that key or `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS`
+///    to anything else. `ChromeThemeSourceGatingTests`' glyph-load rule reads
+///    string-named loads only, so a generated accessor would load a glyph past
+///    it unseen; this pin is what that rule relies on.
 final class DesignGlyphAssetTests: XCTestCase {
 
     /// The export manifest's sha256 prefixes (the first sixteen hex digits) for
@@ -118,6 +124,28 @@ final class DesignGlyphAssetTests: XCTestCase {
         }
     }
 
+    func testTheProjectKeepsAssetSymbolsOff() throws {
+        let lines = activeYAMLLines(of: try String(contentsOf: Self.projectSpec, encoding: .utf8))
+        let keys = [
+            "ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS",
+            "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS",
+        ]
+        let wanted = "ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO"
+        let why = """
+            the catalog must generate no asset symbols: a generated accessor is a form of glyph \
+            loading the chrome theme's glyph-load rule cannot see, so a glyph loaded through one \
+            would bypass DesignGlyphImage unnoticed.
+            """
+
+        XCTAssertEqual(lines.filter { $0 == wanted }.count, 1, "project.yml must set `\(wanted)` exactly once; \(why)")
+        // Any key spelled `: NO` is the setting this pin wants; only another
+        // value is a breach.
+        let others = lines.filter { line in
+            keys.contains { line.hasPrefix($0) && line != "\($0): NO" }
+        }
+        XCTAssertEqual(others, [], "project.yml sets an asset-symbol key to something else; \(why)")
+    }
+
     // MARK: - Reading the repository
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -127,6 +155,8 @@ final class DesignGlyphAssetTests: XCTestCase {
 
     private static let glyphFolder = repositoryRoot
         .appendingPathComponent("Sources/Pisaka/Assets.xcassets/Glyphs")
+
+    private static let projectSpec = repositoryRoot.appendingPathComponent("project.yml")
 
     private static let record = repositoryRoot
         .appendingPathComponent("Resources/DesignGlyphs/VENDORED.md")

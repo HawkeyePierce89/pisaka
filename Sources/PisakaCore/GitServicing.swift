@@ -69,6 +69,21 @@ public protocol GitServicing {
     /// untouched; the real `GitCLIService` overrides it.
     func headBlob(of path: String, root: URL) async throws -> Data?
 
+    /// The size in bytes of `path`'s (repo-relative) blob at `HEAD`, or `nil`
+    /// when the size is **unknown** — absent from `HEAD`, a failed lookup, or a
+    /// service that cannot tell without reading.
+    ///
+    /// It exists so a caller with a byte cap decides the cap **before** fetching
+    /// the blob: the Local Changes inline diff and the commit dialog both ask it
+    /// first and skip `headBlob(of:root:)` for a blob over their cap. `nil` never
+    /// means "small" — it means "unknown, read as before" — so the default costs
+    /// nothing but the saving.
+    ///
+    /// Defaulted in a protocol extension to `nil` so every existing stub and the
+    /// iOS `LibGit2Service` keep compiling and keep today's path; the real
+    /// `GitCLIService` answers with `git cat-file -s HEAD:<path>`.
+    func headBlobSize(of path: String, root: URL) async throws -> Int?
+
     /// The files changed by the commit `hash` relative to its first parent.
     ///
     /// Drives the Log view's commit-detail file list. A merge commit is diffed
@@ -313,6 +328,8 @@ public protocol GitServicing {
 /// overrides both.
 public extension GitServicing {
     func headBlob(of path: String, root: URL) async throws -> Data? { nil }
+
+    func headBlobSize(of path: String, root: URL) async throws -> Int? { nil }
 
     func commitChanges(hash: String, root: URL) async throws -> [ChangedFile] { [] }
 

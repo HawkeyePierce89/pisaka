@@ -479,7 +479,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     to the worktree, the `HEAD` side of a large tracked *text* file (an 8 MB lock
     file, a checked-in dump) was still read, decoded and then *retained* in `files`
     for the life of the dialog — and again by the pre-commit re-read — which is
-    precisely the memory the cap exists to bound. The cap bounds *one* file and
+    precisely the memory the cap exists to bound. On the `HEAD` side the cap is
+    decided **before the fetch** wherever the size is known: `headSide` asks
+    `GitServicing.headBlobSize(of:root:)` first, and a size over the cap is
+    `.binary` with **no `headBlob` call at all**; an unknown size (`nil`, or a
+    lookup that threw) falls through to the fetch and the after-the-read check,
+    so a service without the seam behaves as before. Tests: an over-cap size
+    fetches nothing (`headBlobCalls` empty) and is whole-only; an at-cap size and
+    an unknown one both still fetch. The cap bounds *one* file and
     nothing bounds the **count**, so the loop hands the main actor back every
     `loadYieldStride` (32) files: its per-file work is not reliably suspending —
     `headSide` returns `.absent` **synchronously** for an added, untracked or

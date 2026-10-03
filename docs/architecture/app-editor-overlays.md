@@ -206,15 +206,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `CurrentLineHighlightTests` samples both halves (`core-theme.md`), handing
     the line over through a real `CodeEditorView.Coordinator` wired to the
     harness's text view and ruler, so `updateCurrentLine(of:)` itself runs; one
-    case asserts the caret move invalidates both views — after the selection
-    moves and the pending drawing is flushed, the coordinator's call must set
-    the flag on the text view and on the ruler — then that one render shows the
-    old line plain and the new one tinted. The flag is read off each view's
-    **backing layer** inside one never-ordered borderless window: AppKit drops
-    `needsDisplay` on a windowless view, and inside a window the view's own
-    getter reads `false` while the layer carries the invalidation (both
-    measured); `needsToDraw(_:)` is meaningful only inside a draw. The renders
-    stay `cacheDisplay` on the detached view.
+    case asserts the caret move invalidates **both bands in both painters** —
+    the editor is built around a text-view subclass recording every
+    `setNeedsDisplay(_:)` rect and a `LineNumberRulerView` subclass recording the
+    same plus `needsDisplay = true` as its full bounds (the one reason the ruler
+    is not `final`; `EditorLayoutHarness` takes the text view to install for the
+    same reason). The records are cleared after the selection moves and before
+    the coordinator runs; the text view's rects must then cover the old and the
+    new line's `currentLineBand(for:)`, each offset by `textContainerOrigin`, and
+    the ruler's both bands' vertical ranges — dropping `previous` from
+    `setCurrentLine`'s loop or `ruler.needsDisplay = true` fails it — then that
+    one render shows the old line plain and the new one tinted. Recording a call
+    needs no window, so the suite creates none; the renders are `cacheDisplay`
+    on the detached views.
     **The ordering is blocks first, then `super`**, in an override of
     `drawBackground(forGlyphRange:at:)`: `super` is what paints the `.backgroundColor`
     temporary attributes — the caret's matched pair and both search-match

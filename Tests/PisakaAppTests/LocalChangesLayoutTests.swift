@@ -32,6 +32,64 @@ import PisakaCore
 /// `textSecondary` text where the rows would sit, shaped like a reference render
 /// of that state's sentence rather than of "Loading…", and no diff-row wash — its
 /// two outer strips are the panel's ground and nothing else.
+///
+/// **The rows state: the divider paints inside its bounds.** One modified text
+/// file (five lines, the third changed) is selected and its `.rows` diff
+/// published — the view's own appearance-time load, waited on by polling the
+/// model and the hosted tree with a deadline that fails loudly — then rendered
+/// at scales 1.0 and 1.8. `DiffDividerView` once filled the rect `draw(_:)` was
+/// handed, which since macOS 14 (`clipsToBounds` defaulting to `false`) is not
+/// limited to its bounds, and painted `hairline` over the list and the header.
+/// Positive: the modified letter's colour and the name's `textPrimary` in the
+/// file row, the header's `textSecondary` path, and the divider between the
+/// panes (found from the hosted `DiffContainerView`'s subviews) carrying
+/// `hairline` — read as one pixel column lying wholly inside the divider's
+/// hosted frame, matched exactly against the left pane's `bgEditor` ground, and
+/// failing loudly when no column is whole. The split rounds the left pane to the
+/// backing pixel grid, so the one-point divider covers whole columns. This read
+/// replaced a blend of the straddled column against the share the divider
+/// covered: on the macOS 15 CI runner that column read darker than the ground
+/// itself at 1.8, which the developer machine never reproduced with either
+/// scroller style — the reading of a half-covered column is the machine's, not
+/// the product's. Negative: no pixel
+/// matching `hairline` in exactly these bands, computed from the hosted frames
+/// (the list's `NSScrollView` and the `DiffContainerView`) and the panel's
+/// scaled measurements, never from pixel offsets:
+/// - **the file rows**, from the list's leading edge to its trailing edge (the
+///   list/diff divider is past it), from the header's bottom edge to the end of
+///   the second row — minus the checkbox column (`fileRowInset` plus
+///   `checkboxSide`, widened by one hairline for its antialiased edge), whose
+///   off-state border is a legitimate `hairline`;
+/// - **the header's text band**, the header's frame above its bottom rule —
+///   minus the path's own measured ink widened by two points, because
+///   `textSecondary`'s antialiased edge over the panel passes through
+///   `hairline`'s value.
+/// The legitimate rules all lie outside: the list/diff divider at the list's
+/// trailing edge, the toolbar's bottom rule above the list's top, and the
+/// header's bottom rule below the header band.
+///
+/// **The diff window.** `DiffWindowContent` over the same rows, at scale 1:
+/// once its `DiffContainerView` is in the tree, the left pane's gutter must
+/// carry `textSecondary` line numbers — the defect left that whole pane
+/// `hairline`.
+///
+/// **The render path.** Every render is `cacheDisplay(in:to:)` of the hosting
+/// view (`HostedRender`), offscreen. It hands `draw(_:)` the same unclipped
+/// rect the window does — the rows renders and the diff-window render all fail
+/// on the unfixed divider — so no other path was needed; nothing reads the
+/// screen or a window's backing, since a screen-recording API raises a system
+/// permission dialog. Each diff render pins its window to the dark appearance
+/// before the capture, because the diff panes are AppKit and resolve their
+/// dynamic colours by it.
+///
+/// **Why nothing earlier saw it.** Every frame stayed correct, so no frame or
+/// accessibility assertion could; and the placeholder renders draw no
+/// `DiffView` at all, so no divider existed to paint over them.
+///
+/// **Windows.** Thirteen hosted renders: two panel renders plus two glyph
+/// references (scales 1.0 and 1.8), two placeholder renders with two sentence
+/// references each, two rows renders and one diff-window render — each one
+/// window — plus one window per distinct swatch, cached for the process.
 @MainActor
 final class LocalChangesLayoutTests: XCTestCase {
 
@@ -228,6 +286,206 @@ final class LocalChangesLayoutTests: XCTestCase {
         )
     }
 
+    // MARK: - The divider paints inside its own bounds
+
+    func testASelectedDiffLeavesThePanelDrawnAtScaleOne() async throws {
+        try await assertSelectedDiffPanel(scale: 1)
+    }
+
+    func testASelectedDiffLeavesThePanelDrawnAtScaleOnePointEight() async throws {
+        try await assertSelectedDiffPanel(scale: 1.8)
+    }
+
+    /// The panel over a published `.rows` diff: the list, the header and the
+    /// two panes all draw, the divider between the panes is `hairline`, and no
+    /// pixel of the list's file rows or the header's text band is.
+    private func assertSelectedDiffPanel(
+        scale: Double, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let metrics = InterfaceMetrics(scale: scale)
+        let root = URL(fileURLWithPath: "/tmp/LocalChangesLayoutTests-project")
+        let changed = ChangedFile(path: "Sources/Main.swift", status: .modified)
+        let files = StubFiles()
+        files.text = Self.workingText
+        let model = LocalChangesModel(
+            gitService: StubGit(files: [changed], head: Data(Self.headText.utf8)), fileService: files
+        )
+        await model.refresh(root: root)
+        model.select(changed)
+
+        let theme = ChromeTheme(.dark)
+        let panel = theme.color(.bgPanel)
+        let render = try HostedRender(
+            size: CGSize(width: metrics.scaled(900), height: metrics.scaled(240)),
+            root: LocalChangesView(model: model, projectRoot: root)
+                .background(panel)
+                .environment(\.interfaceMetrics, metrics)
+                .environment(\.chromeTheme, theme)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        try await settleOnDiff(render, file: file, line: line) {
+            if case .rows = model.selectionDiff?.content { return true }
+            return false
+        }
+
+        let container = try XCTUnwrap(Self.diffContainer(in: render.host), file: file, line: line)
+        let containerFrame = render.host.convert(container.bounds, from: container)
+        let listScroll = try XCTUnwrap(
+            Self.views(of: NSScrollView.self, in: render.host).first { !$0.isDescendant(of: container) },
+            "the list's scroll view is not in the hosted tree", file: file, line: line
+        )
+        let listFrame = render.host.convert(listScroll.bounds, from: listScroll)
+        let hairline = metrics.scaled(ChromeGeometry.hairlineWidth)
+        let headerTop = containerFrame.minY - metrics.scaled(LocalChangesLayout.detailHeaderHeight)
+        let rowHeight = metrics.scaled(ChromeGeometry.rowHeight)
+        let listTop = listFrame.minY + metrics.scaled(LocalChangesLayout.listPaddingY)
+        // The list's two rows: the `Sources` folder, then Main.swift.
+        let fileRows = containerFrame.minY..<(listTop + rowHeight * 2)
+        let headerText = headerTop..<(containerFrame.minY - hairline)
+
+        // The list draws: the modified letter and the name, in the file row.
+        let listColumns = listFrame.minX..<listFrame.maxX
+        let status = ChromeColorRole.changedFileRole(for: .modified)
+        XCTAssertNotNil(
+            xExtent(in: render, rows: fileRows, columns: listColumns) {
+                render.matches(status, atX: $0, y: $1, ground: panel)
+            },
+            "no status letter in the file row at scale \(scale)", file: file, line: line
+        )
+        XCTAssertNotNil(
+            xExtent(in: render, rows: fileRows, columns: listColumns) {
+                render.matches(.textPrimary, atX: $0, y: $1, ground: panel)
+            },
+            "no file name in the file row at scale \(scale)", file: file, line: line
+        )
+        // The header draws its path.
+        let path = try XCTUnwrap(
+            xExtent(in: render, rows: headerText, columns: containerFrame.minX..<containerFrame.maxX) {
+                render.matches(.textSecondary, atX: $0, y: $1, ground: panel)
+            },
+            "no path in the detail header at scale \(scale)", file: file, line: line
+        )
+        // The divider between the panes is `hairline`.
+        let divider = try XCTUnwrap(
+            container.subviews.first { $0 is DiffDividerView }, file: file, line: line
+        )
+        let dividerFrame = render.host.convert(divider.bounds, from: divider)
+        let column = try XCTUnwrap(
+            Self.wholeColumn(inside: dividerFrame, pixelScale: render.pixelScale),
+            "no pixel column lies wholly inside the divider \(dividerFrame) at scale \(scale)",
+            file: file, line: line
+        )
+        XCTAssertTrue(
+            render.matches(
+                .hairline, atX: (CGFloat(column) + 0.5) / render.pixelScale, y: dividerFrame.midY,
+                ground: theme.color(.bgEditor)
+            ),
+            "the divider between the diff panes is not hairline at scale \(scale)", file: file, line: line
+        )
+
+        // No `hairline` pixel in either band. The rows band runs from the
+        // list's leading edge to the list/diff divider (the list's trailing
+        // edge, so the divider itself is outside), minus the checkbox column,
+        // whose off-state border is a legitimate `hairline` (its frame widened
+        // by one hairline for the border's antialiased edge at a fractional
+        // scale); it starts below the header's bottom rule. The header band is
+        // the header minus that rule, and minus the path's own ink — widened
+        // by two points, because `textSecondary`'s antialiased edge over the
+        // panel passes through `hairline`'s value; the toolbar's rule sits
+        // above both.
+        let checkboxStart = listFrame.minX + metrics.scaled(LocalChangesLayout.fileRowInset)
+        let checkboxEnd = checkboxStart + metrics.scaled(ChromeGeometry.checkboxSide) + hairline
+        let bands: [(name: String, rows: Range<CGFloat>, columns: Range<CGFloat>)] = [
+            ("the file rows before the checkbox", fileRows, listFrame.minX..<checkboxStart),
+            ("the file rows past the checkbox", fileRows, checkboxEnd..<listFrame.maxX),
+            ("the header before its path", headerText, containerFrame.minX..<(path.lowerBound - 2)),
+            ("the header past its path", headerText, (path.upperBound + 2)..<containerFrame.maxX),
+        ]
+        for band in bands {
+            let painted = xExtent(in: render, rows: band.rows, columns: band.columns) {
+                render.matches(.hairline, atX: $0, y: $1, ground: panel)
+            }
+            XCTAssertNil(
+                painted, "\(band.name) carry hairline pixels at \(painted.map { "\($0)" } ?? "") at scale \(scale)",
+                file: file, line: line
+            )
+        }
+    }
+
+    /// The first pixel column whose span `[column, column + 1) / pixelScale`
+    /// lies wholly inside `frame`'s horizontal extent, or `nil` when the frame
+    /// covers no column whole — a one-point divider at a fractional offset.
+    private static func wholeColumn(inside frame: CGRect, pixelScale: CGFloat) -> Int? {
+        let column = (frame.minX * pixelScale).rounded(.up)
+        guard column + 1 <= frame.maxX * pixelScale else { return nil }
+        return Int(column)
+    }
+
+    /// The separate diff window's content over the same rows: the left pane's
+    /// gutter draws its line numbers.
+    func testTheDiffWindowDrawsItsLeftPane() async throws {
+        let suite = "pisaka.tests.localChangesLayout.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let rows = LineDiff.rows(old: Self.headText, new: Self.workingText)
+        let theme = ChromeTheme(.dark)
+        let render = try HostedRender(
+            size: CGSize(width: 900, height: 240),
+            root: DiffWindowContent(
+                fileID: "Sources/Main.swift", fileName: "Main.swift",
+                load: { rows }, settings: SettingsStore(defaults: defaults)
+            )
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        try await settleOnDiff(render) { true }
+
+        let container = try XCTUnwrap(Self.diffContainer(in: render.host))
+        let leftScroll = try XCTUnwrap(container.subviews.first as? NSScrollView)
+        let gutter = try XCTUnwrap(leftScroll.verticalRulerView, "the left pane has no gutter")
+        let gutterFrame = render.host.convert(gutter.bounds, from: gutter)
+        XCTAssertGreaterThan(gutterFrame.width, 0, "the left gutter has no width")
+        let numbers = xExtent(
+            in: render, rows: gutterFrame.minY..<gutterFrame.maxY, columns: gutterFrame.minX..<gutterFrame.maxX
+        ) {
+            render.matches(.textSecondary, atX: $0, y: $1, ground: theme.color(.bgEditor))
+        }
+        XCTAssertNotNil(numbers, "the left pane's gutter drew no line numbers")
+    }
+
+    /// Five lines on `HEAD`, the third changed in the working copy, so both
+    /// panes carry text and gutter numbers.
+    private static let headText = "let a = 1\nlet b = 2\nlet c = 3\nlet d = 4\nlet e = 5\n"
+    private static let workingText = "let a = 1\nlet b = 2\nlet c = 30\nlet d = 4\nlet e = 5\n"
+
+    /// Pins the window to the dark appearance — the diff panes are AppKit and
+    /// resolve their dynamic colours by it — then turns the run loop until
+    /// `ready` holds and a `DiffContainerView` is in the hosted tree, and
+    /// re-renders the settled view. `XCTFail` after five seconds.
+    private func settleOnDiff(
+        _ render: HostedRender, file: StaticString = #filePath, line: UInt = #line, ready: () -> Bool
+    ) async throws {
+        render.window.appearance = NSAppearance(named: .darkAqua)
+        let deadline = Date().addingTimeInterval(5)
+        while !(ready() && Self.diffContainer(in: render.host) != nil) {
+            guard Date() < deadline else {
+                XCTFail("the diff never reached the hosted tree", file: file, line: line)
+                return
+            }
+            render.host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        render.settle(file: file, line: line)
+        try render.capture()
+    }
+
+    private static func diffContainer(in view: NSView) -> DiffContainerView? {
+        views(of: DiffContainerView.self, in: view).first
+    }
+
+    private static func views<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
+        ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(of: type, in: $0) }
+    }
+
     /// The ink mask of `sentence` drawn as the panel's placeholders are:
     /// `textSecondary`, the callout size, on the panel ground.
     private func referenceMask(of sentence: String, theme: ChromeTheme) throws -> Set<InkPixel> {
@@ -379,7 +637,13 @@ final class LocalChangesLayoutTests: XCTestCase {
 
     private final class StubGit: GitServicing {
         let files: [ChangedFile]
-        init(files: [ChangedFile]) { self.files = files }
+        /// The `HEAD` blob every path answers with.
+        let head: Data?
+        init(files: [ChangedFile], head: Data? = nil) {
+            self.files = files
+            self.head = head
+        }
+        func headBlob(of path: String, root: URL) async throws -> Data? { head }
         func repositoryRoot(for url: URL) async throws -> URL { url }
         func changedFiles(root: URL) async throws -> [ChangedFile] { files }
         func commits(filter: LogFilter, limit: Int, root: URL) async throws -> [Commit] { [] }

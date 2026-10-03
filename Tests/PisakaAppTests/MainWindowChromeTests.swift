@@ -25,8 +25,13 @@ import PisakaCore
 /// the framework draws its title leading-aligned whatever the toolbar state.
 /// Its placement is measured on **one window created once for the suite** with
 /// the app window's style mask: centred within a point, inside the title bar
-/// band, following a resize, clear of the window buttons when truncated, and
-/// still one label after a second `apply`.
+/// band, following a resize, clear of the window buttons when truncated —
+/// and exactly `titleLabelButtonGap` past the zoom button, measured on the
+/// drawn frame in window space — and still one label after a second `apply`.
+/// The label's colour is read on that same window and resolved under both
+/// appearances against the `textPrimary` role, the ground test's property.
+/// Window count: the placement window, plus one per test for the ground,
+/// transparency, title, attachment and hosted tests — six in all.
 @MainActor
 final class MainWindowChromeTests: XCTestCase {
 
@@ -242,6 +247,66 @@ final class MainWindowChromeTests: XCTestCase {
         let buttonsTrailing = zoom.convert(zoom.bounds, to: nil).maxX
         XCTAssertGreaterThanOrEqual(placed.frame.minX, buttonsTrailing, "never under the window buttons")
         XCTAssertEqual(placed.frame.midX, window.frame.width / 2, accuracy: 1, "a truncated title stays centred")
+    }
+
+    /// The gap is the drawn gap. The cap is a constraint, and constraints act
+    /// on the label's alignment rect, which a label field draws inside by two
+    /// points a side — measured: before the cap charged that inset, the drawn
+    /// frame sat 6 points from the zoom button, not 8. Both edges are read in
+    /// window space, so the assertion does not depend on which view the buttons
+    /// live in.
+    func testATruncatedTitleKeepsTheStatedGapFromTheWindowButtons() throws {
+        XCTAssertEqual(MainWindowChrome.titleLabelButtonGap, 8, "the gap the chrome states")
+        let window = try XCTUnwrap(Self.placementWindow)
+        MainWindowChrome.apply(to: window, title: String(repeating: "very-long-project-name ", count: 20))
+
+        let placed = try titleLabel(in: window)
+        let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+        XCTAssertEqual(
+            placed.frame.minX - zoom.convert(zoom.bounds, to: nil).maxX,
+            MainWindowChrome.titleLabelButtonGap,
+            accuracy: 0.5,
+            "a truncating title stops exactly the stated gap past the zoom button"
+        )
+    }
+
+    /// The label's colour is the `textPrimary` role **in both appearances** —
+    /// the ground test's property, for the one other colour the chrome sets: a
+    /// colour resolved once would still match whichever appearance it was
+    /// frozen in.
+    func testTheTitleLabelResolvesToThePrimaryTextRoleInBothAppearances() throws {
+        let window = try XCTUnwrap(Self.placementWindow)
+        MainWindowChrome.apply(to: window, title: "Pisaka")
+        let textColor = try XCTUnwrap(try titleLabel(in: window).label.textColor)
+
+        for (appearance, name) in [
+            (ChromeAppearance.light, NSAppearance.Name.aqua),
+            (ChromeAppearance.dark, NSAppearance.Name.darkAqua),
+        ] {
+            let systemAppearance = try XCTUnwrap(NSAppearance(named: name))
+            var resolved = NSColor.clear
+            var expected = NSColor.clear
+            systemAppearance.performAsCurrentDrawingAppearance {
+                resolved = textColor.usingColorSpace(.sRGB) ?? .clear
+                expected = ChromePalette.nsColor(.textPrimary, in: appearance).usingColorSpace(.sRGB) ?? .clear
+            }
+            XCTAssertEqual(
+                resolved.redComponent, expected.redComponent, accuracy: 0.001,
+                "the title label is the textPrimary role's \(appearance) value"
+            )
+            XCTAssertEqual(
+                resolved.greenComponent, expected.greenComponent, accuracy: 0.001,
+                "the title label is the textPrimary role's \(appearance) value"
+            )
+            XCTAssertEqual(
+                resolved.blueComponent, expected.blueComponent, accuracy: 0.001,
+                "the title label is the textPrimary role's \(appearance) value"
+            )
+            XCTAssertEqual(
+                resolved.alphaComponent, expected.alphaComponent, accuracy: 0.001,
+                "the title label is the textPrimary role's \(appearance) value"
+            )
+        }
     }
 
     func testASecondApplyUpdatesTheOneLabel() throws {

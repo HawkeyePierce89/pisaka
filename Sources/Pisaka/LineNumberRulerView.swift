@@ -51,8 +51,9 @@ import PisakaCore
 /// resize the whole application chrome instead — while the numbers it is over
 /// draw at the code font and follow the code zone. The conformance carries no
 /// behavior, exactly like the text views'.
+// Not `final`: the app-layer tests subclass it to record its invalidations.
 @MainActor
-final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
+class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     /// The text view whose lines are numbered. Held weakly; the scroll view's
