@@ -326,18 +326,18 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaAppTests/TabColumnLayoutTests.swift`
 - Modify: `docs/architecture/app-git-views.md`, `docs/architecture/app-window.md`
 
-- [ ] Extract `refreshControls` into an internal `CommitLogRefreshControls(isLoading:isEnabled:onRefresh:)` view. The spinner is always laid out and toggled with `.opacity(isLoading ? 1 : 0)` plus `.accessibilityHidden(!isLoading)`. Loading therefore never changes the trailing width `ViewThatFits` measures.
-- [ ] The new suite renders the controls once per state (two `HostedRender`s) and asserts equal `host.fittingSize.width`. It also asserts that the spinner's ink is absent when the controls are not loading.
-- [ ] Window-width probe. A small `TabColumnWidthProbe: ObservableObject` holds the published `TabColumnWidthRule.Bounds`.
+- [x] Extract `refreshControls` into an internal `CommitLogRefreshControls(isLoading:isEnabled:onRefresh:)` view. The spinner is always laid out and toggled with `.opacity(isLoading ? 1 : 0)` plus `.accessibilityHidden(!isLoading)`. Loading therefore never changes the trailing width `ViewThatFits` measures.
+- [x] The new suite renders the controls once per state (two `HostedRender`s) and asserts equal `host.fittingSize.width`. It also asserts that the spinner's ink is absent when the controls are not loading.
+- [x] Window-width probe. A small `TabColumnWidthProbe: ObservableObject` holds the published `TabColumnWidthRule.Bounds`.
   - It is held by `ContentView` in a plain `@State`, not `@StateObject`, so its publishes do not invalidate the root.
   - The root's existing `GeometryReader` background calls `probe.update(windowWidth:metrics:)`. That assigns only when the computed bounds differ, so above the threshold, where the maximum is the scaled 320, a resize publishes nothing.
   - The vertical-orientation branch wraps `TabListView` in a view that observes the probe and applies the frame.
   - `windowWidth` state is removed from the root.
-- [ ] Tests:
+- [x] Tests:
   - A plain unit test in the app bundle, with no view: two widths above the threshold publish once, and a width below it publishes new bounds.
   - `TabColumnLayoutTests` stays green.
-- [ ] Docs: the spinner slot in `app-git-views.md`, and the probe in `app-window.md`.
-- [ ] Run the gates. They must pass before Task 10.
+- [x] Docs: the spinner slot in `app-git-views.md`, and the probe in `app-window.md`.
+- [x] Run the gates. They must pass before Task 10.
 
 ### Task 10: Current-line invalidation, diff wash in light, the scope line's mask
 

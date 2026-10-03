@@ -1590,10 +1590,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     row). Its width is `TabColumnWidthRule`'s (`core-services.md`): the scaled
     minimum 180, default 220 and maximum 320, the maximum also held to a third
     of the window. `ContentView` reads the window's width **once**, from one
-    `GeometryReader` in its body root's background, into `@State windowWidth`,
-    and applies the rule's bounds as the column's frame; the state starts
-    infinite so the split's first layout adopts the default width rather than a
-    maximum computed from nothing (a split view adopts the ideal once).
+    `GeometryReader` in its body root's background, and hands it with the
+    metrics (a zoom being the second trigger) to `TabColumnWidthProbe`, an
+    `ObservableObject` held in a plain `@State` — not `@StateObject` — so its
+    publishes never invalidate the root. The probe publishes the rule's
+    `Bounds` and **assigns only when they differ**: above the threshold, where
+    the maximum is the scaled 320 whatever the width, a resize publishes
+    nothing, where the former `@State windowWidth` re-evaluated the whole window
+    root on every point of a drag. The column's frame is applied by
+    `TabColumnFrame`, the probe's only observer, wrapping `TabListView` in the
+    vertical branch. The bounds are `nil` until the first read, and the frame
+    then uses an unbounded window's, so the split's first layout adopts the
+    default width rather than a maximum computed from nothing (a split view
+    adopts the ideal once). `TabColumnWidthProbeTests` pins the publishing with
+    no view: two widths above the threshold publish once, a narrow one
+    publishes new bounds.
     A row is `ChromeGeometry.verticalTabRowHeight` (28) tall with `rowPaddingX`
     horizontal padding and a one-point `hairline` rule along its bottom edge
     (`hairlineWidth`, scaled), and states the strip's vocabulary turned through

@@ -12,7 +12,8 @@ import PisakaCore
 /// trailing slot's three-claimant precedence, is shared as `TabStatusMark`.
 /// Which orientation a window shows is still `SettingsStore.tabOrientation`,
 /// read by the host, which also bounds the column's width through
-/// `TabColumnWidthRule` (a third of the window at most).
+/// `TabColumnWidthRule` (a third of the window at most), by way of
+/// `TabColumnWidthProbe` and `TabColumnFrame` below.
 ///
 /// The column owns its ground and draws **no pane-edge rule of its own**. Its
 /// host is not a stack but the `HSplitView` in `ContentView.editorSplit`, which
@@ -52,4 +53,43 @@ struct TabListView: View {
     }
 }
 
+/// The vertical tab column's width bounds, published only when they change.
+///
+/// The bounds depend on the window's width only below the threshold where a
+/// third of the window falls under the scaled maximum; above it every width
+/// gives the same bounds. Publishing the width itself would invalidate the
+/// column on every point of a resize, so the probe takes the width and the
+/// metrics and assigns the bounds only when `TabColumnWidthRule` answers
+/// something new. `nil` until the first read: the column's first layout is
+/// then given the bounds of an unbounded window, so a split view — which
+/// adopts the ideal once and does not revisit it — starts at the default width
+/// rather than at a maximum computed from nothing.
+@MainActor
+final class TabColumnWidthProbe: ObservableObject {
+    @Published private(set) var bounds: TabColumnWidthRule.Bounds?
+
+    /// Recompute the bounds for a window `windowWidth` points wide under
+    /// `metrics`, publishing only when they differ from the current ones.
+    func update(windowWidth: CGFloat, metrics: InterfaceMetrics) {
+        let next = TabColumnWidthRule.bounds(metrics: metrics, windowWidth: Double(windowWidth))
+        if next != bounds { bounds = next }
+    }
+}
+
+/// Frames the vertical tab column with `TabColumnWidthProbe`'s bounds. It is the
+/// probe's only observer, so a change of bounds re-evaluates this frame and
+/// not the window root that owns the probe.
+struct TabColumnFrame<Content: View>: View {
+    @ObservedObject var probe: TabColumnWidthProbe
+    @ViewBuilder var content: Content
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    var body: some View {
+        let column = probe.bounds ?? TabColumnWidthRule.bounds(metrics: metrics, windowWidth: .infinity)
+        content
+            .frame(minWidth: column.minimum, idealWidth: column.ideal, maxWidth: column.maximum)
+    }
+}
 #endif

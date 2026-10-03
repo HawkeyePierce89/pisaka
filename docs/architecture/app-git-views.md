@@ -904,10 +904,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ContentView → CommitLogView → CommitDetailPane → CommitFileRow`. The
     filter/search bar (`LogFilterBar`) sits above the table once a repo is open.
     **No title row (design pass).** The "History" header strip is gone: the
-    filter strip is the panel's only toolbar, and `refreshControls` — the
-    loading spinner (labelled "Loading commits") and the refresh button (its
-    label and help unchanged) — is handed to the bar as its `trailing` content,
-    after the search field. With no folder open the bar is not drawn and there is
+    filter strip is the panel's only toolbar, and `CommitLogRefreshControls`
+    (`isLoading`, `isEnabled`, `onRefresh`) — the loading spinner (labelled
+    "Loading commits") and the refresh button (its label and help unchanged) —
+    is handed to the bar as its `trailing` content, after the search field.
+    **The spinner's slot is always laid out**: it is faded with
+    `.opacity(isLoading ? 1 : 0)` and hidden from accessibility while idle,
+    never inserted and removed, because `LogFilterBar`'s `ViewThatFits`
+    measures this trailing view and a spinner that came and went would change
+    the measured width on every load, flipping the strip between its layouts
+    while the history loads. `LogRefreshControlsLayoutTests` pins it off two
+    renders: equal fitting widths in both states, and no ink in the spinner's
+    slot while idle (with ink there while loading, so the scan is known to look
+    in the right place). With no folder open the bar is not drawn and there is
     nothing to refresh. **The date column is relative**: `RelativeCommitDate`
     (`core-git-models.md`) answers from the raw `%aI` string, `now`, the user's
     calendar and locale — `now` being the date cell's own `TimelineView(.everyMinute)`,

@@ -2082,7 +2082,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
         ("CommitLogView.swift", [
-            ControlBuilder(path: ["private var refreshControls: some View"],
+            ControlBuilder(path: ["struct CommitLogRefreshControls", "var body: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private struct CommitFileRow", "var body: some View"],
                            required: [".accessibilityValue("], hidesSymbols: true),
