@@ -31,13 +31,25 @@
 //  the project alone, or the app's default — and this marker is what applies
 //  it, so the window keeps one configurer. The marker observes the workspace
 //  for that reason alone; an update that leaves the string unchanged writes
-//  nothing. The title stays visible: with no toolbar on the window the
-//  framework centres it in the title bar, which is the design's placement, and
-//  `titleVisibility` is stated rather than left to the default so the design's
-//  title cannot be hidden by a later toolbar change without this line saying
-//  so. The text colour and the window buttons are drawn by the framework
-//  against the window's appearance, which the Theme preference already sets at
-//  the content root, so they follow without being told.
+//  nothing.
+//
+//  **Why the app draws the title itself.** Measured on macOS 27.0.1: the
+//  framework draws a title-bar title leading-aligned for every toolbar state —
+//  a bare titled window, every toolbar style, with and without a toolbar. The
+//  title starts at x = 82 in a 900-point window, and no public property moves
+//  it. So the framework's title is hidden — `titleVisibility` is `.hidden` on
+//  purpose — and the app draws its own label centred in the title bar view,
+//  on every supported release, so the placement no longer depends on what the
+//  framework does. `window.title` is still written: the window menu, window
+//  switching and accessibility read it from there, which is also why the label
+//  is not an accessibility element. The label is found again by a fixed
+//  identifier, so a repeated `apply` updates it and never adds a second one;
+//  it uses the system title font at its system size, unscaled like the title it
+//  replaces, truncates in the middle, and is held clear of the window buttons
+//  by a width cap that keeps it centred. Its colour is `textPrimary`, dynamic
+//  like the ground; the window buttons are drawn by the framework against the
+//  window's appearance, which the Theme preference already sets at the content
+//  root, so they follow without being told.
 //
 
 #if os(macOS)
@@ -83,8 +95,55 @@ struct MainWindowChrome: NSViewRepresentable {
         // the strip and the colour below never shows.
         window.titlebarAppearsTransparent = true
         window.backgroundColor = ChromePalette.nsColor(.bgPanel)
-        window.titleVisibility = .visible
+        window.titleVisibility = .hidden
         if window.title != title { window.title = title }
+        applyTitleLabel(to: window, title: title)
+    }
+
+    /// The identifier the centred title label is found again by.
+    static let titleLabelIdentifier = NSUserInterfaceItemIdentifier("PisakaCentredWindowTitle")
+
+    /// Gap between the window buttons' trailing edge and the label's widest
+    /// extent.
+    private static let titleLabelButtonGap: CGFloat = 8
+
+    /// Install — or, on a repeated call, update — the one centred title label
+    /// in the title bar view, the close button's superview. A window without
+    /// one gets no label.
+    private static func applyTitleLabel(to window: NSWindow, title: String) {
+        guard let close = window.standardWindowButton(.closeButton),
+              let titleBar = close.superview else { return }
+        let buttonsTrailing = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window.standardWindowButton($0) }
+            .filter { $0.superview === titleBar }
+            .map(\.frame.maxX)
+            .max() ?? close.frame.maxX
+        let widthInset = -2 * (buttonsTrailing + titleLabelButtonGap)
+
+        if let label = titleBar.subviews.first(where: { $0.identifier == titleLabelIdentifier }) as? NSTextField {
+            if label.stringValue != title { label.stringValue = title }
+            if let cap = titleBar.constraints.first(where: { $0.identifier == titleLabelIdentifier.rawValue }) {
+                cap.constant = widthInset
+            }
+            return
+        }
+
+        let label = NSTextField(labelWithString: title)
+        label.identifier = titleLabelIdentifier
+        label.font = NSFont.titleBarFont(ofSize: 0)
+        label.textColor = ChromePalette.nsColor(.textPrimary)
+        label.lineBreakMode = .byTruncatingMiddle
+        label.setAccessibilityElement(false)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleBar.addSubview(label)
+        let cap = label.widthAnchor.constraint(lessThanOrEqualTo: titleBar.widthAnchor, constant: widthInset)
+        cap.identifier = titleLabelIdentifier.rawValue
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: titleBar.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
+            cap,
+        ])
     }
 }
 

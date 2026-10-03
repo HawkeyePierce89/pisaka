@@ -20,6 +20,13 @@ import PisakaCore
 /// in a titled window over a real `WorkspaceModel`, and the window's title is
 /// read back as the workspace opens a folder, opens files and switches between
 /// them — so a marker that applied the title once and never again fails here.
+///
+/// The title is the app's own label, centred in the title bar view, because
+/// the framework draws its title leading-aligned whatever the toolbar state.
+/// Its placement is measured on **one window created once for the suite** with
+/// the app window's style mask: centred within a point, inside the title bar
+/// band, following a resize, clear of the window buttons when truncated, and
+/// still one label after a second `apply`.
 @MainActor
 final class MainWindowChromeTests: XCTestCase {
 
@@ -142,13 +149,95 @@ final class MainWindowChromeTests: XCTestCase {
         )
     }
 
-    func testTheTitleIsVisibleAndApplied() {
+    func testTheSystemTitleIsHiddenAndTheTitleApplied() {
         let window = makeWindow()
-        window.titleVisibility = .hidden
         MainWindowChrome.apply(to: window, title: "pisaka — ContentView.swift")
-        XCTAssertEqual(window.title, "pisaka — ContentView.swift")
-        XCTAssertEqual(window.titleVisibility, .visible, "the design's title is shown, centred by the framework")
-        XCTAssertNil(window.toolbar, "a toolbar would move the title off centre")
+        XCTAssertEqual(window.title, "pisaka — ContentView.swift", "the window menu and accessibility read it here")
+        XCTAssertEqual(
+            window.titleVisibility, .hidden,
+            "the framework draws its title leading-aligned, so the app hides it and draws its own centred label"
+        )
+    }
+
+    // MARK: - The centred label's placement
+
+    /// One window for the placement tests, created once for the suite — its
+    /// style mask is the app window's.
+    nonisolated(unsafe) private static var placementWindow: NSWindow?
+
+    override static func setUp() {
+        super.setUp()
+        MainActor.assumeIsolated {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            placementWindow = window
+        }
+    }
+
+    override static func tearDown() {
+        MainActor.assumeIsolated {
+            placementWindow?.close()
+            placementWindow = nil
+        }
+        super.tearDown()
+    }
+
+    /// The label the chrome installed, its frame in window coordinates, and the
+    /// title bar's band in window coordinates.
+    private func titleLabel(in window: NSWindow) throws -> (label: NSTextField, frame: NSRect, band: NSRect) {
+        let titleBar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
+        titleBar.layoutSubtreeIfNeeded()
+        let labels = titleBar.subviews.filter { $0.identifier == MainWindowChrome.titleLabelIdentifier }
+        XCTAssertEqual(labels.count, 1, "exactly one centred title label")
+        let label = try XCTUnwrap(labels.first as? NSTextField)
+        return (
+            label,
+            label.convert(label.bounds, to: nil),
+            titleBar.convert(titleBar.bounds, to: nil)
+        )
+    }
+
+    func testTheTitleLabelIsCentredInTheTitleBarAndFollowsAResize() throws {
+        let window = try XCTUnwrap(Self.placementWindow)
+        window.setContentSize(NSSize(width: 900, height: 600))
+        MainWindowChrome.apply(to: window, title: "my-project — ContentView.swift")
+
+        var placed = try titleLabel(in: window)
+        XCTAssertEqual(placed.label.stringValue, "my-project — ContentView.swift")
+        XCTAssertGreaterThan(placed.frame.width, 0, "the label has ink to centre")
+        XCTAssertEqual(placed.frame.midX, window.frame.width / 2, accuracy: 1, "centred in the title bar")
+        XCTAssertGreaterThanOrEqual(placed.frame.minY, placed.band.minY, "inside the title bar band")
+        XCTAssertLessThanOrEqual(placed.frame.maxY, placed.band.maxY, "inside the title bar band")
+
+        window.setContentSize(NSSize(width: 1200, height: 600))
+        placed = try titleLabel(in: window)
+        XCTAssertEqual(window.frame.width, 1200, accuracy: 1)
+        XCTAssertEqual(placed.frame.midX, window.frame.width / 2, accuracy: 1, "the centre follows a resize")
+    }
+
+    func testALongTitleTruncatesClearOfTheWindowButtons() throws {
+        let window = try XCTUnwrap(Self.placementWindow)
+        window.setContentSize(NSSize(width: 900, height: 600))
+        MainWindowChrome.apply(to: window, title: String(repeating: "very-long-project-name ", count: 20))
+
+        let placed = try titleLabel(in: window)
+        let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
+        let buttonsTrailing = zoom.convert(zoom.bounds, to: nil).maxX
+        XCTAssertGreaterThanOrEqual(placed.frame.minX, buttonsTrailing, "never under the window buttons")
+        XCTAssertEqual(placed.frame.midX, window.frame.width / 2, accuracy: 1, "a truncated title stays centred")
+    }
+
+    func testASecondApplyUpdatesTheOneLabel() throws {
+        let window = try XCTUnwrap(Self.placementWindow)
+        MainWindowChrome.apply(to: window, title: "first")
+        MainWindowChrome.apply(to: window, title: "second")
+        let placed = try titleLabel(in: window)
+        XCTAssertEqual(placed.label.stringValue, "second", "a repeated apply updates the label")
     }
 
     func testTheHostedChromeTitlesTheWindowFromTheWorkspace() throws {
@@ -169,11 +258,13 @@ final class MainWindowChromeTests: XCTestCase {
         window.contentView = NSHostingView(rootView: Color.clear.background(MainWindowChrome(model: model)))
         settle()
         XCTAssertEqual(window.title, MainWindowTitle.defaultTitle, "no project open reads the app's default")
+        XCTAssertEqual(try labelString(in: window), MainWindowTitle.defaultTitle, "the label draws the same string")
         XCTAssertTrue(window.titlebarAppearsTransparent, "the title bar stays transparent")
 
         model.openFolder(url: folder)
         settle()
         XCTAssertEqual(window.title, "my-project", "a project with no file focused reads its name alone")
+        XCTAssertEqual(try labelString(in: window), "my-project")
 
         let firstFile = try model.open(url: first)
         settle()
@@ -186,7 +277,15 @@ final class MainWindowChromeTests: XCTestCase {
         model.select(firstFile.id)
         settle()
         XCTAssertEqual(window.title, "my-project — first.swift", "switching tabs re-titles the window")
+        XCTAssertEqual(try labelString(in: window), "my-project — first.swift", "and re-labels it")
         XCTAssertTrue(window.titlebarAppearsTransparent, "re-titling leaves the title bar transparent")
+    }
+
+    /// The centred label's string.
+    private func labelString(in window: NSWindow) throws -> String {
+        let titleBar = try XCTUnwrap(window.standardWindowButton(.closeButton)?.superview)
+        let label = titleBar.subviews.first { $0.identifier == MainWindowChrome.titleLabelIdentifier }
+        return try XCTUnwrap(label as? NSTextField).stringValue
     }
 
     /// A few run-loop turns, enough for SwiftUI to deliver an observed change to

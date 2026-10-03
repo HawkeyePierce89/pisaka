@@ -91,7 +91,7 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaAppTests/MainWindowChromeTests.swift`
 - Modify: `docs/architecture/app-shell.md`
 
-- [ ] In `MainWindowChrome.apply(to:title:)`:
+- [x] In `MainWindowChrome.apply(to:title:)`:
   - Set `window.titleVisibility = .hidden` and keep setting `window.title`. The window menu, window switching and accessibility keep reading the title from there.
   - Install exactly one centred title label in the title bar view, which is the superview of `window.standardWindowButton(.closeButton)`.
   - The label is an `NSTextField(labelWithString:)`. It is found again by a fixed `NSUserInterfaceItemIdentifier`, so repeated `apply` calls update its `stringValue` and never add a second label.
@@ -101,12 +101,12 @@ Facts established while planning, which the tasks rely on:
   - Constraints: `centerX` and `centerY` equal to the title bar view's. Width at most the title bar's width minus twice the window buttons' trailing edge plus 8 points. A long title therefore truncates and stays centred, never under the window buttons.
   - If the close button or its superview is absent, `apply` does nothing more for the label. That covers windows without a title bar.
   - `titlebarAppearsTransparent` stays set only here, so rule nine stays green.
-- [ ] Rewrite the window-chrome file header's title paragraph with what was measured, and claim nothing beyond it:
+- [x] Rewrite the window-chrome file header's title paragraph with what was measured, and claim nothing beyond it:
   - Measured on macOS 27.0.1: the framework draws a title-bar title leading-aligned for every toolbar state — a bare titled window, every toolbar style, with and without a toolbar. The title starts at x = 82 in a 900-point window, and no public property moves it.
   - So the app hides the framework's title and draws its own label centred in the title bar view, on every supported release. The placement no longer depends on what the framework does. The `titleVisibility` line now says `.hidden` on purpose.
   - Name no other release and no release boundary.
   - Update `app-shell.md`'s `MainWindowChrome.swift` entry the same way, with the same measured claim and nothing more: the four properties it sets plus the label, and what the test now measures.
-- [ ] `MainWindowChromeTests`:
+- [x] `MainWindowChromeTests`:
   - Replace the "visible with no toolbar" assertion with: system title hidden, `window.title` applied.
   - Add a placement test on **one window created once for the suite**, in `override class func setUp()` and closed in `override class func tearDown()`. Its style mask matches the app window's: titled, closable, miniaturizable, resizable, `.fullSizeContentView`.
   - Apply the chrome, lay out, find the label by its identifier, and convert its frame to window coordinates. Assert:
@@ -116,7 +116,7 @@ Facts established while planning, which the tasks rely on:
   - Resize the same window to a second width and assert the centre follows.
   - Assert that a second `apply` leaves exactly one label.
   - Keep the existing hosted-workspace title test, and make it read the label's string as well as `window.title`.
-- [ ] Run the gates. They must pass before Task 2.
+- [x] Run the gates. They must pass before Task 2.
 
 ### Task 2: Local Changes inline diff off the main actor, rebuilt only when the selected file changed
 
