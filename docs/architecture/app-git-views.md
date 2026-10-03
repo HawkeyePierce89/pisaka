@@ -419,7 +419,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     at 13 (`DesignGlyphImage`, `textSecondary`) and `CommitIdentity.displayName`
     (`textPrimary`, or `statusRed` when the identity is incomplete, which also
     blocks Commit) as one `.plain` button that opens `AuthorEditorView` (→
-    `CommitDialogModel.setLocalIdentity`) — then the Amend `ChromeCheckbox`.
+    `CommitDialogModel.setLocalIdentity`) — then the Amend `ChromeCheckbox`,
+    then, **whenever `model.pushUnavailableMessage` is non-`nil`** — exactly
+    when Commit and Push is disabled for a push-specific reason — that reason
+    as one tail-truncated line of `.callout` `textSecondary` text, before the
+    spacer, so the footer keeps its 64 and the buttons their places (the
+    tooltip on Commit and Push still carries it too). `CommitDialogLayoutTests`
+    pins that with one extra render at scale one over a fixture with no remote:
+    the footer's height, the reason's ink strictly between Amend's and Cancel's,
+    and every other footer cluster where the available render put it.
     The author's **tooltip** carries what the old author line spelled out: the
     role — **"Committer" while Amend is ticked**, with "(amend keeps the original
     author)", because `git commit --amend` without `--reset-author` keeps the
@@ -442,8 +450,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pre-commit Local History capture finds every control disabled instead of
     starting a second commit or rewriting the first one's intent; a refused
     reservation starts no task — and Commit and Push is enabled by `model.canCommitAndPush`, i.e.
-    exactly when Commit is and the loaded `PushPlan` is available, the cases the
-    old switch was enabled in. Its tooltip is the push target ("Push to
+    exactly when Commit is and the loaded `PushPlan` is available. Its tooltip is the push target ("Push to
     origin/main", "… (new upstream)") or the plan's unavailable reason. Cancel is
     disabled while `model.isRunning` — dismissing mid-commit would fire
     `onDismiss` and release the modal autosave suspension in the middle of git
@@ -549,7 +556,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     widens as a longer line scrolls into view. `CommitUnifiedDiffWashTests`
     (app-layer bundle) renders both cases and samples the washes at the pane's
     trailing edge against the palette's resolved colours, the context row
-    unwashed. **The visible width is AppKit's, not SwiftUI's**: with legacy
+    unwashed; the pane-width case in both appearances, one render each, the
+    light one on a white ground against `HostedRender`'s light swatches (the
+    swatch cache is keyed by role, ground and appearance). **The visible width is AppKit's, not SwiftUI's**: with legacy
     scroll bars ("Show scroll bars: Always") the vertical scroller takes about
     17 points of the pane, and both a `GeometryReader` around the scroll view
     and `containerRelativeFrame` inside it still report the whole pane, so every
@@ -651,12 +660,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the right. Observes `LocalChangesModel`. **Since the design pass** the
     macOS view draws no flat/by-folder choice — `model.groupingMode` stays in
     Core because iOS still reads it — and the list is one level of folder rows,
-    Core's `ChangedFileGroups.group(_:rootName:)` (one row per distinct parent
-    directory, sorted by path; root-level files under the project folder's name;
-    every folder starts expanded). The toolbar sits at the leading edge:
+    Core's `ChangedFileGroups.group(_:rootName:projectPrefix:repositoryName:)`
+    (one row per distinct parent directory, sorted by path; every folder starts
+    expanded). Paths read **relative to the opened project folder**, which may
+    sit below the repository root (`model.projectPrefix`): `rootName` is the
+    project folder's name and labels the project's own files, while a file
+    outside the folder keeps its repository-relative directory behind the
+    repository's name (`model.root`'s last component), its group after every
+    project group (`core-git-models.md`). The toolbar sits at the leading edge:
     **Commit…** in the shared `.chromePrimary`, then a revert glyph button
     (`undo-2`, 15) and a refresh glyph button (`refresh-cw`, 15), each with its
-    help and accessibility label. Revert acts on `model.toolbarRevertTarget` —
+    help and accessibility label. `LocalChangesLayoutTests` pins Revert before
+    Refresh off the panel's one render: each glyph cluster's ink mask is matched
+    against a reference render of the two glyphs alone, because the headless
+    hosting view builds no SwiftUI accessibility nodes to name them by (only
+    its AppKit scroll view is exposed there, even with application
+    accessibility forced on). Revert acts on `model.toolbarRevertTarget` —
     the first checked file when any is checked (which `filesToRevert(contextFile:)`
     widens to the checked set, exactly as a checked row's context-menu Revert
     does), else the selected file — through the same `onRevert` and its
@@ -664,16 +683,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     to 320 pt wide and a hand-rolled `hairline` divider drags it between 200 and
     640 pt (unscaled), its resize cursor balanced through `syncDividerCursor()`
     and released from `onDisappear` (rule twenty-two). To the right, the
-    selected file's project-relative path heads an embedded `DiffView` drawn at
+    selected file's project-relative path (`ChangedFileGroups.displayPath`,
+    repository-relative outside the project folder) heads an embedded `DiffView` drawn at
     `codeFontSize` (`settings.fontSize`, threaded from `ContentView` — the panes
     are the code zone, and `DiffView` already declares itself a zoom surface);
     its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
     claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
     hop** on appear, on every selection change and on every `listRevision`
     advance (a refresh that left the list equal — an already-modified file
-    edited again — still re-reads). The diff is shown only while
+    edited again — still re-reads). **Whether a trigger does any work is the
+    model's decision, not the view's**: the view fires on every one of those
+    triggers, and `loadSelectionDiff(token:)` compares the selected file's
+    fingerprint (status, path, old path, `HEAD` object, working-copy stamp)
+    with the published diff's and returns without reading when nothing
+    changed; when something did, the working-copy read and the line diff run
+    off the main actor and only the publish lands on it (`core-git-models.md`).
+    The diff is shown only while
     `selectionDiff.file == selected`, "Loading…" otherwise, and an empty state
-    with nothing selected. It auto-refreshes on appear and on `projectRoot` change. That
+    with nothing selected. When the model's content is a refusal — a binary
+    side, or a side over `LocalChangesInlineDiff.maxSideBytes` (1 MiB, the
+    commit dialog's cap) — the rows' place holds a short centred placeholder in
+    the panel's existing placeholder style: "Binary file" or "Too large to show
+    inline". Double click, Show Diff and ⌘D still open the diff window through
+    `rows(for:)`, unchanged. `LocalChangesLayoutTests` renders each placeholder
+    state once and asserts `textSecondary` text where the rows would sit, shaped
+    (by ink mask) more like a reference render of that state's sentence than of
+    "Loading…" — the two are too close in width for width alone — and no
+    diff-row wash. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
     and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the
@@ -872,10 +908,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ContentView → CommitLogView → CommitDetailPane → CommitFileRow`. The
     filter/search bar (`LogFilterBar`) sits above the table once a repo is open.
     **No title row (design pass).** The "History" header strip is gone: the
-    filter strip is the panel's only toolbar, and `refreshControls` — the
-    loading spinner (labelled "Loading commits") and the refresh button (its
-    label and help unchanged) — is handed to the bar as its `trailing` content,
-    after the search field. With no folder open the bar is not drawn and there is
+    filter strip is the panel's only toolbar, and `CommitLogRefreshControls`
+    (`isLoading`, `isEnabled`, `onRefresh`) — the loading spinner (labelled
+    "Loading commits") and the refresh button (its label and help unchanged) —
+    is handed to the bar as its `trailing` content, after the search field.
+    **The spinner's slot is always laid out**: it is faded with
+    `.opacity(isLoading ? 1 : 0)`, hidden from accessibility and paused
+    (`ChromeSpinner(isTurning: isLoading)` — an invisible arc that kept its
+    animation schedule would redraw every frame while the Log sat idle) while
+    idle, never inserted and removed, because `LogFilterBar`'s `ViewThatFits`
+    measures this trailing view and a spinner that came and went would change
+    the measured width on every load, flipping the strip between its layouts
+    while the history loads. `LogRefreshControlsLayoutTests` pins it off two
+    renders: equal fitting widths in both states, and no ink in the spinner's
+    slot while idle (with ink there while loading, so the scan is known to look
+    in the right place). With no folder open the bar is not drawn and there is
     nothing to refresh. **The date column is relative**: `RelativeCommitDate`
     (`core-git-models.md`) answers from the raw `%aI` string, `now`, the user's
     calendar and locale — `now` being the date cell's own `TimelineView(.everyMinute)`,

@@ -324,13 +324,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     sentence under its fields saying what the search covers:
     `In: <project> · Exclude: ignored files`, or with a file mask
     `In: <project> · Files: <mask> · Exclude: ignored files`. The mask is shown
-    as typed, trimmed; a blank mask is no mask, as `ProjectSearchModel` reads
-    it. The exclusion clause is constant because the walk always honours the
+    as typed, trimmed, and only when `ProjectSearchModel.maskPatterns(_:)` —
+    the one splitting the search applies, `nonisolated` — yields at least one
+    pattern: a blank mask or one of separators alone (`","`, `" , ,"`) filters
+    nothing, so the line does not name it; `"*.swift, "` shows as `*.swift,`. The exclusion clause is constant because the walk always honours the
     project's `.gitignore` and no control turns that off. The project name is
     the root's last path component as spelled, the `MainWindowTitle` rule.
     Beside it, `FileSearchResult.matchCountText` (in `ProjectSearchModel.swift`)
     words a group header's trailing count — `1 match`, otherwise `N matches`.
-    Tests: `SearchScopeLineTests` (with a mask, without, blank, trimmed) and
+    Tests: `SearchScopeLineTests` (with a mask, without, blank, trimmed, separators alone) and
     `ProjectSearchModelTests.testMatchCountTextSingularAndPlural`.
   - `SearchQueryHistory.swift` — the recently-searched queries, newest first:
     **one** list shared by the find bar (⌘F) and the Find in Files window,

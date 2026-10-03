@@ -223,11 +223,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     separates "never asked" from "asked and suppressed". With no fix to make at a
     cause, the bar takes the plan's fallback: `NSView.toolTip` is AppKit's own
     mechanism, registered as a tracking rect on the view itself, and does not go
-    through SwiftUI's bridge at all. Every other `.help` in the window is
-    untouched by this. `BottomBarToolTipTests` finds each tooltip view by its
-    text and its toggle-square frame, at scale 1.0 and 1.8; gating rule ten
-    requires `BarToolTip(` and refuses `.help(` in both builders, so the bar
-    keeps one tooltip mechanism.
+    through SwiftUI's bridge at all. **The bar's three widgets carry theirs the
+    same way**, so the whole bar has one tooltip mechanism: the project widget
+    "Current project — click to switch", the branch widget "Current branch —
+    click to switch or create" and the pull-request indicator its composed
+    `helpText(_:)`, each verbatim from its former `.help` and placed with
+    `.background(BarToolTip(text:))` so it takes the widget's frame. Each widget
+    also names itself outright: the project and branch widgets gained
+    `.accessibilityLabel("Current project")` / `("Current branch")` with the
+    folder or branch they draw as `.accessibilityValue`, so the text the combined
+    label announced before is still spoken; the indicator keeps its label and
+    value. Every other `.help` in the window is untouched by this.
+    `BottomBarToolTipTests` finds each tooltip view by its text: the seven
+    toggles' at their toggle-square frame, at scale 1.0 and 1.8, and the project
+    and branch widgets' inside the bar's band. The indicator is drawn only for a
+    current-branch pull request, which the fixture has not, so its tooltip is
+    pinned by gating rule ten alone. Rule ten requires `BarToolTip(` and
+    `.accessibilityLabel(` and refuses `.help(` in both builders, the
+    `BottomBar` struct and the three widget files.
+
+    **No accessibility hint is added**, to any bar control. The toggles' former
+    `.help` texts were the panel title and the completion state — word for word
+    their accessibility label and value — so a hint would make VoiceOver read the
+    same words twice. Rule ten does not require one.
 
     **Both draggable dividers are drawn from the roles too.**
     `panelDivider(available:)` fills `bgPanel` and overlays a one-point
@@ -279,8 +297,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     1.0 and 1.8. All three widgets **drop their own paddings**
     so the bar's 14-point gaps and its `bottomBarHeight` are the measurements
     actually drawn, each keeping `.contentShape(Rectangle())` as its click
-    target; the indicator's tooltip, accessibility label and value and its
-    absent-rather-than-empty rule are untouched.
+    target; the indicator's accessibility label and value and its
+    absent-rather-than-empty rule are untouched, and its tooltip moved to
+    `BarToolTip` with the other widgets' (above).
     At the **trailing end** of the same bar, after the six panel toggles, sits
     the completion on/off switch (T-4): `completionToggleButton`, in the
     `bottomBarButton` idiom (the same square, the same two states, keyed on
@@ -1571,10 +1590,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     row). Its width is `TabColumnWidthRule`'s (`core-services.md`): the scaled
     minimum 180, default 220 and maximum 320, the maximum also held to a third
     of the window. `ContentView` reads the window's width **once**, from one
-    `GeometryReader` in its body root's background, into `@State windowWidth`,
-    and applies the rule's bounds as the column's frame; the state starts
-    infinite so the split's first layout adopts the default width rather than a
-    maximum computed from nothing (a split view adopts the ideal once).
+    `GeometryReader` in its body root's background, and hands it with the
+    metrics (a zoom being the second trigger) to `TabColumnWidthProbe`, an
+    `ObservableObject` held in a plain `@State` — not `@StateObject` — so its
+    publishes never invalidate the root. The probe publishes the rule's
+    `Bounds` and **assigns only when they differ**: above the threshold, where
+    the maximum is the scaled 320 whatever the width, a resize publishes
+    nothing, where the former `@State windowWidth` re-evaluated the whole window
+    root on every point of a drag. The column's frame is applied by
+    `TabColumnFrame`, the probe's only observer, wrapping `TabListView` in the
+    vertical branch. The bounds are `nil` until the first read, and the frame
+    then uses an unbounded window's, so the split's first layout adopts the
+    default width rather than a maximum computed from nothing (a split view
+    adopts the ideal once). `TabColumnWidthProbeTests` pins the publishing with
+    no view: two widths above the threshold publish once, a narrow one
+    publishes new bounds, the bounds are `nil` before the first update, and a
+    zoom at an unchanged width publishes the zoomed bounds.
     A row is `ChromeGeometry.verticalTabRowHeight` (28) tall with `rowPaddingX`
     horizontal padding and a one-point `hairline` rule along its bottom edge
     (`hairlineWidth`, scaled), and states the strip's vocabulary turned through

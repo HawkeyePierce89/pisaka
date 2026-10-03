@@ -67,7 +67,13 @@ struct ProjectSwitcherView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Current project — click to switch")
+        // The tooltip through AppKit, not `.help` — `BarToolTip` says why; the
+        // bar keeps one tooltip mechanism (gating rule ten).
+        .background(BarToolTip(text: "Current project — click to switch"))
+        // What the widget is, as its name, and the folder it shows as its value
+        // — the text the combined label announced before the name was stated.
+        .accessibilityLabel("Current project")
+        .accessibilityValue(currentLabel)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             popoverContent
         }

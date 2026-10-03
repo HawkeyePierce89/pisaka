@@ -45,6 +45,13 @@ public final class LocalChangesModel: ObservableObject {
     /// `rows(for:)`/`tree` can resolve paths without the caller re-supplying it.
     @Published public private(set) var root: URL?
 
+    /// The opened folder's path relative to `root`, `""` when they are the same
+    /// (or when the refresh failed). Set together with `root` on a successful
+    /// refresh, derived canonically by `projectPrefix(folder:repositoryRoot:)`;
+    /// the list and the detail header show paths relative to it, while every git
+    /// operation keeps the repository-relative `ChangedFile.path`.
+    @Published public private(set) var projectPrefix = ""
+
     /// The ids of the changed files the user has checked for a multi-file revert.
     ///
     /// Read-only to callers: membership is toggled through `toggleChecked(_:)`,
@@ -421,6 +428,7 @@ public final class LocalChangesModel: ObservableObject {
                   rootGeneration == rootRequestGeneration else { return }
             let previousRoot = self.root
             self.root = repoRoot
+            projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
             errorMessage = nil
@@ -445,6 +453,7 @@ public final class LocalChangesModel: ObservableObject {
             guard generation == refreshGeneration,
                   rootGeneration == rootRequestGeneration else { return }
             self.root = root
+            projectPrefix = ""
             publishedRootGeneration = rootGeneration
             changedFiles = []
             selected = nil
@@ -459,6 +468,20 @@ public final class LocalChangesModel: ObservableObject {
             revertSelection = []
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The opened `folder`'s path relative to `repositoryRoot`, `""` when they
+    /// name the same directory. Both sides go through `CanonicalPath`, so a
+    /// symlinked or `..`-laden spelling of the folder still yields the same
+    /// prefix; a folder that is not under the root (which git's top-level
+    /// answer rules out) yields `""` rather than a path climbing out of it.
+    public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
+        let folderComponents = CanonicalPath.canonical(folder).pathComponents
+        let rootComponents = CanonicalPath.canonical(repositoryRoot).pathComponents
+        guard let below = CanonicalPath.relativeComponents(
+            of: folderComponents, under: rootComponents
+        ) else { return "" }
+        return below.joined(separator: "/")
     }
 
     /// Select `file` (no-op if it is not among the current changed files), or
@@ -768,11 +791,16 @@ public final class LocalChangesModel: ObservableObject {
         changedFiles.first { revertSelection.contains($0.id) } ?? selected
     }
 
-    /// The inline diff the macOS panel shows beside its list: the rows of one
-    /// file, tagged with the file they were computed for.
+    /// The inline diff the macOS panel shows beside its list: the content of one
+    /// file — its rows, or the reason there are none — tagged with the file it
+    /// was computed for.
     public struct SelectionDiff: Equatable {
         public let file: ChangedFile
-        public let rows: [DiffRow]
+        public let content: LocalChangesInlineDiff.Content
+        /// What the rows were computed from — the next load compares against
+        /// it to decide whether there is anything to rebuild
+        /// (`LocalChangesInlineDiff.needsRebuild`).
+        public let fingerprint: LocalChangesInlineDiff.Fingerprint
     }
 
     /// The selected file's inline diff as of the last load that was not
@@ -795,18 +823,84 @@ public final class LocalChangesModel: ObservableObject {
         return selectionDiffGeneration
     }
 
-    /// Load the selected file's inline diff under `token`. A load whose token
-    /// has been superseded by the time its `git show` returns discards its rows
-    /// instead of publishing over the newer selection's.
+    /// Load the selected file's inline diff under `token`, in this order:
+    ///
+    /// 1. the token, claimed synchronously by `beginSelectionDiffLoad()` at the
+    ///    trigger, is checked first;
+    /// 2. the selected file's current fingerprint is taken on the main actor —
+    ///    its working-copy stamp is one stat call;
+    /// 3. when `LocalChangesInlineDiff.needsRebuild` says the published diff
+    ///    still describes the file, the load returns with no read at all — the
+    ///    common refresh after saving *another* file;
+    /// 4. otherwise the working side is classified on the model's private
+    ///    serial queue — a stamp over `LocalChangesInlineDiff.maxSideBytes` is
+    ///    refused with no read, a binary file is refused by its read;
+    /// 5. only a working side that was not refused awaits the `HEAD` blob (the
+    ///    git subprocess already runs off the main actor), and its
+    ///    classification plus `LineDiff` run on the same queue;
+    /// 6. the token is re-checked and the result published on the main actor,
+    ///    tagged with its fingerprint. A load superseded at any `await` discards
+    ///    its content instead of publishing over the newer selection's.
+    ///
+    /// The fingerprint is taken *before* the reads, so a write landing between
+    /// the stamp and the read publishes newer content under an older stamp —
+    /// the next load sees a different stamp and rebuilds. The race can only
+    /// cost one extra rebuild, never a stale diff left standing.
     public func loadSelectionDiff(token: Int) async {
         guard token == selectionDiffGeneration else { return }
         guard let file = selected else {
             selectionDiff = nil
             return
         }
-        let rows = await rows(for: file)
+        guard let root else { return }
+        let url = root.appendingPathComponent(file.path)
+        let fingerprint = LocalChangesInlineDiff.Fingerprint(
+            file: file,
+            root: root,
+            workingStamp: file.status == .deleted ? nil : fileService.fileStamp(at: url)
+        )
+        guard LocalChangesInlineDiff.needsRebuild(published: selectionDiff?.fingerprint, current: fingerprint) else {
+            return
+        }
+        let fileService = self.fileService
+        let stamp = fingerprint.workingStamp
+        let working = await offMain {
+            LocalChangesInlineDiff.workingSide(for: file, url: url, stamp: stamp, fileService: fileService)
+        }
         guard token == selectionDiffGeneration else { return }
-        selectionDiff = SelectionDiff(file: file, rows: rows)
+        let head: LocalChangesInlineDiff.Side
+        let content: LocalChangesInlineDiff.Content
+        if working.isRefusal {
+            head = .absent
+            content = LocalChangesInlineDiff.content(head: head, working: working)
+        } else {
+            let expected = fingerprint.hasHeadSide
+            let headData = expected ? await headBlob(of: file.oldPath ?? file.path, root: root) : nil
+            guard token == selectionDiffGeneration else { return }
+            (head, content) = await offMain {
+                let side = LocalChangesInlineDiff.headSide(headData, expected: expected)
+                return (side, LocalChangesInlineDiff.content(head: side, working: working))
+            }
+        }
+        guard token == selectionDiffGeneration else { return }
+        selectionDiff = SelectionDiff(
+            file: file,
+            content: content,
+            fingerprint: fingerprint.remembering(head: head, working: working)
+        )
+    }
+
+    /// Serial, so inline-diff work runs one load after another off the main
+    /// thread and an injected file service is never touched concurrently by it.
+    private let diffQueue = DispatchQueue(label: "ws.karmanov.pisaka.local-changes-diff", qos: .userInitiated)
+
+    /// Run `work` on `diffQueue` and resume with its result — the
+    /// `ProjectSearchModel.offMain` shape, so the working-copy read and the line
+    /// diff never land on the main thread while the model stays `@MainActor`.
+    private func offMain<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            diffQueue.async { continuation.resume(returning: work()) }
+        }
     }
 
     /// Build the side-by-side diff (working copy vs `HEAD`) for `file`.
@@ -839,6 +933,16 @@ public final class LocalChangesModel: ObservableObject {
         }
     }
 
+    /// The inline diff's `HEAD` side as bytes, so a binary blob is classified
+    /// rather than lossily decoded into lines; `nil` when `HEAD` does not hold
+    /// `path` or the read fails. Asked only for a file with a `HEAD` side
+    /// (`Fingerprint.hasHeadSide`), at `oldPath` for a rename.
+    private func headBlob(of path: String, root: URL) async -> Data? {
+        (try? await gitService.headBlob(of: path, root: root)).flatMap { $0 }
+    }
+
+    /// The diff window's working side (`rows(for:)`); the inline diff classifies
+    /// its own through `LocalChangesInlineDiff.workingSide`.
     private func workingText(for file: ChangedFile, root: URL) -> String {
         // A deleted file has no working copy; the new side is empty.
         guard file.status != .deleted else { return "" }

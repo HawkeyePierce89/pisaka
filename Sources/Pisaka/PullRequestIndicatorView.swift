@@ -67,7 +67,9 @@ struct PullRequestIndicatorView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(helpText(pullRequest))
+            // The tooltip through AppKit, not `.help` — `BarToolTip` says why;
+            // the bar keeps one tooltip mechanism (gating rule ten).
+            .background(BarToolTip(text: helpText(pullRequest)))
             .accessibilityLabel("Pull request #\(pullRequest.number)")
             .accessibilityValue(pullRequest.summary.spokenWords)
         }

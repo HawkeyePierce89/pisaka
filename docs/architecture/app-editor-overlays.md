@@ -203,7 +203,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `super` keeps the matched pair, the search matches and the selection on top.
     The gutter reads `currentLineRange` and `currentLineBand(for:)` off this class
     rather than holding a copy, so the two halves cannot disagree.
-    `CurrentLineHighlightTests` samples both halves (`core-theme.md`).
+    `CurrentLineHighlightTests` samples both halves (`core-theme.md`), handing
+    the line over through a real `CodeEditorView.Coordinator` wired to the
+    harness's text view and ruler, so `updateCurrentLine(of:)` itself runs; one
+    case asserts the caret move invalidates both views — after the selection
+    moves and the pending drawing is flushed, the coordinator's call must set
+    the flag on the text view and on the ruler — then that one render shows the
+    old line plain and the new one tinted. The flag is read off each view's
+    **backing layer** inside one never-ordered borderless window: AppKit drops
+    `needsDisplay` on a windowless view, and inside a window the view's own
+    getter reads `false` while the layer carries the invalidation (both
+    measured); `needsToDraw(_:)` is meaningful only inside a draw. The renders
+    stay `cacheDisplay` on the detached view.
     **The ordering is blocks first, then `super`**, in an override of
     `drawBackground(forGlyphRange:at:)`: `super` is what paints the `.backgroundColor`
     temporary attributes — the caret's matched pair and both search-match

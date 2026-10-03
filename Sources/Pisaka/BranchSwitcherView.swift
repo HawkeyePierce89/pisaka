@@ -82,7 +82,13 @@ struct BranchSwitcherView: View {
         }
         .buttonStyle(.plain)
         .disabled(model.root == nil)
-        .help("Current branch — click to switch or create")
+        // The tooltip through AppKit, not `.help` — `BarToolTip` says why; the
+        // bar keeps one tooltip mechanism (gating rule ten).
+        .background(BarToolTip(text: "Current branch — click to switch or create"))
+        // What the widget is, as its name, and the branch it shows as its value
+        // — the text the combined label announced before the name was stated.
+        .accessibilityLabel("Current branch")
+        .accessibilityValue(currentLabel)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             popoverContent
         }

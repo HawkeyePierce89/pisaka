@@ -154,8 +154,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     point was to keep them from drifting rather than to repair a drift — and
     chrome gating rule seventeen keeps a third from coming back. And
     `ChangedFile` (a single file differing from `HEAD`: repo-relative `path` —
-    the new path for a rename — `status`, `oldPath` set only for renames, and
-    `id == path` for stable identity across refreshes).
+    the new path for a rename — `status`, `oldPath` set only for renames,
+    `headObject`, and `id == path` for stable identity across refreshes).
+    `headObject` is the file's object name in `HEAD` as status reported it, or
+    `nil` when the producer supplied none; it is defaulted in `init`, so every
+    construction that predates it (iOS's libgit2 service included) compiles
+    unchanged and reads as "unknown". It exists for the Local Changes inline
+    diff's "unchanged" rule (`LocalChangesInlineDiff`, `core-git-models.md`): the
+    only cheap signal that the `HEAD` side moved while status, path and working
+    copy did not. It joins the struct's equality, so a refresh that moves `HEAD`
+    under the selected file re-binds a selection that compares unequal.
   - `GitStatusParser.swift` — pure `static func parse(_ output: String) ->
     [ChangedFile]` over `git status --porcelain=v2` output. Handles the `1`
     (ordinary), `2` (rename/copy — new and old paths TAB-separated), `u`
@@ -167,7 +175,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     only the copy and never restores/`rm`s the source; then add/delete, else
     modified). The path is the unsplit remainder of the line, so paths with spaces
     survive intact (the `u` record's path is likewise the unsplit remainder after
-    its 10 fields, and a short/malformed `u` line is skipped). Foundation-only; the
+    its 10 fields, and a short/malformed `u` line is skipped). `1` and `2` records
+    carry their `hH` field as `headObject` (for a copy, the source's — what the
+    record names); `?` and `u` records leave it `nil`, an untracked file having no
+    `HEAD` side and an unmerged record naming three stage objects rather than one.
+    Foundation-only; the
     off-by-one-prone field splitting is unit-tested in Core while the `Process`
     call lives in `GitCLIService`.
   - `BlameLine.swift` — the editor gutter's git-blame value type + the

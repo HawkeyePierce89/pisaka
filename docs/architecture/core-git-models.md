@@ -6,7 +6,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Changes view, mirroring `WorkspaceModel`'s shape. Injects `GitServicing` (repo
     access) and `FileServicing` (working copy) so the real services run in `Pisaka`
     and in-memory stubs in tests. Publishes `changedFiles`, `groupingMode`
-    (`flat`/`byFolder`), `selected`, `errorMessage`, and `root`. The `git`-touching
+    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, and `projectPrefix` (the opened folder's
+    repository-relative path, set together with `root`). The `git`-touching
     entry points are `async` (the underlying `GitServicing` runs off the main
     thread): `refresh(root:) async`, `revert(_:) async -> [URL]`,
     `rows(for:) async -> [DiffRow]`, and `selectedRows() async -> [DiffRow]`;
@@ -21,7 +22,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the new path plus the restored old path for a rename). `refresh(root:)`
     first resolves the repo top level (`repositoryRoot(for:)`) and stores it as
     `root` — so an opened subfolder still diffs against repo-root-relative paths —
-    then re-queries the repo, replacing `changedFiles` and re-binding the
+    and, together with it, `projectPrefix`: the opened folder's path relative to
+    that root, `""` when they are the same (and on a failed refresh). The prefix
+    is derived by the static `projectPrefix(folder:repositoryRoot:)` with both
+    sides through `CanonicalPath`, so a symlinked or `..`-laden spelling of the
+    folder yields the same prefix, and a folder not under the root yields `""`.
+    It changes only what the panel *shows*; `ChangedFile.path` stays
+    repository-relative for every git operation. It then re-queries the repo, replacing `changedFiles` and re-binding the
     selection (via `reconcile`) to its refreshed `ChangedFile` (keeping its status
     current, e.g. a file that flips deleted→modified) or clearing it when gone, on
     success; on failure it clears state and sets `errorMessage` (never crashing the
@@ -270,33 +277,133 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hands the app's revert path as its context file, so
     `filesToRevert(contextFile:)` widens a checked target to the whole checked
     set exactly as a checked row's context-menu Revert does. `selectionDiff`
-    (`SelectionDiff`: the rows *and* the `ChangedFile` they were computed for)
-    is the inline diff beside the list, loaded by `loadSelectionDiff(token:)`
-    under a token from `beginSelectionDiffLoad()`, which the view calls
-    **synchronously before the `Task` hop**; a load whose token is superseded
-    before it starts does nothing, and one superseded while its `git show` is
-    in flight discards its rows, so an older selection's diff never publishes
+    (`SelectionDiff`: the `LocalChangesInlineDiff.Content` — rows, `.binary`
+    or `.tooLarge` — the `ChangedFile` it was computed for and the
+    `LocalChangesInlineDiff.Fingerprint` it was computed from) is the
+    inline diff beside the list, loaded by `loadSelectionDiff(token:)` under a
+    token from `beginSelectionDiffLoad()`, which the view calls
+    **synchronously before the `Task` hop**. A load runs in one fixed order:
+    **token, then fingerprint, then skip-or-load, then the off-main read and
+    diff, then the token re-check, then the main-actor publish.** The
+    fingerprint is taken on the main actor (the working-copy stamp is one stat
+    call); when `LocalChangesInlineDiff.needsRebuild` answers `false` the load
+    returns having read nothing, so the refresh after saving *another* file
+    costs the selected file no `git show`, no read and no diff. Otherwise the
+    working side is classified first, inside an `offMain { }` block on the
+    model's private serial queue through `LocalChangesInlineDiff.workingSide`
+    (in `ProjectSearchModel`'s mould); **only a working side that was not
+    refused reads `HEAD`** — as bytes, through `headBlob(of:root:)`, the git
+    subprocess already off the main actor — and the `HEAD` classification plus
+    `LineDiff` run on the same queue. A load whose token is superseded before
+    it starts does nothing, and one superseded at any `await` discards its
+    content, so an older selection's diff never publishes
     over a newer one's (the generation-token invariant). With nothing selected
-    the load publishes `nil`. `listRevision` advances on every successful
+    the load publishes `nil`. The fingerprint precedes the reads on purpose: a
+    write landing between the stamp and the read publishes newer content under
+    the older stamp, which the next load sees differ — one extra rebuild, never
+    a stale diff left standing. **A failed read is shown but never
+    remembered**: the published fingerprint is
+    `Fingerprint.remembering(head:working:)`, which forgets the identity of
+    each `.unreadable` side, so a transient failure costs the next refresh a
+    re-read instead of standing as the file's diff until something else
+    changes. Tests also drive each status through the load — a rename reads
+    `HEAD` at its old path, added and untracked files read no `HEAD`, a deleted
+    file reads no working copy and skips an unchanged refresh — and stage a
+    load superseded during its working-copy read, which never reads `HEAD`.
+    `rows(for:)`, which the diff window reads on
+    double click, is untouched by all of this: it reads both sides every time. `listRevision` advances on every successful
     refresh publish — not on a failed one — so the view can re-read the diff
     after a refresh whose list came out *equal* (an already-modified file
     edited again), which fires no change of its own. Tests stage the race with
-    a gated `headContents` read, resolved out of order.
+    a gated `HEAD` read, resolved out of order.
+  - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**
+    and its **refusal of binary and oversized files**, pure. `Fingerprint` is everything a file's inline diff is computed from as
+    far as it can be known without reading a side: the repository root, the
+    file's status, path, old path and `headObject`, plus the working copy's
+    `FileStamp?`. `needsRebuild(published:current:)` answers `true` when
+    nothing is published, when the fingerprints differ, when the working stamp
+    is `nil` for a file with a working side (every status but deleted), or when
+    the head object is `nil` for a file with a `HEAD` side (modified, deleted,
+    renamed, conflicted) — **unknown means re-read**, the `fileStamp`
+    convention, so a stub, a volume without metadata, iOS's service (which
+    supplies no head object) and every unmerged record degrade to always
+    correct. `false` only for an equal fingerprint whose every read side is
+    known. **The head object is part of it because of a partial commit of the
+    selected file**: `HEAD` moves, the status stays modified, and the working
+    copy — stamp included — is untouched, so without `hH` the panel would keep
+    diffing against the old `HEAD`. The root is part of it so a same-path file
+    in another repository never matches a diff published for this one.
+    Tests: `LocalChangesInlineDiffTests` covers each branch (added, untracked
+    and deleted files having one side only); `LocalChangesModelTests` pins
+    that an unchanged refresh reads nothing (counted on the stubs), that an
+    edit to the selected file and a `HEAD`-only change each rebuild, that a
+    `nil` stamp always rebuilds, and that the working-copy read runs off the
+    main thread.
+
+    **The cap and the refusals.** `maxSideBytes` is `1 << 20`, and the reason
+    is written beside it: it is the commit dialog's `maxSelectableFileBytes`,
+    so a file whose hunks the commit dialog refuses to split is a file the panel
+    refuses to diff inline — one threshold for "too large to read line by line"
+    across the two git surfaces (restated rather than referenced, because the
+    dialog model is main-actor; a test pins the two equal). `Content` is
+    `.rows([DiffRow])`, `.binary` or `.tooLarge`, and a binary side is **never
+    turned into lines**. The cap is decided **before any read wherever the size
+    is known**: `workingSide` makes a deleted file absent, a symlink its target
+    string (what git stores), a stamp over the cap `.tooLarge` with no read, and
+    otherwise reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
+    `.binary`; a read that throws is `.unreadable`. `headSide(_:expected:)`
+    takes the raw blob — never the lossy `headContents`, which would decode a
+    binary blob into plausible lines — so data over the cap is `.tooLarge` and
+    the rest goes through `GitBlobText.classify`; no blob is `.absent`, or
+    `.unreadable` when the side was `expected` (`Fingerprint.hasHeadSide`, which
+    also decides whether the model asks for the blob at all) — `HEAD` holds a
+    file of that status, so a missing answer is a failed read. Added and
+    untracked files have no `HEAD` side. `.unreadable` diffs as an empty side,
+    exactly what an unreadable file always showed; it differs from `.absent`
+    only in what the fingerprint remembers. `content(head:working:)` lets a refused working side win
+    outright (the model never reads `HEAD` after one), then a refused `HEAD`
+    side; only text, absent or unreadable sides reach `LineDiff`. `rows(for:)` and the
+    diff window are unaffected. Tests: `LocalChangesInlineDiffTests` covers a
+    binary `HEAD` side, a binary working side, an over-cap working side (no read,
+    counted on the stub), an over-cap `HEAD` side, an exactly-at-cap side and
+    text on both sides; `LocalChangesModelTests` pins that a selected binary
+    file publishes `.binary` without reading `HEAD`, and that an over-cap stamp
+    publishes `.tooLarge` having read neither side.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
-    grouping. `group(_:rootName:)` returns one `ChangedFileGroup` (`path`,
-    `label`, `files`; identity `path`) per distinct parent directory — no row
-    for an intermediate directory that holds no changed file, unlike
-    `ChangeTree`'s one node per path component, because the design draws a
-    file's directory as one row showing its whole path. Root-level files form
-    the group with path `""`, labelled with the project folder's name. A rename
+    grouping. `group(_:rootName:projectPrefix:repositoryName:)` returns one
+    `ChangedFileGroup` (`path`, `label`, `files`; identity `path`, always the
+    repository-relative directory) per distinct parent directory — no row for an
+    intermediate directory that holds no changed file, unlike `ChangeTree`'s one
+    node per path component, because the design draws a file's directory as one
+    row showing its whole path. **Labels are relative to the opened project
+    folder**, which may sit below the repository root: `projectPrefix` (the
+    model's, defaulting to `""`, which is the plain repository case and the old
+    behaviour exactly) is that folder's repository-relative path. A file under
+    the prefix — compared by whole components, so `app2/` is not under `app` —
+    is grouped by its project-relative directory, and the project folder's own
+    files form the group labelled `rootName`, the project folder's name. **A
+    file outside the project folder** (the status is the whole repository's)
+    stays repository-relative: its group is labelled with the repository's name
+    joined with its repository-relative directory, or the repository's name
+    alone for repository-root files (`repositoryName`, defaulting to `rootName`,
+    which is the repository's name whenever the prefix is empty), so it never
+    reads as a folder of the project, and every such group sorts after every
+    project group. `displayPath(_:projectPrefix:)` is the detail header's text:
+    project-relative under the prefix, repository-relative outside it. A rename
     is grouped by its new path, the file the worktree holds. Ordering is total so
-    the list never reshuffles between two refreshes of the same status: groups
-    by path, files by name (`name(of:)`, the last component), each compared
+    the list never reshuffles between two refreshes of the same status: project
+    groups by project-relative path, then outside groups by repository-relative
+    path, files by name (`name(of:)`, the last component), each compared
     case-insensitively with digits read numerically and the exact string
-    breaking a tie; `""` sorts before every path, so the root group is always
-    first. `directory(of:)` and `name(of:)` are public because the view labels
-    each file row with the same name the sort used. Tests cover nested paths,
-    root files, renames, numeric order and stability across input permutations.
+    breaking a tie; `""` sorts before every path, so the project-root group is
+    always first. `directory(of:)` and `name(of:)` are public because the view
+    labels each file row with the same name the sort used. Tests cover nested
+    paths, root files, renames, numeric order, stability across input
+    permutations, and a project `repo/app` with files in `app/`, `app/Sources/`,
+    `lib/` and at the repository root (outside groups after, labelled with the
+    repository's name, a string-prefix sibling `app2` outside); the prefix
+    itself is pinned in `LocalChangesModelTests`, including through a symlinked
+    spelling of the folder.
   - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
     `date(from:)` parses git's raw strict ISO-8601 `%aI` string
     (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`

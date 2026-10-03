@@ -51,15 +51,25 @@ extension FileStatus {
 /// path). `oldPath` is the pre-rename path, set only when `status == .renamed`.
 /// Identity is the path, so the same file keeps a stable identity across
 /// refreshes.
+///
+/// `headObject` is the object name of the file in `HEAD` as status reported it
+/// (porcelain v2's `hH`), or `nil` when the producer did not supply one. It is
+/// the one cheap signal that the `HEAD` side changed while status, path and
+/// working copy did not — a partial commit of the file — so the inline diff's
+/// "unchanged" rule reads it (`LocalChangesInlineDiff`). Defaulted to `nil`, so
+/// every construction that predates it, iOS's included, compiles unchanged and
+/// reads as "unknown".
 public struct ChangedFile: Identifiable, Equatable {
     public let path: String
     public let status: FileStatus
     public let oldPath: String?
+    public let headObject: String?
 
-    public init(path: String, status: FileStatus, oldPath: String? = nil) {
+    public init(path: String, status: FileStatus, oldPath: String? = nil, headObject: String? = nil) {
         self.path = path
         self.status = status
         self.oldPath = oldPath
+        self.headObject = headObject
     }
 
     /// Stable identity from the repo-relative path.

@@ -19,6 +19,12 @@ import Foundation
 ///
 /// The path is taken as the unsplit remainder of the line, so paths containing
 /// spaces survive intact.
+///
+/// `hH` — the object name of the file in `HEAD` — is carried as
+/// `ChangedFile.headObject` for `1` and `2` records (for a copy, the source's,
+/// since that is what the record names). `?` and `u` records leave it `nil`: an
+/// untracked file has no `HEAD` side, and an unmerged record names three stage
+/// objects rather than one `HEAD` object.
 public enum GitStatusParser {
     public static func parse(_ output: String) -> [ChangedFile] {
         output.split(separator: "\n", omittingEmptySubsequences: true)
@@ -48,7 +54,7 @@ public enum GitStatusParser {
         let parts = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: false)
         guard parts.count == 9 else { return nil }
         let path = String(parts[8])
-        return ChangedFile(path: path, status: status(forXY: parts[1]))
+        return ChangedFile(path: path, status: status(forXY: parts[1]), headObject: String(parts[6]))
     }
 
     /// `2 <XY> … <X><score> <newPath>\t<oldPath>` — 9 fixed fields before the
@@ -65,13 +71,15 @@ public enum GitStatusParser {
         // changes to it. So map a copy to a plain addition of the *new* path
         // (revert removes just the copy, never the source); only a true rename
         // carries the `oldPath` a revert restores.
+        let headObject = String(parts[6])
         if parts[1].contains("C") {
-            return ChangedFile(path: String(paths[0]), status: .added)
+            return ChangedFile(path: String(paths[0]), status: .added, headObject: headObject)
         }
         return ChangedFile(
             path: String(paths[0]),
             status: .renamed,
-            oldPath: String(paths[1])
+            oldPath: String(paths[1]),
+            headObject: headObject
         )
     }
 

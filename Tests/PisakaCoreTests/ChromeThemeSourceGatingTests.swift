@@ -9,7 +9,7 @@ import XCTest
 /// `Sources/` through `#filePath` with Foundation only, and it matches against
 /// `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output, so
 /// **comments and string literals are stripped before almost every match** —
-/// the three rules named below are the stated exceptions.
+/// the four rules named below are the stated exceptions.
 /// That is load-bearing rather than tidy here: the gated files document their own
 /// rules at length — `ChromePalette.swift` explains what a hex literal outside it
 /// would cost, `TabStripView.swift` names the accent colour it no longer uses in
@@ -27,7 +27,9 @@ import XCTest
 /// names, also literals; clause (c) of `testAServedPagesChromeIsThePalettes`,
 /// because a CSS hex value is a string literal; and the design-glyph rule
 /// (`testDesignGlyphsAreDrawnOnlyThroughTheHelper`), because an image loaded by
-/// name is loaded by a literal. Every other rule that reads
+/// name is loaded by a literal — a reading that covers every load spelling the
+/// rule matches, the `.init(` forms and the resource loaders included, since a
+/// resource's name is the same literal. Every other rule that reads
 /// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
 /// to the code.
 ///
@@ -81,9 +83,11 @@ import XCTest
 ///   widgets owe the same rule from the other side: they hide every symbol they
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
-///   with the counts looking healthy. Each toggle's tooltip is an AppKit
-///   `toolTip` through `BarToolTip(`, and `.help(` is refused in the two
-///   toggle builders, because `.help` never showed there in the shipped window.
+///   with the counts looking healthy. The whole bar has one tooltip mechanism,
+///   an AppKit `toolTip` through `BarToolTip(`: the two toggle builders, the
+///   `BottomBar` body and the three widget files each spell it and an
+///   `.accessibilityLabel(`, and `.help(` is refused in all of them, because
+///   `.help` never showed on the bar in the shipped window.
 /// - **Every label the bar draws stays on one line.** The bar states its own
 ///   height, so a label that wraps is clipped rather than accommodated — and it
 ///   wraps only at the width, scale or project name the reviewer did not try.
@@ -239,8 +243,10 @@ import XCTest
 ///   and only a key window with real first-responder focus shows it, which the
 ///   headless app bundle cannot reliably reach.
 /// - **Design glyphs are drawn only through the helper.** No macOS source but
-///   `DesignGlyphImage.swift` loads an image by a glyph's name — an `Image("…")`
-///   or `NSImage(named:` naming one, or either spelling `assetName` — so the
+///   `DesignGlyphImage.swift` loads an image by a glyph's name — an `Image(` or
+///   `NSImage(named:` (either also through `.init(`), an `ImageResource(`,
+///   `NSImage(resource:` or `image(forResource:` naming one by literal or by
+///   `assetName` or `rawValue`; the symbol loads are not matched — so the
 ///   template intent, the fitted aspect and the hidden-from-accessibility rule
 ///   are stated once. `AppIcon` is not a glyph and stays exempt. A glyph loaded
 ///   inline compiles and draws, untinted by the theme or announced by its name.
@@ -1001,6 +1007,15 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// diagnosis; `BottomBarToolTipTests` finds each tooltip view by text and
     /// frame).
     ///
+    /// The same pair is required, and `.help(` refused, across the **whole
+    /// bar**: the brace-matched `BottomBar` struct, and each of the three widget
+    /// files — project, branch, pull request — read whole, since each is the
+    /// widget's own view. A widget's tooltip through `.help` is the mechanism
+    /// that never showed; a second one beside `BarToolTip(` is two. No
+    /// accessibility *hint* is required: the toggles' former `.help` texts were
+    /// word for word their label and value, so a hint would be read twice
+    /// (`app-window.md`).
+    ///
     /// Part three made both icon-only. That is a visual decision with an
     /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
     /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
@@ -1132,6 +1147,42 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
                 panelToggles names \(panelCase) — a panel spelled here is a second list beside \
                 BottomPanel.allCases, and reordering the enum would reorder the tab row alone
+                """
+            )
+        }
+    }
+
+    func testTheWholeBarCarriesOneToolTipMechanismAndALabelPerWidget() throws {
+        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.windowRootFile))
+        )
+        let bar = try XCTUnwrap(
+            Self.matchedBody(after: "struct BottomBar:", in: root),
+            "BottomBar is gone or renamed — re-point this rule rather than losing it"
+        )
+        var bodies = [("\(Self.windowRootFile)'s BottomBar", bar)]
+        for name in Self.barWidgetFiles + [Self.labelledBarWidgetFile] {
+            bodies.append((name, LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+                try Self.read(Self.source(named: name))
+            )))
+        }
+        for (site, code) in bodies {
+            XCTAssertTrue(
+                Self.spellsCall("BarToolTip(", in: code),
+                """
+                \(site) must carry its tooltip through BarToolTip( — the AppKit toolTip the \
+                shipped window actually shows, and the bar's one mechanism (app-window.md)
+                """
+            )
+            XCTAssertTrue(
+                Self.spellsCall(".accessibilityLabel(", in: code),
+                "\(site) must spell .accessibilityLabel( — every bar control names itself outright"
+            )
+            XCTAssertFalse(
+                Self.spellsCall(".help(", in: code),
+                """
+                \(site) spells .help( — the bar's tooltips are AppKit's, through BarToolTip(, \
+                and .help is the mechanism that never showed in the shipped window
                 """
             )
         }
@@ -2031,7 +2082,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
         ("CommitLogView.swift", [
-            ControlBuilder(path: ["private var refreshControls: some View"],
+            ControlBuilder(path: ["struct CommitLogRefreshControls", "var body: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private struct CommitFileRow", "var body: some View"],
                            required: [".accessibilityValue("], hidesSymbols: true),
@@ -4881,7 +4932,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   place a colour is formatted into a string.
     ///
     /// **Clause (c) is one of the suite's literal-keeping readings**, named in the
-    /// header with the other two. It matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
+    /// header with the other three. It matches against `GitHubSourceGatingTests.strippingComments(_:)` — comments
     /// removed, **string literals kept** — because a CSS hex literal *is* a string
     /// literal, and the ordinary scanner would delete exactly the text the clause
     /// counts. That the same scanner also drops comments is **inherited, not
@@ -5341,44 +5392,64 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The one file allowed to load a design glyph by name.
     static let designGlyphHelperFile = "DesignGlyphImage.swift"
 
+    /// The spellings that load an image by name or by resource: the two
+    /// initialisers, each also through `.init(`, and the three resource
+    /// loaders. A symbol load — `Image(systemName:`, `Image.init(systemName:`
+    /// or `NSImage(systemSymbolName:` — is a different call (an SF Symbol,
+    /// which may share a word with a glyph) and is not a load this rule reads.
+    static let glyphLoadNeedles = [
+        "Image(", "Image.init(", "NSImage(named:", "NSImage.init(named:",
+        "ImageResource(", "NSImage(resource:", "image(forResource:",
+    ]
+
+    /// Rule forty-six's matcher: the argument lists of every load in `code`
+    /// that names a design glyph — a string literal equal to a `DesignGlyph`
+    /// raw value, or either token that spells one, `assetName` or `rawValue`.
+    /// `code` is expected to be literal-keeping text, since a glyph named by a
+    /// literal is only visible with the literal in place.
+    static func glyphLoadsNamingAGlyph(in code: String) -> [Substring] {
+        let glyphLiterals = Set(DesignGlyph.allCases.map { "\"\($0.assetName)\"" })
+        var arguments: [Substring] = []
+        for needle in glyphLoadNeedles {
+            for found in callRanges(needle, in: code) {
+                guard let open = code[found].lastIndex(of: "("),
+                      let end = balancedEnd(from: open, in: code) else { continue }
+                let argument = code[code.index(after: open)..<code.index(before: end)]
+                if needle.hasPrefix("Image"),
+                   argument.drop(while: \.isWhitespace).hasPrefix("systemName") { continue }
+                let text = String(argument)
+                if LSPSourceGatingTests.containsToken("assetName", in: text)
+                    || LSPSourceGatingTests.containsToken("rawValue", in: text)
+                    || glyphLiterals.contains(where: { argument.contains($0) }) {
+                    arguments.append(argument)
+                }
+            }
+        }
+        return arguments
+    }
+
     /// Rule forty-six. Every macOS source under `Sources/Pisaka/` (the iOS
     /// directory aside) other than the helper is read through the
     /// **literal-keeping** scanner — the name an image is loaded by *is* a
-    /// literal — and no `Image(` or `NSImage(named:` call in it may name a
-    /// glyph: neither a string literal equal to a `DesignGlyph` raw value nor
-    /// the token `assetName`. `Image(systemName:` is a different call (an SF
-    /// Symbol, which may share a word with a glyph) and is not matched; any
-    /// other literal — `AppIcon` today — is not a glyph and is not this rule's.
+    /// literal — and no load in it may name a glyph. A load is any of
+    /// `glyphLoadNeedles`: `Image(` and `NSImage(named:`, each also spelled
+    /// through `.init(`, and the resource loaders `ImageResource(`,
+    /// `NSImage(resource:` and `image(forResource:`. Naming a glyph is a string
+    /// literal equal to a `DesignGlyph` raw value, or the token `assetName` or
+    /// `rawValue`. The symbol loads (`Image(systemName:`,
+    /// `Image.init(systemName:`, `NSImage(systemSymbolName:`) are different
+    /// calls and are not matched; any other literal — `AppIcon` today — is not
+    /// a glyph and is not this rule's.
     ///
     /// The helper must itself spell both loads through `assetName`, so a
     /// renamed property cannot empty the rule into a vacuous pass.
     func testDesignGlyphsAreDrawnOnlyThroughTheHelper() throws {
-        let glyphLiterals = Set(DesignGlyph.allCases.map { "\"\($0.assetName)\"" })
-        func namesAGlyph(_ arguments: Substring) -> Bool {
-            LSPSourceGatingTests.containsToken("assetName", in: String(arguments))
-                || glyphLiterals.contains { arguments.contains($0) }
-        }
-        func loads(in code: String) -> [Substring] {
-            var arguments: [Substring] = []
-            for needle in ["Image(", "NSImage(named:"] {
-                for found in Self.callRanges(needle, in: code) {
-                    guard let open = code[found].firstIndex(of: "("),
-                          let end = Self.balancedEnd(from: open, in: code) else { continue }
-                    let argument = code[code.index(after: open)..<code.index(before: end)]
-                    if needle == "Image(",
-                       argument.drop(while: \.isWhitespace).hasPrefix("systemName") { continue }
-                    arguments.append(argument)
-                }
-            }
-            return arguments
-        }
-
         var offenders: [String] = []
         var helperLoads = 0
         for url in try Self.swiftSources()
         where url.path.contains("/Sources/Pisaka/") && !url.path.contains("/Sources/Pisaka/iOS/") {
             let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
-            let naming = loads(in: code).filter(namesAGlyph)
+            let naming = Self.glyphLoadsNamingAGlyph(in: code)
             if url.lastPathComponent == Self.designGlyphHelperFile {
                 helperLoads = naming.count
             } else if !naming.isEmpty {
@@ -5393,6 +5464,46 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             helperLoads, 2,
             "\(Self.designGlyphHelperFile) must load the glyph by assetName exactly twice — once per half — or this rule reads nothing"
         )
+    }
+
+    /// Rule forty-six's matcher, fed every bypass it closes: each must be
+    /// flagged, and the three symbol-load spellings and `AppIcon` must pass, so
+    /// a matcher narrowed back to its old needles fails here rather than in a
+    /// review.
+    func testTheGlyphRuleFlagsEveryLoadSpelling() throws {
+        let glyph = try XCTUnwrap(DesignGlyph.allCases.first).assetName
+        let flagged = [
+            "Image(DesignGlyph.\(glyph).rawValue)",
+            "NSImage(named: glyph.rawValue)",
+            "Image(\"\(glyph)\")",
+            "Image.init(\"\(glyph)\")",
+            "Image . init ( glyph.assetName )",
+            "NSImage(named: \"\(glyph)\")",
+            "NSImage.init(named: \"\(glyph)\")",
+            "ImageResource(name: \"\(glyph)\", bundle: .main)",
+            "NSImage(resource: ImageResource(name: \"\(glyph)\", bundle: .main))",
+            "NSImage(resource: glyph.resource(glyph.assetName))",
+            "Bundle.main.image(forResource: \"\(glyph)\")",
+            "Bundle.main.image(forResource: glyph.rawValue)",
+        ]
+        for snippet in flagged {
+            XCTAssertFalse(
+                Self.glyphLoadsNamingAGlyph(in: "let x = \(snippet)\n").isEmpty,
+                "rule forty-six's matcher lets \(snippet) through"
+            )
+        }
+        let passing = [
+            "Image(systemName: \"\(glyph)\")",
+            "Image.init(systemName: \"\(glyph)\")",
+            "NSImage(systemSymbolName: \"\(glyph)\", accessibilityDescription: nil)",
+            "Image(\"AppIcon\")",
+        ]
+        for snippet in passing {
+            XCTAssertEqual(
+                Self.glyphLoadsNamingAGlyph(in: "let x = \(snippet)\n"), [],
+                "rule forty-six's matcher flags \(snippet), which loads no design glyph"
+            )
+        }
     }
 
     // MARK: - Self-check

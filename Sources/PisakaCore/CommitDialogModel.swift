@@ -1,8 +1,8 @@
 import Foundation
 
 /// Observable state for the commit dialog: the repository context, the changed
-/// files with their per-line selection, the author, the message, the Amend and
-/// "Push after commit" switches, and the commit itself.
+/// files with their per-line selection, the author, the message, Amend, and the
+/// commit itself — run by the dialog's two buttons, Commit and Commit and Push.
 ///
 /// Mirrors `LocalChangesModel`/`MergeModel`'s shape — an `@MainActor
 /// ObservableObject` funnelling every mutation through testable methods, with all
@@ -75,6 +75,10 @@ public final class CommitDialogModel: ObservableObject {
     /// through `preservingUnifiedCache` and put it back. The fail-safe stays the
     /// default; the exemption is stated at the one place it holds.
     private var unifiedCache: (path: String, rows: [UnifiedDiffDisplayRow])?
+
+    /// How many times `unifiedLines(for:)` has run — the test seam that tells a
+    /// memo hit from a recomputation that happens to produce equal rows.
+    private(set) var unifiedLinesComputations = 0
 
     /// The author of the future commit, per-field-sourced. Unset until loaded,
     /// which blocks the commit exactly as git itself would.
@@ -234,11 +238,15 @@ public final class CommitDialogModel: ObservableObject {
     public var pushPlan: PushPlan? { context.map(PushPlan.plan) }
 
     /// Whether the Commit and Push button is enabled: the commit may proceed
-    /// *and* the loaded push plan is available — exactly the cases in which the
-    /// former "Push after commit" switch was enabled, on top of Commit's own.
+    /// *and* the loaded push plan is available.
     /// The plan is re-derived after the commit regardless (see `commit()`), so
     /// this only decides what the button offers, never what the push does.
     public var canCommitAndPush: Bool { canCommit && pushPlan?.isAvailable == true }
+
+    /// The sentence the footer shows while the loaded push plan is unavailable —
+    /// exactly when Commit and Push is disabled for a push-specific reason — or
+    /// `nil` when the plan is available or nothing is loaded.
+    public var pushUnavailableMessage: String? { pushPlan?.unavailableMessage }
 
     /// The selection for `path`, or `nil` when no such file is loaded.
     public func selection(for path: String) -> CommitFileSelection? {
@@ -267,9 +275,10 @@ public final class CommitDialogModel: ObservableObject {
 
     /// The unified diff lines `unifiedDisplayRows(for:)` is built from — empty
     /// for a whole-only file, which the panel replaces with a placeholder rather
-    /// than a diff whose checkboxes cannot be clicked. Uncached: the panel reads
-    /// the rows, and only the tests read the lines.
+    /// than a diff whose checkboxes cannot be clicked. Uncached: the memo behind
+    /// `unifiedDisplayRows(for:)` and the tests are its only readers.
     func unifiedLines(for path: String) -> [UnifiedDiffLine] {
+        unifiedLinesComputations += 1
         guard let selection = selection(for: path) else { return [] }
         // Every whole-only category, not just an ineligible one: a file whose only
         // difference is its line endings *is* selectable and has rows, all of them

@@ -18,6 +18,14 @@ import PisakaCore
 /// itself needs an active application, which a test host is not, so the walk is
 /// the strongest claim available here.
 ///
+/// The bar's widgets carry theirs the same way, so the exact set also holds the
+/// project and branch widgets' texts as this fixture draws them — no folder, no
+/// repository — each asserted to lie inside the bar's band rather than on a
+/// square. The pull-request indicator is drawn only when the checked-out branch
+/// has an open pull request, which this fixture's `gh` never reports, so its
+/// tooltip is pinned by gating rule ten alone
+/// (`ChromeThemeSourceGatingTests`), not here.
+///
 /// **What it costs.** The bar is hosted once per state in one titled window,
 /// shaped like the main window (`MainWindowChrome` applied), closed in teardown;
 /// nothing is rendered to a bitmap and no loop creates an AppKit object.
@@ -39,14 +47,25 @@ final class BottomBarToolTipTests: XCTestCase {
     func testEachToolTipViewIsItsTogglesSquareAndNothingElseCarriesOne() throws {
         for scale in [1.0, 1.8] {
             let tips = try toolTips(completionOn: false, scale: scale)
+            let toggles = BottomPanel.allCases.map(\.title) + ["Code completion: Off"]
             XCTAssertEqual(
-                Set(tips.keys), Set(BottomPanel.allCases.map(\.title) + ["Code completion: Off"]),
-                "the bar's tooltip views at scale \(scale) are exactly the seven toggles'"
+                Set(tips.keys), Set(toggles + Self.widgetToolTips),
+                "the bar's tooltip views at scale \(scale) are exactly the seven toggles' and the two widgets'"
             )
-            let side = InterfaceMetrics(scale: scale).scaled(ChromeGeometry.bottomBarToggleSide)
-            for (text, frame) in tips {
+            let metrics = InterfaceMetrics(scale: scale)
+            let side = metrics.scaled(ChromeGeometry.bottomBarToggleSide)
+            for text in toggles {
+                let frame = try XCTUnwrap(tips[text], "no tooltip view carries \"\(text)\" at scale \(scale)")
                 XCTAssertEqual(frame.width, side, accuracy: 0.5, "\"\(text)\"'s tooltip view width at scale \(scale)")
                 XCTAssertEqual(frame.height, side, accuracy: 0.5, "\"\(text)\"'s tooltip view height at scale \(scale)")
+            }
+            // The bar is the window's bottom band; window coordinates grow up.
+            let band = metrics.scaled(ChromeGeometry.bottomBarHeight)
+            for text in Self.widgetToolTips {
+                let frame = try XCTUnwrap(tips[text], "no tooltip view carries \"\(text)\" at scale \(scale)")
+                XCTAssertFalse(frame.isEmpty, "\"\(text)\"'s tooltip view is empty at scale \(scale)")
+                XCTAssertGreaterThanOrEqual(frame.minY, -0.5, "\"\(text)\"'s tooltip view leaves the bar at scale \(scale)")
+                XCTAssertLessThanOrEqual(frame.maxY, band + 0.5, "\"\(text)\"'s tooltip view leaves the bar at scale \(scale)")
             }
         }
     }
@@ -59,6 +78,13 @@ final class BottomBarToolTipTests: XCTestCase {
     }
 
     // MARK: - Hosting
+
+    /// The project and branch widgets' tooltips, verbatim from their former
+    /// `.help`, as drawn with no folder open.
+    private static let widgetToolTips = [
+        "Current project — click to switch",
+        "Current branch — click to switch or create",
+    ]
 
     /// Every `BarToolTipView` in the hosted bar, keyed by its tooltip, with its
     /// frame in window coordinates. A text carried twice fails here.
@@ -100,8 +126,8 @@ final class BottomBarToolTipTests: XCTestCase {
                 if found[text] != nil { duplicate = text }
                 found[text] = tip.convert(tip.bounds, to: nil)
             }
-            if let duplicate { XCTFail("two toggle views carry \"\(duplicate)\"") }
-            if found.count == BottomPanel.allCases.count + 1, found.values.allSatisfy({ !$0.isEmpty }) { break }
+            if let duplicate { XCTFail("two tooltip views carry \"\(duplicate)\"") }
+            if found.count == BottomPanel.allCases.count + 1 + Self.widgetToolTips.count, found.values.allSatisfy({ !$0.isEmpty }) { break }
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
         return found

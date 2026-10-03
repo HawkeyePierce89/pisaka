@@ -285,12 +285,13 @@ struct ContentView: View {
     /// reads it, so a caret move must not re-evaluate the whole window root —
     /// only `CaretReadoutObserver` around the bar observes it.
     @State private var caretReadout = CaretReadoutModel()
-    /// The window's content width, read from the body root's geometry and spent
-    /// on one thing: `TabColumnWidthRule`'s window-third bound on the vertical
-    /// tab column. Infinite until the first read, so the column's first layout
-    /// is given its default width rather than a maximum computed from nothing —
-    /// a split view adopts the ideal once and does not revisit it.
-    @State private var windowWidth: CGFloat = .infinity
+    /// The vertical tab column's width bounds, computed from the window's width
+    /// read at the body root's geometry. Held as `@State` rather than
+    /// `@StateObject` for `caretReadout`'s reason: this view never reads it, so
+    /// a resize must not re-evaluate the whole window root — only the column's
+    /// own `TabColumnFrame` observes it, and the probe publishes only when the
+    /// bounds actually change.
+    @State private var tabColumnWidth = TabColumnWidthProbe()
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -445,11 +446,14 @@ struct ContentView: View {
         // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
         // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
-        // The one geometry read the tab column's width bound takes.
+        // The one geometry read the tab column's width bound takes. A zoom
+        // re-scales the bounds at an unchanged width, so the metrics are a
+        // second trigger.
         .background(GeometryReader { proxy in
             Color.clear
-                .onAppear { windowWidth = proxy.size.width }
-                .onChange(of: proxy.size.width) { windowWidth = $0 }
+                .onAppear { tabColumnWidth.update(windowWidth: proxy.size.width, metrics: metrics) }
+                .onChange(of: proxy.size.width) { tabColumnWidth.update(windowWidth: $0, metrics: metrics) }
+                .onChange(of: metrics) { tabColumnWidth.update(windowWidth: proxy.size.width, metrics: $0) }
         })
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
@@ -926,9 +930,9 @@ struct ContentView: View {
                 // Middle zone: vertical tab list, as its own resizable column.
                 // Its bounds are `TabColumnWidthRule`'s: the scaled tokens, the
                 // maximum also held to a third of the window.
-                let column = TabColumnWidthRule.bounds(metrics: metrics, windowWidth: Double(windowWidth))
-                TabListView(model: model, onClose: onClose)
-                    .frame(minWidth: column.minimum, idealWidth: column.ideal, maxWidth: column.maximum)
+                TabColumnFrame(probe: tabColumnWidth) {
+                    TabListView(model: model, onClose: onClose)
+                }
 
                 // Right zone: the editor zone for the selected tab, with the
                 // LeetCode statement beside it when there is one.
@@ -1533,10 +1537,10 @@ struct BottomBar: View {
     }
 }
 
-/// A bottom-bar toggle's tooltip, carried by an AppKit view's `toolTip` behind
-/// the toggle rather than by SwiftUI's `.help`.
+/// A bottom-bar control's tooltip, carried by an AppKit view's `toolTip` behind
+/// the control rather than by SwiftUI's `.help`.
 ///
-/// `.help` on these toggles never showed in the shipped window. Hosted headlessly
+/// `.help` on the bar's toggles never showed in the shipped window. Hosted headlessly
 /// — alone, and in the real main window — SwiftUI's tooltip bridge answers the
 /// right string at every toggle, with or without the bar's `.zIndex(1)`, the
 /// transparent title bar or the hit-transparent markers behind the content, so
@@ -1544,14 +1548,17 @@ struct BottomBar: View {
 /// that bridge on hover) is not one this app can reach or a headless test can
 /// drive (`app-window.md`). An `NSView.toolTip` is AppKit's own mechanism,
 /// registered on the view itself as a tracking rect, and does not route through
-/// that bridge at all. `BottomBarToolTipTests` finds each of these views by its
-/// text and frame; gating rule ten requires this and refuses `.help(` in the two
-/// toggle builders, so the bar keeps one tooltip mechanism.
+/// that bridge at all. The bar's three widgets — project, branch, pull request —
+/// carry theirs through it too, so the whole bar has one tooltip mechanism, which
+/// is why this is internal rather than private to this file.
+/// `BottomBarToolTipTests` finds each of these views by its text and frame;
+/// gating rule ten requires this and refuses `.help(` in the bar's body and in
+/// the three widget files.
 ///
-/// Placed with `.background(...)`, so it takes exactly the toggle's square. It
+/// Placed with `.background(...)`, so it takes exactly the control's frame. It
 /// draws nothing, answers no hit test — the click still lands on the SwiftUI
 /// button in front of it — and stays out of the accessibility tree, where the
-/// toggle's own `.accessibilityLabel` is the name.
+/// control's own `.accessibilityLabel` is the name.
 struct BarToolTip: NSViewRepresentable {
     let text: String
 

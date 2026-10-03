@@ -908,16 +908,22 @@ user sees it.
   Changes" in the View menu, the Local Changes button on the bottom bar, or
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
   On macOS the list is grouped by folder (one row per parent directory, every
-  folder starting expanded); on iPhone and iPad view it flat or grouped by
+  folder starting expanded, folders named relative to the opened folder; when
+  that folder sits inside a larger repository, changed files outside it are
+  still listed, after the project's folders, under their repository path
+  prefixed with the repository's name); on iPhone and iPad view it flat or grouped by
   folder. Each file shows a type icon plus a
   one-letter status badge (M/A/D/R/U/C). On macOS the icon is a monochrome
   secondary glyph and the letter carries the status colour (green added,
   yellow modified or renamed, red deleted or conflicted, grey untracked); on
   iPhone and iPad the icon itself is tinted by its git status. On macOS the
   selected file's diff is shown **inline, to the right of the list** (its
-  project-relative path above it, drawn at the editor font and following
-  selection); the list's width is draggable. Double-click a file to open
-  a side-by-side diff (`HEAD` vs working copy) in a separate
+  project-relative path above it — repository-relative for a file outside the
+  opened folder — drawn at the editor font and following
+  selection; a binary file shows "Binary file" and a side over 1 MiB shows
+  "Too large to show inline" in place of the rows, the side-by-side diff
+  window still opening as usual); the list's width is draggable. Double-click
+  a file to open a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. A
   **"Show Diff"** item appears first in a non-conflicted file's context menu
@@ -979,7 +985,8 @@ user sees it.
   whenever a project is open, including on a clean working tree, so a
   message-only amend needs nothing to be checked; Commit and Push
   commits and then pushes (its tooltip says where, and it is disabled when there
-  is nowhere to push), using the branch's upstream or creating one
+  is nowhere to push — the footer then says why in one line beside the Amend
+  checkbox, the same sentence as its tooltip), using the branch's upstream or creating one
   (`--set-upstream`) when it has none, and reports "commit created, push failed"
   as its own outcome rather than as a failed commit. Files that cannot be split
   line by line — a deleted file, a binary, non-UTF-8, unreadable or very large one

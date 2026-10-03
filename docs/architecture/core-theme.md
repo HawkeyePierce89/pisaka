@@ -1846,7 +1846,11 @@ first shape latched a `@State` flag in `onAppear` and fed it to a value-scoped
 `.animation`; a spinner that appeared under Reduce Motion then stayed still for
 its whole life once the setting was switched off, because the flag never changed
 again — rule twenty's body clause (no `onAppear`, no `@State`, the reduce-motion
-property as the `TimelineView`'s `paused:` value) names that regression. Its accessibility is a **call-site contract**: a spinner
+property as the `TimelineView`'s `paused:` value) names that regression. One
+parameter, `isTurning` (default `true`), joins that value with an `||`: the Log's
+refresh controls keep their spinner laid out at zero opacity while idle and pass
+`false`, so the invisible arc's schedule is paused rather than redrawing every
+frame. Its accessibility is a **call-site contract**: a spinner
 speaks either its activity or nothing, decided where it is constructed, never
 both and never neither. A spinner whose neighbour already names the activity —
 a sentence or caption beside it — is `.accessibilityHidden(true)`, so VoiceOver
@@ -2538,10 +2542,11 @@ monochrome.
 In `ZoomSourceGatingTests`' mould: it reads `Sources/` through `#filePath` with
 Foundation only, so it runs in `swift test` with no Xcode build, and it matches
 against `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output —
-**comments and string literals stripped before almost every match**. Three
+**comments and string literals stripped before almost every match**. Four
 rules read `GitHubSourceGatingTests.strippingComments(_:)` instead, literals
 kept, because each one's subject is a literal — the query-toggle names, the
-merge editor's chevron symbols and clause (c)'s CSS hex — and the suite's
+merge editor's chevron symbols, clause (c)'s CSS hex and the design-glyph
+rule's load names — and the suite's
 header names them, held to the code by a self-check. The stripping is
 load-bearing rather than tidy here: the gated files document their own rules at
 length (the palette explains what a hex literal outside it would cost; the strip
@@ -2681,7 +2686,13 @@ The forty-six rules, each invisible to the compiler:
    `completionToggleButton` each spell `BarToolTip(` — the AppKit `toolTip`
    that replaced `.help`, which never showed on these toggles in the shipped
    window (`app-window.md` records the diagnosis) — and `.accessibilityLabel(`,
-   and neither spells `.help(`, so the bar keeps one tooltip mechanism; and
+   and neither spells `.help(`; the **whole bar** owes the same pair and the
+   same refusal — the brace-matched `BottomBar` struct and each of the three
+   widget files (`ProjectSwitcherView.swift`, `BranchSwitcherView.swift`,
+   `PullRequestIndicatorView.swift`, read whole) must spell `BarToolTip(` and
+   `.accessibilityLabel(` and none may spell `.help(` — so the bar keeps one
+   tooltip mechanism, and no accessibility hint is required (the toggles'
+   former `.help` texts were word for word their label and value); and
    `bottomBarButton(` occurs exactly twice — one declaration and one call inside
    `panelToggles`, which `bottomBar` draws, which builds the toggles from
    `BottomPanel.allCases` and names no panel case in its body, so the bar keeps
@@ -3446,11 +3457,19 @@ The forty-six rules, each invisible to the compiler:
 46. **Design glyphs are drawn only through the helper.** Every macOS source
     under `Sources/Pisaka/` (the iOS directory aside) other than
     `DesignGlyphImage.swift` is read through the comments-only scanner, literals
-    kept — the name an image is loaded by *is* a literal — and no `Image(` or
-    `NSImage(named:` call in it may name a glyph: neither a string literal equal
-    to a `DesignGlyph` raw value nor the token `assetName`. `Image(systemName:`
-    is a different call and is not matched; `AppIcon` is not a glyph and stays
-    exempt. The helper must itself load by `assetName` exactly twice, once per
+    kept — the name an image is loaded by *is* a literal, and a resource's name
+    is the same literal — and no load in it may name a glyph. A load is
+    `Image(` or `NSImage(named:`, each also spelled through `.init(`, or one of
+    the resource loaders `ImageResource(`, `NSImage(resource:` and
+    `image(forResource:`; naming a glyph is a string literal equal to a
+    `DesignGlyph` raw value, or the token `assetName` or `rawValue`. The symbol
+    loads — `Image(systemName:`, `Image.init(systemName:` and
+    `NSImage(systemSymbolName:` — are different calls and are not matched;
+    `AppIcon` is not a glyph and stays exempt. The matcher is a static function,
+    `glyphLoadsNamingAGlyph(in:)`, and a self-check
+    (`testTheGlyphRuleFlagsEveryLoadSpelling`) feeds it an inline snippet of
+    every bypass — the raw value, a literal through each spelling, the resource
+    loaders — requiring each to be flagged and the symbol loads to pass. The helper must itself load by `assetName` exactly twice, once per
     half, so the rule cannot read nothing. A glyph loaded inline compiles and
     draws — untinted by the theme, or announced by its asset name.
 

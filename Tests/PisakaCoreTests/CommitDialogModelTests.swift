@@ -852,49 +852,149 @@ final class CommitDialogModelTests: XCTestCase {
 
     // MARK: - The unified-diff memo
 
-    /// The memo must return the *same* answer a fresh flatten would, on the hit
-    /// path as well as the miss path. `UnifiedDiffLine.unitIndex` is what a
-    /// checkbox toggles, so a stale answer means checking one line and committing
-    /// another — silently, into history.
-    func testUnifiedLinesAreStableAcrossRepeatedReadsAndSelectionChanges() async {
+    /// `unifiedLines` itself is uncached: every direct read flattens again.
+    func testUnifiedLinesIsUncached() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
-        let expected = CommitDiffUnits.unified(
-            rows: model.selection(for: "a.txt")?.rows ?? []
-        )
-        XCTAssertFalse(expected.isEmpty)
+        let before = model.unifiedLinesComputations
 
-        // Miss, then hit: a second read of the same path takes the cached branch.
-        XCTAssertEqual(model.unifiedLines(for: "a.txt"), expected)
-        XCTAssertEqual(model.unifiedLines(for: "a.txt"), expected)
+        _ = model.unifiedLines(for: "a.txt")
+        _ = model.unifiedLines(for: "a.txt")
 
-        // A selection change rebuilds the element but cannot change its rows, so
-        // the answer must survive it — that is the exemption `preservingUnifiedCache`
-        // claims, and this is what holds it to it.
-        model.toggleUnit(1, path: "a.txt")
-        XCTAssertEqual(model.unifiedLines(for: "a.txt"), expected)
-        model.toggleFile(path: "a.txt")
-        XCTAssertEqual(model.unifiedLines(for: "a.txt"), expected)
+        XCTAssertEqual(model.unifiedLinesComputations, before + 2)
     }
 
-    /// And it is dropped when the rows really do change: a reload of the same path
-    /// against different content must not serve the previous read's lines.
-    func testUnifiedLinesAreRecomputedAfterAReloadChangesTheRows() async {
+    /// The rows a fresh flatten of `path` would produce, bypassing the memo.
+    private func freshRows(_ model: CommitDialogModel, _ path: String) -> [UnifiedDiffDisplayRow] {
+        guard let selection = model.selection(for: path) else { return [] }
+        return UnifiedDiffDisplayRows.rows(
+            for: selection.facts.file,
+            lines: CommitDiffUnits.unified(rows: selection.rows)
+        )
+    }
+
+    /// Repeated reads of the same path compute once, and the hit serves the same
+    /// answer a fresh flatten would — `UnifiedDiffLine.unitIndex` is what a
+    /// checkbox toggles, so a stale answer means checking one line and committing
+    /// another.
+    func testUnifiedDisplayRowsComputeOnceAcrossRepeatedReads() async {
         let (git, files) = makeTextRepo()
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
-        let first = model.unifiedLines(for: "a.txt")
+        let before = model.unifiedLinesComputations
+
+        let first = model.unifiedDisplayRows(for: "a.txt")
+        let second = model.unifiedDisplayRows(for: "a.txt")
+
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first, freshRows(model, "a.txt"))
+        XCTAssertEqual(model.unifiedLinesComputations, before + 1)
+    }
+
+    /// The two selection mutators keep the memo — the exemption
+    /// `preservingUnifiedCache` claims — and the kept rows are still right.
+    func testUnifiedDisplayRowsSurviveBothSelectionToggles() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        let rows = model.unifiedDisplayRows(for: "a.txt")
+        let computed = model.unifiedLinesComputations
+
+        model.toggleUnit(1, path: "a.txt")
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), rows)
+        model.toggleFile(path: "a.txt")
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), rows)
+
+        XCTAssertEqual(model.unifiedLinesComputations, computed)
+        XCTAssertEqual(rows, freshRows(model, "a.txt"))
+    }
+
+    // Every other write to `files` drops the memo. The sites are enumerated here,
+    // one test each: `reset()` (through `prepareForFolderChange`), `load`'s
+    // per-open clear, `load`'s successful publish and `load`'s failure clear. A new
+    // write site that bypassed `didSet` would serve stale rows to one of these.
+
+    /// A reload whose rows changed recomputes, and serves the reloaded rows.
+    func testUnifiedDisplayRowsRecomputeAfterAReloadChangesTheRows() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        let first = model.unifiedDisplayRows(for: "a.txt")
+        let computed = model.unifiedLinesComputations
 
         files.contents["/repo/a.txt"] = "one\ntwo\nthree\nfour\n"
         await model.load(root: root)
-        let second = model.unifiedLines(for: "a.txt")
+        let second = model.unifiedDisplayRows(for: "a.txt")
 
         XCTAssertNotEqual(first, second)
-        XCTAssertEqual(
-            second,
-            CommitDiffUnits.unified(rows: model.selection(for: "a.txt")?.rows ?? [])
-        )
+        XCTAssertEqual(second, freshRows(model, "a.txt"))
+        XCTAssertEqual(model.unifiedLinesComputations, computed + 1)
+    }
+
+    /// `load`'s successful publish drops the memo even when the rows come back
+    /// identical: the counter, not equality, is what shows the recomputation.
+    func testUnifiedDisplayRowsRecomputeAfterAnIdenticalReload() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        let first = model.unifiedDisplayRows(for: "a.txt")
+        let computed = model.unifiedLinesComputations
+
+        await model.load(root: root)
+
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), first)
+        XCTAssertEqual(model.unifiedLinesComputations, computed + 1)
+    }
+
+    /// `load`'s per-open clear drops the memo before the fresh read lands: while
+    /// it is in flight the path names no file, so the answer is empty, not the
+    /// previous opening's rows.
+    func testUnifiedDisplayRowsAreDroppedByTheLoadsPerOpenClear() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
+        let computed = model.unifiedLinesComputations
+
+        var midFlight: [UnifiedDiffDisplayRow]?
+        git.onFirstChangedFiles = { @MainActor in
+            midFlight = model.unifiedDisplayRows(for: "a.txt")
+        }
+        await model.load(root: root)
+
+        XCTAssertEqual(midFlight, [])
+        XCTAssertEqual(model.unifiedLinesComputations, computed)
+    }
+
+    /// `load`'s failure clear drops the memo.
+    func testUnifiedDisplayRowsAreDroppedByAFailedReload() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
+        let computed = model.unifiedLinesComputations
+
+        git.contextError = CocoaError(.fileReadUnknown)
+        await model.load(root: root)
+
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
+        XCTAssertEqual(model.unifiedLinesComputations, computed)
+    }
+
+    /// `reset()`, reached through a folder switch, drops the memo.
+    func testUnifiedDisplayRowsAreDroppedByAFolderSwitch() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        XCTAssertFalse(model.unifiedDisplayRows(for: "a.txt").isEmpty)
+        let computed = model.unifiedLinesComputations
+
+        model.prepareForFolderChange(root: otherRoot)
+
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), [])
+        XCTAssertEqual(model.unifiedLinesComputations, computed)
     }
 
     // MARK: - Gate and push plan wiring
@@ -962,6 +1062,64 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertTrue(model.canCommit)
         XCTAssertEqual(model.pushPlan?.isAvailable, false)
         XCTAssertFalse(model.canCommitAndPush)
+    }
+
+    func testPushUnavailableMessageNamesADetachedHEAD() async {
+        let (git, files) = makeTextRepo()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: true,
+            currentBranch: nil,
+            upstream: nil,
+            remotes: ["origin"],
+            inProgress: nil
+        )
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+
+        XCTAssertEqual(model.pushUnavailableMessage, PushUnavailableReason.detachedHEAD.message)
+    }
+
+    func testPushUnavailableMessageNamesAMissingRemote() async {
+        let (git, files) = makeTextRepo()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: false,
+            currentBranch: "main",
+            upstream: nil,
+            remotes: [],
+            inProgress: nil
+        )
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+
+        XCTAssertEqual(model.pushUnavailableMessage, PushUnavailableReason.noRemote.message)
+    }
+
+    func testPushUnavailableMessageIsNilForAnAvailablePlan() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+
+        XCTAssertNil(model.pushUnavailableMessage)
+    }
+
+    func testPushUnavailableMessageIsNilWithNoContext() {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+
+        XCTAssertNil(model.pushUnavailableMessage)
+    }
+
+    /// The model reads the plan's own sentence, so every reason — including
+    /// `.branchChanged`, which `plan(context:)` never produces — maps to its
+    /// message, and an available plan to none.
+    func testPushPlanUnavailableMessageCoversEveryReason() {
+        for reason in [PushUnavailableReason.detachedHEAD, .noRemote, .branchChanged] {
+            XCTAssertEqual(PushPlan.unavailable(reason: reason).unavailableMessage, reason.message)
+        }
+        XCTAssertNil(PushPlan.push(upstream: "origin/main").unavailableMessage)
+        XCTAssertNil(PushPlan.setUpstream(remote: "origin", branch: "main").unavailableMessage)
     }
 
     func testCommitAndPushIsOffBeforeTheLoad() {

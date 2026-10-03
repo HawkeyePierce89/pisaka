@@ -1502,9 +1502,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `viewDidMoveToWindow`, skips sheets (a sheet is hosted by its own window,
     and the commit dialog's chrome is not the main window's) and applies the
     chrome through one idempotent `static func apply(to:title:)`. What it sets
-    is four properties and nothing else: `titlebarAppearsTransparent = true`,
-    `backgroundColor = ChromePalette.nsColor(.bgPanel)`, `titleVisibility =
-    .visible` and the `title` (written only when it differs). The transparency
+    is four properties plus one label, and nothing else:
+    `titlebarAppearsTransparent = true`, `backgroundColor =
+    ChromePalette.nsColor(.bgPanel)`, `titleVisibility = .hidden`, the `title`
+    (written only when it differs), and the centred title label below. The transparency
     is what makes the second line visible at all — without it the framework
     draws its own material over the strip and the colour below never shows.
 
@@ -1515,10 +1516,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     display name, the title the scene gave the window before) with no project
     open. `updateNSView` re-reads it on every workspace publish, and the view
     re-applies only when the string changed, so typing in a buffer costs one
-    string comparison. The window has no toolbar, so the framework centres the
-    title in the title bar, which is the design's placement; `titleVisibility`
-    is stated rather than left to the default so that placement is written down
-    here. The marker stays the window's one configurer — the title is applied
+    string comparison.
+
+    **Why the app draws the title itself.** Measured on macOS 27.0.1: the
+    framework draws a title-bar title leading-aligned for every toolbar state —
+    a bare titled window, every toolbar style, with and without a toolbar. The
+    title starts at x = 82 in a 900-point window, and no public property moves
+    it. So `apply` hides the framework's title (`titleVisibility = .hidden`, on
+    purpose) and draws its own label centred in the title bar view — the close
+    button's superview — on every supported release, so the placement no longer
+    depends on what the framework does. `window.title` is still written, because
+    the window menu, window switching and accessibility read it from there; the
+    label is therefore not an accessibility element. The label is one
+    `NSTextField(labelWithString:)` found again by the fixed identifier
+    `MainWindowChrome.titleLabelIdentifier`, so a repeated `apply` updates its
+    `stringValue` and never adds a second one. It draws in
+    `NSFont.titleBarFont(ofSize: 0)` — the system title font at its system
+    size, unscaled like the title it replaces — in `ChromePalette.nsColor(.textPrimary)`,
+    a dynamic colour, so a Theme change repaints it with no observer, and
+    truncates in the middle. It is constrained `centerX`/`centerY` to the title
+    bar view, with its width at most the title bar's width minus twice (the
+    window buttons' trailing edge + 8 points), so a long title truncates, stays
+    centred and never sits under the buttons. A window with no close button or
+    no title bar view gets no label. The marker stays the window's one
+    configurer — the title and its label are applied
     from the same `apply` the transparency is, so rule nine's single setter
     and the scene's single attachment still describe everything that touches
     the title bar.
@@ -1536,10 +1557,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that resolves against the effective appearance whenever it is drawn, so a
     Theme change repaints the title bar with no appearance observer here and no
     cached value to invalidate — the rule `ChromePalette` states for every
-    AppKit chrome surface, spent at one more call site. The title's *colour* and
-    the window buttons are left alone: the framework draws both against the
-    window's appearance, which the Theme preference already sets at the content
-    root, so they follow without being told.
+    AppKit chrome surface, spent at one more call site — twice, the ground and
+    the title label. The window buttons are left alone: the framework draws them
+    against the window's appearance, which the Theme preference already sets at
+    the content root, so they follow without being told.
 
     **A sibling of the frame marker, not a change to it.** The two answer
     unrelated questions about the same window — where it sits, and what colour
@@ -1558,12 +1579,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     real `NSWindow` — the ground in both appearances, which is what a frozen,
     once-resolved colour would fail — twice over: through `apply(to:title:)`,
     and again through the path the app actually takes, a marker added to the
-    window's content view with nobody calling the method. It asserts the title
-    is applied and visible with no toolbar on the window, and drives the title
-    the way the app does: the representable hosted over a real `WorkspaceModel`
-    in a titled window, read back as the workspace opens a folder, opens two
-    files and switches back — so a marker that titled the window once and
-    never again fails. It also asserts the marker is hit-test transparent. Its *other* rule, the
+    window's content view with nobody calling the method. It asserts the
+    system title is hidden and `window.title` applied, and measures the label on
+    **one window created once for the suite** (in the class `setUp`, closed in
+    the class `tearDown`, and reset by each test's `setUp` to 900 points with no
+    label, so every test's first apply is an install whatever ran before it)
+    whose style mask is the app window's — titled,
+    closable, miniaturizable, resizable, `.fullSizeContentView`: the label's
+    midX in window coordinates within one point of half the window's width,
+    inside the title bar band, carrying the applied string; the centre following
+    a resize from 900 to 1200 points; a long title truncated with the label
+    still centred and its leading edge clear of the zoom button; and exactly one
+    label after a second `apply`, a long title applied over it still clearing
+    the zoom button (the update path keeps the width cap). It drives the title the way the app does: the
+    representable hosted over a real `WorkspaceModel` in a titled window, both
+    `window.title` and the label's string read back as the workspace opens a
+    folder, opens two files and switches back — so a marker that titled the
+    window once and never again fails. It also asserts the marker is hit-test transparent. Its *other* rule, the
     `setAccessibilityElement(false)` in the initialiser, is deliberately **not**
     pinned: a plain `NSView` already answers `false`, so an assertion on it
     would pass with the line deleted. The line stays because it states the

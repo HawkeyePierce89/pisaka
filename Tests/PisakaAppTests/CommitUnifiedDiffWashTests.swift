@@ -31,7 +31,8 @@ import PisakaCore
 /// runs, each compared against a swatch of the same role rendered through the
 /// same pipeline (the cached bitmap carries a colour-space conversion the
 /// palette's raw values do not). The context row directly below them must carry
-/// neither. The overflow case scrolls the hosted `NSScrollView` to its far right
+/// neither. The pane-width case runs in both appearances, one render each, the
+/// light one on a white ground against light swatches. The overflow case scrolls the hosted `NSScrollView` to its far right
 /// before rendering, and the legacy-scroller case sets that scroll view's
 /// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
 /// setting or touches a preference.
@@ -143,14 +144,18 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         XCTAssertGreaterThan(render.brightest(in: headers), 0.3, "the header text is not drawn")
     }
 
+    /// In both appearances, one render each: the light washes are compared
+    /// against light swatches on the light render's white ground.
     func testShortChangedLinesAreWashedToThePanesTrailingEdge() throws {
-        let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
-        addTeardownBlock { @MainActor in render.window.close() }
-        // The fill comes from the pane's width, not from a wider guess: a diff
-        // that does not overflow does not scroll.
-        let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
-        XCTAssertEqual(contentWidth, render.width, accuracy: 0.5, "the content is not the pane's width")
-        try assertWashedAtTrailingEdge(render)
+        for appearance in ChromeAppearance.allCases {
+            let render = try DiffRender(lines: Self.short, appearance: appearance, scrollToTrailingEdge: false)
+            addTeardownBlock { @MainActor in render.window.close() }
+            // The fill comes from the pane's width, not from a wider guess: a diff
+            // that does not overflow does not scroll.
+            let contentWidth = try XCTUnwrap(render.contentWidth, "no hosted scroll view")
+            XCTAssertEqual(contentWidth, render.width, accuracy: 0.5, "the content is not the pane's width, \(appearance)")
+            try assertWashedAtTrailingEdge(render)
+        }
     }
 
     func testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff() throws {
@@ -287,22 +292,29 @@ private struct DiffHost: View {
     }
 }
 
-/// The diff hosted in a borderless 600 × 300 window on a black ground
-/// (`HostedRender`).
+/// The diff hosted in a borderless 600 × 300 window (`HostedRender`), on a
+/// black ground in dark and a white one in light.
 @MainActor
 private final class DiffRender {
     let width: CGFloat = 600
     let input: DiffInput
+    let appearance: ChromeAppearance
+    private let ground: Color
     private let render: HostedRender
     var window: NSWindow { render.window }
     private(set) var scrolledBy: CGFloat = 0
 
-    init(lines: [UnifiedDiffLine], fontSize: Double = 13, scrollToTrailingEdge: Bool) throws {
+    init(
+        lines: [UnifiedDiffLine], fontSize: Double = 13, appearance: ChromeAppearance = .dark,
+        scrollToTrailingEdge: Bool
+    ) throws {
         input = DiffInput(lines: lines, fontSize: fontSize)
+        self.appearance = appearance
+        ground = appearance == .dark ? .black : .white
         let root = DiffHost(input: input)
             .frame(width: width, height: 300)
-            .environment(\.chromeTheme, ChromeTheme(.dark))
-            .background(Color.black)
+            .environment(\.chromeTheme, ChromeTheme(appearance))
+            .background(ground)
         render = try HostedRender(size: CGSize(width: width, height: 300), root: root)
         if scrollToTrailingEdge { try self.scrollToTrailingEdge() }
     }
@@ -356,15 +368,15 @@ private final class DiffRender {
         return nil
     }
 
-    // The wash roles are translucent, so they are compared on the same black
-    // ground the diff is hosted on.
+    // The wash roles are translucent, so they are compared on the same ground
+    // the diff is hosted on, against a swatch of the render's own appearance.
 
     func matches(_ role: ChromeColorRole, atX x: CGFloat, y: CGFloat) -> Bool {
-        render.matches(role, atX: x, y: y, ground: .black)
+        render.matches(role, atX: x, y: y, ground: ground, appearance: appearance)
     }
 
     func extent(of role: ChromeColorRole, atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
-        render.extent(of: role, atX: x, ground: .black)
+        render.extent(of: role, atX: x, ground: ground, appearance: appearance)
     }
 
     enum Channel { case red, green, blue }

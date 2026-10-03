@@ -84,7 +84,11 @@ struct CommitLogView: View {
                     searchQuery: model.searchQuery,
                     onApplyFilter: applyFilter,
                     onSearch: { model.setSearchQuery($0) },
-                    trailing: refreshControls
+                    trailing: CommitLogRefreshControls(
+                        isLoading: model.isLoading,
+                        isEnabled: projectRoot != nil,
+                        onRefresh: refreshIfPossible
+                    )
                 )
             }
             content
@@ -108,27 +112,6 @@ struct CommitLogView: View {
         .onChange(of: projectRoot) { newRoot in
             limit = Self.initialLimit
             refresh(root: newRoot)
-        }
-    }
-
-    /// The loading spinner and the refresh button, drawn at the trailing end of
-    /// the filter strip — the Log's only toolbar.
-    private var refreshControls: some View {
-        HStack(spacing: metrics.scaled(CommitLogLayout.refreshGap)) {
-            if model.isLoading {
-                ChromeSpinner()
-                    .accessibilityLabel("Loading commits")
-            }
-            Button(action: refreshIfPossible) {
-                Image(systemName: "arrow.clockwise")
-                    .font(metrics.scaledFont(.body))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .accessibilityHidden(true)
-            }
-            .buttonStyle(.borderless)
-            .disabled(projectRoot == nil)
-            .help("Refresh commit history")
-            .accessibilityLabel("Refresh commit history")
         }
     }
 
@@ -393,6 +376,46 @@ struct CommitLogView: View {
         let request = model.prepareForRefresh(root: root)
         let currentLimit = limit
         Task { await model.refresh(root: root, limit: currentLimit, request: request) }
+    }
+}
+
+/// The loading spinner and the refresh button, drawn at the trailing end of
+/// the filter strip — the Log's only toolbar.
+///
+/// The spinner's slot is **always laid out** and only faded: `LogFilterBar`
+/// picks its layout through `ViewThatFits`, which measures this trailing view,
+/// so a spinner that came and went would change the measured width on every
+/// load and could flip the strip between its layouts while the history
+/// loads. Hidden, the slot is also hidden from accessibility, so VoiceOver
+/// never announces a load that is not happening, and its schedule is paused
+/// (`isTurning`), so an invisible arc is never redrawn frame after frame.
+struct CommitLogRefreshControls: View {
+    let isLoading: Bool
+    let isEnabled: Bool
+    let onRefresh: () -> Void
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(CommitLogLayout.refreshGap)) {
+            ChromeSpinner(isTurning: isLoading)
+                .accessibilityLabel("Loading commits")
+                .opacity(isLoading ? 1 : 0)
+                .accessibilityHidden(!isLoading)
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(metrics.scaledFont(.body))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.borderless)
+            .disabled(!isEnabled)
+            .help("Refresh commit history")
+            .accessibilityLabel("Refresh commit history")
+        }
     }
 }
 

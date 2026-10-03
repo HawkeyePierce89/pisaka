@@ -1,9 +1,9 @@
 import Foundation
 
-/// Why "Push after commit" cannot be offered — or, for the last case, why an
-/// offered push was not run after all — with the sentence the dialog shows beside
-/// the disabled checkbox (the `CommitBlock.message` convention: the decision and
-/// its wording are one rule, tested together).
+/// Why Commit and Push cannot be offered — or, for the last case, why an offered
+/// push was not run after all — with the sentence the dialog shows in its footer
+/// and in the disabled button's tooltip (the `CommitBlock.message` convention: the
+/// decision and its wording are one rule, tested together).
 public enum PushUnavailableReason: Equatable {
     /// HEAD is not on a branch (or the branch name could not be read), so there
     /// is nothing to name as the push target.
@@ -34,7 +34,7 @@ public enum PushUnavailableReason: Equatable {
     }
 }
 
-/// What "Push after commit" would do, decided from the repository state alone.
+/// What Commit and Push would push, decided from the repository state alone.
 ///
 /// Pure and Foundation-only; `GitCLIService.push(_:root:)` turns the plan into a
 /// command and nothing else decides anything about it.
@@ -57,6 +57,12 @@ public enum PushPlan: Equatable {
     public var isAvailable: Bool {
         if case .unavailable = self { return false }
         return true
+    }
+
+    /// The `.unavailable` reason's sentence, or `nil` for a plan that can run.
+    public var unavailableMessage: String? {
+        if case .unavailable(let reason) = self { return reason.message }
+        return nil
     }
 
     /// The three branches, in order.

@@ -664,6 +664,11 @@ struct CodeEditorView: NSViewRepresentable {
         let previousFileID = context.coordinator.fileID
         let switchedFile = previousFileID != fileID
         context.coordinator.fileID = fileID
+        if switchedFile {
+            // A buffer swap: the caret memo counted another file's line.
+            context.coordinator.caretColumnMemo = nil
+            context.coordinator.caretEditFloor = nil
+        }
 
         // Same tab, new coordinates. Two retargets keep the file id and the text
         // while invalidating every sync the buffer ever did:
@@ -1598,6 +1603,15 @@ struct CodeEditorView: NSViewRepresentable {
         /// `reportScrolled`.
         var reportCaret: ((UUID, (line: Int, column: Int)) -> Void)?
 
+        /// The last report's line start, offset and column, so the next caret
+        /// move counts only what moved (`CaretReadout.position(…memo:editFloor:)`).
+        /// Dropped when the coordinator's file changes.
+        var caretColumnMemo: CaretReadout.ColumnMemo?
+
+        /// The lowest UTF-16 offset any edit touched since the memo was taken,
+        /// lowered at the ruler's `onEdit` and cleared by each report.
+        var caretEditFloor: Int?
+
         /// Tell the readout where the caret is: the selection's trailing end, so
         /// a selection still reads a caret position rather than nothing. The line
         /// comes off the ruler's incremental table and the text is read through
@@ -1606,11 +1620,16 @@ struct CodeEditorView: NSViewRepresentable {
         func reportCaretPosition(of textView: NSTextView) {
             guard let reportCaret, let fileID, let storage = textView.textStorage,
                   let ruler = lineNumberRuler else { return }
-            reportCaret(fileID, CaretReadout.position(
+            let position = CaretReadout.position(
                 text: storage.mutableString,
                 caretOffset: NSMaxRange(textView.selectedRange()),
-                lineStarts: ruler.lineStarts
-            ))
+                lineStarts: ruler.lineStarts,
+                memo: caretColumnMemo,
+                editFloor: caretEditFloor
+            )
+            caretColumnMemo = position.memo
+            caretEditFloor = nil
+            reportCaret(fileID, (position.line, position.column))
         }
 
         /// The one place the caret's word becomes a question, shared by the two
@@ -2506,6 +2525,8 @@ struct CodeEditorView: NSViewRepresentable {
             changeInLength delta: Int
         ) {
             guard editedRange.location != NSNotFound else { return }
+            // The caret readout's memo is only good above the lowest edit.
+            caretEditFloor = min(caretEditFloor ?? editedRange.location, editedRange.location)
             // The one full-range edit a buffer swap posts is *not* an edit to
             // shift across: for a plain tab switch the outgoing document's set
             // deliberately survives (`updateNSView`'s content-replaced branch),

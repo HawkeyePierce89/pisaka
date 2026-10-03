@@ -18,8 +18,20 @@ import PisakaCore
 /// of that one bitmap. The list's width is where the divider's `hairline` sits
 /// in a row below the list's last file. The toolbar's order is the run of
 /// inked columns across the toolbar band, clustered: the first cluster holds the
-/// `accent` ground, the next two are glyph-sized. The row order compares the
-/// status colour's rightmost pixel with the name's leftmost `textPrimary` one.
+/// `accent` ground, the next two are glyph-sized. Which glyph is which is read
+/// off the same bitmap by shape: each glyph cluster's ink mask is compared with
+/// a reference render of the revert and refresh glyphs alone (one extra render
+/// per scale), and the in-order pairing must be the closer one. The hosting
+/// view's accessibility tree cannot name them — headless, SwiftUI builds no
+/// accessibility nodes, so only its AppKit scroll view is exposed. The row
+/// order compares the status colour's rightmost pixel with the name's
+/// leftmost `textPrimary` one.
+///
+/// **The inline-diff placeholders.** A selected binary or over-cap file is
+/// rendered once per state; the detail area beside the list must draw
+/// `textSecondary` text where the rows would sit, shaped like a reference render
+/// of that state's sentence rather than of "Loading…", and no diff-row wash — its
+/// two outer strips are the panel's ground and nothing else.
 @MainActor
 final class LocalChangesLayoutTests: XCTestCase {
 
@@ -95,6 +107,23 @@ final class LocalChangesLayoutTests: XCTestCase {
         XCTAssertGreaterThan(clusters[1].lowerBound, commit.upperBound, file: file, line: line)
         XCTAssertGreaterThan(clusters[2].lowerBound, clusters[1].upperBound, file: file, line: line)
 
+        // Which glyph is which: Revert before Refresh. The two are the same
+        // size and colour, so each cluster's ink *shape* is matched against a
+        // reference render of the two glyphs alone — the headless hosting view
+        // builds no SwiftUI accessibility nodes to name them by (only its
+        // AppKit scroll view appears there, even with app accessibility forced
+        // on), so the panel's own bitmap is the one witness.
+        let band = metrics.scaled(2)..<(toolbarHeight - metrics.scaled(2))
+        let references = try toolbarGlyphReferences(metrics: metrics, theme: theme, ground: panel)
+        let first = inkMask(in: render, rows: band, columns: clusters[1])
+        let second = inkMask(in: render, rows: band, columns: clusters[2])
+        let inOrder = distance(first, references.revert) + distance(second, references.refresh)
+        let swapped = distance(first, references.refresh) + distance(second, references.revert)
+        XCTAssertLessThan(
+            inOrder, swapped,
+            "the toolbar's glyphs do not read Revert then Refresh at scale \(scale)", file: file, line: line
+        )
+
         // A file row: the status letter left of the name. The rows are the root
         // group (README.md, added) and then `Sources` (Main.swift, modified).
         let fileRow = (listTop + rowHeight)..<(listTop + rowHeight * 2)
@@ -116,6 +145,185 @@ final class LocalChangesLayoutTests: XCTestCase {
                                     "the status letter is not past the checkbox", file: file, line: line)
         XCTAssertLessThan(letter.upperBound, name.lowerBound,
                           "the status letter is not left of the name at scale \(scale)", file: file, line: line)
+    }
+
+    func testABinaryFileShowsThePlaceholderInPlaceOfTheRows() async throws {
+        let files = StubFiles()
+        files.text = "a\u{0}b\n"
+        try await assertPlaceholder(files: files, expected: .binary, text: "Binary file")
+    }
+
+    func testAnOverCapFileShowsThePlaceholderInPlaceOfTheRows() async throws {
+        let files = StubFiles()
+        files.stamp = FileStamp(byteCount: LocalChangesInlineDiff.maxSideBytes + 1, modificationDate: nil)
+        try await assertPlaceholder(files: files, expected: .tooLarge, text: "Too large to show inline")
+    }
+
+    private func assertPlaceholder(
+        files: StubFiles,
+        expected: LocalChangesInlineDiff.Content,
+        text expectedText: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let root = URL(fileURLWithPath: "/tmp/LocalChangesLayoutTests-project")
+        let changed = ChangedFile(path: "data.bin", status: .modified)
+        let model = LocalChangesModel(gitService: StubGit(files: [changed]), fileService: files)
+        await model.refresh(root: root)
+        model.select(changed)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.content, expected, file: file, line: line)
+
+        let theme = ChromeTheme(.dark)
+        let panel = theme.color(.bgPanel)
+        let render = try HostedRender(
+            size: CGSize(width: 900, height: 240),
+            root: LocalChangesView(model: model, projectRoot: root)
+                .background(panel)
+                .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
+                .environment(\.chromeTheme, theme)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+
+        // The detail body: right of the list's divider, below the toolbar and
+        // the detail's path header.
+        let bodyTop = LocalChangesLayout.toolbarHeight + LocalChangesLayout.detailHeaderHeight + 2
+        let rows = CGFloat(bodyTop)..<238
+        let columns = CGFloat(330)..<898
+        let text = xExtent(in: render, rows: rows, columns: columns) {
+            render.matches(.textSecondary, atX: $0, y: $1, ground: panel)
+        }
+        XCTAssertNotNil(text, "no textSecondary placeholder where the rows would sit", file: file, line: line)
+
+        // A row wash spans its pane's full width, so it is looked for in the
+        // detail's two outer strips — one inside each side's pane — which the
+        // centred placeholder never reaches (the text's own antialiased edges
+        // would otherwise pass for a wash). Every pixel there must be the
+        // panel's ground: a row of any kind, washed or not, fails. Read as
+        // "not ground" rather than as a wash swatch, because the diff panes are
+        // AppKit and resolve their dynamic colours by the window's appearance,
+        // not by the SwiftUI theme this render injects.
+        XCTAssertGreaterThan(text?.lowerBound ?? 0, 420, "the placeholder is not centred", file: file, line: line)
+        XCTAssertLessThan(text?.upperBound ?? .infinity, 820, "the placeholder is not centred", file: file, line: line)
+        for strip in [CGFloat(330)..<400, CGFloat(830)..<898] {
+            let drawn = xExtent(in: render, rows: rows, columns: strip) {
+                !render.matches(.bgPanel, atX: $0, y: $1)
+            }
+            XCTAssertNil(drawn, "the detail drew a diff row under a placeholder at \(strip)", file: file, line: line)
+        }
+
+        // Which sentence it is: every placeholder is drawn alike, so the ink is
+        // read by shape — its mask compared with reference renders of the
+        // expected sentence and of "Loading…", the one a stale
+        // `diff.file == selected` check would leave standing — and must be the
+        // closer to the expected one. ("Binary file" and "Loading…" are within
+        // two points of each other in width, so width alone cannot tell.)
+        guard let text else { return }
+        let drawn = inkMask(in: render, rows: rows, columns: text)
+        let expectedDistance = distance(drawn, try referenceMask(of: expectedText, theme: theme))
+        let loadingDistance = distance(drawn, try referenceMask(of: "Loading…", theme: theme))
+        XCTAssertLessThan(
+            expectedDistance, loadingDistance,
+            "the placeholder reads closer to \"Loading…\" than to \"\(expectedText)\"", file: file, line: line
+        )
+    }
+
+    /// The ink mask of `sentence` drawn as the panel's placeholders are:
+    /// `textSecondary`, the callout size, on the panel ground.
+    private func referenceMask(of sentence: String, theme: ChromeTheme) throws -> Set<InkPixel> {
+        let panel = theme.color(.bgPanel)
+        let metrics = InterfaceMetrics(scale: 1)
+        let render = try HostedRender(
+            size: CGSize(width: 568, height: 60),
+            root: Text(sentence)
+                .foregroundStyle(theme.color(.textSecondary))
+                .font(metrics.scaledFont(.callout))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(panel)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let extent = try XCTUnwrap(xExtent(in: render, rows: 0..<60, columns: 0..<568) {
+            render.matches(.textSecondary, atX: $0, y: $1, ground: panel)
+        })
+        return inkMask(in: render, rows: 0..<60, columns: extent)
+    }
+
+    // MARK: - Glyph shapes
+
+    /// One pixel of ink, relative to its mask's top-left inked pixel.
+    private struct InkPixel: Hashable {
+        let x: Int
+        let y: Int
+    }
+
+    /// The revert and refresh glyphs' ink masks, read off one render of the two
+    /// alone, drawn exactly as the toolbar draws them.
+    private func toolbarGlyphReferences(
+        metrics: InterfaceMetrics, theme: ChromeTheme, ground: Color
+    ) throws -> (revert: Set<InkPixel>, refresh: Set<InkPixel>) {
+        let glyph = LocalChangesLayout.toolbarGlyphSize
+        let height = metrics.scaled(LocalChangesLayout.toolbarHeight)
+        let render = try HostedRender(
+            size: CGSize(width: metrics.scaled(120), height: height),
+            root: HStack(spacing: metrics.scaled(30)) {
+                DesignGlyphImage(.undo2, size: glyph, slot: glyph, role: .textSecondary)
+                DesignGlyphImage(.refreshCw, size: glyph, slot: glyph, role: .textSecondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ground)
+            .environment(\.interfaceMetrics, metrics)
+            .environment(\.chromeTheme, theme)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let band = metrics.scaled(2)..<(height - metrics.scaled(2))
+        let clusters = inkClusters(
+            in: render, rows: band, columns: 0..<metrics.scaled(120), mergeGap: metrics.scaled(3)
+        )
+        XCTAssertEqual(clusters.count, 2, "the reference render drew \(clusters.count) glyphs, not two")
+        guard clusters.count == 2 else { return ([], []) }
+        return (
+            inkMask(in: render, rows: band, columns: clusters[0]),
+            inkMask(in: render, rows: band, columns: clusters[1])
+        )
+    }
+
+    /// The inked pixels in the band, relative to the top-left inked pixel.
+    private func inkMask(in render: HostedRender, rows: Range<CGFloat>, columns: Range<CGFloat>) -> Set<InkPixel> {
+        guard let ground = HostedRender.swatch(.bgPanel, ground: nil) else { return [] }
+        let step = 1 / render.pixelScale
+        var pixels: [InkPixel] = []
+        for (i, x) in stride(from: columns.lowerBound, to: columns.upperBound, by: step).enumerated() {
+            for (j, y) in stride(from: rows.lowerBound, to: rows.upperBound, by: step).enumerated()
+            where isInk(render.color(atX: x, y: y), ground: ground) {
+                pixels.append(InkPixel(x: i, y: j))
+            }
+        }
+        let minX = pixels.map(\.x).min() ?? 0
+        let minY = pixels.map(\.y).min() ?? 0
+        return Set(pixels.map { InkPixel(x: $0.x - minX, y: $0.y - minY) })
+    }
+
+    /// The Jaccard distance between two masks at their best alignment within
+    /// one pixel either way, so a sub-pixel placement difference between the
+    /// panel and the reference does not read as a different shape.
+    private func distance(_ lhs: Set<InkPixel>, _ rhs: Set<InkPixel>) -> Double {
+        var best = 1.0
+        for dx in -1...1 {
+            for dy in -1...1 {
+                let shifted = Set(rhs.map { InkPixel(x: $0.x + dx, y: $0.y + dy) })
+                let union = lhs.union(shifted).count
+                guard union > 0 else { continue }
+                best = min(best, 1 - Double(lhs.intersection(shifted).count) / Double(union))
+            }
+        }
+        return best
+    }
+
+    private func isInk(_ color: NSColor?, ground: NSColor) -> Bool {
+        guard let c = color else { return false }
+        return abs(c.redComponent - ground.redComponent) > 0.06
+            || abs(c.greenComponent - ground.greenComponent) > 0.06
+            || abs(c.blueComponent - ground.blueComponent) > 0.06
     }
 
     // MARK: - Sampling (all off the one bitmap)
@@ -155,10 +363,7 @@ final class LocalChangesLayoutTests: XCTestCase {
         var clusters: [Range<CGFloat>] = []
         for x in stride(from: columns.lowerBound, to: columns.upperBound, by: step) {
             let inked = stride(from: rows.lowerBound, to: rows.upperBound, by: step).contains { y in
-                guard let c = render.color(atX: x, y: y) else { return false }
-                return abs(c.redComponent - ground.redComponent) > 0.06
-                    || abs(c.greenComponent - ground.greenComponent) > 0.06
-                    || abs(c.blueComponent - ground.blueComponent) > 0.06
+                isInk(render.color(atX: x, y: y), ground: ground)
             }
             guard inked else { continue }
             if let last = clusters.last, x - last.upperBound < mergeGap {
@@ -183,7 +388,11 @@ final class LocalChangesLayoutTests: XCTestCase {
     }
 
     private final class StubFiles: FileServicing {
-        func read(url: URL) throws -> String { "" }
+        /// The working copy's text and stamp; configured before any load.
+        var text = ""
+        var stamp: FileStamp?
+        func read(url: URL) throws -> String { text }
+        func fileStamp(at url: URL) -> FileStamp? { stamp }
         func write(_ text: String, to url: URL) throws {}
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? { nil }

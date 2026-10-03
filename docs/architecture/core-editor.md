@@ -256,14 +256,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `Plain Text`; an offset outside the text clamps into it, and the line start
     used is never past the clamped caret, so a stale table cannot read outside
     the text. The editor passes the **gutter's own incremental table**, so the
-    line is a binary search (`CurrentLineRule.lineIndex`) and the column counts
-    only the caret's line: a caret move never copies or rescans the buffer. A
-    caret between a CR and its LF needs no special case — the whole text's
-    table opens no line inside the pair.
+    line is a binary search (`CurrentLineRule.lineIndex`) and the column never
+    looks past the caret's own line. A caret between a CR and its LF needs no
+    special case — the whole text's table opens no line inside the pair.
+    **The column is counted incrementally where that is provably the same
+    answer.** `position(text:caretOffset:lineStarts:memo:editFloor:)` takes the
+    previous report's `ColumnMemo` (`lineStart`, `offset`, `column`) and
+    `editFloor`, the lowest UTF-16 offset any edit touched since, and returns the
+    next memo. It counts only what moved when the caret is still on the memo's
+    line start, `[lineStart, memo.offset)` is unedited (`editFloor` `nil` or at
+    least the old offset, so typing at the caret qualifies), and an **anchor**
+    lies within `anchorLookback` (64) UTF-16 units at or below the lower of the
+    two offsets: the line start, or a position between two printable ASCII units
+    (0x20–0x7E), which no grapheme rule joins, so the cluster counts on either
+    side add — column(anchor) = memo.column − count(anchor..old), column(new) =
+    column(anchor) + count(anchor..new). `rangeOfComposedCharacterSequence` is
+    deliberately not the anchor: it miscounts after a prepend character
+    (U+0600). **The full count from the line start still runs** on another
+    line, after an edit before the old caret, on a line with no ASCII anchor
+    nearby, and with no memo; `position(text:caretOffset:lineStarts:)` stays
+    that full count and is the tests' reference. The internal
+    `countedPosition` seam also returns the UTF-16 units examined (anchor search
+    plus units counted), which the tests charge rather than time.
     `CaretReadoutTests` covers ASCII, CRLF (and inside the pair), bare CR,
     NEL/LS/PS, emoji, combining marks, tabs, first and last lines, an
     unterminated last line, clamping, and the line agreeing with the whole
-    text's `LineStartIndex` at every offset. The encoding is the caller's
+    text's `LineStartIndex` at every offset; for the incremental count, moves
+    forwards, backwards and across lines, an edit before the old offset,
+    typing at the caret, carets inside a surrogate pair and a combining
+    sequence, a sweep of every (old, new) pair over combining marks, surrogate
+    pairs, flags, ZWJ emoji, Hangul jamo, a conjunct and a prepend character —
+    each against the full count — and the charged bound: a five-unit move at
+    offset 2,000,000 of a 4,000,000-unit ASCII line costs at most 5 + 64 + 2
+    units, where the full count at the same caret costs at least 2,000,000. The encoding is the caller's
     (`FileService.encodingName`, `core-workspace.md`).
   - `CurrentLineRule.swift` — which line the editor's current-line highlight
     washes: `highlightedLine(selection:lineStarts:length:) -> NSRange?`. The
