@@ -21,7 +21,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the new path plus the restored old path for a rename). `refresh(root:)`
     first resolves the repo top level (`repositoryRoot(for:)`) and stores it as
     `root` — so an opened subfolder still diffs against repo-root-relative paths —
-    then re-queries the repo, replacing `changedFiles` and re-binding the
+    and, together with it, `projectPrefix`: the opened folder's path relative to
+    that root, `""` when they are the same (and on a failed refresh). The prefix
+    is derived by the static `projectPrefix(folder:repositoryRoot:)` with both
+    sides through `CanonicalPath`, so a symlinked or `..`-laden spelling of the
+    folder yields the same prefix, and a folder not under the root yields `""`.
+    It changes only what the panel *shows*; `ChangedFile.path` stays
+    repository-relative for every git operation. It then re-queries the repo, replacing `changedFiles` and re-binding the
     selection (via `reconcile`) to its refreshed `ChangedFile` (keeping its status
     current, e.g. a file that flips deleted→modified) or clearing it when gone, on
     success; on failure it clears state and sets `errorMessage` (never crashing the
@@ -349,20 +355,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file publishes `.binary` without reading `HEAD`, and that an over-cap stamp
     publishes `.tooLarge` having read neither side.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
-    grouping. `group(_:rootName:)` returns one `ChangedFileGroup` (`path`,
-    `label`, `files`; identity `path`) per distinct parent directory — no row
-    for an intermediate directory that holds no changed file, unlike
-    `ChangeTree`'s one node per path component, because the design draws a
-    file's directory as one row showing its whole path. Root-level files form
-    the group with path `""`, labelled with the project folder's name. A rename
+    grouping. `group(_:rootName:projectPrefix:repositoryName:)` returns one
+    `ChangedFileGroup` (`path`, `label`, `files`; identity `path`, always the
+    repository-relative directory) per distinct parent directory — no row for an
+    intermediate directory that holds no changed file, unlike `ChangeTree`'s one
+    node per path component, because the design draws a file's directory as one
+    row showing its whole path. **Labels are relative to the opened project
+    folder**, which may sit below the repository root: `projectPrefix` (the
+    model's, defaulting to `""`, which is the plain repository case and the old
+    behaviour exactly) is that folder's repository-relative path. A file under
+    the prefix — compared by whole components, so `app2/` is not under `app` —
+    is grouped by its project-relative directory, and the project folder's own
+    files form the group labelled `rootName`, the project folder's name. **A
+    file outside the project folder** (the status is the whole repository's)
+    stays repository-relative: its group is labelled with the repository's name
+    joined with its repository-relative directory, or the repository's name
+    alone for repository-root files (`repositoryName`, defaulting to `rootName`,
+    which is the repository's name whenever the prefix is empty), so it never
+    reads as a folder of the project, and every such group sorts after every
+    project group. `displayPath(_:projectPrefix:)` is the detail header's text:
+    project-relative under the prefix, repository-relative outside it. A rename
     is grouped by its new path, the file the worktree holds. Ordering is total so
-    the list never reshuffles between two refreshes of the same status: groups
-    by path, files by name (`name(of:)`, the last component), each compared
+    the list never reshuffles between two refreshes of the same status: project
+    groups by project-relative path, then outside groups by repository-relative
+    path, files by name (`name(of:)`, the last component), each compared
     case-insensitively with digits read numerically and the exact string
-    breaking a tie; `""` sorts before every path, so the root group is always
-    first. `directory(of:)` and `name(of:)` are public because the view labels
-    each file row with the same name the sort used. Tests cover nested paths,
-    root files, renames, numeric order and stability across input permutations.
+    breaking a tie; `""` sorts before every path, so the project-root group is
+    always first. `directory(of:)` and `name(of:)` are public because the view
+    labels each file row with the same name the sort used. Tests cover nested
+    paths, root files, renames, numeric order, stability across input
+    permutations, and a project `repo/app` with files in `app/`, `app/Sources/`,
+    `lib/` and at the repository root (outside groups after, labelled with the
+    repository's name, a string-prefix sibling `app2` outside); the prefix
+    itself is pinned in `LocalChangesModelTests`, including through a symlinked
+    spelling of the folder.
   - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
     `date(from:)` parses git's raw strict ISO-8601 `%aI` string
     (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`

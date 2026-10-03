@@ -45,6 +45,13 @@ public final class LocalChangesModel: ObservableObject {
     /// `rows(for:)`/`tree` can resolve paths without the caller re-supplying it.
     @Published public private(set) var root: URL?
 
+    /// The opened folder's path relative to `root`, `""` when they are the same
+    /// (or when the refresh failed). Set together with `root` on a successful
+    /// refresh, derived canonically by `projectPrefix(folder:repositoryRoot:)`;
+    /// the list and the detail header show paths relative to it, while every git
+    /// operation keeps the repository-relative `ChangedFile.path`.
+    @Published public private(set) var projectPrefix = ""
+
     /// The ids of the changed files the user has checked for a multi-file revert.
     ///
     /// Read-only to callers: membership is toggled through `toggleChecked(_:)`,
@@ -421,6 +428,7 @@ public final class LocalChangesModel: ObservableObject {
                   rootGeneration == rootRequestGeneration else { return }
             let previousRoot = self.root
             self.root = repoRoot
+            projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
             errorMessage = nil
@@ -445,6 +453,7 @@ public final class LocalChangesModel: ObservableObject {
             guard generation == refreshGeneration,
                   rootGeneration == rootRequestGeneration else { return }
             self.root = root
+            projectPrefix = ""
             publishedRootGeneration = rootGeneration
             changedFiles = []
             selected = nil
@@ -459,6 +468,20 @@ public final class LocalChangesModel: ObservableObject {
             revertSelection = []
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The opened `folder`'s path relative to `repositoryRoot`, `""` when they
+    /// name the same directory. Both sides go through `CanonicalPath`, so a
+    /// symlinked or `..`-laden spelling of the folder still yields the same
+    /// prefix; a folder that is not under the root (which git's top-level
+    /// answer rules out) yields `""` rather than a path climbing out of it.
+    public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
+        let folderComponents = CanonicalPath.canonical(folder).pathComponents
+        let rootComponents = CanonicalPath.canonical(repositoryRoot).pathComponents
+        guard let below = CanonicalPath.relativeComponents(
+            of: folderComponents, under: rootComponents
+        ) else { return "" }
+        return below.joined(separator: "/")
     }
 
     /// Select `file` (no-op if it is not among the current changed files), or

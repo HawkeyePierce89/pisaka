@@ -454,6 +454,76 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(rows, LineDiff.rows(old: "old\n", new: "new\n"))
     }
 
+    func testProjectPrefixIsTheOpenedFolderBelowTheRepositoryRoot() async {
+        let git = StubGit()
+        git.repoRoot = URL(fileURLWithPath: "/repo")
+        git.files = [ChangedFile(path: "app/Sources/a.swift", status: .modified)]
+        let model = makeModel(git: git)
+
+        await model.refresh(root: URL(fileURLWithPath: "/repo/app"))
+
+        XCTAssertEqual(model.root, URL(fileURLWithPath: "/repo"))
+        XCTAssertEqual(model.projectPrefix, "app")
+        // Git paths stay repository-relative.
+        XCTAssertEqual(model.changedFiles.map(\.path), ["app/Sources/a.swift"])
+    }
+
+    func testProjectPrefixIsEmptyWhenTheFolderIsTheRepositoryRoot() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        let model = makeModel(git: git)
+
+        await model.refresh(root: URL(fileURLWithPath: "/repo"))
+
+        XCTAssertEqual(model.projectPrefix, "")
+    }
+
+    func testProjectPrefixClearsOnAFailedRefresh() async {
+        let git = StubGit()
+        git.repoRoot = URL(fileURLWithPath: "/repo")
+        let model = makeModel(git: git)
+        await model.refresh(root: URL(fileURLWithPath: "/repo/app/deep"))
+        XCTAssertEqual(model.projectPrefix, "app/deep")
+
+        git.error = StubError.boom
+        await model.refresh(root: URL(fileURLWithPath: "/repo/app/deep"))
+
+        XCTAssertEqual(model.projectPrefix, "")
+    }
+
+    func testProjectPrefixIsLexicallyComponentWise() {
+        let root = URL(fileURLWithPath: "/repo")
+        XCTAssertEqual(LocalChangesModel.projectPrefix(folder: URL(fileURLWithPath: "/repo/"), repositoryRoot: root), "")
+        XCTAssertEqual(
+            LocalChangesModel.projectPrefix(folder: URL(fileURLWithPath: "/repo/x/../app/"), repositoryRoot: root),
+            "app"
+        )
+        // `/repox` is not under `/repo`, and a folder outside the root is no prefix.
+        XCTAssertEqual(LocalChangesModel.projectPrefix(folder: URL(fileURLWithPath: "/repox/a"), repositoryRoot: root), "")
+    }
+
+    func testProjectPrefixResolvesASymlinkedSpellingOfTheFolder() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocalChangesPrefix-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let repo = base.appendingPathComponent("repo")
+        let app = repo.appendingPathComponent("app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: app)
+
+        // The folder opened through the link, the root as git spells it (resolved).
+        let resolvedRoot = URL(fileURLWithPath: realpathString(repo.path))
+        XCTAssertEqual(LocalChangesModel.projectPrefix(folder: link, repositoryRoot: resolvedRoot), "app")
+        XCTAssertEqual(LocalChangesModel.projectPrefix(folder: link, repositoryRoot: repo), "app")
+    }
+
+    private func realpathString(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     func testRefreshRebindsSelectionToRefreshedStatus() async {
         // A selected file whose status changes between refreshes (deleted →
         // modified) must pick up the new status, or its diff would stay wrong

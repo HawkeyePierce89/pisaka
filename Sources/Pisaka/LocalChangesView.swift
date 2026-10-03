@@ -11,8 +11,12 @@ import PisakaCore
 /// beneath its folder as checkbox, status letter, name. The macOS view draws no
 /// flat/by-folder choice; `LocalChangesModel.groupingMode` stays for iOS.
 ///
+/// Paths are shown relative to the opened project folder, which may sit below
+/// the repository root (`LocalChangesModel.projectPrefix`); a file outside it
+/// stays repository-relative, its group labelled with the repository's name.
+///
 /// The right-hand side embeds `DiffView` for the selected file, headed by its
-/// project-relative path. Its content is the model's `selectionDiff`, loaded
+/// project-relative path (`ChangedFileGroups.displayPath`). Its content is the model's `selectionDiff`, loaded
 /// under a token claimed synchronously at each trigger (a selection change, a
 /// refresh), so a superseded selection never publishes. A binary or over-cap
 /// file shows a placeholder — "Binary file" or "Too large to show inline" —
@@ -218,7 +222,10 @@ struct LocalChangesView: View {
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(ChangedFileGroups.group(model.changedFiles, rootName: rootName)) { group in
+                ForEach(ChangedFileGroups.group(
+                    model.changedFiles, rootName: rootName,
+                    projectPrefix: model.projectPrefix, repositoryName: repositoryName
+                )) { group in
                     ChangedFileGroupView(
                         model: model, group: group, projectRoot: projectRoot,
                         onRevert: onRevert, onOpenDiff: onOpenDiff,
@@ -292,13 +299,14 @@ struct LocalChangesView: View {
         }
     }
 
-    /// The selected file's diff, headed by its project-relative path; an empty
+    /// The selected file's diff, headed by its project-relative path
+    /// (repository-relative outside the project folder); an empty
     /// state with nothing selected.
     @ViewBuilder
     private var detail: some View {
         if let selected = model.selected {
             VStack(spacing: 0) {
-                Text(selected.path)
+                Text(ChangedFileGroups.displayPath(selected.path, projectPrefix: model.projectPrefix))
                     .font(metrics.scaledFont(.callout))
                     .foregroundStyle(theme.color(.textSecondary))
                     .lineLimit(1)
@@ -350,8 +358,14 @@ struct LocalChangesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The label of the root-level group: the project folder's name.
+    /// The label of the project-root group: the opened project folder's name,
+    /// which is the repository's only when the folder is its top level.
     private var rootName: String {
+        (projectRoot ?? model.root)?.lastPathComponent ?? ""
+    }
+
+    /// The repository's name, in front of every group outside the project folder.
+    private var repositoryName: String {
         (model.root ?? projectRoot)?.lastPathComponent ?? ""
     }
 

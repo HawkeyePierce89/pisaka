@@ -190,23 +190,23 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/ChangedFileGroupsTests.swift`, `Tests/PisakaCoreTests/LocalChangesModelTests.swift`, `Tests/PisakaAppTests/LocalChangesLayoutTests.swift`
 - Modify: `docs/architecture/core-git-models.md`, `docs/architecture/app-git-views.md`
 
-- [ ] `LocalChangesModel` publishes `projectPrefix`: the opened folder's path relative to the repository root, `""` when they are the same. It is derived through `CanonicalPath` from the requested folder and the resolved repository root, and set together with `root` on a successful refresh.
-- [ ] `ChangedFileGroups.group(_:rootName:projectPrefix:)`, with `projectPrefix` defaulting to `""`, so the current behaviour is the empty case.
+- [x] `LocalChangesModel` publishes `projectPrefix`: the opened folder's path relative to the repository root, `""` when they are the same. It is derived through `CanonicalPath` from the requested folder and the resolved repository root, and set together with `root` on a successful refresh.
+- [x] `ChangedFileGroups.group(_:rootName:projectPrefix:)`, with `projectPrefix` defaulting to `""`, so the current behaviour is the empty case.
   - Files under the prefix are grouped by their project-relative directory, and the root group carries the project's name.
   - Files outside the project folder stay repository-relative. Each group's label is the repository's name joined with its repository-relative directory, or the repository's name alone for repository-root files.
   - Outside groups sort after every project group.
-- [ ] `ChangedFileGroups.displayPath(_:projectPrefix:)` gives the detail header's text.
-- [ ] `ChangedFile.path` stays repository-relative for every git operation.
-- [ ] `LocalChangesView`:
+- [x] `ChangedFileGroups.displayPath(_:projectPrefix:)` gives the detail header's text.
+- [x] `ChangedFile.path` stays repository-relative for every git operation.
+- [x] `LocalChangesView`:
   - `rootName` becomes the project folder's name.
   - Groups and the detail header use the project-relative forms.
-- [ ] Core tests:
+- [x] Core tests:
   - The nested case: project `repo/app`, with files in `app/`, `app/Sources/` and `lib/` and at the repository root.
   - The same-folder case is unchanged.
   - The prefix through a symlinked spelling of the folder.
-- [ ] `LocalChangesLayoutTests` pins Revert before Refresh, off the same render. Find the elements labelled "Revert changes" and "Refresh changed files" in the hosting view's accessibility tree (`render.host`'s `accessibilityChildren()`, walked recursively). Convert their accessibility frames into the window. Assert Revert's minX is less than Refresh's, and that each lies inside ink clusters 1 and 2 respectively.
-- [ ] Fix "project-relative" wording in the docs to match the new behaviour, including the outside-the-project rule.
-- [ ] Run the gates. They must pass before Task 5.
+- [x] `LocalChangesLayoutTests` pins Revert before Refresh, off the same render. Find the elements labelled "Revert changes" and "Refresh changed files" in the hosting view's accessibility tree (`render.host`'s `accessibilityChildren()`, walked recursively). Convert their accessibility frames into the window. Assert Revert's minX is less than Refresh's, and that each lies inside ink clusters 1 and 2 respectively. (Done by glyph ink-shape matching against a reference render instead: the headless hosting view exposes no SwiftUI accessibility nodes; recorded in the suite header and app-git-views.md.)
+- [x] Fix "project-relative" wording in the docs to match the new behaviour, including the outside-the-project rule.
+- [x] Run the gates. They must pass before Task 5.
 
 ### Task 5: Count the caret column incrementally
 

@@ -651,12 +651,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the right. Observes `LocalChangesModel`. **Since the design pass** the
     macOS view draws no flat/by-folder choice — `model.groupingMode` stays in
     Core because iOS still reads it — and the list is one level of folder rows,
-    Core's `ChangedFileGroups.group(_:rootName:)` (one row per distinct parent
-    directory, sorted by path; root-level files under the project folder's name;
-    every folder starts expanded). The toolbar sits at the leading edge:
+    Core's `ChangedFileGroups.group(_:rootName:projectPrefix:repositoryName:)`
+    (one row per distinct parent directory, sorted by path; every folder starts
+    expanded). Paths read **relative to the opened project folder**, which may
+    sit below the repository root (`model.projectPrefix`): `rootName` is the
+    project folder's name and labels the project's own files, while a file
+    outside the folder keeps its repository-relative directory behind the
+    repository's name (`model.root`'s last component), its group after every
+    project group (`core-git-models.md`). The toolbar sits at the leading edge:
     **Commit…** in the shared `.chromePrimary`, then a revert glyph button
     (`undo-2`, 15) and a refresh glyph button (`refresh-cw`, 15), each with its
-    help and accessibility label. Revert acts on `model.toolbarRevertTarget` —
+    help and accessibility label. `LocalChangesLayoutTests` pins Revert before
+    Refresh off the panel's one render: each glyph cluster's ink mask is matched
+    against a reference render of the two glyphs alone, because the headless
+    hosting view builds no SwiftUI accessibility nodes to name them by (only
+    its AppKit scroll view is exposed there, even with application
+    accessibility forced on). Revert acts on `model.toolbarRevertTarget` —
     the first checked file when any is checked (which `filesToRevert(contextFile:)`
     widens to the checked set, exactly as a checked row's context-menu Revert
     does), else the selected file — through the same `onRevert` and its
@@ -664,7 +674,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     to 320 pt wide and a hand-rolled `hairline` divider drags it between 200 and
     640 pt (unscaled), its resize cursor balanced through `syncDividerCursor()`
     and released from `onDisappear` (rule twenty-two). To the right, the
-    selected file's project-relative path heads an embedded `DiffView` drawn at
+    selected file's project-relative path (`ChangedFileGroups.displayPath`,
+    repository-relative outside the project folder) heads an embedded `DiffView` drawn at
     `codeFontSize` (`settings.fontSize`, threaded from `ContentView` — the panes
     are the code zone, and `DiffView` already declares itself a zoom surface);
     its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
