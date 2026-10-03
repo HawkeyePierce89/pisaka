@@ -435,17 +435,17 @@ Dependencies: none new.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run the macOS build and the `generic/platform=iOS` build.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Confirm the gating inventories are current:
+- [x] Run `swift test`.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
+- [x] Run the macOS build and the `generic/platform=iOS` build.
+- [x] Run `swiftlint --strict` from the repository root.
+- [x] Confirm the gating inventories are current:
   - the rule count reads forty-six in `ChromeThemeSourceGatingTests`, `CLAUDE.md` and `core-theme.md`;
   - the new `DrawDirtyRectSourceGatingTests` is listed in `CLAUDE.md`;
   - `CLAUDE.md` stays under 60,000 characters;
   - no other gating inventory went stale.
-- [ ] **Window cost.** Confirm that no new or changed test helper creates a window, hosting view or bitmap per row or per pixel, and that each touched suite's header states its window count truthfully.
-- [ ] **No screen recording.** Confirm that no test uses a screen-recording API.
+- [x] **Window cost.** Confirm that no new or changed test helper creates a window, hosting view or bitmap per row or per pixel, and that each touched suite's header states its window count truthfully.
+- [x] **No screen recording.** Confirm that no test uses a screen-recording API.
 
 ### Task 10: Update documentation
 
