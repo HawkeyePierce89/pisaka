@@ -455,11 +455,11 @@ Decisions made at plan time, so nothing is decided at run time:
 
 ### Task 16: Verify acceptance criteria
 
-- [ ] `swift test` passes.
-- [ ] `swiftlint --strict` from the repository root is clean.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` passes, with DerivedData outside the repository.
-- [ ] The macOS Release build and the iOS build (`generic/platform=iOS`) succeed.
-- [ ] Gating counts and inventories agree across the suites, `core-theme.md` and CLAUDE.md.
+- [x] `swift test` passes.
+- [x] `swiftlint --strict` from the repository root is clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test` passes, with DerivedData outside the repository.
+- [x] The macOS Release build and the iOS build (`generic/platform=iOS`) succeed.
+- [x] Gating counts and inventories agree across the suites, `core-theme.md` and CLAUDE.md.
 
 ### Task 17: Update documentation
 
