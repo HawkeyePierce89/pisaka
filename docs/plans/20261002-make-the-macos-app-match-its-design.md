@@ -412,16 +412,16 @@ Decisions made at plan time, so nothing is decided at run time:
 - Modify: `Sources/Pisaka/SettingsView.swift`, and every code-zone font site: `CodeEditorView`, `DiffView`, `MergeView`, `SourceViewerContent`, `CompletionPanel`, `HoverPanel`, `CommitDialogView`, `CommitUnifiedDiffView`, `ProjectSearchView`, `BracketOverlayLayoutManager`, `LineNumberRulerView`, `MinimapView` (wherever the editor font is built today; confirm by grepping for `monospacedSystemFont`)
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift` (the interface-scale stepper pair, `SettingsView` in `interfaceScaleOwners`, and a new rule that only `EditorFont` and the terminal build a monospaced system font), `ChromeThemeSourceGatingTests` (rule 37's pinned callers)
 
-- [ ] `SettingsStore.editorFontFamily: String?` is persisted under `settings.editorFontFamily`, defaults to `nil`, and treats an empty string as `nil`. Tests cover the default, round-trip, clearing and the launch-argument override.
-- [ ] Every numeric `SettingsStore` read also accepts the argument-domain string form. This covers `fontSize`, `terminalFontSize`, `interfaceScale` and `markdownPreviewFraction`, plus any other `Double`/`Int` key the store reads (there is none today).
+- [x] `SettingsStore.editorFontFamily: String?` is persisted under `settings.editorFontFamily`, defaults to `nil`, and treats an empty string as `nil`. Tests cover the default, round-trip, clearing and the launch-argument override.
+- [x] Every numeric `SettingsStore` read also accepts the argument-domain string form. This covers `fontSize`, `terminalFontSize`, `interfaceScale` and `markdownPreviewFraction`, plus any other `Double`/`Int` key the store reads (there is none today).
   - A stored number reads exactly as today.
   - A `String` that parses as a finite `Double` is used, through the same clamp as today.
   - An absent or unparsable value falls back exactly as today.
   - One small private helper does the read for all four keys. Reading never writes anything back to the defaults.
 
   Tests: for each key, a string value placed in a volatile argument domain (`setVolatileDomain(_:forName: UserDefaults.argumentDomain)` on a suite-backed `UserDefaults`) is honoured. One more test checks that an unparsable string falls back to the default.
-- [ ] `EditorFont.font(size:family:)` returns the named family when it is installed and fixed-pitch, and otherwise today's system monospaced font. Every code-zone site builds its font through it and updates live when the setting changes. The terminal keeps its own font.
-- [ ] The General tab, in this order:
+- [x] `EditorFont.font(size:family:)` returns the named family when it is installed and fixed-pitch, and otherwise today's system monospaced font. Every code-zone site builds its font through it and updates live when the setting changes. The terminal keeps its own font.
+- [x] The General tab, in this order:
   1. Appearance (System / Light / Dark);
   2. Tab placement (Top / Side);
   3. Editor font: a `ChromeMenuField` listing installed fixed-pitch families (from `NSFontManager`), with "System Monospaced" first, then the size stepper;
@@ -429,11 +429,11 @@ Decisions made at plan time, so nothing is decided at run time:
   5. Terminal font size;
   6. Completion;
   7. Indent guides.
-- [ ] Tests:
+- [x] Tests:
   - the Core store tests;
   - the zoom gating updates;
   - an app-layer test that `EditorFont` falls back for an unknown family and honours an installed fixed-pitch one.
-- [ ] Run the gates (must pass).
+- [x] Run the gates (must pass).
 
 ### Task 15: Departures recorded and the documentation sweep
 

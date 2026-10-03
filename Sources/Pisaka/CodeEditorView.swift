@@ -67,6 +67,12 @@ struct CodeEditorView: NSViewRepresentable {
     /// re-applies the font and re-syncs the gutter/minimap in `updateNSView`.
     let fontSize: Double
 
+    /// The code font's family — `SettingsStore.editorFontFamily`, `nil` for the
+    /// system monospaced font. A plain value beside `fontSize`, for its reason;
+    /// the two are resolved together through `EditorFont`, and a change to
+    /// either re-applies the font.
+    let fontFamily: String?
+
     /// Whether the completion popup is offered at all — `SettingsStore.completionEnabled`,
     /// which `ContentView` already observes and passes down.
     ///
@@ -238,9 +244,9 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(text: $text)
     }
 
-    /// The shared monospaced editor font at the current size.
+    /// The shared editor font at the current size and family.
     private func editorFont() -> NSFont {
-        .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        EditorFont.font(size: CGFloat(fontSize), family: fontFamily)
     }
 
     /// The two attributes every character starts from: the editor font, and the
@@ -417,7 +423,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.allowsUndo = true
         textView.isRichText = false
         applyBaseTypography(to: textView)
-        context.coordinator.appliedFontSize = CGFloat(fontSize)
+        context.coordinator.appliedFont = editorFont()
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -491,7 +497,7 @@ struct CodeEditorView: NSViewRepresentable {
         // `HoverContent.dwellDelay`.
         context.coordinator.attachHover(textView: textView)
         context.coordinator.syncHover(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
         // Record which file the gutter would annotate (enabling/disabling its menu
@@ -613,18 +619,18 @@ struct CodeEditorView: NSViewRepresentable {
         // Keep the binding the coordinator writes to current across view updates.
         context.coordinator.text = $text
 
-        // Re-apply the shared font when its size changed (the Stepper or a
-        // Cmd+scroll). Setting `NSTextView.font` re-styles the whole buffer; the
+        // Re-apply the shared font when its size or family changed (the Stepper,
+        // a Cmd+scroll or the Preferences family menu). Setting `NSTextView.font` re-styles the whole buffer; the
         // tree-sitter colors (temporary attributes on the layout manager) survive.
         // The gutter re-derives its own font from the text view per draw, so a
         // thickness recompute + redraw re-syncs it; the minimap geometry depends on
         // the (now-changed) document height, so refresh it too. (The text view's
         // frame-change notification also drives `refreshGeometry`, but call it
         // explicitly so the viewport rectangle is correct on the same turn.)
-        let desiredFontSize = CGFloat(fontSize)
-        if context.coordinator.appliedFontSize != desiredFontSize {
-            context.coordinator.appliedFontSize = desiredFontSize
-            textView.font = editorFont()
+        let desiredFont = editorFont()
+        if context.coordinator.appliedFont != desiredFont {
+            context.coordinator.appliedFont = desiredFont
+            textView.font = desiredFont
             context.coordinator.lineNumberRuler?.editorFontChanged()
             context.coordinator.refreshGeometry()
             // A font change re-lays out the whole buffer, so a popover anchored in
@@ -648,11 +654,11 @@ struct CodeEditorView: NSViewRepresentable {
         // the controller only stores them, and they are read when the *next*
         // answer is drawn.
         context.coordinator.syncHover(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
         context.coordinator.syncCompletionAppearance(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
 
@@ -1098,10 +1104,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// geometry's `contentHeight`.
         weak var lineNumberRuler: LineNumberRulerView?
 
-        /// The editor font size currently applied to the text view, so
+        /// The editor font currently applied to the text view, so
         /// `updateNSView` re-applies the font (and re-syncs the gutter/minimap)
-        /// only when the shared size actually changed.
-        var appliedFontSize: CGFloat?
+        /// only when the shared size or family actually changed.
+        var appliedFont: NSFont?
 
         /// The minimap's own full-file tokenizer (debounced/cached). Separate
         /// from Neon's visible-range highlighter by design.
@@ -1310,8 +1316,8 @@ struct CodeEditorView: NSViewRepresentable {
         /// Forward the panel's two font inputs (`updateNSView`). Cheap and
         /// unconditional: the controller only stores them, and reads them when
         /// the next answer is presented.
-        func syncCompletionAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-            completion.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
+        func syncCompletionAppearance(codeFont: NSFont, metrics: InterfaceMetrics) {
+            completion.syncAppearance(codeFont: codeFont, metrics: metrics)
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -1427,8 +1433,8 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Forward the two font inputs the popover draws with
         /// (`makeNSView`/`updateNSView`).
-        func syncHover(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-            hover.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
+        func syncHover(codeFont: NSFont, metrics: InterfaceMetrics) {
+            hover.syncAppearance(codeFont: codeFont, metrics: metrics)
         }
 
         /// The pointer moved over the text, in the text view's coordinates.

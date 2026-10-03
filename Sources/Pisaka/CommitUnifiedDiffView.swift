@@ -35,6 +35,9 @@ struct CommitUnifiedDiffView: View {
     let wholeOnlyMessage: String?
     /// The shared editor font size, so the diff matches the rest of the app.
     let fontSize: Double
+    /// The code font's family (`SettingsStore.editorFontFamily`), resolved with
+    /// `fontSize` through `EditorFont`; `nil` is the system monospaced font.
+    var fontFamily: String?
     /// Whether the selection may still be changed — false while a commit runs.
     ///
     /// `CommitDialogModel.commit` pins the whole selection at entry, so a unit
@@ -147,6 +150,7 @@ struct CommitUnifiedDiffView: View {
         // widest row this view's state would otherwise still carry.
         .onChange(of: rows, initial: true) { remeasure() }
         .onChange(of: fontSize) { remeasure() }
+        .onChange(of: fontFamily) { remeasure() }
         .background(ZoomSurfaceMarker(kind: .code))
     }
 
@@ -175,7 +179,7 @@ struct CommitUnifiedDiffView: View {
     /// does and draws in `textSecondary`, at the code font like every row.
     private func header(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: fontSize, design: .monospaced))
+            .font(codeFont(size: fontSize))
             .foregroundStyle(theme.color(.textSecondary))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
@@ -193,7 +197,7 @@ struct CommitUnifiedDiffView: View {
             number(line.oldNumber)
             number(line.newNumber)
             Text(sign(line.kind) + line.text)
-                .font(.system(size: fontSize, design: .monospaced))
+                .font(codeFont(size: fontSize))
                 .foregroundStyle(textColor(line.kind))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -237,9 +241,14 @@ struct CommitUnifiedDiffView: View {
 
     private func number(_ value: Int?) -> some View {
         Text(value.map(String.init) ?? "")
-            .font(.system(size: max(9, fontSize - 2), design: .monospaced))
+            .font(codeFont(size: max(9, fontSize - 2)))
             .foregroundStyle(theme.color(.textSecondary))
             .frame(width: 34, alignment: .trailing)
+    }
+
+    /// The code font at `size`, in the chosen family — the one resolver.
+    private func codeFont(size: Double) -> Font {
+        EditorFont.swiftUIFont(size: CGFloat(size), family: fontFamily)
     }
 
     private func sign(_ kind: UnifiedDiffLine.Kind) -> String {

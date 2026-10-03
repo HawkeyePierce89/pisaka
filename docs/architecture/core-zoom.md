@@ -481,7 +481,9 @@ file involved documents its own zoom rules at length, and a raw `contains` would
 pass while the code it describes was deleted) and asserts:
 
   - **`interfaceScale` is named only by the plumbing** — the rule, the metrics,
-    the store and `InterfaceScaleEnvironment` — so the invariant CLAUDE.md
+    the store and `InterfaceScaleEnvironment` — and by `SettingsView`, whose
+    Interface zoom stepper binds `$settings.interfaceScale` and multiplies
+    nothing by it (the stepper rule below pins its grid) — so the invariant CLAUDE.md
     states ("reaches views only as `InterfaceMetrics`, never multiplied inline")
     has a gate. A view writing `settings.interfaceScale * 8` compiles and looks
     right at 100%, which is when it would be reviewed.
@@ -509,9 +511,16 @@ pass while the code it describes was deleted) and asserts:
     the four builds one — the empty-region rule, which the check above cannot
     see: all four files stay in the surface set even while their panes' blank
     areas zoom the chrome.
-  - **Both Preferences steppers name their zone's `ZoomScaleRule`** — the
+  - **Only `EditorFont`, the terminal and the licence text view build a
+    monospaced system font** outside iOS, and no file builds SwiftUI's
+    `.system(size:design: .monospaced)`: every code-zone font goes through the
+    one resolver, so the family chosen in Preferences reaches every surface drawn
+    at the code font (`app-editor.md`). A site building its own compiles and
+    looks right until a family is chosen.
+  - **All three Preferences steppers name their zone's `ZoomScaleRule`** — the
     terminal one `ZoomScaleRule.terminalFont`, the editor one
-    `ZoomScaleRule.editorFont` — rather than restating bounds, and the shared
+    `ZoomScaleRule.editorFont`, the interface zoom one
+    `ZoomScaleRule.interfaceScale` — rather than restating bounds, and the shared
     `ChromeStepper` steps through that rule's `stepped(_:by:)`.
     `SettingsStoreTests` can only assert that the *store* accepts those bounds;
     whether the row presents them is a fact about a view, and hard-coded bounds

@@ -322,11 +322,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `MergeView`'s panes — including its *editable* result pane (`MergePaneTextView`,
     `isEditable = true`), so "untouched" here means "does not use `EditorTextView`",
     not "is read-only" — are deliberately untouched.
-    Shared font size, and the code zoom surface: `CodeEditorView` takes a
-    `fontSize: Double` (threaded from `settings` via `ContentView`); `makeNSView`
-    sets the text view's `font` to `.monospacedSystemFont(ofSize:weight:.regular)`
-    at that size, and `updateNSView` re-applies it when `fontSize` changes (tracked
-    by the coordinator's `appliedFontSize`), then re-derives the gutter (the
+    Shared font size and family, and the code zoom surface: `CodeEditorView` takes a
+    `fontSize: Double` and a `fontFamily: String?` (threaded from `settings` via
+    `ContentView`); `makeNSView` sets the text view's `font` to
+    `EditorFont.font(size:family:)` (below), and `updateNSView` re-applies it when
+    either changes (tracked by the coordinator's `appliedFont`), then re-derives the gutter (the
     `LineNumberRulerView` reads `textView.font?.pointSize`, so a redraw +
     `ruleThickness` recompute) and `refreshGeometry` (so the line-height-dependent
     minimap geometry and viewport rect stay correct). There is **no
@@ -1060,6 +1060,36 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     have made "one definition" false on day one. The file stays outside the
     chrome's gated set, but rule thirty-one reads it: no code-pane
     `backgroundColor` assignment may appear outside that definition.
+  - `EditorFont.swift` (macOS) — the one resolver of the code font.
+    `font(size:family:)` returns the regular member of `family` (asked of
+    `NSFontManager.font(withFamily:traits:weight:size:)`) when that family is
+    installed **and** fixed-pitch (`isFixedPitch` or the `monoSpace` symbolic
+    trait), and otherwise the system monospaced font at the same size — so `nil`,
+    a family uninstalled since it was chosen and a proportional family typed into
+    a launch argument all draw today's font. The question is asked on every
+    build, never cached, so the stored choice survives an uninstall.
+    `swiftUIFont(size:family:)` wraps the same `NSFont` for SwiftUI sites, so the
+    two kinds of surface cannot disagree. `installedFixedPitchFamilies()` feeds
+    the Preferences menu: the font manager's fixed-pitch name set narrows the
+    candidates, and the resolver's own test decides, because a family with one
+    fixed-pitch member can still have a proportional regular one — so every
+    listed entry is one the resolver honours.
+    Every code-zone site builds its font here, from `SettingsStore.fontSize` and
+    `editorFontFamily`, and re-applies it live when either changes: the editor,
+    `DiffView`, `MergeView`, `SourceViewerContent` (each tracking an `appliedFont`
+    rather than a size), the completion and hover popovers (which now receive an
+    `NSFont`, `codeFont`, instead of a size), the commit dialog's message box and
+    `CommitUnifiedDiffView`, Find in Files' preview rows and the fold
+    placeholder's fallback in `BracketOverlayLayoutManager`. The gutter and the
+    minimap follow the text view's font. The terminal keeps its own font — a zone
+    of its own. `ZoomSourceGatingTests` pins that outside iOS only this file,
+    `TerminalSession.swift` and the licence text view (chrome, not code) spell
+    `monospacedSystemFont`, and that no file builds SwiftUI's
+    `.system(size:design: .monospaced)`; the chrome's monospaced text goes
+    through `metrics.scaledFont(_:design:)`, the interface zone's.
+    `EditorFontTests` (app bundle) covers `nil`, an unknown family, an installed
+    proportional family (Helvetica) and an installed fixed-pitch one (Menlo), and
+    that every family the menu lists resolves to itself.
   - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
     sync (D30), and the reason a server ever re-diagnoses anything after its first
     look: D2's flush is request-driven, diagnostics are pushed unasked, so every
@@ -1353,8 +1383,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     because the two kinds want opposite line-breaking: prose wraps (a paragraph is
     meant to be read at whatever width there is) and code truncates (a wrapped
     signature invents indentation the language never had). Code segments use
-    `monospacedSystemFont` at the editor's own `SettingsStore.fontSize`, passed
-    through untouched — a signature drawn at any other size reads as a different
+    the editor's own font — `EditorFont` at `SettingsStore.fontSize` in
+    `SettingsStore.editorFontFamily`, handed over as an `NSFont` (`codeFont`) by
+    `CodeEditorView` through the controller, as the completion panel's is —
+    passed through untouched — a signature drawn at any other size reads as a different
     file — while prose uses the system font at `InterfaceMetrics.font(.body)`, so
     the two zoom zones stay independent *inside one popover*, exactly as they do
     everywhere else. When Core says the content was cut, a trailing ellipsis line

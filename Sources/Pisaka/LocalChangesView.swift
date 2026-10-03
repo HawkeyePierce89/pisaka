@@ -30,6 +30,9 @@ struct LocalChangesView: View {
     /// panes are a code surface, not chrome). Defaults to the system size so
     /// previews/tests can construct the view without the app wiring.
     var codeFontSize: Double = Double(NSFont.systemFontSize)
+    /// The code font's family, which the inline diff is drawn in alongside
+    /// `codeFontSize`; `nil` is the system monospaced font.
+    var codeFontFamily: String?
     /// Invoked when a row's context-menu Revert item or the toolbar's revert
     /// button is chosen, with the context file `filesToRevert(contextFile:)`
     /// widens. Defaults to a no-op so previews/tests can construct the view
@@ -311,7 +314,8 @@ struct LocalChangesView: View {
                         fileID: selected.id,
                         fileName: (selected.path as NSString).lastPathComponent,
                         rows: diff.rows,
-                        fontSize: codeFontSize
+                        fontSize: codeFontSize,
+                        fontFamily: codeFontFamily
                     )
                 } else {
                     placeholder("Loading…")

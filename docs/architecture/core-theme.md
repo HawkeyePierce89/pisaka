@@ -1685,7 +1685,8 @@ the way `SearchLayout.queryFieldHeight` and `FilterBarLayout.controlHeight` size
 the other pinned-height fields. Rule thirty-seven pins the token's spellings per
 file by count over every source file — the declaration plus four `height:`
 arguments, each a `ChromeMenuField`'s (`SettingsView.swift`, `NewPullRequestSheet.swift`,
-`LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`) — and checks each
+`LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`; `SettingsView.swift`
+spells it twice, once per menu field) — and checks each
 count against that file's pinned menu field constructions. What a spelling
 sizes is not something a token rule can see; that is checked by reading.
 
@@ -3256,8 +3257,9 @@ The forty-six rules, each invisible to the compiler:
     `SettingsView.swift`. Each caller's constructions are pinned by count
     besides, matched through `callRanges(_:in:)` so a wrapped call counts —
     rule thirty's shape applied to these five: `SettingsView.swift` two
-    segmented controls, one menu field, two steppers, two switches and one
-    tab bar; `PullRequestMergeSheet.swift` one segmented control;
+    segmented controls, two menu fields (LeetCode's default language and the
+    editor font family), three steppers (editor font size, interface zoom,
+    terminal font size), two switches and one tab bar; `PullRequestMergeSheet.swift` one segmented control;
     `LogFilterBar.swift`, `NewPullRequestSheet.swift`,
     `LeetCodeBrowserView.swift` and `LeetCodeOpenProblemSheet.swift` one menu
     field each;

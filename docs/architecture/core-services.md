@@ -253,6 +253,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
+    **Numeric reads take a launch argument's string form.** All four numeric
+    keys (`fontSize`, `terminalFontSize`, `interfaceScale`,
+    `markdownPreviewFraction`) are read through one private helper,
+    `storedDouble(_:forKey:)`: a stored number is used as it is, and a `String`
+    that parses as a finite `Double` is used too — the form a `-settings.<key>
+    <value>` launch argument arrives in through the volatile argument domain,
+    which otherwise read as wrong-typed and fell back, so `-settings.interfaceScale
+    1.8` was silently ignored. Absent or unparsable values fall back exactly as
+    before, each answer still goes through its key's clamp, and reading never
+    writes anything back. Tested per key against a suite-backed `UserDefaults`
+    with values placed in its argument domain, plus the clamp and the
+    unparsable fallback.
+    **`editorFontFamily`** (`String?`, `Keys.editorFontFamily` =
+    `settings.editorFontFamily`, default `nil` = the system monospaced font) is
+    the code zone's family, beside `fontSize` rather than combined with it: the
+    size moves with every zoom, the family is chosen once. Blank is absent in
+    both directions (the `leetCodeFolderPath` discipline) — `""` written reads
+    back `nil` and removes the key, `""` stored loads as `nil`. Whether the
+    family is installed and fixed-pitch is not the store's question; the macOS
+    resolver `EditorFont` (`app-editor.md`) asks it every time a font is built,
+    so a family uninstalled since it was chosen falls back without being
+    forgotten. Only macOS reads it.
     Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of
     server id → `LSPServerConsent.rawValue` under `Keys.lspServerConsent`, read
     **leniently** (a value the current app does not recognise reads back as

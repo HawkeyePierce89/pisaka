@@ -4455,10 +4455,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
         ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
         ("ChromeMenuField", [
-            "LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1,
+            "LogFilterBar.swift": 1, "SettingsView.swift": 2, "NewPullRequestSheet.swift": 1,
             "LeetCodeBrowserView.swift": 1, "LeetCodeOpenProblemSheet.swift": 1,
         ]),
-        ("ChromeStepper", ["SettingsView.swift": 2]),
+        ("ChromeStepper", ["SettingsView.swift": 3]),
         ("ChromeSwitch", ["SettingsView.swift": 2]),
         ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),
     ]
@@ -4473,7 +4473,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// counted through `callRanges(_:in:)` so a wrapped call counts — rule
     /// thirty's shape, applied to the five settings shapes. The sets alone were
     /// blind to a shape change inside a file that already spells both shapes:
-    /// `SettingsView.swift` builds two segmented controls and one menu field, so
+    /// `SettingsView.swift` builds two segmented controls and two menu fields, so
     /// turning one into the other kept it in both sets. A segmented
     /// base-branch list, a switch where a checkbox belongs, or a second segmented
     /// control added to a pinned file each changes a count or a set and fails
@@ -4513,7 +4513,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `FilterBarLayout.controlHeight`, so it is not a key.
     private static let menuFieldHeightSpellings: [String: Int] = [
         "ChromeGeometry.swift": 1,
-        "SettingsView.swift": 1,
+        "SettingsView.swift": 2,
         "NewPullRequestSheet.swift": 1,
         "LeetCodeBrowserView.swift": 1,
         "LeetCodeOpenProblemSheet.swift": 1,

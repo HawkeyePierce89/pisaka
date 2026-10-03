@@ -711,7 +711,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// placeholder is drawn and measured in it because it stands in the
     /// document's own text flow — the code zone's font, not the chrome's.
     private var editorFont: NSFont {
-        textContainers.first?.textView?.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textContainers.first?.textView?.font ?? EditorFont.font(size: NSFont.systemFontSize, family: nil)
     }
 
     // MARK: - Indentation levels

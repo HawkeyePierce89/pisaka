@@ -78,9 +78,10 @@ final class HoverPanel {
     /// Draw `content` next to `anchor` (a rect in **screen** coordinates, which
     /// is what `NSTextView.firstRect(forCharacterRange:actualRange:)` answers).
     ///
-    /// `codeFontSize` is the editor's own `SettingsStore.fontSize` — the code
-    /// zone's size, passed through untouched, because a type signature drawn at
-    /// anything other than the size the code beside it is drawn at reads as a
+    /// `codeFont` is the editor's own font (`EditorFont`, at
+    /// `SettingsStore.fontSize` in `SettingsStore.editorFontFamily`) — the code
+    /// zone's, passed through untouched, because a type signature drawn at
+    /// anything other than the font the code beside it is drawn in reads as a
     /// different file. `metrics` is the *interface* zone's, and only prose uses
     /// it: the two zones stay independent inside one popover, exactly as they do
     /// everywhere else.
@@ -88,7 +89,7 @@ final class HoverPanel {
         _ content: HoverContent,
         anchoredTo anchor: NSRect,
         in parent: NSWindow?,
-        codeFontSize: CGFloat,
+        codeFont: NSFont,
         metrics: InterfaceMetrics
     ) {
         let inset = CGFloat(metrics.pt(Double(Self.padding)))
@@ -107,7 +108,7 @@ final class HoverPanel {
         )
         let (text, contentSize) = Self.fitted(
             content,
-            codeFontSize: codeFontSize,
+            codeFont: codeFont,
             metrics: metrics,
             maximumWidth: maximumWidth,
             ceiling: ceiling
@@ -265,7 +266,7 @@ final class HoverPanel {
     /// head clipped is still better than showing nothing.
     private static func fitted(
         _ content: HoverContent,
-        codeFontSize: CGFloat,
+        codeFont: NSFont,
         metrics: InterfaceMetrics,
         maximumWidth: CGFloat,
         ceiling: CGFloat
@@ -274,7 +275,7 @@ final class HoverPanel {
         while true {
             let text = attributedString(
                 for: candidate,
-                codeFontSize: codeFontSize,
+                codeFont: codeFont,
                 metrics: metrics
             )
             let bounding = text.boundingRect(
@@ -319,10 +320,9 @@ final class HoverPanel {
     /// signature invents indentation the language never had).
     private static func attributedString(
         for content: HoverContent,
-        codeFontSize: CGFloat,
+        codeFont: NSFont,
         metrics: InterfaceMetrics
     ) -> NSAttributedString {
-        let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         let proseFont = NSFont.systemFont(ofSize: CGFloat(metrics.font(.body)))
 
         let codeParagraph = NSMutableParagraphStyle()

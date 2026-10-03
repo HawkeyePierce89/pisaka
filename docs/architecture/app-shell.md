@@ -1973,10 +1973,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rust-analyzer's bare `.gz` unpacks one binary and no license file either — so
     neither leaves anything in the installed tree for Acknowledgements to read,
     and each row names the origin and the SPDX id instead.
-    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view: a
-    `ChromeSegmentedControl` for tab orientation (Vertical, Horizontal) and for
-    theme (System, Light, Dark), a `ChromeStepper` for "Editor font size" bound to
-    `settings.fontSize` over `ZoomScaleRule.editorFont`, and two `ChromeSwitch`es —
+    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view, its rows
+    in the design's order: a `ChromeSegmentedControl` for "Appearance" (System,
+    Light, Dark — `themePreference`) and for "Tab placement" (Top = horizontal,
+    Side = vertical — `tabOrientation`); "Editor font", one row holding a
+    `ChromeMenuField` over `settings.editorFontFamily` — "System Monospaced"
+    (`nil`) first, then `EditorFont.installedFixedPitchFamilies()`, read once
+    when the page is built, plus a stored family no longer installed so the menu
+    still shows what is selected — and a `ChromeStepper` for the size bound to
+    `settings.fontSize` over `ZoomScaleRule.editorFont`; "Interface zoom", a
+    `ChromeStepper` bound to `settings.interfaceScale` over
+    `ZoomScaleRule.interfaceScale`, formatted as a percentage — the one app file
+    besides the environment plumbing that names the raw scale, and only to bind
+    it (`ZoomSourceGatingTests`' owners); "Terminal font size"; and two
+    `ChromeSwitch`es —
     "Offer completions as you type" bound to `settings.completionEnabled`, and
     "Highlight indentation levels" bound to
     `settings.indentLevelHighlightingEnabled`, bound straight through in the same

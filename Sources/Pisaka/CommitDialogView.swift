@@ -242,6 +242,7 @@ struct CommitDialogView: View {
                     // categories draw this sentence and no checkbox at all.
                     wholeOnlyMessage: model.wholeOnlyMessage(for: path),
                     fontSize: settings.fontSize,
+                    fontFamily: settings.editorFontFamily,
                     isMutable: !model.isRunning,
                     onToggleUnit: { model.toggleUnit($0, path: path) }
                 )
@@ -292,7 +293,7 @@ struct CommitDialogView: View {
     private var messageBox: some View {
         ChromeControlBox(isFocused: isMessageFocused, horizontalPadding: ChromeGeometry.fieldPaddingX) {
             TextEditor(text: $model.message)
-                .font(.system(size: settings.fontSize, design: .monospaced))
+                .font(EditorFont.swiftUIFont(size: settings.fontSize, family: settings.editorFontFamily))
                 .foregroundStyle(theme.color(.textPrimary))
                 .scrollContentBackground(.hidden)
                 .focused($isMessageFocused)
@@ -300,7 +301,7 @@ struct CommitDialogView: View {
                 .overlay(alignment: .topLeading) {
                     if model.message.isEmpty {
                         Text("Commit Message")
-                            .font(.system(size: settings.fontSize, design: .monospaced))
+                            .font(EditorFont.swiftUIFont(size: settings.fontSize, family: settings.editorFontFamily))
                             .foregroundStyle(theme.color(.textSecondary))
                             .padding(.leading, Self.textLineFragmentPadding)
                             .allowsHitTesting(false)
@@ -326,7 +327,7 @@ struct CommitDialogView: View {
     /// as the text system lays it out.
     private var messageLineHeight: CGFloat {
         NSLayoutManager().defaultLineHeight(
-            for: NSFont.monospacedSystemFont(ofSize: settings.fontSize, weight: .regular)
+            for: EditorFont.font(size: settings.fontSize, family: settings.editorFontFamily)
         )
     }
 

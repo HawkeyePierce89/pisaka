@@ -306,6 +306,7 @@ final class SyntaxThemeTests: XCTestCase {
             openFileIDs: [],
             text: binding,
             fontSize: 13,
+            fontFamily: nil,
             completionEnabled: false,
             indentLevelHighlightingEnabled: false,
             interfaceMetrics: InterfaceMetrics(scale: 1),

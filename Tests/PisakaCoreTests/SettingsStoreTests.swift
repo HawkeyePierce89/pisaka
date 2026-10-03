@@ -834,8 +834,10 @@ final class SettingsStoreTests: XCTestCase {
             (Double.nan, MarkdownPreviewWidthRule.defaultFraction),
             (Double.infinity, MarkdownPreviewWidthRule.defaultFraction),
             // Wrong-typed and absent both fall back rather than reading as zero,
-            // which is what `object(forKey:)` plus the cast buys.
-            ("0.4", MarkdownPreviewWidthRule.defaultFraction),
+            // which is what `object(forKey:)` plus the cast buys. (A string that
+            // parses is a launch argument's form and is honoured — see the
+            // argument-domain tests below.)
+            ("wide", MarkdownPreviewWidthRule.defaultFraction),
         ]
         for (index, testCase) in cases.enumerated() {
             let (stored, expected) = testCase
@@ -977,5 +979,117 @@ final class SettingsStoreTests: XCTestCase {
 
     func testSearchQueryHistoryKeyIsStable() {
         XCTAssertEqual(SettingsStore.Keys.searchQueryHistory, "settings.searchQueryHistory")
+    }
+
+    // MARK: - Editor font family
+
+    func testTheEditorFontFamilyDefaultsToTheSystemMonospacedFont() {
+        let store = SettingsStore(defaults: makeDefaults())
+        XCTAssertNil(store.editorFontFamily)
+    }
+
+    func testTheEditorFontFamilyRoundTripsAcrossAFreshStore() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+        store.editorFontFamily = "Menlo"
+        XCTAssertEqual(defaults.string(forKey: SettingsStore.Keys.editorFontFamily), "Menlo")
+        XCTAssertEqual(SettingsStore(defaults: defaults).editorFontFamily, "Menlo")
+    }
+
+    func testClearingTheEditorFontFamilyRemovesTheKey() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+        store.editorFontFamily = "Menlo"
+        store.editorFontFamily = nil
+        XCTAssertNil(defaults.object(forKey: SettingsStore.Keys.editorFontFamily))
+        XCTAssertNil(SettingsStore(defaults: defaults).editorFontFamily)
+
+        // An empty name is no name, written or read.
+        store.editorFontFamily = "Menlo"
+        store.editorFontFamily = ""
+        XCTAssertNil(store.editorFontFamily)
+        XCTAssertNil(defaults.object(forKey: SettingsStore.Keys.editorFontFamily))
+        defaults.set("", forKey: SettingsStore.Keys.editorFontFamily)
+        XCTAssertNil(SettingsStore(defaults: defaults).editorFontFamily)
+    }
+
+    func testALaunchArgumentChoosesTheEditorFontFamilyWithoutWritingIt() {
+        let suite = "SettingsStoreTests.\(#function)"
+        let defaults = makeDefaults()
+        let restore = Self.placeArguments([SettingsStore.Keys.editorFontFamily: "Menlo"], in: defaults)
+        defer { restore() }
+        XCTAssertEqual(SettingsStore(defaults: defaults).editorFontFamily, "Menlo")
+        XCTAssertNil(
+            defaults.persistentDomain(forName: suite)?[SettingsStore.Keys.editorFontFamily],
+            "reading a launch argument wrote it to the persistent domain"
+        )
+    }
+
+    func testTheEditorFontFamilyKeyIsStable() {
+        XCTAssertEqual(SettingsStore.Keys.editorFontFamily, "settings.editorFontFamily")
+    }
+
+    // MARK: - Numeric launch arguments
+
+    /// Places `values` in `defaults`' argument domain — where a
+    /// `-settings.<key> <value>` launch argument lands, always as a string —
+    /// and returns the closure that puts back whatever the domain held before.
+    private static func placeArguments(_ values: [String: Any], in defaults: UserDefaults) -> () -> Void {
+        let previous = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defaults.setVolatileDomain(previous.merging(values) { $1 }, forName: UserDefaults.argumentDomain)
+        return { defaults.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+    }
+
+    /// Every numeric key with a string value in range and the value it reads as.
+    private static let argumentStrings: [(key: String, value: String, expected: Double, read: (SettingsStore) -> Double)] = [
+        (SettingsStore.Keys.fontSize, "17", 17, { $0.fontSize }),
+        (SettingsStore.Keys.terminalFontSize, "20", 20, { $0.terminalFontSize }),
+        (SettingsStore.Keys.interfaceScale, "1.8", 1.8, { $0.interfaceScale }),
+        (SettingsStore.Keys.markdownPreviewFraction, "0.4", 0.4, { $0.markdownPreviewFraction }),
+    ]
+
+    func testEveryNumericKeyHonoursALaunchArgumentsStringForm() {
+        for (key, value, expected, read) in Self.argumentStrings {
+            let suite = "SettingsStoreTests.argument.\(key)"
+            let defaults = makeDefaults("argument.\(key)")
+            let restore = Self.placeArguments([key: value], in: defaults)
+            defer { restore() }
+            XCTAssertEqual(read(SettingsStore(defaults: defaults)), expected, accuracy: 1e-9, key)
+            XCTAssertNil(
+                defaults.persistentDomain(forName: suite)?[key],
+                "reading \(key) wrote it back to the persistent domain"
+            )
+        }
+    }
+
+    func testANumericLaunchArgumentGoesThroughTheSameClamp() {
+        let defaults = makeDefaults()
+        let restore = Self.placeArguments(
+            [SettingsStore.Keys.fontSize: "400", SettingsStore.Keys.interfaceScale: "0.01"],
+            in: defaults
+        )
+        defer { restore() }
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.fontSize, ZoomScaleRule.editorFont.maximum)
+        XCTAssertEqual(store.interfaceScale, ZoomScaleRule.interfaceScale.minimum)
+    }
+
+    func testAnUnparsableNumericLaunchArgumentFallsBackToTheDefault() {
+        let defaults = makeDefaults()
+        let restore = Self.placeArguments(
+            [
+                SettingsStore.Keys.fontSize: "large",
+                SettingsStore.Keys.terminalFontSize: "",
+                SettingsStore.Keys.interfaceScale: "nan",
+                SettingsStore.Keys.markdownPreviewFraction: "inf",
+            ],
+            in: defaults
+        )
+        defer { restore() }
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.fontSize, ZoomScaleRule.editorFont.defaultValue)
+        XCTAssertEqual(store.terminalFontSize, ZoomScaleRule.terminalFont.defaultValue)
+        XCTAssertEqual(store.interfaceScale, ZoomScaleRule.interfaceScale.defaultValue)
+        XCTAssertEqual(store.markdownPreviewFraction, MarkdownPreviewWidthRule.defaultFraction)
     }
 }

@@ -394,7 +394,7 @@ struct ProjectSearchView: View {
             // zones interact — the one thing the split exists to prevent.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(result.matches[index].lineNumber)")
-                    .font(.system(size: settings.fontSize - 2, design: .monospaced))
+                    .font(EditorFont.swiftUIFont(size: settings.fontSize - 2, family: settings.editorFontFamily))
                     .foregroundStyle(chromeColor(.textSecondary))
                     .lineLimit(1)
                     // Leading, so the row's first ink is the number at the
@@ -403,7 +403,7 @@ struct ProjectSearchView: View {
                     .frame(minWidth: 44, alignment: .leading)
 
                 Text(previewText(result.previews[index]))
-                    .font(.system(size: settings.fontSize, design: .monospaced))
+                    .font(EditorFont.swiftUIFont(size: settings.fontSize, family: settings.editorFontFamily))
                     // The preview is a line of the file, drawn at the code font,
                     // so its colour comes from the one table for the reason the
                     // editor's own uncovered text does: SwiftUI's default label

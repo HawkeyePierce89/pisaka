@@ -235,7 +235,8 @@ struct LocalHistoryView: View {
                 // extension and would highlight as nothing at all.
                 fileName: displayName,
                 rows: browser.diffRows,
-                fontSize: settings.fontSize
+                fontSize: settings.fontSize,
+                fontFamily: settings.editorFontFamily
             )
         } else {
             Text(browser.revisions.isEmpty ? "" : "Select a revision to see what changed.")

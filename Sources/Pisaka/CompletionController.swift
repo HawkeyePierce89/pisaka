@@ -95,7 +95,7 @@ final class CompletionController {
     /// exactly as the `Coordinator` holds it.
 
     private let panel = CompletionPanel()
-    private var codeFontSize: CGFloat = 13
+    private var codeFont: NSFont = EditorFont.font(size: 13, family: nil)
     /// The interface zone's metrics, for the panel's chrome (badge, insets,
     /// width cap). Arrives as a plain value next to the code size.
     private var metrics: InterfaceMetrics = .unscaled
@@ -514,7 +514,7 @@ final class CompletionController {
             selection: selection,
             anchoredTo: anchor,
             in: textView.window,
-            codeFontSize: codeFontSize,
+            codeFont: codeFont,
             metrics: metrics
         )
     }
@@ -562,8 +562,8 @@ final class CompletionController {
 
     // MARK: - Panel Drive
 
-    func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-        self.codeFontSize = codeFontSize
+    func syncAppearance(codeFont: NSFont, metrics: InterfaceMetrics) {
+        self.codeFont = codeFont
         self.metrics = metrics
     }
 
