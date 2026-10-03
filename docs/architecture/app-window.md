@@ -235,8 +235,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     label announced before is still spoken; the indicator keeps its label and
     value. Every other `.help` in the window is untouched by this.
     `BottomBarToolTipTests` finds each tooltip view by its text: the seven
-    toggles' at their toggle-square frame, at scale 1.0 and 1.8, and the project
-    and branch widgets' inside the bar's band. The indicator is drawn only for a
+    toggles' at their toggle-square frame, in two named tests at scale 1.0 and
+    1.8 sharing one assertion helper, and the project and branch widgets' inside
+    the bar's band, inside the window, overlapping neither each other nor any
+    toggle's square, and as wide as the widget itself — measured by hosting the
+    widget alone and reading `fittingSize`, which is the ideal width rounded up,
+    so the drawn width is that measure or one backing pixel less, the bar
+    aligning both edges to the pixel grid. "Never takes a click" is pinned side
+    by side: at the centre of a hosted toggle's tooltip view, `hitTest` answers
+    `nil` where a plain `NSView` of the same frame answers itself, and the same
+    instance carries the toggle's text. Not being an accessibility element is
+    deliberately not asserted, because a plain `NSView` answers that too. Each
+    test hosts the bar in one titled window (the completion-state test in two),
+    six in all. The indicator is drawn only for a
     current-branch pull request, which the fixture has not, so its tooltip is
     pinned by gating rule ten alone. Rule ten requires `BarToolTip(` and
     `.accessibilityLabel(` and refuses `.help(` in both builders, the

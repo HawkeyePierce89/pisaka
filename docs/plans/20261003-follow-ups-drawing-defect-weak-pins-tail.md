@@ -364,22 +364,22 @@ Dependencies: none new.
 - Modify: `Tests/PisakaAppTests/BottomBarToolTipTests.swift`
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] **Split the scales.** Split `testEachToolTipViewIsItsTogglesSquareAndNothingElseCarriesOne` into two named tests, one at scale 1 and one at scale 1.8, sharing one private assertion helper.
+- [x] **Split the scales.** Split `testEachToolTipViewIsItsTogglesSquareAndNothingElseCarriesOne` into two named tests, one at scale 1 and one at scale 1.8, sharing one private assertion helper.
   - The header states the real cost: one titled window per `toolTips` call, and how many each test makes.
   - The sentence "no loop creates an AppKit object" then holds literally.
-- [ ] **Widget extent.** For the project widget and the branch widget, measure each widget's width by hosting it once per test and reading `fittingSize`. Assert:
+- [x] **Widget extent.** For the project widget and the branch widget, measure each widget's width by hosting it once per test and reading `fittingSize`. Assert:
   - the tooltip view's width equals the widget's width, within 0.5;
   - its minX and maxX lie inside the window;
   - the two widgets' tooltip extents overlap neither each other nor any toggle's square.
 
   The vertical assertion stays.
-- [ ] **The vacuous assertion.** Replace `isAccessibilityElement()` with two assertions only the tooltip host answers:
+- [x] **The vacuous assertion.** Replace `isAccessibilityElement()` with two assertions only the tooltip host answers:
   - its `hitTest` returns `nil` where a plain `NSView` of the same frame returns itself, checked side by side in the test;
   - the hosted instance carries the toggle's tooltip text.
 
   Drop the accessibility assertion, and record why in the header.
-- [ ] Update the passage in `app-window.md` that describes this suite.
-- [ ] Run the gates. They must pass before Task 7.
+- [x] Update the passage in `app-window.md` that describes this suite.
+- [x] Run the gates. They must pass before Task 7.
 
 ### Task 7: Inline diff tail: no-stamp over-cap, the HEAD size seam, folder switch
 
