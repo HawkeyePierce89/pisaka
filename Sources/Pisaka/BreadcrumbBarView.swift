@@ -73,6 +73,9 @@ private struct BreadcrumbSegments: View, Equatable {
     /// The chrome's colours, inherited from the window root.
     @Environment(\.chromeTheme) private var theme
 
+    /// The separator glyph's size at interface scale 1.0, the design's 10.
+    static let separatorSize: Double = 10
+
     /// Written by hand over the four stored properties, so the two things that
     /// are *not* identity — the scale and the appearance — cannot be dropped from
     /// the comparison by a synthesised conformance quietly following a later
@@ -120,11 +123,18 @@ private struct BreadcrumbSegments: View, Equatable {
         )
         let leading = theme.color(.textSecondary)
         let last = theme.color(.textPrimary)
+        // The separator is the design's `chevron-right` at 10 points, inline in
+        // the one run: a template image inside a `Text` takes the run's colour,
+        // so it is `textSecondary` like the leading segments. Spaces either side
+        // keep the gap the old `›` had.
+        let chevron = DesignGlyphDrawing.inlineImage(.chevronRight, pointSize: metrics.pt(Self.separatorSize))
+            .map { Text(verbatim: " ") + Text($0) + Text(verbatim: " ") }
+            ?? Text(verbatim: " › ")
 
         return components.enumerated().reduce(Text(verbatim: "")) { composed, pair in
             let separator = pair.offset == 0
                 ? Text(verbatim: "")
-                : Text(verbatim: " › ").foregroundColor(leading)
+                : chevron.foregroundColor(leading)
             let isLast = pair.offset == components.count - 1
             return composed
                 + separator

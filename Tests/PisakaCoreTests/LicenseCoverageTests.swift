@@ -14,12 +14,13 @@ import XCTest
 /// Foundation only, so it runs in `swift test` without an Xcode build — and
 /// asserts the three things that make `licenses.json` the list of record:
 ///
-///  * its id set is **exactly** the union of the three source classes — the
+///  * its id set is **exactly** the union of the source classes — the
 ///    packages `project.yml` links (minus the local `PisakaCore`), the
-///    documented transitive identities that are linked but not declared, and the
-///    third-party files bundled as *data* under `Resources/MarkdownPreview/` —
-///    so a new dependency fails here until its license ships, and a removed one
-///    fails until its text is dropped;
+///    documented transitive identities that are linked but not declared, the
+///    third-party files bundled as *data* under `Resources/MarkdownPreview/`,
+///    and the design's glyphs shipped from the asset catalog's `Glyphs/` folder
+///    — so a new dependency fails here until its license ships, and a removed
+///    one fails until its text is dropped;
 ///  * every remote entry's `revision` equals that identity's `Package.resolved`
 ///    pin, so a text can never be quietly taken from upstream `HEAD` — the
 ///    shipped text must be the one that goes with the shipped code;
@@ -49,6 +50,15 @@ import XCTest
 /// three written here or the origin of exactly one notice). Starting from the
 /// manifest alone would wave through a third-party file dropped into a folder
 /// reference, which is precisely how an unacknowledged 3 MB bundle would ship.
+///
+/// The design glyphs are the **fourth origin shape**, an asset-catalog folder,
+/// and get the same two-ended check for the same reason: one entry whose origin
+/// is exactly `Sources/Pisaka/Assets.xcassets/Glyphs` must acknowledge every
+/// imageset in that folder — each one listed in the glyph table of
+/// `Resources/DesignGlyphs/VENDORED.md`, and nothing else in the folder — and
+/// its `revision` and `version` must equal that record's, the revision being the
+/// export manifest's sha256 because the export carries no upstream commit. The
+/// `Vendor/` tests are untouched by it: they still select only the four grammars.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
     /// `project.yml`, so it ships and must be acknowledged even though no
@@ -91,6 +101,17 @@ final class LicenseCoverageTests: XCTestCase {
     private static let bundledAssetDirectory = "Resources/MarkdownPreview"
     private static let firstPartyBundledFiles: Set<String> = ["preview.js", "preview.css", "VENDORED.md"]
 
+    /// The **fourth origin shape**: the design's glyphs, which ship as template
+    /// vector imagesets inside the app's asset catalog. Like the bundled assets
+    /// they have no SwiftPM identity and no pin; unlike them they are not a
+    /// folder reference under `Resources/`, so they are matched by this one exact
+    /// origin, and their provenance record lives beside the other records in
+    /// `Resources/DesignGlyphs/VENDORED.md` — a directory `project.yml` does not
+    /// bundle.
+    private static let designGlyphsIdentity = "design-glyphs"
+    private static let designGlyphsOrigin = "Sources/Pisaka/Assets.xcassets/Glyphs"
+    private static let designGlyphsRecord = "Resources/DesignGlyphs/VENDORED.md"
+
     /// The local package (`path: .`), which is this repository's own code.
     private static let localPackage = "PisakaCore"
 
@@ -104,11 +125,13 @@ final class LicenseCoverageTests: XCTestCase {
             .subtracting([Self.localPackage])
             .union(Self.transitiveIdentities)
             .union(Self.bundledAssetIdentities)
+            .union([Self.designGlyphsIdentity])
 
         XCTAssertEqual(Set(manifest.notices.map(\.id)), expected, """
             Resources/Licenses/licenses.json must list exactly what the app ships third-party code \
-            from: the packages project.yml links, the two linked transitive identities, and the \
-            bundled assets under \(Self.bundledAssetDirectory). Missing entries are unacknowledged \
+            from: the packages project.yml links, the two linked transitive identities, the \
+            bundled assets under \(Self.bundledAssetDirectory) and the design glyphs under \
+            \(Self.designGlyphsOrigin). Missing entries are unacknowledged \
             licenses; extra ones acknowledge something that no longer ships. Add or remove the \
             entry *and* its text file under Resources/Licenses.
             """)
@@ -250,21 +273,25 @@ final class LicenseCoverageTests: XCTestCase {
     // MARK: - Provenance
 
     /// The provenance tests below select on `origin`: one takes the `https://`
-    /// entries, one the `Vendor/` ones, one the `Resources/` ones. An entry
-    /// spelled any other way (`http://`, `git@…`, a bare URL) would be picked up
-    /// by none of them and so would ship with its `revision` checked against
-    /// nothing. Partition first, so a fourth shape has to be dealt with rather
-    /// than skipped.
+    /// entries, one the `Vendor/` ones, one the `Resources/` ones, and one the
+    /// single asset-catalog glyph folder. An entry spelled any other way
+    /// (`http://`, `git@…`, a bare URL) would be picked up by none of them and so
+    /// would ship with its `revision` checked against nothing. Partition first,
+    /// so a fifth shape has to be dealt with rather than skipped. The fourth is
+    /// matched **exactly**, not by prefix: it is one folder, and a second
+    /// `Sources/` origin would be a shape nothing here checks.
     func testEveryEntryHasARemoteVendoredOrBundledOrigin() throws {
         for notice in try loadManifest().notices {
             XCTAssertTrue(notice.origin.hasPrefix("https://")
                             || notice.origin.hasPrefix("Vendor/")
-                            || notice.origin.hasPrefix("Resources/"), """
-                \(notice.id)'s origin “\(notice.origin)” is none of the three shapes this suite \
+                            || notice.origin.hasPrefix("Resources/")
+                            || notice.origin == Self.designGlyphsOrigin, """
+                \(notice.id)'s origin “\(notice.origin)” is none of the four shapes this suite \
                 knows — an https:// URL for a resolved package, a Vendor/ path for a vendored \
-                one, a Resources/ path for a bundled asset — so no provenance test covers it and \
-                its revision is unverified. Spell a remote origin exactly as Package.resolved's \
-                location, and a bundled one as the shipped file's path.
+                one, a Resources/ path for a bundled asset, exactly \(Self.designGlyphsOrigin) \
+                for the design glyphs — so no provenance test covers it and its revision is \
+                unverified. Spell a remote origin exactly as Package.resolved's location, and a \
+                bundled one as the shipped file's path.
                 """)
         }
     }
@@ -442,6 +469,75 @@ final class LicenseCoverageTests: XCTestCase {
         }
     }
 
+    // MARK: - The design glyphs
+
+    /// The directory half for the fourth shape: exactly one notice claims the
+    /// glyph folder, and every imageset in that folder is one the record lists —
+    /// and every glyph the record lists is an imageset there. The asset catalog
+    /// compiles whatever it holds into the app, so an imageset dropped in without
+    /// a row would ship under an acknowledgement that never named it.
+    func testTheDesignGlyphEntryAcknowledgesEveryImagesetInTheGlyphFolder() throws {
+        let claiming = try loadManifest().notices.filter { $0.origin == Self.designGlyphsOrigin }
+        XCTAssertEqual(claiming.map(\.id), [Self.designGlyphsIdentity], """
+            exactly one licences.json notice — \(Self.designGlyphsIdentity) — must claim \
+            \(Self.designGlyphsOrigin); it is claimed by \(claiming.map(\.id)).
+            """)
+
+        let folder = Self.repositoryRoot.appendingPathComponent(Self.designGlyphsOrigin)
+        var imagesets: Set<String> = []
+        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        where name != ".DS_Store" && name != "Contents.json" {
+            XCTAssertTrue(name.hasSuffix(".imageset"), """
+                \(Self.designGlyphsOrigin)/\(name) is not an imageset — the glyph folder holds \
+                its Contents.json and one imageset per acknowledged glyph, nothing else.
+                """)
+            imagesets.insert(String(name.dropLast(".imageset".count)))
+        }
+        XCTAssertFalse(imagesets.isEmpty, "read no imagesets out of \(Self.designGlyphsOrigin)")
+
+        let recorded = Self.glyphNames(inRecord: try text(atRepositoryPath: Self.designGlyphsRecord))
+        XCTAssertEqual(imagesets, recorded, """
+            the glyph folder's imagesets and the glyph table in \(Self.designGlyphsRecord) must be \
+            the same set: an imageset without a row ships unacknowledged, and a row without an \
+            imageset acknowledges a glyph the app no longer carries.
+            """)
+    }
+
+    /// The provenance half: the entry's `revision` and `version` equal the
+    /// record's `Revision` and `Version` rows. The revision is the export
+    /// manifest's digest; the version is `null` on both sides, because the export
+    /// names none — and a notice that grew one would invent it.
+    func testTheDesignGlyphEntryMatchesItsRecord() throws {
+        let notice = try XCTUnwrap(
+            try loadManifest().notices.first { $0.id == Self.designGlyphsIdentity },
+            "licenses.json has no \(Self.designGlyphsIdentity) entry")
+        let section = try XCTUnwrap(
+            MarkdownPreviewVendoredDoc.sections(
+                in: try text(atRepositoryPath: Self.designGlyphsRecord))[Self.designGlyphsIdentity], """
+            \(Self.designGlyphsRecord) has no `## \(Self.designGlyphsIdentity)` section, so nothing \
+            records where the shipped glyphs — or their licence text — came from.
+            """)
+
+        XCTAssertEqual(notice.revision, section.value("Revision"), """
+            \(notice.id) is acknowledged at \(notice.revision), but \(Self.designGlyphsRecord) \
+            records the export manifest's digest as \(section.value("Revision") ?? "nothing").
+            """)
+        let recordedVersion = section.value("Version")
+        XCTAssertEqual(notice.version, recordedVersion == "null" ? nil : recordedVersion, """
+            \(notice.id)'s acknowledged version disagrees with \(Self.designGlyphsRecord)'s.
+            """)
+        XCTAssertNotNil(recordedVersion, "the record must state its version, even as `null`")
+        XCTAssertEqual(notice.origin, section.value("Origin"), """
+            \(notice.id)'s origin names a different folder than its record does.
+            """)
+    }
+
+    /// The first column of the record's `| Glyph | Prefix | Size | MIT notice |`
+    /// table, backticks trimmed.
+    private static func glyphNames(inRecord record: String) -> Set<String> {
+        Set(DesignGlyphRecord.rows(in: record).map(\.name))
+    }
+
     // MARK: - The texts themselves
 
     func testEveryEntryShipsANonEmptyTextAndNothingElseDoes() throws {
@@ -522,6 +618,10 @@ final class LicenseCoverageTests: XCTestCase {
         "TreeSitterSql": "Copyright (c) 2021 Derek Stride",
         "highlight.js": "Copyright (c) 2006, Ivan Sagalaev.",
         "mermaid": "Copyright (c) 2014 - 2022 Knut Sveidqvist",
+        // The text's first holder line spells the icon set's name, which stays
+        // out of code by rule; the MIT section's holder is pinned instead. Both
+        // sections are one file, so a misfiled copy loses this line as surely.
+        "design-glyphs": "Copyright (c) 2013-present Cole Bemis",
     ]
 
     /// Every shipped text actually names the dependency it is filed under.

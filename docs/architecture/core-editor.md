@@ -237,6 +237,53 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     than decorative: `SymbolQueryCatalog`'s compiled-query cache keys on this
     enum, and it crosses the `@Sendable` extractor seam
     (`docs/architecture/core-intelligence.md`).
+    `displayName` is the per-case name the caret readout shows (Swift,
+    JavaScript, TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML,
+    Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell) — spelled out by an
+    exhaustive `switch` rather than derived from the lowercased raw value, so a
+    new case cannot compile without one; `SyntaxLanguageTests` pins the table.
+  - `CaretReadout.swift` — the bottom bar's caret readout,
+    `position(text:caretOffset:lineStarts:)` → a 1-based line and column, and
+    `text(position:language:encodingName:)` →
+    `Ln <line>, Col <column> · <encoding> · <language>`
+    (`text(text:caretOffset:language:encodingName:)` composes the two over the
+    whole text's table). The line is 1-based,
+    split by `LineStartIndex` (all six separators, CRLF once), so it agrees with
+    the gutter; the column is 1-based and counts **grapheme clusters** (Swift
+    `Character`s) from the line start, so an emoji, a letter with a combining
+    mark and a tab are each one column — the editor had no column counter to
+    agree with, and a UTF-16 count would read an emoji as two. No language reads
+    `Plain Text`; an offset outside the text clamps into it, and the line start
+    used is never past the clamped caret, so a stale table cannot read outside
+    the text. The editor passes the **gutter's own incremental table**, so the
+    line is a binary search (`CurrentLineRule.lineIndex`) and the column counts
+    only the caret's line: a caret move never copies or rescans the buffer. A
+    caret between a CR and its LF needs no special case — the whole text's
+    table opens no line inside the pair.
+    `CaretReadoutTests` covers ASCII, CRLF (and inside the pair), bare CR,
+    NEL/LS/PS, emoji, combining marks, tabs, first and last lines, an
+    unterminated last line, clamping, and the line agreeing with the whole
+    text's `LineStartIndex` at every offset. The encoding is the caller's
+    (`FileService.encodingName`, `core-workspace.md`).
+  - `CurrentLineRule.swift` — which line the editor's current-line highlight
+    washes: `highlightedLine(selection:lineStarts:length:) -> NSRange?`. The
+    answer is the UTF-16 range of the line holding the caret, separator
+    included (start to the next line's start; the last line runs to `length`);
+    a selection within one line still highlights, a selection spanning lines
+    answers `nil`. A selection ending exactly at the next line's start — a whole
+    line selected with its separator — covers one line, because its last
+    character is that separator. The trailing empty line of a text ending in a
+    separator, and an empty document's one line, answer the zero-length range
+    at their start. `lineStarts` is `LineStartIndex`'s table, so the line is
+    split by the same six separators the gutter numbers by; the lookup is a
+    binary search (a caret move costs O(log lines)), and an out-of-range
+    selection clamps into the text. `length` is passed because the last line's
+    end is not in the table. `CurrentLineRuleTests`
+    covers a caret (mid-line, at a line start, at a line end), a single-line
+    selection, multi-line selections, the whole-line-with-separator case, the
+    last line, the trailing empty line, an empty document, every separator and
+    clamping. The two painters are `app-editor-overlays.md`'s; the wiring is
+    `app-editor.md`'s.
   - `MinimapGeometry.swift` — pure, testable scroll/viewport math for the
     *proportional* minimap (CoreGraphics/Foundation only). A
     `public struct MinimapGeometry: Equatable` built from `documentHeight`/

@@ -2,27 +2,41 @@
 import SwiftUI
 import PisakaCore
 
-/// The Local Changes list in the bottom dock panel.
+/// The Local Changes panel in the bottom dock: the changed files on the left,
+/// the selected file's diff on the right.
 ///
-/// Renders the files differing from `HEAD` either flat or grouped by folder
-/// (`ChangeTree`), per `model.groupingMode`. A two-segment control in the toolbar
-/// toggles the grouping, Commit is the toolbar's one primary button, and a glyph
-/// refreshes against the current project root. Three
-/// triggers share one activation path through `LocalChangesModel`: double-click,
-/// the "Show Diff" context-menu item, and Cmd+D while the panel has focus. The
-/// view holds no domain logic: it observes `LocalChangesModel` and renders its
-/// published state.
+/// The toolbar leads with Commit… (the shared primary style), then the revert
+/// and refresh glyph buttons. The list is one level of folder rows — one per
+/// distinct parent directory, Core's `ChangedFileGroups` — each file indented
+/// beneath its folder as checkbox, status letter, name. The macOS view draws no
+/// flat/by-folder choice; `LocalChangesModel.groupingMode` stays for iOS.
 ///
-/// On the chrome roles and tokens since part four (b) of the chrome theme: every
-/// colour is a role, the toolbar draws its own bottom `hairline`, and the status
-/// letter, colour and spoken name are Core's one answer.
+/// The right-hand side embeds `DiffView` for the selected file, headed by its
+/// project-relative path. Its rows are the model's `selectionDiff`, loaded
+/// under a token claimed synchronously at each trigger (a selection change, a
+/// refresh), so a superseded selection never publishes. Double-click, the "Show
+/// Diff" context-menu item and Cmd+D still open the diff in its own window,
+/// through one activation path in `LocalChangesModel`. The view holds no domain
+/// logic: it observes `LocalChangesModel` and renders its published state.
+///
+/// Every colour is a role, the toolbar draws its own bottom `hairline`, and the
+/// status letter, colour and spoken name are Core's one answer.
 struct LocalChangesView: View {
     @ObservedObject var model: LocalChangesModel
     /// The current project root, used as the repository root for refresh. `nil`
     /// when no folder is open.
     var projectRoot: URL?
-    /// Invoked when a row's context-menu Revert item is chosen. Defaults to a
-    /// no-op so previews/tests can construct the view without the app wiring.
+    /// The code zone's font size, which the inline diff is drawn at (the diff
+    /// panes are a code surface, not chrome). Defaults to the system size so
+    /// previews/tests can construct the view without the app wiring.
+    var codeFontSize: Double = Double(NSFont.systemFontSize)
+    /// The code font's family, which the inline diff is drawn in alongside
+    /// `codeFontSize`; `nil` is the system monospaced font.
+    var codeFontFamily: String?
+    /// Invoked when a row's context-menu Revert item or the toolbar's revert
+    /// button is chosen, with the context file `filesToRevert(contextFile:)`
+    /// widens. Defaults to a no-op so previews/tests can construct the view
+    /// without the app wiring.
     var onRevert: (ChangedFile) -> Void = { _ in }
     /// Invoked when a row is double-clicked, to open that file's diff in a separate
     /// window (single-click still selects). Defaults to a no-op so previews/tests
@@ -43,10 +57,10 @@ struct LocalChangesView: View {
     /// Cmd+Down shortcut in the focus anchor). Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onOpenFile: (URL) -> Void = { _ in }
-    /// Invoked by the header's Commit button, opening the commit dialog (the same
-    /// handler as the ⌘K menu item, so button and command behave identically).
-    /// Defaults to a no-op so previews/tests can construct the view without the app
-    /// wiring.
+    /// Invoked by the toolbar's Commit… button, opening the commit dialog (the
+    /// same handler as the ⌘K menu item, so button and command behave
+    /// identically). Defaults to a no-op so previews/tests can construct the view
+    /// without the app wiring.
     var onCommit: () -> Void = {}
     /// Invoked when a row's context-menu "Commit…" item is chosen, opening the
     /// commit dialog with *only that file* preselected (the "Commit File" gesture).
@@ -67,6 +81,18 @@ struct LocalChangesView: View {
     /// anchor's coordinator tracks the previous value so focus is only requested
     /// when the token actually changes — not on every body re-evaluation.
     @State private var focusRequest = 0
+    /// The list's width once the user has dragged the divider, unscaled; `nil`
+    /// keeps the default.
+    @State private var listWidth: Double?
+    /// The list's width when the current drag began, unscaled; non-`nil`
+    /// exactly while the divider is dragged.
+    @State private var dragStartWidth: Double?
+    /// Whether the pointer is over the divider's drag band.
+    @State private var isDividerHovering = false
+    /// Whether this view holds a resize cursor on the global stack. Read and
+    /// written only by `syncDividerCursor()`, so every push is balanced by
+    /// exactly one pop.
+    @State private var dividerCursorPushed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,8 +113,16 @@ struct LocalChangesView: View {
         // in `refreshImpl` and strands the panel on the previous repository, which is
         // exactly what `LocalChangesModel.refresh`'s rejection is meant to prevent.
         // (A `@State` or `@ObservedObject` read would have been live.)
-        .onAppear(perform: refreshIfPossible)
+        .onAppear {
+            refreshIfPossible()
+            loadSelectionDiff()
+        }
         .onChange(of: projectRoot) { newRoot in refresh(root: newRoot) }
+        // The inline diff follows the selection, and re-reads after every
+        // refresh — `listRevision` advances even when the refreshed list is equal,
+        // which is exactly when an already-modified file was edited again.
+        .onChange(of: model.selected) { _ in loadSelectionDiff() }
+        .onChange(of: model.listRevision) { _ in loadSelectionDiff() }
         // The focus anchor sits on the outer VStack (not the list) so focus
         // survives placeholder states and an empty change list.
         .background(
@@ -103,47 +137,52 @@ struct LocalChangesView: View {
         )
     }
 
-    /// The panel's toolbar: the grouping control, then Commit as the one primary
-    /// button and the refresh glyph. It draws its own bottom `hairline` rather
-    /// than leaving a `Divider()` to the stack.
+    /// The panel's toolbar, at its leading edge: Commit… in the shared primary
+    /// style, then the revert and refresh glyph buttons. It draws its own bottom
+    /// `hairline` rather than leaving a `Divider()` to the stack.
     private var toolbar: some View {
         HStack(spacing: metrics.scaled(LocalChangesLayout.toolbarGap)) {
-            groupingControl
-
-            Spacer()
-
             // Opening the commit dialog needs a repository and nothing else — the
             // same single condition the ⌘K menu item is disabled on, and for the
             // reasons stated there (this list is not live, and a message-only
             // amend is wanted precisely when it is empty).
             Button(action: onCommit) {
-                Text("Commit")
-                    .font(metrics.scaledFont(.subheadline, weight: .semibold))
-                    .foregroundStyle(theme.color(.onAccent))
+                Text("Commit…")
                     .lineLimit(1)
-                    .padding(.horizontal, metrics.scaled(ChromeGeometry.buttonPaddingX))
-                    .frame(height: metrics.scaled(LocalChangesLayout.buttonHeight))
-                    .background(
-                        RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.buttonCornerRadius))
-                            .fill(theme.color(.accent))
-                    )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chromePrimary)
             .disabled(projectRoot == nil)
-            .opacity(projectRoot == nil ? LocalChangesLayout.disabledOpacity : 1)
             .help("Commit changes…")
 
+            // The checked files when any is checked, else the selected file —
+            // Core's one answer, handed to the same revert path (and its
+            // confirmation) as the row's context-menu Revert.
+            Button {
+                if let target = model.toolbarRevertTarget { onRevert(target) }
+            } label: {
+                DesignGlyphImage(
+                    .undo2, size: LocalChangesLayout.toolbarGlyphSize,
+                    slot: LocalChangesLayout.toolbarGlyphSize, role: .textSecondary
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(model.toolbarRevertTarget == nil)
+            .opacity(model.toolbarRevertTarget == nil ? LocalChangesLayout.disabledOpacity : 1)
+            .help("Revert checked or selected changes…")
+            .accessibilityLabel("Revert changes")
+
             Button(action: refreshIfPossible) {
-                Image(systemName: "arrow.clockwise")
-                    .font(metrics.scaledFont(.body))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .frame(width: metrics.scaled(LocalChangesLayout.glyphSide))
-                    .accessibilityHidden(true)
+                DesignGlyphImage(
+                    .refreshCw, size: LocalChangesLayout.toolbarGlyphSize,
+                    slot: LocalChangesLayout.toolbarGlyphSize, role: .textSecondary
+                )
             }
             .buttonStyle(.plain)
             .disabled(projectRoot == nil)
             .help("Refresh changed files")
             .accessibilityLabel("Refresh changed files")
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, metrics.scaled(LocalChangesLayout.toolbarPaddingX))
         .frame(height: metrics.scaled(LocalChangesLayout.toolbarHeight))
@@ -152,45 +191,6 @@ struct LocalChangesView: View {
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
-    }
-
-    /// The flat/by-folder choice: two glyph segments in one hairline-bordered
-    /// box, the chosen one on the accent's wash. Each segment names itself and
-    /// speaks its selection, since the glyphs alone say nothing to a listener.
-    private var groupingControl: some View {
-        HStack(spacing: 0) {
-            groupingSegment(.flat, symbol: "list.bullet", label: "Flat list")
-            groupingSegment(.byFolder, symbol: "folder", label: "Group by folder")
-        }
-        .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(LocalChangesLayout.segmentRadius)))
-        .overlay(
-            RoundedRectangle(cornerRadius: metrics.scaled(LocalChangesLayout.segmentRadius))
-                .strokeBorder(theme.color(.hairline), lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth))
-        )
-        .help("Group changes flat or by folder")
-    }
-
-    private func groupingSegment(
-        _ mode: LocalChangesModel.GroupingMode,
-        symbol: String,
-        label: String
-    ) -> some View {
-        let isChosen = model.groupingMode == mode
-        return Button { model.groupingMode = mode } label: {
-            Image(systemName: symbol)
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(isChosen ? .textPrimary : .textSecondary))
-                .frame(
-                    width: metrics.scaled(LocalChangesLayout.segmentWidth),
-                    height: metrics.scaled(LocalChangesLayout.buttonHeight)
-                )
-                .background(isChosen ? theme.color(.accentTint) : Color.clear)
-                .contentShape(Rectangle())
-                .accessibilityHidden(true)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isChosen ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -202,42 +202,127 @@ struct LocalChangesView: View {
         } else if model.changedFiles.isEmpty {
             placeholder("No local changes")
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    switch model.groupingMode {
-                    case .flat:
-                        ForEach(model.changedFiles) { file in
-                            ChangedFileRow(
-                                name: (file.path as NSString).lastPathComponent,
-                                url: url(for: file.path),
-                                changedFile: file,
-                                leadingInset: LocalChangesLayout.flatRowInset,
-                                isSelected: model.selected?.id == file.id,
-                                isChecked: model.revertSelection.contains(file.id),
-                                onSelect: { model.select(file); focusRequest += 1 },
-                                onToggleCheck: { model.toggleChecked(file) },
-                                onRevert: { onRevert(file) },
-                                onOpenDiff: { onOpenDiff(file) },
-                                onJumpToSource: { onJumpToSource(file) },
-                                onResolveConflict: { onResolveConflict(file) },
-                                onCommitFile: { onCommitFile(file) }
-                            )
-                        }
-                    case .byFolder:
-                        ForEach(model.tree) { node in
-                            ChangeNodeView(
-                                model: model, node: node, depth: 0,
-                                onRevert: onRevert, onOpenDiff: onOpenDiff,
-                                onJumpToSource: onJumpToSource,
-                                onResolveConflict: onResolveConflict,
-                                onCommitFile: onCommitFile,
-                                onFocusRequest: { focusRequest += 1 }
-                            )
-                        }
-                    }
-                }
-                .padding(.vertical, metrics.scaled(LocalChangesLayout.listPaddingY))
+            HStack(spacing: 0) {
+                list
+                    .frame(width: metrics.scaled(listWidth ?? LocalChangesLayout.listDefaultWidth))
+                divider
+                detail
             }
+        }
+    }
+
+    /// The grouped list: one folder row per distinct parent directory, each
+    /// file indented beneath it.
+    private var list: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(ChangedFileGroups.group(model.changedFiles, rootName: rootName)) { group in
+                    ChangedFileGroupView(
+                        model: model, group: group, projectRoot: projectRoot,
+                        onRevert: onRevert, onOpenDiff: onOpenDiff,
+                        onJumpToSource: onJumpToSource,
+                        onResolveConflict: onResolveConflict,
+                        onCommitFile: onCommitFile,
+                        onFocusRequest: { focusRequest += 1 }
+                    )
+                }
+            }
+            .padding(.vertical, metrics.scaled(LocalChangesLayout.listPaddingY))
+        }
+    }
+
+    /// The `hairline` between the list and the diff, with a wider invisible
+    /// band either side that drags the list's width.
+    private var divider: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(width: metrics.scaled(ChromeGeometry.hairlineWidth))
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: metrics.scaled(LocalChangesLayout.dividerGrip))
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        isDividerHovering = inside
+                        syncDividerCursor()
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { drag in
+                                let start = dragStartWidth ?? (listWidth ?? LocalChangesLayout.listDefaultWidth)
+                                dragStartWidth = start
+                                syncDividerCursor()
+                                let proposed = start + Double(drag.translation.width) / metrics.scale
+                                listWidth = min(
+                                    max(proposed, LocalChangesLayout.listMinimumWidth),
+                                    LocalChangesLayout.listMaximumWidth
+                                )
+                            }
+                            .onEnded { _ in
+                                dragStartWidth = nil
+                                syncDividerCursor()
+                            }
+                    )
+                    // The divider leaves the tree with the panel — a dock tab
+                    // switch, the list emptying — and then neither `onHover(false)`
+                    // nor `onEnded` arrives, so the push is released here, with
+                    // both flags cleared first so the sync has nothing left to want.
+                    .onDisappear {
+                        isDividerHovering = false
+                        dragStartWidth = nil
+                        syncDividerCursor()
+                    }
+            }
+            .accessibilityHidden(true)
+    }
+
+    /// Push the resize cursor while the divider is hovered or dragged, pop it
+    /// otherwise — off the one flag, so a push is never doubled nor a pop spent
+    /// on a cursor this view did not push.
+    private func syncDividerCursor() {
+        let wanted = isDividerHovering || dragStartWidth != nil
+        if wanted, !dividerCursorPushed {
+            NSCursor.resizeLeftRight.push()
+            dividerCursorPushed = true
+        } else if !wanted, dividerCursorPushed {
+            NSCursor.pop()
+            dividerCursorPushed = false
+        }
+    }
+
+    /// The selected file's diff, headed by its project-relative path; an empty
+    /// state with nothing selected.
+    @ViewBuilder
+    private var detail: some View {
+        if let selected = model.selected {
+            VStack(spacing: 0) {
+                Text(selected.path)
+                    .font(metrics.scaledFont(.callout))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, metrics.scaled(LocalChangesLayout.toolbarPaddingX))
+                    .frame(height: metrics.scaled(LocalChangesLayout.detailHeaderHeight))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(theme.color(.hairline))
+                            .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+                    }
+                if let diff = model.selectionDiff, diff.file == selected {
+                    DiffView(
+                        fileID: selected.id,
+                        fileName: (selected.path as NSString).lastPathComponent,
+                        rows: diff.rows,
+                        fontSize: codeFontSize,
+                        fontFamily: codeFontFamily
+                    )
+                } else {
+                    placeholder("Loading…")
+                }
+            }
+        } else {
+            placeholder("Select a file to see its changes")
         }
     }
 
@@ -256,9 +341,9 @@ struct LocalChangesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Absolute url for a repo-relative path, for the row's icon resolution.
-    private func url(for path: String) -> URL {
-        (projectRoot ?? URL(fileURLWithPath: "/")).appendingPathComponent(path)
+    /// The label of the root-level group: the project folder's name.
+    private var rootName: String {
+        (model.root ?? projectRoot)?.lastPathComponent ?? ""
     }
 
     /// Refresh for the currently-held root. Safe from `onAppear` and the Refresh
@@ -278,22 +363,26 @@ struct LocalChangesView: View {
         let requestGeneration = model.currentRequestGeneration
         Task { await model.refresh(root: root, requestGeneration: requestGeneration) }
     }
+
+    /// Re-load the inline diff for the current selection. The token is claimed
+    /// here, synchronously, before the `Task` hop — so of two loads in flight
+    /// only the later trigger's may publish.
+    private func loadSelectionDiff() {
+        let token = model.beginSelectionDiffLoad()
+        Task { await model.loadSelectionDiff(token: token) }
+    }
 }
 
-/// One node in the by-folder tree: a folder header (recursing over in-memory
-/// `ChangeNode.children`, so no disk read is needed) or a file leaf rendered as a
-/// `ChangedFileRow`.
+/// One folder row and, while it is expanded, its files.
 ///
-/// The header is drawn here rather than by a `DisclosureGroup`, whose system
-/// disclosure triangle would bring its own colour into a swept surface: a
-/// `textSecondary` chevron, the monochrome folder glyph (like the Problems
-/// panel's group headers) and the folder's name. Each level indents by
-/// `treeIndentStep`, the project tree's own step.
-private struct ChangeNodeView: View {
+/// The row is drawn here rather than by a `DisclosureGroup`, whose system
+/// disclosure triangle would bring its own colour into a swept surface: the
+/// design's chevron, the folder glyph and the folder's path, all in
+/// `textSecondary`. Every folder starts expanded.
+private struct ChangedFileGroupView: View {
     @ObservedObject var model: LocalChangesModel
-    let node: ChangeNode
-    /// How many folders enclose this node — the indent it is drawn at.
-    let depth: Int
+    let group: ChangedFileGroup
+    let projectRoot: URL?
     let onRevert: (ChangedFile) -> Void
     let onOpenDiff: (ChangedFile) -> Void
     let onJumpToSource: (ChangedFile) -> Void
@@ -308,76 +397,63 @@ private struct ChangeNodeView: View {
     /// The chrome's colours, inherited from the window root.
     @Environment(\.chromeTheme) private var theme
 
-    /// The indent this node's own level adds, unscaled.
-    private var levelIndent: Double { Double(depth) * ChromeGeometry.treeIndentStep }
-
     var body: some View {
-        if let file = node.file {
-            ChangedFileRow(
-                name: node.name,
-                url: node.url,
-                changedFile: file,
-                leadingInset: LocalChangesLayout.folderRowInset + levelIndent,
-                isSelected: model.selected?.id == file.id,
-                isChecked: model.revertSelection.contains(file.id),
-                onSelect: { model.select(file); onFocusRequest() },
-                onToggleCheck: { model.toggleChecked(file) },
-                onRevert: { onRevert(file) },
-                onOpenDiff: { onOpenDiff(file) },
-                onJumpToSource: { onJumpToSource(file) },
-                onResolveConflict: { onResolveConflict(file) },
-                onCommitFile: { onCommitFile(file) }
-            )
-        } else {
-            VStack(alignment: .leading, spacing: 0) {
-                folderHeader
-                if isExpanded {
-                    ForEach(node.children ?? []) { child in
-                        ChangeNodeView(
-                            model: model, node: child, depth: depth + 1,
-                            onRevert: onRevert, onOpenDiff: onOpenDiff,
-                            onJumpToSource: onJumpToSource,
-                            onResolveConflict: onResolveConflict,
-                            onCommitFile: onCommitFile,
-                            onFocusRequest: onFocusRequest
-                        )
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            folderHeader
+            if isExpanded {
+                ForEach(group.files) { file in
+                    ChangedFileRow(
+                        name: ChangedFileGroups.name(of: file.path),
+                        changedFile: file,
+                        isSelected: model.selected?.id == file.id,
+                        isChecked: model.revertSelection.contains(file.id),
+                        onSelect: { model.select(file); onFocusRequest() },
+                        onToggleCheck: { model.toggleChecked(file) },
+                        onRevert: { onRevert(file) },
+                        onOpenDiff: { onOpenDiff(file) },
+                        onJumpToSource: { onJumpToSource(file) },
+                        onResolveConflict: { onResolveConflict(file) },
+                        onCommitFile: { onCommitFile(file) }
+                    )
                 }
             }
         }
     }
 
     private var folderHeader: some View {
-        let icon = FileIcon(for: DirectoryEntry(url: node.url, isDirectory: true))
-        return Button { isExpanded.toggle() } label: {
+        Button { isExpanded.toggle() } label: {
             HStack(spacing: metrics.scaled(LocalChangesLayout.folderGap)) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(metrics.scaledFont(.subheadline))
-                    .frame(width: metrics.scaled(LocalChangesLayout.chevronWidth))
-                Image(systemName: icon.symbolName)
+                DesignGlyphImage(
+                    isExpanded ? .chevronDown : .chevronRight,
+                    size: LocalChangesLayout.chevronSize, slot: LocalChangesLayout.chevronSize,
+                    role: .textSecondary
+                )
+                DesignGlyphImage(
+                    FileGlyph.forFolder(expanded: isExpanded),
+                    size: LocalChangesLayout.folderGlyphSize, slot: LocalChangesLayout.folderGlyphSize,
+                    role: .textSecondary
+                )
+                Text(group.label)
                     .font(metrics.scaledFont(.callout))
-                Text(node.name)
-                    .font(metrics.scaledFont(.subheadline, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(theme.color(.textSecondary))
-            .padding(.leading, metrics.scaled(LocalChangesLayout.folderPaddingX + levelIndent))
-            .padding(.trailing, metrics.scaled(LocalChangesLayout.folderPaddingX))
-            .frame(height: metrics.scaled(LocalChangesLayout.folderHeaderHeight))
+            .padding(.horizontal, metrics.scaled(LocalChangesLayout.folderPaddingX))
+            .frame(height: metrics.scaled(ChromeGeometry.rowHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .accessibilityHidden(true)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(node.name)
+        .accessibilityLabel(group.label)
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
     }
 }
 
-/// One changed-file row: the revert checkbox, the monochrome file-type glyph,
-/// the name, and the one-letter status badge. Clicking selects the file.
+/// One changed-file row, indented beneath its folder: the revert checkbox, the
+/// one-letter status, then the name. Clicking selects the file.
 ///
 /// The letter, its colour and its spoken name are Core's one answer
 /// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
@@ -386,11 +462,7 @@ private struct ChangeNodeView: View {
 /// reads the same to someone who cannot tell the colours apart.
 private struct ChangedFileRow: View {
     let name: String
-    let url: URL
     let changedFile: ChangedFile
-    /// The row's leading inset, unscaled: the flat list's, or the by-folder
-    /// grouping's past its folder's glyph.
-    let leadingInset: Double
     let isSelected: Bool
     let isChecked: Bool
     let onSelect: () -> Void
@@ -419,28 +491,24 @@ private struct ChangedFileRow: View {
     @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))
         HStack(spacing: metrics.scaled(LocalChangesLayout.rowGap)) {
             ChromeCheckbox(state: isChecked ? .on : .off, label: "Include \(name) in revert", action: onToggleCheck)
                 .help("Select for revert")
-            Image(systemName: icon.symbolName)
-                .font(metrics.scaledFont(.callout))
-                .foregroundStyle(theme.color(.textSecondary))
-                .accessibilityHidden(true)
+            Text(status.letter)
+                .font(metrics.scaledFont(.callout, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.color(ChromeColorRole.changedFileRole(for: status)))
+                .lineLimit(1)
+                .frame(width: metrics.scaled(LocalChangesLayout.statusColumnWidth))
+                .accessibilityLabel("Status")
+                .accessibilityValue(status.spokenName)
             Text(name)
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: metrics.scaled(LocalChangesLayout.rowGap))
-            Text(status.letter)
-                .font(metrics.scaledFont(.callout, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.color(ChromeColorRole.changedFileRole(for: status)))
-                .lineLimit(1)
-                .accessibilityLabel("Status")
-                .accessibilityValue(status.spokenName)
+            Spacer(minLength: 0)
         }
-        .padding(.leading, metrics.scaled(leadingInset))
+        .padding(.leading, metrics.scaled(LocalChangesLayout.fileRowInset))
         .padding(.trailing, metrics.scaled(LocalChangesLayout.rowTrailingInset))
         .frame(height: metrics.scaled(ChromeGeometry.rowHeight))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -495,46 +563,52 @@ private struct ChangedFileRow: View {
 /// The panel's own measurements, bare numbers scaled once at the use site. They
 /// belong to this panel alone, so deriving them from a `ChromeGeometry` token
 /// would couple them to a measurement that means something else (gating rule
-/// seven).
-private enum LocalChangesLayout {
-    /// The toolbar strip's height.
-    static let toolbarHeight: Double = 32
+/// seven). Internal rather than private so the app-layer layout suite measures
+/// against the same numbers.
+enum LocalChangesLayout {
+    /// The toolbar strip's height: the primary button's 28 plus a 4-point
+    /// margin above and below.
+    static let toolbarHeight: Double = 36
     /// The toolbar's horizontal inset.
     static let toolbarPaddingX: Double = 10
     /// Between the toolbar's controls.
     static let toolbarGap: Double = 8
-    /// The Commit button's and the grouping segments' height.
-    static let buttonHeight: Double = 22
-    /// One grouping segment's width.
-    static let segmentWidth: Double = 28
-    /// The grouping control's corner radius.
-    static let segmentRadius: Double = 4
-    /// The refresh glyph's box.
-    static let glyphSide: Double = 15
-    /// A disabled Commit button's opacity: the whole control dimmed, its colours
+    /// The revert and refresh glyphs' drawn size and slot.
+    static let toolbarGlyphSize: Double = 15
+    /// A disabled glyph button's opacity: the whole control dimmed, its colours
     /// still the roles.
     static let disabledOpacity: Double = 0.5
+    /// The list's default width, before the user drags the divider.
+    static let listDefaultWidth: Double = 320
+    /// The narrowest the divider drags the list to.
+    static let listMinimumWidth: Double = 200
+    /// The widest the divider drags the list to.
+    static let listMaximumWidth: Double = 640
+    /// The divider's invisible drag band.
+    static let dividerGrip: Double = 8
+    /// The diff's path header strip's height.
+    static let detailHeaderHeight: Double = 28
     /// Above and below the list inside its scroll view.
     static let listPaddingY: Double = 4
     /// Around the empty-state sentence.
     static let placeholderPadding: Double = 16
-    /// A folder header's height.
-    static let folderHeaderHeight: Double = 22
-    /// A folder header's horizontal inset.
+    /// A folder row's horizontal inset.
     static let folderPaddingX: Double = 10
-    /// Between a folder header's chevron, glyph and name.
+    /// Between a folder row's chevron, glyph and path.
     static let folderGap: Double = 6
-    /// The folder chevron's box, so the glyph after it sits still as it turns.
-    static let chevronWidth: Double = 10
-    /// A file row's leading inset in the flat list.
-    static let flatRowInset: Double = 10
-    /// A file row's leading inset under a folder header: past its chevron, level
+    /// The folder row's chevron.
+    static let chevronSize: Double = 12
+    /// The folder row's folder glyph.
+    static let folderGlyphSize: Double = 14
+    /// A file row's leading inset beneath its folder: past the chevron, level
     /// with the folder's glyph.
-    static let folderRowInset: Double = 26
+    static let fileRowInset: Double = 28
     /// A file row's trailing inset.
     static let rowTrailingInset: Double = 10
     /// Between a file row's parts.
     static let rowGap: Double = 6
+    /// The status letter's column, so every name starts at the same x.
+    static let statusColumnWidth: Double = 12
 }
 
 // MARK: - Focus anchor (Cmd+D interception)

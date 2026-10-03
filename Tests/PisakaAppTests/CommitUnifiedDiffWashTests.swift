@@ -36,6 +36,18 @@ import PisakaCore
 /// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
 /// setting or touches a preference.
 ///
+/// **Header rows and the text tint.** Every diff is hosted as the panel draws
+/// it, under its `---`/`+++` file headers and an `@@` hunk header, which must
+/// carry no wash. An added line's text draws in `statusGreen` and a removed
+/// line's in `statusRed` on top of the wash; a context line's text in neither.
+/// The tint is read off one render as a channel's *dominance* — how far a
+/// pixel's red (or green) rises above its other two channels — taken at the
+/// band's strongest pixel. A grey stroke has none and the wash a little; a
+/// stroke drawn in the tint reaches most of the tint's own dominance, read off
+/// its swatch (the dark `statusGreen` rises only about 0.14 above its red, so
+/// a fixed margin would not separate it from the wash). The font
+/// is enlarged so a stroke's core is covered at either backing scale.
+///
 /// **Live updates.** The content's width is measured state, so the cases that
 /// change the hosted diff in place — a file switch, a placeholder in between,
 /// a font-size change — compare the width it settles at against a fresh render
@@ -70,6 +82,66 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
             oldNumber: 4, newNumber: 4, unitIndex: nil
         ),
     ]
+
+    /// The rows the panel draws for `lines`: the two file headers and one hunk
+    /// header, then the lines.
+    static func displayRows(_ lines: [UnifiedDiffLine]) -> [UnifiedDiffDisplayRow] {
+        [.fileHeader("--- a/file.txt"), .fileHeader("+++ b/file.txt"), .hunkHeader("@@ -1,3 +1,3 @@")]
+            + lines.map { .line($0) }
+    }
+
+    func testChangedLinesTextIsTintedOnTopOfItsWashAndContextTextIsNot() throws {
+        let render = try DiffRender(lines: Self.short, fontSize: 28, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let x = render.width - 4
+        let removed = try XCTUnwrap(render.extent(of: .diffRemovedBackground, atX: x), "the removed line is not washed")
+        let added = try XCTUnwrap(render.extent(of: .diffAddedBackground, atX: x), "the added line is not washed")
+        let context = (minY: added.maxY, maxY: added.maxY + (added.maxY - added.minY))
+        let removedWash = try XCTUnwrap(render.color(atX: x, y: (removed.minY + removed.maxY) / 2))
+        let addedWash = try XCTUnwrap(render.color(atX: x, y: (added.minY + added.maxY) / 2))
+
+        let red = try XCTUnwrap(HostedRender.swatch(.statusRed, ground: nil))
+        let green = try XCTUnwrap(HostedRender.swatch(.statusGreen, ground: nil))
+        XCTAssertGreaterThan(
+            DiffRender.dominance(.green, of: green), DiffRender.dominance(.green, of: addedWash) * 3,
+            "the tint does not stand out from its wash — the case is not exercised"
+        )
+        XCTAssertGreaterThan(
+            render.dominance(.red, in: removed),
+            max(DiffRender.dominance(.red, of: removedWash), DiffRender.dominance(.red, of: red) * 0.75),
+            "the removed line's text is not tinted statusRed"
+        )
+        XCTAssertGreaterThan(
+            render.dominance(.green, in: added),
+            max(DiffRender.dominance(.green, of: addedWash), DiffRender.dominance(.green, of: green) * 0.75),
+            "the added line's text is not tinted statusGreen"
+        )
+        XCTAssertLessThan(render.dominance(.green, in: removed), 0.05, "the removed line's text is green")
+        XCTAssertLessThan(render.dominance(.red, in: added), 0.05, "the added line's text is red")
+        for channel in [DiffRender.Channel.red, .green] {
+            XCTAssertLessThan(render.dominance(channel, in: context), 0.05, "the context line's text is tinted \(channel)")
+        }
+    }
+
+    /// The header rows above the first line carry no wash and no checkbox: the
+    /// band above the removed row holds no wash pixel at the trailing edge and
+    /// no accent pixel (the checked checkbox's colour) anywhere, and its text is
+    /// drawn.
+    func testHeaderRowsAreDrawnUnwashedAndWithoutACheckbox() throws {
+        let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let x = render.width - 4
+        let removed = try XCTUnwrap(render.extent(of: .diffRemovedBackground, atX: x), "the removed line is not washed")
+        XCTAssertGreaterThan(removed.minY, 30, "no header rows above the first line")
+        let headers = (minY: CGFloat(2), maxY: removed.minY - 1)
+        for role: ChromeColorRole in [.diffAddedBackground, .diffRemovedBackground] {
+            XCTAssertFalse(render.matches(role, atX: x, y: headers.maxY / 2), "a header row is washed \(role.rawValue)")
+        }
+        // The checked checkbox is the one blue thing a row draws.
+        XCTAssertLessThan(render.dominance(.blue, in: headers), 0.05, "a header row draws a checkbox")
+        XCTAssertGreaterThan(render.dominance(.blue, in: removed), 0.15, "the removed line's checkbox is not drawn")
+        XCTAssertGreaterThan(render.brightest(in: headers), 0.3, "the header text is not drawn")
+    }
 
     func testShortChangedLinesAreWashedToThePanesTrailingEdge() throws {
         let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
@@ -209,7 +281,8 @@ private struct DiffHost: View {
 
     var body: some View {
         CommitUnifiedDiffView(
-            lines: input.lines, selectedUnits: [0], wholeOnlyMessage: input.wholeOnlyMessage, fontSize: input.fontSize
+            rows: CommitUnifiedDiffWashTests.displayRows(input.lines), selectedUnits: [0],
+            wholeOnlyMessage: input.wholeOnlyMessage, fontSize: input.fontSize
         )
     }
 }
@@ -293,5 +366,47 @@ private final class DiffRender {
     func extent(of role: ChromeColorRole, atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
         render.extent(of: role, atX: x, ground: .black)
     }
+
+    enum Channel { case red, green, blue }
+
+    /// How far `channel` rises above the larger of `color`'s other two.
+    static func dominance(_ channel: Channel, of color: NSColor) -> CGFloat {
+        let (r, g, b) = (color.redComponent, color.greenComponent, color.blueComponent)
+        switch channel {
+        case .red: return r - max(g, b)
+        case .green: return g - max(r, b)
+        case .blue: return b - max(r, g)
+        }
+    }
+
+    /// The largest `dominance` of `channel` over the pixels inside the band,
+    /// inset one point at each edge so a neighbouring row never leaks in.
+    func dominance(_ channel: Channel, in band: (minY: CGFloat, maxY: CGFloat)) -> CGFloat {
+        scan(band) { Self.dominance(channel, of: $0) }
+    }
+
+    /// The largest channel value over the pixels inside the band — whether
+    /// anything brighter than the black ground is drawn there.
+    func brightest(in band: (minY: CGFloat, maxY: CGFloat)) -> CGFloat {
+        scan(band) { max($0.redComponent, $0.greenComponent, $0.blueComponent) }
+    }
+
+    /// The largest `measure` over every pixel inside the band, read off the one
+    /// bitmap already captured — no window, view or bitmap per pixel.
+    private func scan(_ band: (minY: CGFloat, maxY: CGFloat), _ measure: (NSColor) -> CGFloat) -> CGFloat {
+        let step = 1 / render.pixelScale
+        var best = -CGFloat.infinity
+        for y in stride(from: band.minY + 1, to: band.maxY - 1, by: step) {
+            autoreleasepool {
+                for pixel in 0..<render.pixelsWide {
+                    guard let color = render.color(atPixelX: pixel, y: y) else { continue }
+                    best = max(best, measure(color))
+                }
+            }
+        }
+        return best
+    }
+
+    func color(atX x: CGFloat, y: CGFloat) -> NSColor? { render.color(atX: x, y: y) }
 }
 #endif

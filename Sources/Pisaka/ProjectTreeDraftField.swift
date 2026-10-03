@@ -120,9 +120,9 @@ struct TreeNameFieldView: View {
                     // The *same* icon column the field sits beside, drawn hidden
                     // and collapsed to zero height: the reason's inset is then
                     // that column's real width by construction, so it cannot
-                    // drift from a literal. The font must match the row's, since
-                    // the column's width is the chevron gutter plus a symbol
-                    // drawn at that font.
+                    // drift from a literal. The column's width is the chevron
+                    // gutter plus the glyph's fixed slot; the font is kept so the
+                    // twin stays the row's exact copy.
                     if isCreate {
                         iconColumn
                             .font(metrics.scaledFont(.body))
@@ -171,19 +171,22 @@ struct TreeNameFieldView: View {
             if isFolder {
                 HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
                     Color.clear.frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
-                    let icon = FileIcon(symbolName: "folder", color: .accent)
-                    // Monochrome, exactly as the row this draft stands in draws
-                    // its own icon: `FileIcon`'s tint is deliberately unread.
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(theme.color(.textSecondary))
+                    // The closed folder, exactly as the row this draft stands in
+                    // draws a collapsed folder: same glyph, size and role.
+                    DesignGlyphImage(
+                        FileGlyph.forFolder(expanded: false),
+                        size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+                    )
                 }
             } else {
                 HStack(spacing: 0) {
                     Color.clear.frame(width: TreeRowLayout.chevronGutter(metrics))
-                    let icon = fileIcon(for: text)
-                    // Monochrome, for the folder draft's reason.
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(theme.color(.textSecondary))
+                    // The glyph the file row will draw once the name is committed,
+                    // read off the name typed so far.
+                    DesignGlyphImage(
+                        fileGlyph(for: text),
+                        size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+                    )
                 }
             }
         case .rename:
@@ -191,22 +194,13 @@ struct TreeNameFieldView: View {
         }
     }
 
-    private func fileIcon(for input: String) -> FileIcon {
+    /// The glyph for the name typed so far. Only the final component is asked
+    /// about: a trailing slash leaves it empty, and an empty name is `FileGlyph`'s
+    /// plain text document — the honest answer while there is no name yet.
+    private func fileGlyph(for input: String) -> DesignGlyph {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return FileIcon(symbolName: "doc", color: .gray)
-        }
-        // A trailing slash leaves an empty final component, and
-        // `URL(fileURLWithPath: "")` resolves to the process's current
-        // directory — an icon read off a path the user never typed. There is no
-        // final name yet, so the default doc icon is the honest answer.
         let finalComponent = trimmed.components(separatedBy: "/").last ?? ""
-        if finalComponent.isEmpty {
-            return FileIcon(symbolName: "doc", color: .gray)
-        }
-        let dummyURL = URL(fileURLWithPath: finalComponent)
-        let entry = DirectoryEntry(url: dummyURL, isDirectory: false)
-        return FileIcon(for: entry)
+        return FileGlyph.forFile(named: finalComponent)
     }
 }
 

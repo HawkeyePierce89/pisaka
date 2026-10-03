@@ -92,13 +92,14 @@ enum ChromePalette {
         // washes itself with, not an editor text selection. Every row that
         // paints the tree's states (the commit dialog's file row among them)
         // spends it through that mapping rather than by naming it.
-        // `currentLine` is at present painted by nothing at all (its only
-        // occurrences are its declaration, the row below and this comment), so
-        // the two have never been drawn together and no symptom was visible;
-        // what the change answers is the design, and what the rule below it in
-        // `ChromePaletteTests` guards is the future in which a current-line
-        // highlight is added.
+        // `currentLine` was then painted by nothing at all, so no symptom was
+        // visible; what the change answered is the design. The current-line
+        // highlight now paints it (see the row below), and the rule in
+        // `ChromePaletteTests` keeps the two washes apart.
         case .selectionInactive: return Entry(dark: 0x3C3F46, light: 0xE2E2E7)
+        // The current-line highlight: painted by `BracketOverlayLayoutManager.swift`'s
+        // full-width band under the caret's line and by `LineNumberRulerView.swift`'s
+        // continuation of it in the gutter.
         case .currentLine: return Entry(dark: 0x34363B, light: 0xF0F0F2)
         case .bracketMatch: return Entry(dark: 0x3D4A5C, light: 0xDBE6F5)
 

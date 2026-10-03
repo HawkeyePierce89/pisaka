@@ -445,20 +445,17 @@ private struct DirectoryNodeView: View {
                 }
             }
         } label: {
-            // The root node is built from a URL, so synthesize an equivalent
-            // directory entry to resolve the folder icon through `FileIcon`.
-            let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: true))
             HStack(spacing: metrics.scaled(4)) {
-                // Monochrome, for `FileRowView`'s reason.
-                Image(systemName: icon.symbolName)
-                    .foregroundStyle(theme.color(.textSecondary))
-                    // Decorative, and hidden for the same reason the style hides
-                    // its chevron: this label sits *inside* the row's combined
-                    // accessibility element, so an unhidden symbol prepends its
-                    // own name to that element's label ("folder fill, Sources").
-                    // Directory-ness is already carried by the row's button
-                    // trait and its expanded/collapsed `accessibilityValue`.
-                    .accessibilityHidden(true)
+                // The open folder while the row is expanded, the closed one
+                // otherwise — `FileGlyph`'s answer, in `textSecondary` like every
+                // glyph in the tree. The helper hides it from accessibility: this
+                // label sits *inside* the row's combined accessibility element,
+                // and directory-ness is already carried by the row's button trait
+                // and its expanded/collapsed `accessibilityValue`.
+                DesignGlyphImage(
+                    FileGlyph.forFolder(expanded: isExpanded),
+                    size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+                )
                 if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
                     TreeNameFieldView(
                         // The bound entry, not the optional re-read: see the
@@ -788,18 +785,16 @@ private struct FolderDisclosureRow<Menu: View>: View {
 
     var body: some View {
         HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
-            Image(systemName: "chevron.right")
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(theme.color(.textSecondary))
-                .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
-                // A fixed column so sibling labels line up regardless of the
-                // chevron glyph's own metrics.
-                .frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
-                // Decorative: the row below combines its children into one
-                // element, so an unhidden symbol contributes its own name to
-                // that element's label ("chevron.right, Sources"). The state it
-                // draws is already carried, properly, by `accessibilityValue`.
-                .accessibilityHidden(true)
+            // Two glyphs rather than one rotated: the design draws `chevron-down`
+            // for an open folder and `chevron-right` for a closed one. The slot
+            // is the chevron column itself, so sibling labels line up whatever
+            // the glyph's own shape. Hidden from accessibility by the helper: the
+            // row below combines its children into one element, and the state
+            // the chevron draws is carried, properly, by `accessibilityValue`.
+            DesignGlyphImage(
+                configuration.isExpanded ? .chevronDown : .chevronRight,
+                size: TreeRowLayout.chevronWidth, slot: TreeRowLayout.chevronWidth, role: .textSecondary
+            )
             configuration.label
         }
         // Exactly `FileRowView`'s treatment — the same `ChromeGeometry` tokens,
@@ -956,8 +951,13 @@ enum TreeRowBackground {
 /// closes. Both readers are project-tree view files; the type is not part of any
 /// wider view vocabulary.
 enum TreeRowLayout {
-    /// The folder row's fixed chevron column width.
+    /// The folder row's fixed chevron column width — also the chevron glyph's
+    /// drawn size, the design's 12.
     static let chevronWidth: Double = 12
+    /// The file or folder glyph's drawn size and square slot, the design's 14:
+    /// one value for both row kinds and the inline draft, so a file's glyph and
+    /// a sibling folder's are the same width and their names line up.
+    static let iconSize: Double = 14
     /// The folder row's gap between the chevron column and the label.
     static let chevronSpacing: Double = 4
 
@@ -983,8 +983,8 @@ enum TreeRowLayout {
     }
 }
 
-/// One file row in the tree: a clickable label that opens the file. The icon
-/// is resolved from the file's `DirectoryEntry` via `FileIcon`.
+/// One file row in the tree: a clickable label that opens the file. The glyph
+/// is resolved from the file's name via `FileGlyph`.
 private struct FileRowView: View {
     let entry: DirectoryEntry
     let onOpen: () -> Void
@@ -1019,14 +1019,15 @@ private struct FileRowView: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
-        let icon = FileIcon(for: entry)
         HStack(spacing: metrics.scaled(4)) {
-            // Monochrome, like every other icon in the chrome: `FileIcon`
-            // answers a symbol *and* a semantic tint, and the tree reads only
-            // the symbol. A column of tinted glyphs competes with the row
-            // highlight, which is the one thing a tree row has to say.
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(theme.color(.textSecondary))
+            // Monochrome, like every other icon in the chrome: `FileGlyph`
+            // answers database, text or code, drawn in `textSecondary`. A column
+            // of tinted glyphs competes with the row highlight, which is the one
+            // thing a tree row has to say.
+            DesignGlyphImage(
+                FileGlyph.forFile(named: entry.name),
+                size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+            )
             if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
                 TreeNameFieldView(
                     // The bound entry, not the optional re-read, exactly as the

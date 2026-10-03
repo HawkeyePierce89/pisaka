@@ -205,6 +205,24 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(unified.map(\.unitIndex), [nil, 1, 1, 2])
     }
 
+    /// The panel's rows are the same lines laid out with the file's two header
+    /// rows and its hunk header, and the memo hands back the same answer.
+    func testUnifiedDisplayRowsLayTheLinesOutUnderTheirHeaders() async throws {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+
+        await model.load(root: root)
+
+        let lines = model.unifiedLines(for: "a.txt")
+        let file = try XCTUnwrap(model.selection(for: "a.txt")?.facts.file)
+        let expected = UnifiedDiffDisplayRows.rows(for: file, lines: lines)
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), expected)
+        XCTAssertEqual(Array(expected.prefix(2)), [.fileHeader("--- a/a.txt"), .fileHeader("+++ b/a.txt")])
+        XCTAssertEqual(expected.compactMap(\.line), lines)
+        XCTAssertEqual(model.unifiedDisplayRows(for: "a.txt"), expected)
+        XCTAssertTrue(model.unifiedDisplayRows(for: "missing.txt").isEmpty)
+    }
+
     /// The load yields to the main actor every `loadYieldStride` files, so a set
     /// larger than one stride exercises the chunk boundary: every file must still
     /// be read, in git's order, each with its own facts.
@@ -492,6 +510,7 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(selection?.facts.eligibility, .wholeOnly(reason: .binaryInHead))
         XCTAssertEqual(selection?.facts.units, [])
         XCTAssertTrue(model.unifiedLines(for: "b.bin").isEmpty)
+        XCTAssertTrue(model.unifiedDisplayRows(for: "b.bin").isEmpty)
         // A whole-only file's checkbox is an ordinary two-state one — never mixed.
         XCTAssertEqual(model.checkboxState(for: "b.bin"), .checked)
         XCTAssertEqual(model.selectedFileCount, 1)
@@ -913,6 +932,46 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertEqual(model.pushPlan, .push(upstream: "origin/main"))
     }
 
+    func testCommitAndPushNeedsACommittableDialogAndAnAvailablePlan() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+
+        // Blocked commit: no message yet, so neither button is offered.
+        XCTAssertFalse(model.canCommit)
+        XCTAssertFalse(model.canCommitAndPush)
+        model.message = "subject"
+        XCTAssertTrue(model.canCommit)
+        XCTAssertTrue(model.canCommitAndPush)
+    }
+
+    func testCommitAndPushIsOffDuringAnUnavailablePlanWhileCommitStaysOn() async {
+        let (git, files) = makeTextRepo()
+        git.context = CommitContext(
+            isUnbornHEAD: false,
+            isDetachedHEAD: true,
+            currentBranch: nil,
+            upstream: nil,
+            remotes: [],
+            inProgress: nil
+        )
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        model.message = "subject"
+
+        XCTAssertTrue(model.canCommit)
+        XCTAssertEqual(model.pushPlan?.isAvailable, false)
+        XCTAssertFalse(model.canCommitAndPush)
+    }
+
+    func testCommitAndPushIsOffBeforeTheLoad() {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+
+        XCTAssertNil(model.pushPlan)
+        XCTAssertFalse(model.canCommitAndPush)
+    }
+
     // MARK: - commit()
 
     func testSuccessfulCommitBuildsThePlanAndClearsTheMessage() async {
@@ -1065,34 +1124,64 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(outcome, .committed)
         XCTAssertEqual(git.pushedPlans, [.push(upstream: "origin/main")])
     }
 
-    /// "Push after commit" is pinned at entry with the message, the amend flag and
-    /// the file selection — not re-read once the commit returns. The commit is the
-    /// long part (hooks, signing), so a tick landing in that window would otherwise
-    /// publish to a remote the user had not armed when they pressed Commit.
-    func testPushIsDecidedByTheFlagPinnedWhenCommitWasPressed() async {
-        for (name, armedAtEntry) in [("armed", true), ("disarmed", false)] {
-            let (git, files) = makeTextRepo()
-            let model = makeModel(git: git, files: files)
-            await model.load(root: root)
-            model.message = "subject"
-            model.pushAfterCommit = armedAtEntry
-            // Flip it *inside* the commit, i.e. exactly while `isRunning` is up.
-            git.onCommit = { @MainActor [weak model] in
-                model?.pushAfterCommit = !armedAtEntry
-            }
+    /// The reservation closes the gate synchronously, before the app's
+    /// pre-commit await: a second press in that window is refused outright
+    /// rather than queued behind the first, and the commit the reservation was
+    /// taken for is not blocked by it.
+    func testReservationBlocksASecondPressAndReleasesIntoItsOwnCommit() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        model.message = "subject"
 
-            _ = await model.commit()
+        XCTAssertTrue(model.reserveCommit())
+        XCTAssertTrue(model.isRunning)
+        XCTAssertFalse(model.canCommit)
+        XCTAssertFalse(model.canCommitAndPush)
+        XCTAssertFalse(model.reserveCommit())
 
-            XCTAssertEqual(git.pushedPlans.isEmpty, !armedAtEntry, name)
-        }
+        let outcome = await model.commit()
+
+        XCTAssertEqual(outcome, .committed)
+        XCTAssertEqual(git.committedPlans.count, 1)
+        XCTAssertTrue(git.pushedPlans.isEmpty)
+        XCTAssertFalse(model.isRunning)
+    }
+
+    /// A refused reservation raises nothing, so no commit is left owing.
+    func testReservationRefusedByTheGateRaisesNothing() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        model.message = ""
+
+        XCTAssertFalse(model.reserveCommit())
+        XCTAssertFalse(model.isRunning)
+    }
+
+    /// A reservation outlived by a project switch is still released by the
+    /// commit that follows it, even though that commit is `.abandoned`.
+    func testAbandonedCommitReleasesItsReservation() async {
+        let (git, files) = makeTextRepo()
+        let model = makeModel(git: git, files: files)
+        await model.load(root: root)
+        model.message = "subject"
+        let origin = model.currentRequestGeneration
+        XCTAssertTrue(model.reserveCommit())
+
+        _ = model.prepareForFolderChange(root: otherRoot)
+        let outcome = await model.commit(originGeneration: origin)
+
+        XCTAssertEqual(outcome, .abandoned)
+        XCTAssertFalse(model.isRunning)
+        XCTAssertTrue(git.committedPlans.isEmpty)
     }
 
     func testPushFailureAfterASuccessfulCommitIsItsOwnState() async {
@@ -1102,9 +1191,8 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         // The commit is not lost and must not be retried as a commit.
         XCTAssertEqual(outcome, .committedPushFailed(reason: stderr))
@@ -1129,9 +1217,8 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(
             outcome,
@@ -1161,7 +1248,6 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
         XCTAssertEqual(model.pushPlan, .setUpstream(remote: "origin", branch: "main"))
 
         // A checkout lands in the terminal while the sheet sits open.
@@ -1174,7 +1260,7 @@ final class CommitDialogModelTests: XCTestCase {
             inProgress: nil
         )
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(outcome, .committed)
         XCTAssertEqual(git.pushedPlans, [.setUpstream(remote: "origin", branch: "feature")])
@@ -1196,7 +1282,6 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
         git.context = CommitContext(
             isUnbornHEAD: false,
@@ -1207,7 +1292,7 @@ final class CommitDialogModelTests: XCTestCase {
             inProgress: nil
         )
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(outcome, .committed)
         XCTAssertEqual(git.pushedPlans, [.push(upstream: "origin/main")])
@@ -1240,9 +1325,8 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(
             outcome,
@@ -1278,9 +1362,8 @@ final class CommitDialogModelTests: XCTestCase {
         let model = makeModel(git: git, files: files)
         await model.load(root: root)
         model.message = "subject"
-        model.pushAfterCommit = true
 
-        let outcome = await model.commit()
+        let outcome = await model.commit(push: true)
 
         XCTAssertEqual(
             outcome,
@@ -2126,18 +2209,6 @@ final class CommitDialogModelTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertTrue(git.setIdentityCalls.isEmpty)
         XCTAssertEqual(model.errorMessage, CommitBlock.noRepository.message)
-    }
-
-    /// "Push after commit" is a per-project opt-in.
-    func testFolderChangeClearsPushAfterCommit() async {
-        let (git, files) = makeTextRepo()
-        let model = makeModel(git: git, files: files)
-        await model.load(root: root)
-        model.pushAfterCommit = true
-
-        model.prepareForFolderChange(root: otherRoot)
-
-        XCTAssertFalse(model.pushAfterCommit)
     }
 
     /// A project switch landing *after* the commit was created still reports

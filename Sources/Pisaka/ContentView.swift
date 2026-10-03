@@ -263,8 +263,8 @@ struct ContentView: View {
     /// post-success refreshes, and closes the sheet itself. The `Int` is the
     /// project generation the *view* captured synchronously before its `Task` hop
     /// (`onReplaceAll`'s shape and reason — read inside the task it would compare
-    /// against itself). Default no-op.
-    var onCommit: (Int) async -> Void = { _ in }
+    /// against itself); the `Bool` is whether to push. Default no-op.
+    var onCommit: (Int, Bool) async -> Void = { _, _ in }
     /// Called on *every* path that closes the commit sheet (Commit, Cancel, Esc),
     /// so the modal autosave suspension `PisakaApp` raises when opening it is
     /// always released. Default no-op.
@@ -280,6 +280,17 @@ struct ContentView: View {
     /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
     /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
+    /// Where the focused editor's caret is, for the bottom bar's readout.
+    /// Held as `@State` rather than `@StateObject` on purpose: this view never
+    /// reads it, so a caret move must not re-evaluate the whole window root —
+    /// only `CaretReadoutObserver` around the bar observes it.
+    @State private var caretReadout = CaretReadoutModel()
+    /// The window's content width, read from the body root's geometry and spent
+    /// on one thing: `TabColumnWidthRule`'s window-third bound on the vertical
+    /// tab column. Infinite until the first read, so the column's first layout
+    /// is given its default width rather than a maximum computed from nothing —
+    /// a split view adopts the ideal once and does not revisit it.
+    @State private var windowWidth: CGFloat = .infinity
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -434,6 +445,12 @@ struct ContentView: View {
         // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
         // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
+        // The one geometry read the tab column's width bound takes.
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { windowWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { windowWidth = $0 }
+        })
         // The window's own minimum content size, both axes, stated *here* rather
         // than on `editorSplit` — and scaled, because at 200% the chrome it has
         // to hold is twice the size. On the split either floor reached the window
@@ -750,12 +767,15 @@ struct ContentView: View {
                 // panel here is a scrollable list, table or terminal.
                 CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
             case .changes:
-                // Local Changes is now a bottom dock panel (beside Terminal and Log),
-                // rendered as the file list only — the diff opens in a separate window
-                // on double-click via `onOpenDiff`.
+                // Local Changes is a bottom dock panel (beside Terminal and Log):
+                // the file list with the selected file's diff inline beside it,
+                // drawn at the code font; double-click still opens the diff in a
+                // separate window via `onOpenDiff`.
                 LocalChangesView(
                     model: localChanges,
                     projectRoot: model.projectRoot,
+                    codeFontSize: settings.fontSize,
+                    codeFontFamily: settings.editorFontFamily,
                     onRevert: onRevert,
                     onOpenDiff: onOpenDiff,
                     onResolveConflict: onResolveConflict,
@@ -812,69 +832,16 @@ struct ContentView: View {
         }
     }
 
-    /// The always-visible bottom bar: the three widgets at the leading end, the
-    /// six panel toggles and the completion switch at the trailing one.
-    ///
-    /// The order is **reversed** from what it was: the widgets — which say where
-    /// you are (project, branch, pull request) — now read first, and the
-    /// controls — which say what you can open — collect at the trailing end
-    /// beside the completion switch they already sat next to. Clicking a toggle
-    /// goes through `onTogglePanel` (shared with the View menu) so a button and
-    /// its matching command behave identically.
-    ///
-    /// Every gap here is a bare local number scaled once: 14 points between the
-    /// widgets, 2 between the toggles, which sit shoulder to shoulder because
-    /// each already carries its own square. Deriving either from a
-    /// `ChromeGeometry` token would couple this bar's spacing to a measurement
-    /// that means something else (gating rule seven).
+    /// The always-visible bottom bar, on its own opaque `bgPanel` ground with its
+    /// one-point `hairline` along the top edge. What the bar *draws* — the
+    /// widgets, the toggles, every measurement — is `BottomBar`'s, below; the
+    /// ground stays here because it is half of the window root's guarantee that
+    /// nothing in `mainArea` paints over the bar (the other half is the
+    /// `.zIndex(1)` in `body`).
     private var bottomBar: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: metrics.scaled(14)) {
-                // Recent-projects switcher widget.
-                ProjectSwitcherView(
-                    currentRoot: model.projectRoot,
-                    recentProjects: recentProjects,
-                    onOpenFolder: onOpenFolder,
-                    onOpenRecent: onOpenRecentProject
-                )
-                // The branch widget: shows the current branch and opens the
-                // switch/create popover.
-                BranchSwitcherView(
-                    model: branchSwitcher,
-                    onSwitch: onSwitchBranch,
-                    onCreateFromRemote: onCreateBranchFromRemote,
-                    onCheckoutRemote: onCheckoutRemote,
-                    onNewBranch: onNewBranch
-                )
-                // Beside the branch widget, and reading the same model the panel
-                // does. It draws nothing at all unless the checked-out branch has
-                // an open pull request, so the bar is unchanged on every other
-                // branch.
-                PullRequestIndicatorView(model: pullRequests.model) { number in
-                    // Open rather than toggle: the click asked to *look* at this
-                    // row, and a toggle would collapse the panel when it happens
-                    // to be the one already showing.
-                    if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
-                    // Only when the panel actually has that row. The indicator's
-                    // pull request comes from the `--head` lookup, which is
-                    // independent of the `--limit 50` list and survives a failed
-                    // read of it, so on a repository with more open pull requests
-                    // than that the row may not be there to expand — and expanding
-                    // a number nothing draws would spend a `gh pr checks` call to
-                    // change nothing on screen.
-                    guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
-                    else { return }
-                    Task { await pullRequests.model.expand(number) }
-                }
-            }
-            Spacer()
-            HStack(spacing: metrics.scaled(2)) {
-                panelToggles
-                completionToggleButton
-            }
+        CaretReadoutObserver(model: caretReadout, focusedFileID: focusedTextFileID) { readout in
+            barContent(caretReadout: readout)
         }
-        .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
-        .frame(height: metrics.scaled(ChromeGeometry.bottomBarHeight))
         .background(chromeColor(.bgPanel))
         .overlay(alignment: .top) {
             Rectangle()
@@ -883,93 +850,47 @@ struct ContentView: View {
         }
     }
 
-    /// The six panel toggles, one per `BottomPanel` case in declaration order —
-    /// the same `allCases` the dock's tab row reads, so the bar keeps no second
-    /// list of panels and the two strips cannot come to disagree about order.
-    /// Each toggle's glyph and name come from the panel itself. Gating rule ten
-    /// pins that this body reads `allCases` and names no panel case.
-    private var panelToggles: some View {
-        ForEach(BottomPanel.allCases, id: \.self) { panel in
-            bottomBarButton(panel: panel)
-        }
+    /// The focused tab, when it is a text tab — the only kind with a caret.
+    private var focusedTextFileID: UUID? {
+        guard let file = model.selectedFile, file.kind == .text else { return nil }
+        return file.id
     }
 
-    /// The completion on/off switch at the trailing end of the bottom bar, in the
-    /// same icon-only square idiom as `bottomBarButton`. It writes *straight
-    /// through* to `settings.completionEnabled` with no local `@State`, which is
-    /// what makes it impossible for this icon and the Preferences checkbox to
-    /// disagree: both are views of the one stored flag. Off is total — no
-    /// automatic popup and no explicit invocation — but nothing in the
-    /// intelligence stack is torn down, so ⌃⌘J go-to-definition keeps working and
-    /// flipping it back on costs a keystroke, not a restart.
-    private var completionToggleButton: some View {
-        let isOn = settings.completionEnabled
-        return Button {
-            settings.completionEnabled.toggle()
-        } label: {
-            Image(systemName: isOn ? "lightbulb" : "lightbulb.slash")
-                .font(metrics.scaledFont(.body))
-                .foregroundStyle(isOn ? chromeColor(.accent) : chromeColor(.textSecondary))
-                .frame(
-                    width: metrics.scaled(ChromeGeometry.bottomBarToggleSide),
-                    height: metrics.scaled(ChromeGeometry.bottomBarToggleSide)
-                )
-                .background(isOn ? chromeColor(.accentTintStrong) : Color.clear)
-                .clipShape(
-                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(isOn ? "Code completion: On" : "Code completion: Off")
-        // This control has never had a visible label, and now its six siblings
-        // have lost theirs too — `.help` is a tooltip rather than a name, so the
-        // label and the state are spelled out here. Without them this is a
-        // bottom-bar control that cannot be identified without sight, and it
-        // silently changes how the editor behaves.
-        .accessibilityLabel("Code completion")
-        .accessibilityValue(isOn ? "On" : "Off")
-    }
-
-    /// One bottom-bar panel toggle: an icon-only square, its ground drawn in
-    /// `accentTintStrong` with an `accent` icon while its panel is the visible
-    /// one, and no ground with a `textSecondary` icon otherwise.
-    ///
-    /// **The visible titles are gone**, which is what makes both the `.help(` and
-    /// the `.accessibilityLabel(` below mandatory rather than polite: an
-    /// icon-only control whose `Label` is gone does not go silent — a `Button`
-    /// combines its children, so the bare `Image(systemName:)` folds the
-    /// *symbol's* own name into the announcement unless an explicit
-    /// `.accessibilityLabel` replaces it. "square split bottom" is not the name
-    /// of this command, which is why the label is mandatory here — and why a
-    /// symbol drawn as decoration *beside* a name is hidden instead, the same
-    /// rule read from the other side (`BranchSwitcherView`,
-    /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
-    /// `completionToggleButton`'s, because nothing in the compiler can see a
-    /// control announcing its glyph. Both read `panel.title`, the one name the
-    /// dock's tab row draws too, so a tooltip and a tab cannot disagree; the glyph
-    /// is `panel.systemImage`, the same table's other column.
-    private func bottomBarButton(panel: BottomPanel) -> some View {
-        let isActive = bottomPanel.wrappedValue == panel
-        return Button {
-            onTogglePanel(panel)
-        } label: {
-            Image(systemName: panel.systemImage)
-                .font(metrics.scaledFont(.body))
-                .foregroundStyle(isActive ? chromeColor(.accent) : chromeColor(.textSecondary))
-                .frame(
-                    width: metrics.scaled(ChromeGeometry.bottomBarToggleSide),
-                    height: metrics.scaled(ChromeGeometry.bottomBarToggleSide)
-                )
-                .background(isActive ? chromeColor(.accentTintStrong) : Color.clear)
-                .clipShape(
-                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(panel.title)
-        .accessibilityLabel(panel.title)
+    /// The bar itself, built inside the observer so a caret move re-evaluates
+    /// this and not the window root.
+    private func barContent(caretReadout: String) -> some View {
+        BottomBar(
+            projectRoot: model.projectRoot,
+            recentProjects: recentProjects,
+            onOpenFolder: onOpenFolder,
+            onOpenRecentProject: onOpenRecentProject,
+            branchSwitcher: branchSwitcher,
+            onSwitchBranch: onSwitchBranch,
+            onCreateBranchFromRemote: onCreateBranchFromRemote,
+            onCheckoutRemote: onCheckoutRemote,
+            onNewBranch: onNewBranch,
+            pullRequestModel: pullRequests.model,
+            onOpenPullRequest: { number in
+                // Open rather than toggle: the click asked to *look* at this
+                // row, and a toggle would collapse the panel when it happens
+                // to be the one already showing.
+                if bottomPanel.wrappedValue != .pullRequests { onTogglePanel(.pullRequests) }
+                // Only when the panel actually has that row. The indicator's
+                // pull request comes from the `--head` lookup, which is
+                // independent of the `--limit 50` list and survives a failed
+                // read of it, so on a repository with more open pull requests
+                // than that the row may not be there to expand — and expanding
+                // a number nothing draws would spend a `gh pr checks` call to
+                // change nothing on screen.
+                guard pullRequests.model.pullRequests.contains(where: { $0.number == number })
+                else { return }
+                Task { await pullRequests.model.expand(number) }
+            },
+            activePanel: bottomPanel.wrappedValue,
+            onTogglePanel: onTogglePanel,
+            settings: settings,
+            caretReadout: caretReadout
+        )
     }
 
     private var editorSplit: some View {
@@ -1003,12 +924,11 @@ struct ContentView: View {
             switch settings.tabOrientation {
             case .vertical:
                 // Middle zone: vertical tab list, as its own resizable column.
+                // Its bounds are `TabColumnWidthRule`'s: the scaled tokens, the
+                // maximum also held to a third of the window.
+                let column = TabColumnWidthRule.bounds(metrics: metrics, windowWidth: Double(windowWidth))
                 TabListView(model: model, onClose: onClose)
-                    .frame(
-                        minWidth: metrics.scaled(180),
-                        idealWidth: metrics.scaled(220),
-                        maxWidth: metrics.scaled(320)
-                    )
+                    .frame(minWidth: column.minimum, idealWidth: column.ideal, maxWidth: column.maximum)
 
                 // Right zone: the editor zone for the selected tab, with the
                 // LeetCode statement beside it when there is one.
@@ -1156,6 +1076,7 @@ struct ContentView: View {
             projectRoot: model.projectRoot,
             text: binding(for: file.id),
             fontSize: settings.fontSize,
+            fontFamily: settings.editorFontFamily,
             completionEnabled: settings.completionEnabled,
             indentLevelHighlightingEnabled: settings.indentLevelHighlightingEnabled,
             interfaceMetrics: metrics,
@@ -1170,7 +1091,14 @@ struct ContentView: View {
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
             onFindUsages: onFindUsages,
             onRenameSymbol: onRenameSymbol,
-            onScrolled: onScrolled
+            onScrolled: onScrolled,
+            onCaretMoved: { [caretReadout] fileID, position in
+                caretReadout.publish(
+                    fileID: fileID,
+                    position: position,
+                    language: SyntaxLanguage(forFileName: file.displayName)
+                )
+            }
         )
     }
 
@@ -1414,4 +1342,302 @@ struct ContentView: View {
     }
 }
 
+/// What the always-visible bottom bar draws: the three widgets at the leading
+/// end, the six panel toggles and the completion switch at the trailing one,
+/// and after them the caret readout while a text tab is focused.
+///
+/// Its own view, rather than a builder on `ContentView`, so the bar can be
+/// hosted and measured alone (`BottomBarLayoutTests`): the window root carries
+/// every model the app has and does not settle in a headless window in any
+/// useful time. It reads the theme and the interface metrics the window root
+/// injects, as every child view does, and owns no state — the window root
+/// hands it the values and the callbacks, and keeps the bar's ground.
+struct BottomBar: View {
+    var projectRoot: URL?
+    var recentProjects: () -> [RecentProject] = { [] }
+    var onOpenFolder: () -> Void = {}
+    var onOpenRecentProject: (URL) -> Void = { _ in }
+    @ObservedObject var branchSwitcher: BranchSwitcherModel
+    var onSwitchBranch: (BranchRef) -> Void = { _ in }
+    var onCreateBranchFromRemote: (BranchRef) -> Void = { _ in }
+    var onCheckoutRemote: (BranchRef) -> Void = { _ in }
+    var onNewBranch: () -> Void = {}
+    /// The model the pull-request indicator reads — the panel's own.
+    let pullRequestModel: PullRequestModel
+    /// Show the Pull Requests panel with this row expanded.
+    var onOpenPullRequest: (Int) -> Void = { _ in }
+    /// The panel the dock shows, whose toggle is drawn active.
+    var activePanel: BottomPanel?
+    var onTogglePanel: (BottomPanel) -> Void = { _ in }
+    /// The completion switch writes straight through to this store.
+    @ObservedObject var settings: SettingsStore
+    /// The caret readout after the toggles (`CaretReadout`), or empty when no
+    /// text tab is focused — in which case nothing is drawn, gap included, so
+    /// the toggles end at the bar's padding exactly as before.
+    var caretReadout: String = ""
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    /// The always-visible bottom bar: the three widgets at the leading end, the
+    /// six panel toggles and the completion switch at the trailing one.
+    ///
+    /// The order is **reversed** from what it was: the widgets — which say where
+    /// you are (project, branch, pull request) — now read first, and the
+    /// controls — which say what you can open — collect at the trailing end
+    /// beside the completion switch they already sat next to. Clicking a toggle
+    /// goes through `onTogglePanel` (shared with the View menu) so a button and
+    /// its matching command behave identically.
+    ///
+    /// Every gap here is a bare local number scaled once: 14 points between the
+    /// widgets, 2 between the toggles, which sit shoulder to shoulder because
+    /// each already carries its own square. Deriving either from a
+    /// `ChromeGeometry` token would couple this bar's spacing to a measurement
+    /// that means something else (gating rule seven).
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: metrics.scaled(14)) {
+                // Recent-projects switcher widget.
+                ProjectSwitcherView(
+                    currentRoot: projectRoot,
+                    recentProjects: recentProjects,
+                    onOpenFolder: onOpenFolder,
+                    onOpenRecent: onOpenRecentProject
+                )
+                // The branch widget: shows the current branch and opens the
+                // switch/create popover.
+                BranchSwitcherView(
+                    model: branchSwitcher,
+                    onSwitch: onSwitchBranch,
+                    onCreateFromRemote: onCreateBranchFromRemote,
+                    onCheckoutRemote: onCheckoutRemote,
+                    onNewBranch: onNewBranch
+                )
+                // Beside the branch widget, and reading the same model the panel
+                // does. It draws nothing at all unless the checked-out branch has
+                // an open pull request, so the bar is unchanged on every other
+                // branch.
+                PullRequestIndicatorView(model: pullRequestModel, onOpen: onOpenPullRequest)
+            }
+            Spacer()
+            HStack(spacing: metrics.scaled(2)) {
+                panelToggles
+                completionToggleButton
+            }
+            if !caretReadout.isEmpty {
+                // Ten points after the last toggle, a bare local number for
+                // the same reason as the gaps above.
+                Text(caretReadout)
+                    .font(metrics.scaledFont(.subheadline))
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.leading, metrics.scaled(10))
+            }
+        }
+        .padding(.horizontal, metrics.scaled(ChromeGeometry.barPaddingX))
+        .frame(height: metrics.scaled(ChromeGeometry.bottomBarHeight))
+    }
+
+    /// The six panel toggles, one per `BottomPanel` case in declaration order —
+    /// the same `allCases` the dock's tab row reads, so the bar keeps no second
+    /// list of panels and the two strips cannot come to disagree about order.
+    /// Each toggle's glyph and name come from the panel itself. Gating rule ten
+    /// pins that this body reads `allCases` and names no panel case.
+    private var panelToggles: some View {
+        ForEach(BottomPanel.allCases, id: \.self) { panel in
+            bottomBarButton(panel: panel)
+        }
+    }
+
+    /// The completion on/off switch at the trailing end of the bottom bar, in the
+    /// same icon-only square idiom as `bottomBarButton`. It writes *straight
+    /// through* to `settings.completionEnabled` with no local `@State`, which is
+    /// what makes it impossible for this icon and the Preferences checkbox to
+    /// disagree: both are views of the one stored flag. Off is total — no
+    /// automatic popup and no explicit invocation — but nothing in the
+    /// intelligence stack is torn down, so ⌃⌘J go-to-definition keeps working and
+    /// flipping it back on costs a keystroke, not a restart.
+    private var completionToggleButton: some View {
+        let isOn = settings.completionEnabled
+        return Button {
+            settings.completionEnabled.toggle()
+        } label: {
+            // 13 points — `.body` is the 13-point style — in the panel
+            // toggles' colours, so the seven squares read as one row.
+            Image(systemName: isOn ? "lightbulb" : "lightbulb.slash")
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(isOn ? theme.color(.accent) : theme.color(.textSecondary))
+                .frame(
+                    width: metrics.scaled(ChromeGeometry.bottomBarToggleSide),
+                    height: metrics.scaled(ChromeGeometry.bottomBarToggleSide)
+                )
+                .background(isOn ? theme.color(.accentTint) : Color.clear)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // The tooltip through AppKit, not `.help` — `BarToolTip` says why.
+        .background(BarToolTip(text: isOn ? "Code completion: On" : "Code completion: Off"))
+        // This control has never had a visible label, and now its six siblings
+        // have lost theirs too — a tooltip is not a name, so the
+        // label and the state are spelled out here. Without them this is a
+        // bottom-bar control that cannot be identified without sight, and it
+        // silently changes how the editor behaves.
+        .accessibilityLabel("Code completion")
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+
+    /// One bottom-bar panel toggle: an icon-only 22-point square carrying the
+    /// panel's design glyph at 13, its ground drawn in `accentTint` with an
+    /// `accent` glyph while its panel is the visible one, and no ground with a
+    /// `textSecondary` glyph otherwise.
+    ///
+    /// **The visible titles are gone**, which is what makes both the tooltip and
+    /// the `.accessibilityLabel(` below mandatory rather than polite: an
+    /// icon-only control whose `Label` is gone does not go silent — a `Button`
+    /// combines its children, so a bare `Image(systemName:)` folds the
+    /// *symbol's* own name into the announcement unless an explicit
+    /// `.accessibilityLabel` replaces it, and a hidden design glyph leaves the
+    /// button with no name at all. Neither is the name of this command, which is
+    /// why the label is mandatory here — and why a
+    /// symbol drawn as decoration *beside* a name is hidden instead, the same
+    /// rule read from the other side (`BranchSwitcherView`,
+    /// `ProjectSwitcherView`). Gating rule ten pins both, in this body and in
+    /// `completionToggleButton`'s, because nothing in the compiler can see a
+    /// control announcing its glyph. Both read `panel.title`, the one name the
+    /// dock's tab row draws too, so a tooltip and a tab cannot disagree; the glyph
+    /// is `panel.glyph`, the same table's other column.
+    private func bottomBarButton(panel: BottomPanel) -> some View {
+        let isActive = activePanel == panel
+        return Button {
+            onTogglePanel(panel)
+        } label: {
+            DesignGlyphImage(
+                panel.glyph,
+                size: 13,
+                slot: ChromeGeometry.bottomBarToggleSide,
+                role: isActive ? .accent : .textSecondary
+            )
+            .background(isActive ? theme.color(.accentTint) : Color.clear)
+            .clipShape(
+                RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.bottomBarToggleRadius))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(BarToolTip(text: panel.title))
+        .accessibilityLabel(panel.title)
+    }
+}
+
+/// A bottom-bar toggle's tooltip, carried by an AppKit view's `toolTip` behind
+/// the toggle rather than by SwiftUI's `.help`.
+///
+/// `.help` on these toggles never showed in the shipped window. Hosted headlessly
+/// — alone, and in the real main window — SwiftUI's tooltip bridge answers the
+/// right string at every toggle, with or without the bar's `.zIndex(1)`, the
+/// transparent title bar or the hit-transparent markers behind the content, so
+/// none of those is the cause, and the step that fails (the framework asking
+/// that bridge on hover) is not one this app can reach or a headless test can
+/// drive (`app-window.md`). An `NSView.toolTip` is AppKit's own mechanism,
+/// registered on the view itself as a tracking rect, and does not route through
+/// that bridge at all. `BottomBarToolTipTests` finds each of these views by its
+/// text and frame; gating rule ten requires this and refuses `.help(` in the two
+/// toggle builders, so the bar keeps one tooltip mechanism.
+///
+/// Placed with `.background(...)`, so it takes exactly the toggle's square. It
+/// draws nothing, answers no hit test — the click still lands on the SwiftUI
+/// button in front of it — and stays out of the accessibility tree, where the
+/// toggle's own `.accessibilityLabel` is the name.
+struct BarToolTip: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> BarToolTipView {
+        BarToolTipView()
+    }
+
+    func updateNSView(_ nsView: BarToolTipView, context: Context) {
+        nsView.toolTip = text
+    }
+}
+
+/// The `NSView` behind `BarToolTip`. Internal rather than private only because
+/// the representable names it in its signatures.
+final class BarToolTipView: NSView {
+    init() {
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+/// Where the focused editor's caret is, as the bottom bar's readout text.
+///
+/// The editor reports every selection change; the readout is composed on the
+/// next main-queue turn rather than at once, for two reasons. A selection
+/// change can arrive inside a SwiftUI update — the editor restores a tab's
+/// selection while installing it — and publishing there is a change made from
+/// within a view update. And a burst of moves (a held arrow key, a drag-select)
+/// composes one readout per turn rather than one per move. The text itself is
+/// `CaretReadout`'s; this only holds it, keyed by the tab it describes.
+@MainActor
+final class CaretReadoutModel: ObservableObject {
+    /// The tab the readout describes.
+    @Published private(set) var fileID: UUID?
+    /// The readout for that tab's caret.
+    @Published private(set) var text = ""
+
+    private var pending: (fileID: UUID, position: (line: Int, column: Int), language: SyntaxLanguage?)?
+
+    /// Record the caret of tab `fileID`; the readout follows on the next turn.
+    func publish(fileID: UUID, position: (line: Int, column: Int), language: SyntaxLanguage?) {
+        let isScheduled = pending != nil
+        pending = (fileID, position, language)
+        guard !isScheduled else { return }
+        DispatchQueue.main.async { [weak self] in self?.flush() }
+    }
+
+    /// The readout to draw while `focusedFileID` is the focused text tab:
+    /// empty when no text tab is focused, or when the caret last reported is
+    /// another tab's.
+    func readout(for focusedFileID: UUID?) -> String {
+        guard let focusedFileID, focusedFileID == fileID else { return "" }
+        return text
+    }
+
+    private func flush() {
+        guard let pending else { return }
+        self.pending = nil
+        let readout = CaretReadout.text(
+            position: pending.position,
+            language: pending.language,
+            encodingName: FileService.encodingName
+        )
+        if fileID != pending.fileID { fileID = pending.fileID }
+        if text != readout { text = readout }
+    }
+}
+
+/// Observes `CaretReadoutModel` around the bottom bar alone, so a caret move
+/// re-evaluates the bar and not the window root that builds it.
+struct CaretReadoutObserver<Content: View>: View {
+    @ObservedObject var model: CaretReadoutModel
+    let focusedFileID: UUID?
+    @ViewBuilder let content: (String) -> Content
+
+    var body: some View {
+        content(model.readout(for: focusedFileID))
+    }
+}
 #endif

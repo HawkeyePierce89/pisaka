@@ -11,7 +11,8 @@ import PisakaCore
 /// it — so neither can be a branch inside the other. The one thing they genuinely share, the
 /// trailing slot's three-claimant precedence, is shared as `TabStatusMark`.
 /// Which orientation a window shows is still `SettingsStore.tabOrientation`,
-/// read by the host.
+/// read by the host, which also bounds the column's width through
+/// `TabColumnWidthRule` (a third of the window at most).
 ///
 /// The column owns its ground and draws **no pane-edge rule of its own**. Its
 /// host is not a stack but the `HSplitView` in `ContentView.editorSplit`, which
@@ -42,7 +43,10 @@ struct TabListView: View {
                     )
                 }
             }
-            .padding(.vertical, metrics.scaled(4))
+            // No top inset: the first row sits flush under the title bar, the
+            // design's placement. The bottom keeps a little room past the last
+            // row's rule.
+            .padding(.bottom, metrics.scaled(4))
         }
         .background(theme.color(.bgPanel))
     }

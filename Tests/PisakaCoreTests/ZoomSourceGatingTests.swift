@@ -40,15 +40,18 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// The only files allowed to name `interfaceScale` as a whole word.
     ///
     /// Three in Core — the rule that bounds it, the metrics built from it, the
-    /// store that persists it — and exactly one in the app: the environment
-    /// plumbing, which reads it in order to build `InterfaceMetrics` and hand
-    /// *that* to views. Note `interfaceScaled` (the modifier) is a different
+    /// store that persists it — and two in the app: the environment plumbing,
+    /// which reads it in order to build `InterfaceMetrics` and hand *that* to
+    /// views, and the Preferences page, whose Interface zoom stepper *binds* it
+    /// (`$settings.interfaceScale`) and never multiplies anything by it — the
+    /// stepper rule below pins that it names its zone's rule. Note `interfaceScaled` (the modifier) is a different
     /// token and is not matched, which is what lets every root apply it.
     private static let interfaceScaleOwners: Set<String> = [
         "InterfaceMetrics.swift",
         "ZoomScaleRule.swift",
         "SettingsStore.swift",
         "InterfaceScaleEnvironment.swift",
+        "SettingsView.swift",
     ]
 
     func testOnlyThePlumbingNamesTheRawInterfaceScale() throws {
@@ -345,6 +348,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         for (binding, rule) in [
             ("$settings.terminalFontSize", "ZoomScaleRule.terminalFont"),
             ("$settings.fontSize", "ZoomScaleRule.editorFont"),
+            ("$settings.interfaceScale", "ZoomScaleRule.interfaceScale"),
         ] {
             let bound = calls.filter { LSPSourceGatingTests.containsToken(binding, in: $0) }
             XCTAssertEqual(bound.count, 1, "Preferences should hold exactly one ChromeStepper bound to \(binding)")
@@ -377,6 +381,52 @@ final class ZoomSourceGatingTests: XCTestCase {
                 "ChromeStepper: \(half) no longer steps through its rule's stepped(_:by:)"
             )
         }
+    }
+
+    // MARK: - One resolver builds the code font
+
+    /// The macOS files allowed to build a monospaced system font: the code
+    /// font's one resolver, the terminal (a zone of its own, with its own
+    /// font), and the licence text view (a page of chrome, not code).
+    private static let monospacedSystemFontBuilders: Set<String> = [
+        "EditorFont.swift",
+        "TerminalSession.swift",
+        "LicenseTextView.swift",
+    ]
+
+    /// Every code-zone font goes through `EditorFont`, so the family chosen in
+    /// Preferences reaches every surface drawn at the code font. A site building
+    /// `monospacedSystemFont(…)` itself — or SwiftUI's
+    /// `.system(size:design: .monospaced)` at a code size — compiles, draws
+    /// correctly while the family is the default, and silently ignores the
+    /// choice the moment it is not. The chrome's monospaced text goes through
+    /// `metrics.scaledFont(_:design:)`, which is the interface zone's and not
+    /// matched. iOS files are outside the rule: the setting is macOS-only.
+    func testOnlyTheResolverAndTheTerminalBuildAMonospacedSystemFont() throws {
+        var builders: Set<String> = []
+        var swiftUISites: [String] = []
+        for url in try Self.swiftSources() where !url.path.contains("/Sources/Pisaka/iOS/") {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if LSPSourceGatingTests.containsToken("monospacedSystemFont", in: code) {
+                builders.insert(url.lastPathComponent)
+            }
+            for call in ChromeThemeSourceGatingTests.callRanges(".system(", in: code) {
+                guard let arguments = Self.parenthesizedArguments(
+                    openingAt: code.index(before: call.upperBound), in: code
+                ) else { continue }
+                if arguments.contains("size:") && arguments.contains(".monospaced") {
+                    swiftUISites.append(url.lastPathComponent)
+                }
+            }
+        }
+        XCTAssertEqual(
+            builders, Self.monospacedSystemFontBuilders,
+            "a code-zone font is built through EditorFont.font(size:family:), never monospacedSystemFont directly"
+        )
+        XCTAssertEqual(
+            swiftUISites, [],
+            "a SwiftUI code-zone font is EditorFont.swiftUIFont(size:family:), never .system(size:design: .monospaced)"
+        )
     }
 
     /// The parenthesis-matched argument list whose `(` sits at `open`.

@@ -218,6 +218,12 @@ public enum FileServiceError: Error, Equatable, LocalizedError {
 public struct FileService: FileServicing {
     public init() {}
 
+    /// The name of the one encoding `read(url:)` and `write(_:to:)` use, as
+    /// the caret readout shows it. A constant rather than a per-file field
+    /// because no other encoding is ever read or written, so there is nothing
+    /// per file to record.
+    public static let encodingName = "UTF-8"
+
     /// Read the contents of `url` as UTF-8 text.
     public func read(url: URL) throws -> String {
         try String(contentsOf: url, encoding: .utf8)

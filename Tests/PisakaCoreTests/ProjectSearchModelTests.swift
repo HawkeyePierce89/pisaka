@@ -1090,3 +1090,22 @@ final class ProjectSearchModelTests: XCTestCase {
         XCTFail("Timed out waiting for the gated call", file: file, line: line)
     }
 }
+
+extension ProjectSearchModelTests {
+    /// The group header's trailing count.
+    func testMatchCountTextSingularAndPlural() {
+        func result(_ count: Int) -> FileSearchResult {
+            let match = SearchMatch(range: NSRange(location: 0, length: 1), lineNumber: 1)
+            return FileSearchResult(
+                fileURL: URL(fileURLWithPath: "/tmp/a.swift"),
+                relativePath: "a.swift",
+                matches: Array(repeating: match, count: count),
+                previews: Array(repeating: MatchPreview(text: "a", matchRange: NSRange(location: 0, length: 1)),
+                                count: count)
+            )
+        }
+        XCTAssertEqual(result(1).matchCountText, "1 match")
+        XCTAssertEqual(result(2).matchCountText, "2 matches")
+        XCTAssertEqual(result(17).matchCountText, "17 matches")
+    }
+}

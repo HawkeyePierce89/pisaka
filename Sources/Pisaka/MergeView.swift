@@ -186,7 +186,8 @@ struct MergeView: View {
             MergeThreePaneView(
                 model: model,
                 currentConflict: $currentConflict,
-                fontSize: settings.fontSize
+                fontSize: settings.fontSize,
+                fontFamily: settings.editorFontFamily
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -230,14 +231,23 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// font in `updateNSView`.
     var fontSize: Double = Double(NSFont.systemFontSize)
 
+    /// The code font's family (`SettingsStore.editorFontFamily`), resolved with
+    /// `fontSize` through `EditorFont`; `nil` is the system monospaced font.
+    var fontFamily: String?
+
+    /// The panes' font: the code zone's, through the one resolver.
+    private var paneFont: NSFont {
+        EditorFont.font(size: CGFloat(fontSize), family: fontFamily)
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> MergeContainerView {
         let coordinator = context.coordinator
 
-        let (oursScroll, oursText) = Self.makePane(editable: false, fontSize: fontSize)
-        let (resultScroll, resultText) = Self.makePane(editable: true, fontSize: fontSize)
-        let (theirsScroll, theirsText) = Self.makePane(editable: false, fontSize: fontSize)
+        let (oursScroll, oursText) = Self.makePane(editable: false, font: paneFont)
+        let (resultScroll, resultText) = Self.makePane(editable: true, font: paneFont)
+        let (theirsScroll, theirsText) = Self.makePane(editable: false, font: paneFont)
 
         coordinator.attach(
             oursScroll: oursScroll, oursText: oursText,
@@ -249,20 +259,20 @@ private struct MergeThreePaneView: NSViewRepresentable {
         let container = MergeContainerView(
             scrolls: [oursScroll, resultScroll, theirsScroll]
         )
-        coordinator.appliedFontSize = CGFloat(fontSize)
+        coordinator.appliedFont = paneFont
         coordinator.update(currentConflict: currentConflict)
         return container
     }
 
     func updateNSView(_ nsView: MergeContainerView, context: Context) {
         context.coordinator.model = model
-        // Re-apply the shared font to all three panes when its size changed. The
+        // Re-apply the shared font to all three panes when its size or family
+        // changed. The
         // font is uniform across the panes, so rows stay aligned. Setting `.font`
         // re-styles each pane's whole buffer; the highlight tints survive.
-        let desiredFontSize = CGFloat(fontSize)
-        if context.coordinator.appliedFontSize != desiredFontSize {
-            context.coordinator.appliedFontSize = desiredFontSize
-            let font = NSFont.monospacedSystemFont(ofSize: desiredFontSize, weight: .regular)
+        let font = paneFont
+        if context.coordinator.appliedFont != font {
+            context.coordinator.appliedFont = font
             context.coordinator.oursText?.font = font
             context.coordinator.resultText?.font = font
             context.coordinator.theirsText?.font = font
@@ -277,7 +287,7 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// One non-wrapping TextKit-1 pane, mirroring `DiffView.makePane`.
     private static func makePane(
         editable: Bool,
-        fontSize: Double
+        font: NSFont
     ) -> (NSScrollView, MergePaneTextView) {
         let textView = MergePaneTextView(usingTextLayoutManager: false)
 
@@ -303,7 +313,7 @@ private struct MergeThreePaneView: NSViewRepresentable {
         textView.isSelectable = true
         textView.isRichText = false
         textView.allowsUndo = editable
-        textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        textView.font = font
         // The colour of a character no capture covers — the same question
         // `SyntaxTokenKind.plain` answers — so it is read from the one table
         // rather than left on the text view's system-label default. That default
@@ -338,9 +348,9 @@ private struct MergeThreePaneView: NSViewRepresentable {
         private var lastScrolledConflict = -1
         private var resultSpans: [ResultSpan] = []
 
-        /// The font size currently applied to the three panes, so `updateNSView`
+        /// The font currently applied to the three panes, so `updateNSView`
         /// re-applies the font only on a real change.
-        var appliedFontSize: CGFloat?
+        var appliedFont: NSFont?
 
         /// True while we replace the result text programmatically, so the
         /// text-storage edit observer ignores our own change.

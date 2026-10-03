@@ -17,15 +17,17 @@ import XCTest
 /// `ChromeColorRole.textSecondary` in prose — so a raw `contains` would pass on
 /// all three while the code they name was deleted.
 ///
-/// **The stated exceptions.** Three rules match against
+/// **The stated exceptions.** Four rules match against
 /// `GitHubSourceGatingTests.strippingComments(_:)` instead — comments removed,
 /// **string literals kept** — because each rule's subject *is* a literal, and the
 /// ordinary scanner would delete exactly the text it checks: the query-toggle name
 /// rule (`testQueryTogglesSpeakOneNamePerMode`), whose `help:` names are
 /// literals; the merge editor's chevron check in
 /// `testTheCommitDialogsRowsAndControls`, which finds the chevrons by their symbol
-/// names, also literals; and clause (c) of `testAServedPagesChromeIsThePalettes`,
-/// because a CSS hex value is a string literal. Every other rule that reads
+/// names, also literals; clause (c) of `testAServedPagesChromeIsThePalettes`,
+/// because a CSS hex value is a string literal; and the design-glyph rule
+/// (`testDesignGlyphsAreDrawnOnlyThroughTheHelper`), because an image loaded by
+/// name is loaded by a literal. Every other rule that reads
 /// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
 /// to the code.
 ///
@@ -79,7 +81,9 @@ import XCTest
 ///   widgets owe the same rule from the other side: they hide every symbol they
 ///   draw *and* spell an accessibility value, because two of those glyphs were
 ///   the row's state and hiding a state without speaking it is the same defect
-///   with the counts looking healthy.
+///   with the counts looking healthy. Each toggle's tooltip is an AppKit
+///   `toolTip` through `BarToolTip(`, and `.help(` is refused in the two
+///   toggle builders, because `.help` never showed there in the shipped window.
 /// - **Every label the bar draws stays on one line.** The bar states its own
 ///   height, so a label that wraps is clipped rather than accommodated — and it
 ///   wraps only at the width, scale or project name the reviewer did not try.
@@ -111,6 +115,8 @@ import XCTest
 /// - **The diff wash is Core's one answer, and a diff side is one type.** The
 ///   two diff surfaces wash their rows from `diffWashRole`, over Core's one
 ///   `DiffSide` — a second side enum in the app is the seam the old one was.
+///   The unified diff's text tint is Core's one answer the same way: it reads
+///   `diffTextRole` and no other app file does.
 /// - **The three panels' controls are identifiable without sight.** The Log,
 ///   Local Changes and Pull Requests panels' icon-only controls are named, their
 ///   state carriers speak a value, and every symbol inside a labelled control is
@@ -150,8 +156,9 @@ import XCTest
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
 ///   silently, the later one winning with nothing to say so.
 /// - **The merge wash is Core's one answer.** `mergeWashRole(for:)` is read by
-///   the merge panes alone, `conflictBackground`/`currentLine`/`bracketMatch` by
-///   no app file but the palette, and no gated file chains an alpha onto a
+///   the merge panes alone, `conflictBackground`/`bracketMatch` by no app file
+///   but the palette, `currentLine` by the palette and the current-line
+///   highlight's two painters alone, and no gated file chains an alpha onto a
 ///   role's colour — a composed alpha is a second wash nothing re-themes.
 /// - **One primary button, one secondary, one checkbox.** No gated file spells a
 ///   platform toggle or button style; the shared controls' callers are pinned;
@@ -231,6 +238,12 @@ import XCTest
 ///   draws its ring around the text line, over the box's border: it compiles,
 ///   and only a key window with real first-responder focus shows it, which the
 ///   headless app bundle cannot reliably reach.
+/// - **Design glyphs are drawn only through the helper.** No macOS source but
+///   `DesignGlyphImage.swift` loads an image by a glyph's name — an `Image("…")`
+///   or `NSImage(named:` naming one, or either spelling `assetName` — so the
+///   template intent, the fitted aspect and the hidden-from-accessibility rule
+///   are stated once. `AppIcon` is not a glyph and stays exempt. A glyph loaded
+///   inline compiles and draws, untinted by the theme or announced by its name.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -360,6 +373,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (f): the fold placeholder — its `…` glyph and rounded
         // outline, drawn from the palette through two spent seams.
         "BracketOverlayLayoutManager.swift",
+        // The design's glyphs: the one helper every surface draws them through,
+        // tinting each with the role its caller names (rule forty-six).
+        "DesignGlyphImage.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -844,9 +860,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule eight: the tab icon rule is spelled once
 
     /// The untitled-buffer icon fallback — an `OpenFile` with no url asked about
-    /// under its `displayName`, so the symbol is `FileIcon`'s own fallback
-    /// rather than a second guess — is one rule, and `TabFileIcon` is its one
-    /// spelling.
+    /// under its `displayName`, so the glyph is `FileGlyph`'s own plain-text
+    /// answer rather than a second guess — is one rule, and `TabFileIcon` is its
+    /// one spelling.
     ///
     /// It was pasted into both orientations once already, which is the failure
     /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
@@ -864,7 +880,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if code.contains("struct TabFileIcon") { declarers.insert(name) }
-            if Self.spellsCall("file.url ?? URL(fileURLWithPath: file.displayName)", in: code) {
+            // Whitespace-free, so a re-wrapped spelling is the same spelling.
+            if code.filter({ !$0.isWhitespace }).contains("file.url?.lastPathComponent??file.displayName") {
                 fallbackSpellers.insert(name)
             }
             let constructsIcon = code
@@ -885,25 +902,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             TabFileIcon exists to refuse
             """
         )
-        // Eight, and named: the tree's rows, the inline draft field drawing the
-        // placeholder icon a real row would have, the shared tab icon both
-        // orientations now ask, and — since part four (a) — the Problems and
-        // Usages panels' file-group headers, each of whose exempted line is a
-        // `let icon = FileIcon(…)` binding read for its symbol alone (the glyph
-        // is drawn in `textSecondary`, a role, on a line rule one still scans).
-        // Part four (b) adds the Log's changed-file row and Local Changes' rows
-        // and folder headers, whose exempted lines are the same binding.
-        // Part five (b) adds the commit dialog's file row, the eighth, whose
-        // exempted line is that binding again (its glyph takes
-        // `changedFileRole(for:)`, a role, on a line rule one still scans).
-        // A ninth is a line that has quietly bought itself out of rule one.
+        // Three, and named. The tree's rows, the inline draft field and the
+        // shared tab icon left the set in part eight, when they moved to
+        // `FileGlyph`'s design glyphs. What stays: since part four (a), the
+        // Problems and Usages panels' file-group headers, each of whose
+        // exempted line is a `let icon = FileIcon(…)` binding read for its
+        // symbol alone (the glyph is drawn in `textSecondary`, a role, on a line
+        // rule one still scans).
+        // Part four (b) adds the Log's changed-file row, whose exempted line is
+        // the same binding. (Local Changes' rows and folder headers named it
+        // too until the design pass: its file rows draw no file glyph and its
+        // folder rows draw `FileGlyph`'s, so it left the set.)
+        // (The commit dialog's file row named it from part five (b) until the
+        // design pass: the row now reads checkbox, status letter, name and
+        // draws no file glyph, so it left the set too.)
+        // A fourth is a line that has quietly bought itself out of rule one.
         XCTAssertEqual(
             iconNamers,
             [
-                "ProjectTreeDraftField.swift", "ProjectTreeView.swift", "TabStripView.swift",
                 "ProblemsPanelView.swift", "UsagesPanelView.swift",
-                "CommitLogView.swift", "LocalChangesView.swift",
-                "CommitDialogView.swift",
+                "CommitLogView.swift",
             ],
             "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
@@ -976,19 +994,28 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The window root, and the two toggle idioms whose bodies must each name a
     /// tooltip *and* an accessibility label.
     ///
+    /// The tooltip is `BarToolTip(` — an AppKit `toolTip` behind the toggle — and
+    /// `.help(` is **refused** in both bodies: `.help` never showed on these
+    /// toggles in the shipped window, so it is the mechanism the bar replaced, and
+    /// a body spelling both would carry two (`app-window.md` records the
+    /// diagnosis; `BottomBarToolTipTests` finds each tooltip view by text and
+    /// frame).
+    ///
     /// Part three made both icon-only. That is a visual decision with an
     /// invisible cost: a `Label(title, systemImage:)` is its own accessibility
     /// name, while an unhidden `Image(systemName:)` folds *its own symbol name*
     /// into whatever element it is combined into — so dropping the title does
     /// not leave the control nameless, it leaves it named after a glyph. Either
-    /// way the name the title carried is gone, and `.help(` is a *tooltip*,
-    /// which VoiceOver does not read as a name. Nothing misrenders, no test
+    /// way the name the title carried is gone, and a tooltip is not a name
+    /// VoiceOver reads. Nothing misrenders, no test
     /// goes red, and the only reader who notices is the one who cannot see the
     /// bar at all.
     ///
     /// Read over the **brace-matched bodies** of the two declarations, in rule
-    /// six's idiom, so a `.help(` somewhere else in this 1 400-line file cannot
-    /// satisfy it. The call count is pinned too: one declaration plus one call,
+    /// six's idiom, so a `BarToolTip(` somewhere else in this 1 500-line file
+    /// cannot satisfy it. Both live in `BottomBar`, the bar's own view in the same
+    /// file since the design pass (so the bar can be hosted and measured alone),
+    /// and the toggles are read inside that struct's braces. The call count is pinned too: one declaration plus one call,
     /// inside `panelToggles` — the bar builds its toggles from
     /// `BottomPanel.allCases` and **names no panel case in that body**, so it
     /// keeps no second list of panels beside the one the dock's tab row reads.
@@ -1009,7 +1036,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Asserted by counting, through this suite's one call matcher `callCount(_:in:)`:
     /// each widget's `Image(systemName:` count must equal its
     /// `.accessibilityHidden(true)` count. A symbol added without a thought for
-    /// the announcement moves one count and not the other.
+    /// the announcement moves one count and not the other. A `DesignGlyphImage(`
+    /// is a glyph that hides itself — the helper applies
+    /// `.accessibilityHidden(true)` in its own body, which rule thirty-four
+    /// re-checks — so it counts on both sides at once: it adds to the glyphs a
+    /// widget draws and owes no modifier of its own.
     ///
     /// Counting alone was not enough, and the way it failed is the reason for
     /// the second half. A widget's symbol is usually decoration, but two of
@@ -1047,15 +1078,27 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 Self.matchedBody(after: declaration, in: code),
                 "\(declaration) is gone or renamed — re-point this rule rather than losing it"
             )
-            for required in [".help(", ".accessibilityLabel("] {
-                XCTAssertTrue(
-                    Self.spellsCall(required, in: body),
-                    """
-                    \(Self.windowRootFile)'s \(declaration) must spell \(required) — an icon-only \
-                    control is named after its glyph until an explicit label replaces that
-                    """
-                )
-            }
+            XCTAssertTrue(
+                Self.spellsCall(".accessibilityLabel(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) must spell .accessibilityLabel( — an icon-only \
+                control is named after its glyph until an explicit label replaces that
+                """
+            )
+            XCTAssertTrue(
+                Self.spellsCall("BarToolTip(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) must carry its tooltip through BarToolTip( — \
+                the AppKit toolTip the shipped window actually shows (app-window.md)
+                """
+            )
+            XCTAssertFalse(
+                Self.spellsCall(".help(", in: body),
+                """
+                \(Self.windowRootFile)'s \(declaration) spells .help( — the bar's tooltips are \
+                AppKit's, through BarToolTip(, and a second mechanism is the one that never showed
+                """
+            )
         }
         // One declaration and one call — the call inside `panelToggles`, over
         // `allCases`. A hand-written seventh call is a second list of panels.
@@ -1067,12 +1110,12 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
         )
         let bar = try XCTUnwrap(
-            Self.matchedBody(after: "var bottomBar:", in: code),
-            "bottomBar is gone or renamed — re-point this rule rather than losing it"
+            Self.matchedBody(after: "struct BottomBar:", in: code),
+            "BottomBar is gone or renamed — re-point this rule rather than losing it"
         )
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("panelToggles", in: bar),
-            "bottomBar must draw its panel toggles through panelToggles"
+            "BottomBar must draw its panel toggles through panelToggles"
         )
         let toggles = try XCTUnwrap(
             Self.matchedBody(after: "var panelToggles:", in: code),
@@ -1101,8 +1144,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
             let symbols = Self.callCount("Image(systemName:", in: code)
             XCTAssertGreaterThan(
-                symbols, 0,
-                "\(name) draws no SF Symbol any more — re-point this rule rather than losing it"
+                symbols + Self.callCount("DesignGlyphImage(", in: code), 0,
+                "\(name) draws no glyph any more — re-point this rule rather than losing it"
             )
             XCTAssertEqual(
                 Self.callCount(".accessibilityHidden(true)", in: code), symbols,
@@ -1198,6 +1241,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// labels, so `refPicker` is not named), the Local Changes toolbar, and the
     /// Pull Requests header and row line.
     ///
+    /// The Log's header strip is gone since the design pass — the panel draws
+    /// no title row, its refresh controls sit at the filter strip's trailing
+    /// end and draw no `Text` — so the Log's entry names the column header's
+    /// `label(_:)` alone.
+    ///
     /// Part five (b) moved the date bound's label into the shared checkbox's
     /// trailing title, so the filter bar's entry is re-pointed at
     /// `ChromeCheckbox`, the one place that label is now drawn.
@@ -1205,7 +1253,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ProblemsPanelView.swift", ["private var header: some View", "private func severityBadge("]),
         ("UsagesPanelView.swift", ["private var header: some View"]),
         ("TerminalPanelView.swift", ["private func tab(for session:"]),
-        ("CommitLogView.swift", ["private var header: some View", "private func label(_ text: String)"]),
+        ("CommitLogView.swift", ["private func label(_ text: String)"]),
         ("ChromeControls.swift", ["struct ChromeCheckbox"]),
         ("LocalChangesView.swift", ["private var toolbar: some View"]),
         ("PullRequestsPanelView.swift", ["private var header: some View", "private var summaryLine: some View"]),
@@ -1763,7 +1811,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// Which glyph, words and role a pull request's checks state is drawn with
     /// has one answer in Core — `GitHubChecksSummary`'s `symbolName` /
-    /// `spokenWords`, `GitHubCheckBucket`'s `spokenWords` (a job row draws a dot,
+    /// `indicatorGlyph` / `spokenWords`, `GitHubCheckBucket`'s `spokenWords` (a job row draws a dot,
     /// not a glyph) and `ChromeColorRole.checksRole(for:)` — read
     /// by the bottom-bar indicator and the Pull Requests panel, which used to
     /// keep one table each and could disagree about the same pull request.
@@ -1861,8 +1909,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "CommitUnifiedDiffView.swift",
     ]
 
+    /// The one app file that tints a diff line's *text*: the unified diff draws
+    /// an added line's text in `statusGreen` and a removed line's in `statusRed`,
+    /// and the side-by-side `DiffView` does not tint its text.
+    private static let diffTextReaders: Set<String> = [
+        "CommitUnifiedDiffView.swift",
+    ]
+
     func testTheDiffWashIsCoresOneAnswerAndADiffSideIsOneType() throws {
         var readers: Set<String> = []
+        var textReaders: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
@@ -1874,13 +1930,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                     )
                 }
             }
-            for declaration in ["func diffWashRole", "func diffMarkerRole"] {
+            for declaration in ["func diffWashRole", "func diffMarkerRole", "func diffTextRole"] {
                 XCTAssertFalse(
                     code.contains(declaration),
                     "\(name) declares its own \(declaration) — the diff wash is Core's one answer"
                 )
             }
             if Self.spellsCall("diffWashRole(for:", in: code) { readers.insert(name) }
+            if Self.spellsCall("diffTextRole(for:", in: code) { textReaders.insert(name) }
             if !url.path.contains("/Sources/Pisaka/iOS/") {
                 XCTAssertFalse(
                     code.contains("DiffTextView.Side"),
@@ -1894,6 +1951,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             readers, Self.diffWashReaders,
             "the app files reading ChromeColorRole.diffWashRole(for:) must be exactly its two known readers"
+        )
+        XCTAssertEqual(
+            textReaders, Self.diffTextReaders,
+            "the app files reading ChromeColorRole.diffTextRole(for:) must be exactly the unified diff"
         )
 
         let sideEnum = try NSRegularExpression(pattern: "\\benum\\s+Side\\b")
@@ -1970,15 +2031,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     private static let panelControlBuilders: [(file: String, builders: [ControlBuilder])] = [
         ("CommitLogView.swift", [
-            ControlBuilder(path: ["private var header: some View"],
+            ControlBuilder(path: ["private var refreshControls: some View"],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private struct CommitFileRow", "var body: some View"],
                            required: [".accessibilityValue("], hidesSymbols: true),
         ]),
         ("LocalChangesView.swift", [
             ControlBuilder(path: ["private var toolbar: some View"],
-                           required: [".accessibilityLabel("], hidesSymbols: true),
-            ControlBuilder(path: ["private func groupingSegment("],
                            required: [".accessibilityLabel("], hidesSymbols: true),
             ControlBuilder(path: ["private var folderHeader: some View"],
                            required: [".accessibilityLabel(", ".accessibilityValue("], hidesSymbols: true),
@@ -2184,8 +2243,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// one, changes a count and a person decides whether the new site's
     /// neighbour names the activity.
     static let spinnerClassification: [String: (labelled: Int, hidden: Int)] = [
-        // The header's and the load-more row's: "History" and the row's place
-        // say nothing about loading, and "Loading…" is the empty list's alone.
+        // The refresh controls' and the load-more row's: the refresh glyph and
+        // the row's place say nothing about loading, and "Loading…" is the empty list's alone.
         "CommitLogView.swift": (labelled: 2, hidden: 0),
         // Alone in the dialog's loading state.
         "CommitDialogView.swift": (labelled: 1, hidden: 0),
@@ -2442,6 +2501,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ContentView.swift: syncMarkdownDividerCursor",
         "LeetCodeDescriptionView.swift: syncResizeHandleCursor",
         "DatabaseViewerView.swift: syncSidebarDivideCursor",
+        "LocalChangesView.swift: syncDividerCursor",
     ]
 
     /// A hand-rolled divider pushes the resize cursor from hover and drag state
@@ -2452,9 +2512,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// whole panel away — and `NSCursor`'s stack is global, so the cursor stays
     /// pushed after the flag that would have balanced it is gone. The defect
     /// shipped once, in the Log's divide; the two `ContentView` dividers already
-    /// released from `onDisappear`, which is the rule this states for all five
-    /// (the statement pane's resize handle joined in part five (d), and the
-    /// database viewer's sidebar divide when that sidebar became resizable).
+    /// released from `onDisappear`, which is the rule this states for all six
+    /// (the statement pane's resize handle joined in part five (d), the
+    /// database viewer's sidebar divide when that sidebar became resizable, and
+    /// Local Changes' list/diff divider in the design pass).
     ///
     /// Over stripped source, in every gated file: each function whose body
     /// pushes an `NSCursor` is called from inside an `.onDisappear {` block in the
@@ -2843,26 +2904,32 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
-    /// The two query-toggle rows speak the same three names. The shared toggle
-    /// speaks its `help` as its accessibility label, so a caller that words one
-    /// mode differently ("Words" beside "Whole word") names one control two ways.
-    /// Matched against comment-stripped text *with* literals kept, because the
-    /// names under test are the literals — the usual scanner would delete them.
+    /// The two query-toggle rows speak the same three names, each drawn with the
+    /// same glyph. The shared toggle speaks its `help` as its accessibility
+    /// label, so a caller that words one mode differently ("Words" beside "Whole
+    /// word") names one control two ways; and a caller pairing a name with
+    /// another mode's glyph draws one mode two ways. Matched against
+    /// comment-stripped text *with* literals kept, because the names under test
+    /// are the literals — the usual scanner would delete them.
     func testQueryTogglesSpeakOneNamePerMode() throws {
-        let pattern = try NSRegularExpression(pattern: "ChromeQueryToggle\\([^)]*?help:\\s*\"([^\"]*)\"")
-        var names: [String: [String]] = [:]
+        let pattern = try NSRegularExpression(
+            pattern: "ChromeQueryToggle\\(\\s*glyph:\\s*\\.(\\w+)[^)]*?help:\\s*\"([^\"]*)\""
+        )
+        var pairs: [String: [String]] = [:]
         for url in try Self.swiftSources() where Self.sharedToggleConstructors.contains(url.lastPathComponent) {
             let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
             let range = NSRange(code.startIndex..., in: code)
-            names[url.lastPathComponent] = pattern.matches(in: code, range: range).compactMap {
-                Range($0.range(at: 1), in: code).map { String(code[$0]) }
+            pairs[url.lastPathComponent] = pattern.matches(in: code, range: range).compactMap { match in
+                guard let glyph = Range(match.range(at: 1), in: code),
+                      let name = Range(match.range(at: 2), in: code) else { return nil }
+                return "\(code[glyph]) \(code[name])"
             }
         }
-        XCTAssertEqual(Set(names.keys), Self.sharedToggleConstructors)
-        for (name, spoken) in names {
+        XCTAssertEqual(Set(pairs.keys), Self.sharedToggleConstructors)
+        for (name, spoken) in pairs {
             XCTAssertEqual(
-                spoken, ["Match case", "Whole word", "Regular expression"],
-                "\(name)'s query toggles must speak the one name each mode has"
+                spoken, ["caseSensitive Match case", "wholeWord Whole word", "regex Regular expression"],
+                "\(name)'s query toggles must speak the one name and draw the one glyph each mode has"
             )
         }
     }
@@ -3143,9 +3210,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Rule twenty-nine: the merge wash is Core's one answer
 
-    /// `mergeWashRole(for:)` is read by the merge panes alone; the three roles it
-    /// and the code zone's line overlays own are spelled by no app file but the
-    /// palette; and no gated file composes an alpha onto a role's colour.
+    /// `mergeWashRole(for:)` is read by the merge panes alone; the merge wash's
+    /// own role and the unspent `bracketMatch` are spelled by no app file but the
+    /// palette; `currentLine` — spent by the current-line highlight — by the
+    /// palette and that highlight's two painters exactly, by set equality; and
+    /// no gated file composes an alpha onto a role's colour.
     ///
     /// The alpha clause is a pattern over a call and the member chained onto it
     /// — `nsColor(…)`, `.color(…)` or `chromeColor(…)`, its brace-matched
@@ -3180,23 +3249,35 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// through a `let` needs data flow, which a token scan does not have.
     private static let mergeWashReaders: Set<String> = ["MergeView.swift"]
 
+    /// The palette, plus the current-line highlight's two painters: the text
+    /// side's full-width band and the gutter's continuation of it.
+    private static let currentLinePainters: Set<String> = [
+        "ChromePalette.swift", "BracketOverlayLayoutManager.swift", "LineNumberRulerView.swift",
+    ]
+
     func testTheMergeWashIsCoresOneAnswer() throws {
         var readers: Set<String> = []
+        var currentLinePainters: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
+            if LSPSourceGatingTests.containsToken("currentLine", in: code) { currentLinePainters.insert(name) }
             guard name != "ChromePalette.swift" else { continue }
-            for role in ["conflictBackground", "currentLine", "bracketMatch"] {
+            for role in ["conflictBackground", "bracketMatch"] {
                 XCTAssertFalse(
                     LSPSourceGatingTests.containsToken(role, in: code),
-                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, the other two are the code zone's"
+                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, bracketMatch is the code zone's"
                 )
             }
         }
         XCTAssertEqual(
             readers, Self.mergeWashReaders,
             "the app files reading ChromeColorRole.mergeWashRole(for:) must be exactly the merge panes"
+        )
+        XCTAssertEqual(
+            currentLinePainters, Self.currentLinePainters,
+            "the app files naming currentLine must be exactly the palette and the current-line highlight's two painters"
         )
 
         let roleColor = try NSRegularExpression(pattern: "(?:\\bnsColor|\\.color|\\bchromeColor)\\s*\\(")
@@ -3322,6 +3403,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("chromePrimary", [
             "ChromeControls.swift", "CommitDialogView.swift", "MergeView.swift",
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift", "LeetCodeOpenProblemSheet.swift",
+            "LSPConsentBanner.swift", "LocalChangesView.swift",
         ]),
         ("chromeSecondary", [
             "ChromeControls.swift", "SearchBarView.swift", "ProjectSearchView.swift",
@@ -3330,6 +3412,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
             "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
             "LeetCodeJudgeView.swift", "LeetCodeOpenProblemSheet.swift", "LeetCodeLoginView.swift",
+            "LSPConsentBanner.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
@@ -3342,7 +3425,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `.buttonStyle(` applications. Zero is stated, not defaulted, so a first
     /// button in a controller is a deliberate edit here.
     private static let partFiveBButtonCounts: [String: Int] = [
-        "CommitDialogView.swift": 5,
+        "CommitDialogView.swift": 6,
         "MergeView.swift": 7,
         "LocalHistoryView.swift": 1,
         "MergeWindowController.swift": 0,
@@ -3924,6 +4007,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The glyphs are found through `callRanges(_:in:)`, so an
     /// `Image(\n    systemName: …)` is the same glyph: the rule's first shape
     /// searched the contiguous text and skipped a wrapped one outright.
+    ///
+    /// **A `DesignGlyphImage(` is sized by construction**, and so is never an
+    /// unsized glyph at its call site: the helper's own `Image(` is the one
+    /// place the size is set, and the rule re-checks it there — `.resizable()`
+    /// with a `.frame(` naming `metrics` on its own chain, and
+    /// `.accessibilityHidden(true)` on the same chain, which is what lets rule
+    /// ten count the helper as a hidden glyph.
     private enum GlyphSizing {
         /// An enclosing stack's own chain ends in `.font(` naming `metrics`, so
         /// the glyph and the text beside it are one size by construction.
@@ -3946,11 +4036,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // `.font(metrics.scaledFont(textStyle))` is the field's own text size —
         // the glyph matching the text beside it is the point.
         ("ChromeControls.swift", "struct ChromeThemedTextField", 1, .containerFont),
-        // Container fonts, one per row or label: the bottom-bar widgets' labels,
-        ("BranchSwitcherView.swift", "var body: some View", 2, .containerFont),
-        ("ProjectSwitcherView.swift", "var body: some View", 2, .containerFont),
-        ("PullRequestIndicatorView.swift", "var body: some View", 2, .containerFont),
-        // the switcher popovers' three rows, whose glyph sits in a 16-point icon
+        // Container fonts, one per row or label (the bottom-bar widgets' own
+        // glyphs are design glyphs, sized by the helper, and the indicator's
+        // fallback checks symbol carries its own metrics font): the switcher
+        // popovers' three rows, whose glyph sits in a 16-point icon
         // column — a `.frame(width:)` that aligns the names and sizes nothing,
         // the symbol not being resizable — under the row `HStack`'s body font,
         ("BranchSwitcherView.swift", "private func branchRow(", 1, .containerFont),
@@ -3966,13 +4055,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("ProblemsPanelView.swift", "struct ProblemRow", 1, .containerFont),
         ("UsagesPanelView.swift", "private func fileGroup(", 1, .containerFont),
         ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
-        // and the tree's rows.
-        ("ProjectTreeView.swift", "struct DirectoryNodeView", 1, .containerFont),
-        ("ProjectTreeView.swift", "struct FileRowView", 1, .containerFont),
-        // The create draft's icon column is drawn twice — beside the field, and
-        // as a hidden twin measuring the reason line's inset — each under a font
-        // of its own at the use site.
-        ("ProjectTreeDraftField.swift", "private var iconColumn", 2, .useSiteFont("iconColumn")),
+        // (The tree's rows, their inline draft and both tab orientations draw
+        // design glyphs since part eight, sized by the helper.)
         // The unified diff's per-line checkbox is fixed geometry belonging to a
         // *code* row, left off both scales on purpose (the file's own `metrics`
         // comment states it — the Find in Files rows' rule), so neither zone
@@ -4039,6 +4123,29 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             case .offBothScales:
                 break
             }
+        }
+        let helper = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: Self.designGlyphHelperFile))
+        )
+        let helperBody = try XCTUnwrap(
+            Self.matchedBody(after: "struct DesignGlyphImage", in: helper),
+            "DesignGlyphImage's declaration is gone or renamed — re-point this rule"
+        )
+        let helperImages = Self.callRanges("Image(", in: helperBody)
+        XCTAssertEqual(helperImages.count, 1, "DesignGlyphImage must draw exactly one Image(")
+        for found in helperImages {
+            let open = helperBody.index(before: found.upperBound)
+            let end = try XCTUnwrap(Self.balancedEnd(from: open, in: helperBody))
+            let links = Self.chainLinks(from: end, in: helperBody)
+            XCTAssertTrue(
+                Self.chainSizesThroughMetrics(from: end, in: helperBody, links: ["frame"])
+                    && links.contains { $0.name == "resizable" },
+                "DesignGlyphImage's Image( must be .resizable() and framed through metrics — every caller's size is this one"
+            )
+            XCTAssertTrue(
+                links.contains { $0.name == "accessibilityHidden" && $0.arguments == "(true)" },
+                "DesignGlyphImage's Image( must hide itself from accessibility — rule ten counts it as hidden"
+            )
         }
         for (name, code) in try Self.strippedGatedSources() {
             XCTAssertEqual(
@@ -4348,10 +4455,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let settingsShapeConstructions: [(token: String, counts: [String: Int])] = [
         ("ChromeSegmentedControl", ["SettingsView.swift": 2, "PullRequestMergeSheet.swift": 1]),
         ("ChromeMenuField", [
-            "LogFilterBar.swift": 1, "SettingsView.swift": 1, "NewPullRequestSheet.swift": 1,
+            "LogFilterBar.swift": 1, "SettingsView.swift": 2, "NewPullRequestSheet.swift": 1,
             "LeetCodeBrowserView.swift": 1, "LeetCodeOpenProblemSheet.swift": 1,
         ]),
-        ("ChromeStepper", ["SettingsView.swift": 2]),
+        ("ChromeStepper", ["SettingsView.swift": 3]),
         ("ChromeSwitch", ["SettingsView.swift": 2]),
         ("ChromeSettingsTabBar", ["SettingsView.swift": 1]),
     ]
@@ -4366,7 +4473,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// counted through `callRanges(_:in:)` so a wrapped call counts — rule
     /// thirty's shape, applied to the five settings shapes. The sets alone were
     /// blind to a shape change inside a file that already spells both shapes:
-    /// `SettingsView.swift` builds two segmented controls and one menu field, so
+    /// `SettingsView.swift` builds two segmented controls and two menu fields, so
     /// turning one into the other kept it in both sets. A segmented
     /// base-branch list, a switch where a checkbox belongs, or a second segmented
     /// control added to a pinned file each changes a count or a set and fails
@@ -4406,7 +4513,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `FilterBarLayout.controlHeight`, so it is not a key.
     private static let menuFieldHeightSpellings: [String: Int] = [
         "ChromeGeometry.swift": 1,
-        "SettingsView.swift": 1,
+        "SettingsView.swift": 2,
         "NewPullRequestSheet.swift": 1,
         "LeetCodeBrowserView.swift": 1,
         "LeetCodeOpenProblemSheet.swift": 1,
@@ -5039,7 +5146,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// The four roles the terminal's chrome colours are read as — ground, default
     /// text, caret, selection — spelled leading-dot, the way the file passes them
     /// to `ChromePalette.nsColor(_:in:)`.
-    private static let terminalChromeRoles = [".bgCanvas", ".textPrimary", ".accent", ".accentTintStrong"]
+    private static let terminalChromeRoles = [".bgPanel", ".textPrimary", ".accent", ".accentTintStrong"]
 
     /// Colour names rule one's list leaves out because no gated view could reach
     /// them, but `TerminalTheme.swift` could: AppKit's fixed greys and
@@ -5229,6 +5336,65 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule forty-six: design glyphs are drawn only through the helper
+
+    /// The one file allowed to load a design glyph by name.
+    static let designGlyphHelperFile = "DesignGlyphImage.swift"
+
+    /// Rule forty-six. Every macOS source under `Sources/Pisaka/` (the iOS
+    /// directory aside) other than the helper is read through the
+    /// **literal-keeping** scanner — the name an image is loaded by *is* a
+    /// literal — and no `Image(` or `NSImage(named:` call in it may name a
+    /// glyph: neither a string literal equal to a `DesignGlyph` raw value nor
+    /// the token `assetName`. `Image(systemName:` is a different call (an SF
+    /// Symbol, which may share a word with a glyph) and is not matched; any
+    /// other literal — `AppIcon` today — is not a glyph and is not this rule's.
+    ///
+    /// The helper must itself spell both loads through `assetName`, so a
+    /// renamed property cannot empty the rule into a vacuous pass.
+    func testDesignGlyphsAreDrawnOnlyThroughTheHelper() throws {
+        let glyphLiterals = Set(DesignGlyph.allCases.map { "\"\($0.assetName)\"" })
+        func namesAGlyph(_ arguments: Substring) -> Bool {
+            LSPSourceGatingTests.containsToken("assetName", in: String(arguments))
+                || glyphLiterals.contains { arguments.contains($0) }
+        }
+        func loads(in code: String) -> [Substring] {
+            var arguments: [Substring] = []
+            for needle in ["Image(", "NSImage(named:"] {
+                for found in Self.callRanges(needle, in: code) {
+                    guard let open = code[found].firstIndex(of: "("),
+                          let end = Self.balancedEnd(from: open, in: code) else { continue }
+                    let argument = code[code.index(after: open)..<code.index(before: end)]
+                    if needle == "Image(",
+                       argument.drop(while: \.isWhitespace).hasPrefix("systemName") { continue }
+                    arguments.append(argument)
+                }
+            }
+            return arguments
+        }
+
+        var offenders: [String] = []
+        var helperLoads = 0
+        for url in try Self.swiftSources()
+        where url.path.contains("/Sources/Pisaka/") && !url.path.contains("/Sources/Pisaka/iOS/") {
+            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let naming = loads(in: code).filter(namesAGlyph)
+            if url.lastPathComponent == Self.designGlyphHelperFile {
+                helperLoads = naming.count
+            } else if !naming.isEmpty {
+                offenders.append(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            offenders, [],
+            "a design glyph is drawn through DesignGlyphImage or DesignGlyphDrawing, never loaded by name inline"
+        )
+        XCTAssertEqual(
+            helperLoads, 2,
+            "\(Self.designGlyphHelperFile) must load the glyph by assetName exactly twice — once per half — or this rule reads nothing"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5254,7 +5420,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// documents and has no view, so it paints nothing and names no role by
     /// construction. It is gated for rules one and two, which are the rules it
     /// could break — a system colour or a hex literal creeping into it.
+    ///
+    /// `DesignGlyphImage.swift` is exempt because it paints the role its
+    /// *caller* names: it takes a `ChromeColorRole` and spells no case of one,
+    /// so it names none by construction. It is gated for rules one and two and
+    /// for rule forty-six, whose subject it is.
     private static let roleNamingExemptions: Set<String> = [
+        "DesignGlyphImage.swift",
         "ChromeThemeEnvironment.swift",
         "LSPInstalledLicenses.swift",
         "CommitGraphView.swift",
@@ -5323,7 +5495,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
-        45: "forty-five",
+        45: "forty-five", 46: "forty-six",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

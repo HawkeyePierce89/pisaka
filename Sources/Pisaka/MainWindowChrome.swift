@@ -2,7 +2,7 @@
 //  MainWindowChrome.swift
 //  Pisaka
 //
-//  The main window's own chrome: the title bar's ground.
+//  The main window's own chrome: the title bar's ground and its title.
 //
 //  A sibling of `MainWindowFrameAutosave`, not a change to it. The two answer
 //  unrelated questions about the same window — where it sits, and what colour
@@ -27,13 +27,22 @@
 //  cached value to invalidate — the rule `ChromePalette` states for every
 //  AppKit chrome surface, spent at one more call site.
 //
-//  The title *text* and the window buttons are left alone: both are drawn by
-//  the framework against the window's appearance, which the Theme preference
-//  already sets at the content root, so they follow without being told.
+//  **The title.** `MainWindowTitle` decides the string — `<project> — <file>`,
+//  the project alone, or the app's default — and this marker is what applies
+//  it, so the window keeps one configurer. The marker observes the workspace
+//  for that reason alone; an update that leaves the string unchanged writes
+//  nothing. The title stays visible: with no toolbar on the window the
+//  framework centres it in the title bar, which is the design's placement, and
+//  `titleVisibility` is stated rather than left to the default so the design's
+//  title cannot be hidden by a later toolbar change without this line saying
+//  so. The text colour and the window buttons are drawn by the framework
+//  against the window's appearance, which the Theme preference already sets at
+//  the content root, so they follow without being told.
 //
 
 #if os(macOS)
 import AppKit
+import PisakaCore
 import SwiftUI
 
 /// A non-drawing, hit-test-transparent marker attached to the main scene's
@@ -43,11 +52,24 @@ import SwiftUI
 /// one place in this app that can name the main window, and a marker is how a
 /// SwiftUI scene reaches it.
 struct MainWindowChrome: NSViewRepresentable {
+    /// The workspace the title is read from.
+    @ObservedObject var model: WorkspaceModel
+
     func makeNSView(context: Context) -> MainWindowChromeView {
-        MainWindowChromeView()
+        MainWindowChromeView(title: title)
     }
 
-    func updateNSView(_ nsView: MainWindowChromeView, context: Context) {}
+    func updateNSView(_ nsView: MainWindowChromeView, context: Context) {
+        nsView.title = title
+    }
+
+    /// The title `MainWindowTitle` gives the workspace as it is now.
+    private var title: String {
+        MainWindowTitle.text(
+            projectRoot: model.projectRoot,
+            focusedFileName: model.selectedFile?.displayName
+        )
+    }
 
     /// Apply the chrome to a window.
     ///
@@ -55,17 +77,28 @@ struct MainWindowChrome: NSViewRepresentable {
     /// is what `ChromeThemeSourceGatingTests`' ninth rule pins: a second setter
     /// of `titlebarAppearsTransparent` would compete with this one, and nothing
     /// in the compiler can see two of them.
-    static func apply(to window: NSWindow) {
+    static func apply(to window: NSWindow, title: String) {
         // Transparent, so the window's own background colour *is* the title
         // bar's ground. Without this the framework draws its own material over
         // the strip and the colour below never shows.
         window.titlebarAppearsTransparent = true
         window.backgroundColor = ChromePalette.nsColor(.bgPanel)
+        window.titleVisibility = .visible
+        if window.title != title { window.title = title }
     }
 }
 
 final class MainWindowChromeView: NSView {
-    init() {
+    /// The title to apply; re-applied to the window whenever it changes.
+    var title: String {
+        didSet {
+            guard title != oldValue else { return }
+            applyToWindow()
+        }
+    }
+
+    init(title: String) {
+        self.title = title
         super.init(frame: .zero)
         setAccessibilityElement(false)
     }
@@ -81,11 +114,15 @@ final class MainWindowChromeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyToWindow()
+    }
+
+    private func applyToWindow() {
         // Sheets are skipped for the frame marker's reason: a sheet is hosted by
         // its own window, and the commit dialog's chrome is not the main
         // window's.
         guard let window = self.window, !window.isSheet else { return }
-        MainWindowChrome.apply(to: window)
+        MainWindowChrome.apply(to: window, title: title)
     }
 }
 #endif

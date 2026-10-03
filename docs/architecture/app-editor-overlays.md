@@ -188,6 +188,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     keystroke. Off, a degenerate width (zero or less, which is also how an
     uncomputed width arrives) or an absent text storage draws nothing and leaves
     the pass byte-for-byte what it was.
+    **The current-line wash** is painted in the same pass, after the level blocks
+    and before `super`: `setCurrentLine(_:)` takes `CurrentLineRule`'s answer
+    from the coordinator (an unchanged range is a no-op) and invalidates only the
+    band it leaves and the band it lands on — two line-high strips, never the
+    viewport, since it runs on every caret move; `currentLineBand(for:)` measures
+    the band at draw time in text-container y — the line's first through last
+    fragment, from x 0 across the text view's whole width — and a zero-length
+    range at the end of the text is the extra line fragment (the trailing empty
+    line, or an empty document's one line), laid out up to the last character
+    only, never the whole file. The fill is `ChromePalette.nsColor(.currentLine)`,
+    a dynamic colour resolved inside the drawing pass. Painting it after the
+    blocks puts it over the caret line's indentation tint; painting it before
+    `super` keeps the matched pair, the search matches and the selection on top.
+    The gutter reads `currentLineRange` and `currentLineBand(for:)` off this class
+    rather than holding a copy, so the two halves cannot disagree.
+    `CurrentLineHighlightTests` samples both halves (`core-theme.md`).
     **The ordering is blocks first, then `super`**, in an override of
     `drawBackground(forGlyphRange:at:)`: `super` is what paints the `.backgroundColor`
     temporary attributes — the caret's matched pair and both search-match
@@ -610,7 +626,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     applied as `.preferredColorScheme` at the window root — while caching nothing
     and observing no appearance change of its own. Four colours, four roles.
     `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over
-    `Self.backgroundRect(in:ruleThickness:)`, then a
+    `Self.backgroundRect(in:ruleThickness:)`, then — when the layout manager is a
+    `BracketOverlayLayoutManager` holding a current line — that line's band in
+    `currentLine`, its y the layout manager's `currentLineBand(for:)` translated
+    the way the numbers are, its x the gutter's own `0 ..< ruleThickness` (never
+    the rectangle handed in, for the reason below), then a
     `ChromeGeometry.hairlineWidth` rule in `hairline` at the
     ruler's right edge (`ruleThickness - hairlineWidth`).
     **The rectangle filled is the gutter's own, never the one handed in**, and
@@ -761,9 +781,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     windows. The rest of the source viewer's chrome was swept in part five (b):
     its window ground is `EscClosableWindow`'s `bgPanel` (`core-theme.md`).
     **The fold chevron column** sits between the diagnostic markers and the
-    numbers: `chevron.down` on the header line of every fold candidate,
-    `chevron.right` on a folded one — **both in `textSecondary`**, the distinction
-    carried by the symbol rather than by two greys, because the gutter's chrome
+    numbers: the design's `chevron-down` glyph on the header line of every fold
+    candidate, `chevron-right` on a folded one, drawn through
+    `DesignGlyphDrawing.image` — **both in `textSecondary`**, the distinction
+    carried by the glyph rather than by two greys, because the gutter's chrome
     text is one weight and a second one would be a second opinion about it (this
     replaces the earlier louder-when-folded treatment, which spelled
     `labelColor` against the open one's `secondaryLabelColor`) — and nothing on
@@ -781,10 +802,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     guard reads both for the same reason: a chevron that is drawn must be
     clickable. Its width is derived from `rulerFont` and from nothing else, so it
     scales with code zoom like the numbers and the severity dots and needs no
-    thickness recomputation when the fold sets change; the image is configured at
-    draw time, so a zoom, a font change and a light/dark switch each need no
-    bookkeeping at all, and a chevron (which is not square) is centered inside its
-    square cell rather than stretched. **The ruler is *told* both sets and decides
+    thickness recomputation when the fold sets change. The **glyph** is a code-zone
+    measurement of its own: `foldGlyphSide` is the design's 11 points at
+    `SettingsStore.defaultFontSize`, times the code font's size over that default,
+    and `foldGlyphRect(cellY:)` centres that square on the unchanged cell
+    (`foldCellRect(cellY:)`), so the click target is exactly what it was and the
+    glyph overhangs into the gaps either side when it is the larger. The image is
+    built at draw time, inside `draw(_:)` so the tint resolves in the drawing
+    appearance, so a zoom, a font change and a light/dark switch each need no
+    bookkeeping at all; `GutterFoldTests` pins the side and the centring at two
+    code font sizes. **The ruler is *told* both sets and decides
     neither**: `setFoldRegions(_:folded:)` takes the candidates and the `FoldState`
     together — together, because a chevron's *direction* is decided by the two and a
     line's number is drawn or skipped by the folded set alone, so handing them over

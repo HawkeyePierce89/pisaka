@@ -157,25 +157,25 @@ struct TabStatusMark: View {
     /// The close mark, drawn in either of the two slots that claim it.
     private var closeMark: some View {
         Button(action: onClose) {
-            Image(systemName: "xmark")
-                .font(.system(size: metrics.scaled(9), weight: .bold))
-                .foregroundStyle(theme.color(.textSecondary))
+            DesignGlyphImage(.x, size: 12, slot: 12, role: .textSecondary)
         }
         .buttonStyle(.plain)
         .help("Close")
+        // The glyph is hidden from accessibility by the helper, so the button
+        // states its own name rather than reading out as an unnamed control.
+        .accessibilityLabel("Close")
     }
 }
 
-/// The file icon both tab orientations draw at the leading edge of a tab.
+/// The file glyph both tab orientations draw at the leading edge of a tab.
 ///
 /// It answers one rule, and answers it once: an `OpenFile` that has never been
-/// written has no url, and is asked about under its `displayName`, so the symbol
-/// for a name nothing recognises is `FileIcon`'s own fallback rather than a
-/// second guess spelled at the call site.
+/// written has no url, and is asked about under its `displayName`, so the glyph
+/// for a name nothing recognises is `FileGlyph`'s own plain-text answer rather
+/// than a second guess spelled at the call site.
 ///
-/// It is **drawn monochrome**: `FileIcon` answers a symbol *and* a semantic
-/// tint, and both orientations read only the symbol, because a run of tinted
-/// glyphs competes with the accent statement — the strip's underline, the
+/// It is drawn in `textSecondary` at the design's 13 points: a run of tinted
+/// glyphs would compete with the accent statement — the strip's underline, the
 /// column's leading bar — which is the one thing either has to say (the
 /// monochrome-icon decision in `core-theme.md`).
 ///
@@ -185,16 +185,11 @@ struct TabStatusMark: View {
 struct TabFileIcon: View {
     let file: OpenFile
 
-    /// The interface zone's metrics, inherited from the window root.
-    @Environment(\.interfaceMetrics) private var metrics
-    /// The chrome's colours, inherited from the window root.
-    @Environment(\.chromeTheme) private var theme
-
     var body: some View {
-        let url = file.url ?? URL(fileURLWithPath: file.displayName)
-        Image(systemName: FileIcon(for: DirectoryEntry(url: url, isDirectory: false)).symbolName)
-            .font(.system(size: metrics.scaled(11)))
-            .foregroundStyle(theme.color(.textSecondary))
+        DesignGlyphImage(
+            FileGlyph.forFile(named: file.url?.lastPathComponent ?? file.displayName),
+            size: 13, slot: 13, role: .textSecondary
+        )
     }
 }
 

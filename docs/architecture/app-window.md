@@ -143,13 +143,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `bottomBar` of six toggle buttons (Terminal / Log / Local Changes /
     Problems / Usages / Pull Requests — each name read from
     `BottomPanel.title`, the one table the dock's tab row reads too, and each
-    glyph from `BottomPanel.systemImage`, the same table's second column — so
+    glyph from `BottomPanel.glyph`, the same table's second column — so
     `bottomBarButton(panel:)` takes neither of its own, `panelToggles` builds
     the six from `ForEach(BottomPanel.allCases)`, and neither a tooltip nor the
-    order can disagree with a tab; the active one highlighted. The glyphs, and
-    why Pull Requests draws `arrow.triangle.merge` rather than the
-    `arrow.triangle.pull` Local Changes uses, live beside the values in
-    `BottomPanel.swift` (`core-services.md`)) sits flush at
+    order can disagree with a tab; the active one highlighted. The glyphs are
+    design glyphs drawn through `DesignGlyphImage`, and why each is distinct
+    lives beside the values in `BottomPanel.swift` (`core-services.md`)) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel, that panel slot
     painted `bgPanel` with **no rule of its own** (the divider above it carries
@@ -185,9 +184,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `completionToggleButton` — are **icon-only squares**:
     `bottomBarToggleSide` on a side, `bottomBarToggleRadius` of corner radius,
     the icon at `.body`, an `accentTintStrong` ground under an `accent` icon
-    while active and no ground under a `textSecondary` icon otherwise, each
+    while active and no ground under a `textSecondary` icon otherwise (since the
+    design pass: `BottomPanel.glyph` at 13 on an `accentTint` ground — see
+    below), each
     keeping `.contentShape(Rectangle())`. **The visible titles are gone**, which
-    is what makes `.help(` and `.accessibilityLabel(` mandatory on every one of
+    is what makes a tooltip and `.accessibilityLabel(` mandatory on every one of
     them rather than polite: the `Label(title, systemImage:)` they used to carry
     *was* each one's accessibility name, while an unhidden `Image(systemName:)`
     supplies a name of its own instead — the *symbol's* (`core-theme.md`'s rule
@@ -198,6 +199,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     body must read `BottomPanel.allCases` and name no panel case — so the bar
     keeps no second list of panels and a seventh panel arrives through the one
     builder whose name the rule already requires.
+
+    **The toggles' tooltips are AppKit's, not `.help`'s.** Each of the seven
+    carries `.background(BarToolTip(text:))` — an `NSViewRepresentable` whose
+    `BarToolTipView` sets `toolTip`, draws nothing, answers `nil` to every hit
+    test (the click lands on the SwiftUI button in front of it) and is not an
+    accessibility element — with the panel's `title` for a panel toggle and
+    "Code completion: On"/"Code completion: Off" for the switch. `.help` on the
+    same toggles never showed in the shipped window, and the diagnosis is
+    recorded here because it did **not** end at a cause this app could fix:
+    hosted headlessly in a titled window shaped like the main one, and also
+    read off the real main window inside the test host, SwiftUI's tooltip bridge
+    (the hosting view's dynamic tooltip manager, asked at a point) answered the
+    right string at every toggle — with and without the bar's `.zIndex(1)`, with
+    and without the transparent title bar, and with the hit-transparent markers
+    (`MainWindowChromeView`, `MainWindowFrameAutosaveView`) in place, an AppKit
+    hit test at each toggle landing on the window's hosting view itself. Three
+    of the four candidates are therefore ruled out as the cause. The fourth —
+    whether the window is key and the application active when the framework
+    decides to ask that bridge on hover — is the one step a headless test cannot
+    drive: the test host never becomes the active application, and there even a
+    bare `Button` with `.help` shows no tooltip, so no headless experiment
+    separates "never asked" from "asked and suppressed". With no fix to make at a
+    cause, the bar takes the plan's fallback: `NSView.toolTip` is AppKit's own
+    mechanism, registered as a tracking rect on the view itself, and does not go
+    through SwiftUI's bridge at all. Every other `.help` in the window is
+    untouched by this. `BottomBarToolTipTests` finds each tooltip view by its
+    text and its toggle-square frame, at scale 1.0 and 1.8; gating rule ten
+    requires `BarToolTip(` and refuses `.help(` in both builders, so the bar
+    keeps one tooltip mechanism.
 
     **Both draggable dividers are drawn from the roles too.**
     `panelDivider(available:)` fills `bgPanel` and overlays a one-point
@@ -231,7 +261,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     sharing it no longer applies), `#N`, and a trailing checks mark whose four
     glyphs are `circle` / `clock` / `xmark.circle.fill` / `checkmark.circle.fill`
     coloured `textSecondary` / `statusYellow` / `statusRed` / `statusGreen` —
-    `statusGreen`'s first consumer. All three widgets **drop their own paddings**
+    `statusGreen`'s first consumer. **Since the design pass** the bar draws the
+    design's own glyphs through `DesignGlyphImage`, at the design's sizes: the
+    project switcher `package` 12 (`textSecondary`), its name at `.callout` in
+    `textPrimary` and `chevron-down` 10; the branch switcher `git-branch` 12, its
+    name and `chevron-down` 10, all `textSecondary`; the indicator
+    `git-pull-request` 12, `#N`, and a checks mark that is the design's `check`
+    (`statusGreen`) or `x` (`statusRed`) for a verdict — Core's
+    `GitHubChecksSummary.indicatorGlyph` — and keeps the panel's SF Symbol,
+    sized to 12, for pending or no checks. Each panel toggle is a 22-point
+    square of radius 4 carrying `BottomPanel.glyph` at 13, two points from its
+    neighbours; the active one draws `accent` on `accentTint` (it was
+    `accentTintStrong`), the others `textSecondary`, and the completion switch
+    keeps its SF Symbols at 13 (`.body`) in the same colours.
+    `BottomBarLayoutTests` measures the toggle squares, their 2-point gaps, the
+    active ground and the 14-point widget gap off the real window root at scale
+    1.0 and 1.8. All three widgets **drop their own paddings**
     so the bar's 14-point gaps and its `bottomBarHeight` are the measurements
     actually drawn, each keeping `.contentShape(Rectangle())` as its click
     target; the indicator's tooltip, accessibility label and value and its
@@ -240,11 +285,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the completion on/off switch (T-4): `completionToggleButton`, in the
     `bottomBarButton` idiom (the same square, the same two states, keyed on
     `settings.completionEnabled`), showing `lightbulb` when on and
-    `lightbulb.slash` when off with a `.help(…)` naming the state ("Code
-    completion: On" / "Code completion: Off"). It has never carried a `Label`
+    `lightbulb.slash` when off with a tooltip (`BarToolTip`, above) naming the
+    state ("Code completion: On" / "Code completion: Off"). It has never carried a `Label`
     title to serve as its accessibility name — and since part three its six
-    siblings have lost theirs too — while `.help` is a tooltip rather than a
-    name: the label and the state are therefore spelled out with
+    siblings have lost theirs too — while a tooltip is not a name: the label and the state are therefore spelled out with
     `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
     without which the one bottom-bar control that silently changes how the editor
     behaves could not be identified without sight. It writes **straight through** to
@@ -512,9 +556,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (an existing terminal keeps its start directory — only `newSession` reads the
     current root), `.log` → `CommitLogView(model: commitLog, projectRoot:,
     onOpenCommitDiff:)`, `.changes` →
-    `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
-    rendered as the file list only (the diff opens in a separate window on
-    double-click via `onOpenDiff`), `.problems` → `ProblemsPanelView(model:
+    `LocalChangesView(model: localChanges, projectRoot:, codeFontSize:,
+    onRevert:, onOpenDiff:)` — the file list with the selected file's diff
+    inline beside it at `settings.fontSize`, while double-click still opens the
+    diff in a separate window via `onOpenDiff` — `.problems` → `ProblemsPanelView(model:
     diagnostics, projectRoot:, onActivate:)`, `.usages` →
     `UsagesPanelView(model: usages, onActivate:)` and `.pullRequests` →
     `PullRequestsPanelView(model:coordinator:)`, both read off the
@@ -562,9 +607,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `onRevert`/`onOpenDiff`/`onResolveConflict`/`onCommit`, and wired by `PisakaApp`
     to `openCommitDialog(preselectingPath: file.path)` so a row's "Commit…" item
     opens the dialog with only that file checked,
-    `onCommit: (Int) async -> Void` runs the commit under `PisakaApp`'s gates (the
+    `onCommit: (Int, Bool) async -> Void` runs the commit under `PisakaApp`'s gates (the
     `Int` being the project generation the sheet's Commit button captured
-    synchronously before its `Task` hop — the `onReplaceAll` shape), and the
+    synchronously before its `Task` hop — the `onReplaceAll` shape — and the
+    `Bool` whether to push), and the
     sheet's `onDismiss` is `onCommitDialogDismissed` — fired on *every* closing
     path (a successful Commit, Cancel, Esc), which is what makes the modal autosave
     suspension raised on open impossible to strand. The model is held as a plain
@@ -613,6 +659,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     still leaves room for the panel's content. The panel *content* states no
     minimum of its own (see the panel-height paragraph above); the slot's scaled
     height is the only height it has.
+    **The caret readout.** After the completion switch the bar draws
+    `CaretReadout`'s string (`core-editor.md`; its measurements are
+    `core-theme.md`'s *The bottom bar's caret readout*), handed in as
+    `BottomBar.caretReadout` — a plain string, so the bar stays hostable alone.
+    It comes from `CaretReadoutModel`, defined in this file: the editor reports
+    each caret move's line and column through `CodeEditorView.onCaretMoved`
+    (`app-editor.md`), and the model composes the readout on the **next main-queue turn**, coalescing a
+    burst of moves into one readout and never publishing from inside a SwiftUI
+    update (the editor restores a tab's selection while installing it). It is
+    keyed by tab id, and `readout(for:)` answers empty unless that id is the
+    **focused text tab** — so a database viewer tab, no tab, or a caret last
+    reported by a tab no longer focused draws nothing. The window root holds the
+    model as `@State`, **not** `@StateObject`, and only `CaretReadoutObserver`
+    around the bar observes it: a caret move re-evaluates the bar, never the
+    window root. The language is `SyntaxLanguage(forFileName:)` of the tab's
+    display name, as the editor's own highlighter resolves it.
   - `BottomDockColumn.swift` (macOS) — the bottom dock's container, extracted
     from `ContentView.mainArea`: a generic `BottomDockColumn<Editor, Divider,
     Panel>` that `mainArea` renders whenever a dock panel is visible (the
@@ -650,8 +712,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
 
     **On the chrome roles** since part three (`core-theme.md`): it reads
     `\.chromeTheme` beside `\.interfaceMetrics` and spends `textPrimary` on the
-    project's name at `.callout`, `textSecondary` on the leading `folder` glyph
-    and on the trailing `chevron.down` caret the sweep added — the widget opens a
+    project's name at `.callout`, `textSecondary` on the leading `package` glyph
+    (12) and on the trailing `chevron-down` caret (10) — both design glyphs
+    since the design pass, each hidden from accessibility by the helper — the caret the sweep added — the widget opens a
     list and now says so. It draws **no padding of its own**: the bottom bar owns
     the 14-point gaps between its three widgets and its own height, so a padding
     here would make the bar's stated measurements not the ones drawn; the label
@@ -943,7 +1006,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     drawn through a private `DisclosureGroupStyle` (`FolderDisclosureStyle` + its
     `FolderDisclosureRow`) that renders chevron and
     label as **one full-width row**: the whole row toggles expansion, not just the
-    ~10pt chevron, and it carries the same hover highlight and padding as a file
+    chevron, and it carries the same hover highlight and padding as a file
     row (`FileRowView`), so both row kinds read and behave alike. Because the
     style draws the chevron itself there is no separate disclosure control, so
     "one click, one state change" holds by construction — the row's single
@@ -953,12 +1016,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
     the row re-declares itself as one — combined element, `.isButton`, the
     expansion state as its `accessibilityValue`, and an `accessibilityAction`
-    toggling the same binding, adding no second expansion path. Both symbols
-    inside that element — the style's chevron and the label's folder icon — are
-    `.accessibilityHidden(true)`: combining children folds an unhidden SF
-    Symbol's own name into the element's label ("chevron.right, folder fill,
-    Sources"), and both are decorative beside the name, the button trait and the
-    value. That restores
+    toggling the same binding, adding no second expansion path. **The glyphs
+    are the design's**, drawn through `DesignGlyphImage` in `textSecondary`: the
+    chevron at 12 in the 12-point chevron column — `chevron-down` when expanded,
+    `chevron-right` when collapsed, two glyphs rather than one rotated — then,
+    after the 4-point gap, `FileGlyph.forFolder(expanded:)` at 14 in a 14-point
+    slot (`TreeRowLayout.iconSize`); a file row draws `FileGlyph.forFile(named:)`
+    in the same slot, and the inline draft draws the glyph its row will have.
+    Both glyphs inside that element are hidden from accessibility by the helper:
+    combining children would fold an unhidden image's own name into the
+    element's label, and both are decorative beside the name, the button trait
+    and the value. `TreeRowGlyphLayoutTests` (app bundle) renders a tree once per
+    scale (1.0 and 1.8) and finds ink inside the 12- and 14-point slots, none in
+    the gap or in a file row's chevron column. That restores
     **VoiceOver** actuation only: a trait is not a focusable control, so the
     chevron can no longer be reached under Full Keyboard Access. Accepted, and
     recorded rather than fixed — the tree has no keyboard navigation at all (a
@@ -1496,18 +1566,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     view, the gated `ProjectTreeView`, states that boundary the same way: by
     leaving it to the splitter. (The strip's bottom rule is the other case — its
     host *is* a `VStack`, which draws nothing between its children.)
-    A row is `ChromeGeometry.verticalTabRowHeight` tall with `rowPaddingX`
-    horizontal padding, and states the strip's vocabulary turned through a right
-    angle: the active row filled `bgEditor` with an `accent` bar
-    `ChromeGeometry.accentIndicator` wide on its **leading** edge (the strip's
-    underline, rotated), its label `textPrimary` while every other row's is
-    `textSecondary`, and `hoverTint` under the pointer on an inactive row only —
-    the active one is already the one row that is filled. The icon is
+    The column has **no top inset**: the first row sits flush under the title
+    bar, the design's placement (a 4-point bottom inset stays past the last
+    row). Its width is `TabColumnWidthRule`'s (`core-services.md`): the scaled
+    minimum 180, default 220 and maximum 320, the maximum also held to a third
+    of the window. `ContentView` reads the window's width **once**, from one
+    `GeometryReader` in its body root's background, into `@State windowWidth`,
+    and applies the rule's bounds as the column's frame; the state starts
+    infinite so the split's first layout adopts the default width rather than a
+    maximum computed from nothing (a split view adopts the ideal once).
+    A row is `ChromeGeometry.verticalTabRowHeight` (28) tall with `rowPaddingX`
+    horizontal padding and a one-point `hairline` rule along its bottom edge
+    (`hairlineWidth`, scaled), and states the strip's vocabulary turned through
+    a right angle: the active row's **ground does not change** — the column's
+    `bgPanel` shows through it as through every row — and it is marked by an
+    `accent` bar `ChromeGeometry.accentIndicator` wide on its **leading** edge
+    (the strip's underline, rotated) and by its label, `textPrimary` while
+    every other row's is `textSecondary`; `hoverTint` under the pointer on an
+    inactive row only, so hovering the active row never reads as a second
+    selection. `TabColumnLayoutTests` (app bundle) renders the column over three
+    files at scale 1.0 and 1.8 and reads off the one bitmap: the selected row's
+    accent bar starts at y 0 and is 28 tall, one hairline run sits at each
+    row's bottom, and the selected row's middle is the `bgPanel` ground. The icon is
     **`TabFileIcon`**, the second of the two views the orientations share (both
-    live in `TabStripView.swift`): the monochrome `FileIcon` symbol in
+    live in `TabStripView.swift`): `FileGlyph`'s design glyph at 13 in
     `textSecondary` (the monochrome-icon decision in `core-theme.md`), with an
-    untitled buffer asked about under its display name so the fallback symbol is
-    still `FileIcon`'s own. The trailing slot is the first,
+    untitled buffer asked about under its display name so the fallback is still
+    `FileGlyph`'s own plain-text answer. The trailing slot is the first,
     **`TabStatusMark`**: the
     three-claimant precedence exists once, so the two orientations cannot drift
     into two rules. Both are one view rather than one rule restated twice, for
@@ -1532,9 +1617,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the opposite of what the comment beside it claimed. Gating rule sixteen pins
     the construct here and in `DockTabRow.swift`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
-    shares with the strip: a monochrome file icon
-    (`textSecondary`; `FileIcon`'s tint is deliberately unread — see the
-    monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
+    shares with the strip: `FileGlyph`'s design glyph at 13 in `textSecondary`
+    (see the monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
     trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, the
@@ -1546,15 +1630,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — and the mark still shows on an active tab with nothing to report, so the
     tab most likely to be closed does not have to be hunted for. An untitled
     buffer has no url and is asked about under its display name, so the fallback
-    symbol is still `FileIcon`'s own rather than a second guess spelled here —
-    that rule is `TabFileIcon`'s, spelled once and asked by both orientations,
-    which is also what keeps `FileIcon(` off a second gated file's lines (each
-    such line is exempt from the suite's no-system-colour rule, the icon tints
-    sharing SwiftUI's hue names).
+    glyph is still `FileGlyph`'s own rather than a second guess spelled here —
+    that rule is `TabFileIcon`'s, spelled once and asked by both orientations.
+    The close mark is the design's `x` glyph at 12, inside a plain button that
+    names itself "Close", since the helper hides the glyph from accessibility.
     Every **chrome** measurement goes through `ChromeGeometry` and
     `metrics.scaled(_:)` — the strip's height, the bottom and trailing hairlines,
-    the row padding, the accent indicator. The cell's own glyph sizes (icon 11,
-    close mark 9, dot 7, the 14-point slot they share, the 6-point item spacing)
+    the row padding, the accent indicator. The cell's own glyph sizes (icon 13,
+    close mark 12, dot 7, the 14-point slot they share, the 6-point item spacing)
     stay local and scaled, as the sweep guide permits: they are this surface's
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
@@ -1575,7 +1658,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ChromeGeometry.breadcrumbHeight` tall (a fixed height keeps the editor from
     jumping as the path changes) with `rowPaddingX` horizontal padding and
     `metrics.scaledFont(.subheadline)` text, and — like the tab strip — draws its
-    **own** bottom hairline, which is why its host's `Divider()` is gone.
+    **own** bottom hairline, which is why its host's `Divider()` is gone. The
+    separators are the design's `chevron-right` glyph at 10 points, scaled with
+    the interface, set inline in the one `Text` run with a space either side:
+    `DesignGlyphDrawing.inlineImage(_:pointSize:)` bakes the size into a template
+    image (a frame cannot reach inside a `Text`), and the run's `textSecondary`
+    foreground tints it, so truncation still treats the path as one string.
     **Two views in one file**: a thin outer `BreadcrumbBarView` reading
     `@Environment(\.chromeTheme)` and `\.interfaceMetrics`, and a private,
     `.equatable()` `BreadcrumbSegments` storing `fileURL`, `projectRoot`,

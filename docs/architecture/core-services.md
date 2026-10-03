@@ -117,13 +117,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     changes, problems, usages, pullRequests — so neither keeps a second list;
     `BottomPanelTests` pins the order and `core-theme.md`'s gating rule ten pins
     that the bar reads it and names no case of its own. What a strip draws for
-    a panel is a column of the same table: `public var systemImage: String` is
-    the bar's glyph — `terminal`, `arrow.triangle.branch`,
-    `arrow.triangle.pull`, `exclamationmark.triangle`, `text.magnifyingglass`,
-    `arrow.triangle.merge` — a symbol name being a string, as `FileIcon`'s is,
-    so Core stays Foundation-only and colour-free. Pull Requests draws
-    `arrow.triangle.merge` rather than the `arrow.triangle.pull` Local Changes
-    already uses because two toggles drawn with one glyph are
+    a panel is a column of the same table: `public var glyph: DesignGlyph` is
+    the bar's glyph — `terminal`, `list-checks`, `git-compare`,
+    `file-warning`, `search`, `git-pull-request-arrow`, the design's own
+    template images (`core-theme.md`'s design-glyph entry) — a `DesignGlyph`
+    being a name, as an SF Symbol's was, so Core stays Foundation-only and
+    colour-free. It replaced the SF Symbol column `systemImage` in the design
+    pass. The six are distinct because two toggles drawn with one glyph are
     indistinguishable at a glance, and with the labels gone the glyph is all
     there is (that reason sits beside the value in the source too, and
     `BottomPanelTests` pins the six glyphs distinct).
@@ -253,6 +253,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
+    **Numeric reads take a launch argument's string form.** All four numeric
+    keys (`fontSize`, `terminalFontSize`, `interfaceScale`,
+    `markdownPreviewFraction`) are read through one private helper,
+    `storedDouble(_:forKey:)`: a stored number is used as it is, and a `String`
+    that parses as a finite `Double` is used too — the form a `-settings.<key>
+    <value>` launch argument arrives in through the volatile argument domain,
+    which otherwise read as wrong-typed and fell back, so `-settings.interfaceScale
+    1.8` was silently ignored. Absent or unparsable values fall back exactly as
+    before, each answer still goes through its key's clamp, and reading never
+    writes anything back. Tested per key against a suite-backed `UserDefaults`
+    with values placed in its argument domain, plus the clamp and the
+    unparsable fallback.
+    **`editorFontFamily`** (`String?`, `Keys.editorFontFamily` =
+    `settings.editorFontFamily`, default `nil` = the system monospaced font) is
+    the code zone's family, beside `fontSize` rather than combined with it: the
+    size moves with every zoom, the family is chosen once. Blank is absent in
+    both directions (the `leetCodeFolderPath` discipline) — `""` written reads
+    back `nil` and removes the key, `""` stored loads as `nil`. Whether the
+    family is installed and fixed-pitch is not the store's question; the macOS
+    resolver `EditorFont` (`app-editor.md`) asks it every time a font is built,
+    so a family uninstalled since it was chosen falls back without being
+    forgotten. Only macOS reads it.
     Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of
     server id → `LSPServerConsent.rawValue` under `Keys.lspServerConsent`, read
     **leniently** (a value the current app does not recognise reads back as
@@ -670,6 +692,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `presentation(isCompactWidth:orientation:) -> Presentation` returns `.switcher`
     for compact width regardless of orientation, else `.horizontalStrip`/
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
+  - `MainWindowTitle.swift` — the macOS main window's title, pure:
+    `text(projectRoot:focusedFileName:)` answers `<project folder name> — <file
+    name>` (an em dash with a space either side, `separator`), the project name
+    alone when no file is focused (a `nil` or empty name), and `defaultTitle`
+    (`Pisaka`, the app's display name — what the scene titled the window before
+    this rule existed) when no project is open, whatever is focused. The
+    project name is the root's `lastPathComponent` as the user spelled it,
+    never resolved. Applied by `MainWindowChrome` (`app-shell.md`). Covered by
+    `MainWindowTitleTests`.
+  - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds
+    in `ContentView.editorSplit`'s `HSplitView`, pure:
+    `bounds(metrics:windowWidth:) -> Bounds` scales the three tokens (minimum
+    180, ideal 220, maximum 320) through `InterfaceMetrics.pt`, the grid every
+    other pane width is on, and holds the maximum to a third of the window
+    (`windowFraction`). The answer is always a valid frame: a third below the
+    scaled minimum holds the maximum *at* the minimum rather than handing
+    SwiftUI a maximum below its minimum, and the ideal is clamped between the
+    two. Covered by `TabColumnWidthRuleTests` — the tokens at scale 1.0 and 1.8,
+    the third binding on a narrow window at both scales, the ideal pulled down
+    with it, the floor, and min ≤ ideal ≤ max across a sweep.
   - `LicenseNotice.swift` — the third-party-license domain behind the
     Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
     `name`, `origin`, `version`, `revision`, `spdx`, `file`, plus `originURL` —
@@ -1172,7 +1214,8 @@ shape-specific line scanner) and asserts:
     from `project.yml` (minus `PisakaCore`), plus the documented transitive trees
     (the `tree-sitter` C runtime, and `swift-cmark`, which swift-markdown links
     and `project.yml` never names), plus the **bundled page assets** — the third
-    source class, below — *set* equality, so a new dependency fails the suite
+    source class, below — plus the **design glyphs** (the fourth origin shape,
+    below), *set* equality, so a new dependency fails the suite
     until its license is added, and a dropped one fails until its entry goes.
     **The set is destination-blind, deliberately, and Sparkle is the first entry
     where that shows.** `licenses.json` has no platform dimension and
@@ -1217,6 +1260,20 @@ shape-specific line scanner) and asserts:
     above applies here twice over: `Resources/MarkdownPreview` itself carries
     `destinationFilters: [macOS]`, so iOS's Acknowledgements lists two components
     its bundle does not contain — over-attribution, for Sparkle's reason;
+  - **the design glyphs, the fourth origin shape.** The design's glyphs ship as
+    template vector imagesets in the app's asset catalog, so their one entry,
+    `design-glyphs`, carries exactly `Sources/Pisaka/Assets.xcassets/Glyphs` as
+    its `origin` — matched exactly, not by prefix, so a second `Sources/` origin
+    is a fifth shape the partition refuses. The export carries no upstream
+    commit, so the entry's `revision` is the sha256 of the export's
+    `MANIFEST.txt` and its `version` is `null`, both equal to what
+    `Resources/DesignGlyphs/VENDORED.md` records (a record `project.yml` does not
+    bundle). From the directory's end, exactly one notice claims the folder and
+    its imagesets are exactly the glyphs that record's table lists — read
+    through `DesignGlyphRecord`, the reader `DesignGlyphAssetTests` shares. The
+    `Vendor/` checks are untouched and still select only the four grammars. The
+    copyright-holder table pins the text's MIT-section holder, since the ISC
+    holder line spells the icon set's name, which stays out of code;
   - the SPDX exception set is no longer empty: `Swift-exception` is on SPDX's
     published exceptions list and is recorded as one, while libgit2's linking
     exception is not on that list and stays part of its licence text;

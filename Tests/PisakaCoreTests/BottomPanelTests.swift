@@ -53,14 +53,14 @@ final class BottomPanelTests: XCTestCase {
     }
 
     func testEveryPanelHasItsOneGlyph() {
-        XCTAssertEqual(BottomPanel.terminal.systemImage, "terminal")
-        XCTAssertEqual(BottomPanel.log.systemImage, "arrow.triangle.branch")
-        XCTAssertEqual(BottomPanel.changes.systemImage, "arrow.triangle.pull")
-        XCTAssertEqual(BottomPanel.problems.systemImage, "exclamationmark.triangle")
-        XCTAssertEqual(BottomPanel.usages.systemImage, "text.magnifyingglass")
-        XCTAssertEqual(BottomPanel.pullRequests.systemImage, "arrow.triangle.merge")
+        XCTAssertEqual(BottomPanel.terminal.glyph, .terminal)
+        XCTAssertEqual(BottomPanel.log.glyph, .listChecks)
+        XCTAssertEqual(BottomPanel.changes.glyph, .gitCompare)
+        XCTAssertEqual(BottomPanel.problems.glyph, .fileWarning)
+        XCTAssertEqual(BottomPanel.usages.glyph, .search)
+        XCTAssertEqual(BottomPanel.pullRequests.glyph, .gitPullRequestArrow)
         // Two toggles drawn with one glyph are indistinguishable at a glance.
-        XCTAssertEqual(Set(BottomPanel.allCases.map(\.systemImage)).count, BottomPanel.allCases.count)
+        XCTAssertEqual(Set(BottomPanel.allCases.map(\.glyph)).count, BottomPanel.allCases.count)
     }
 
     // MARK: - The tab rule

@@ -56,6 +56,24 @@ final class ChromeRoleMappingTests: XCTestCase {
         }
     }
 
+    /// The bottom-bar indicator's design glyph: `check` for passing, `x` for
+    /// failing, and none — the indicator keeps `symbolName` — for the other two.
+    func testTheIndicatorDrawsTheDesignGlyphOnlyForAVerdict() {
+        let expected: [GitHubChecksSummary: DesignGlyph?] = [
+            .noChecks: nil,
+            .pending: nil,
+            .failure: .x,
+            .success: .check,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(GitHubChecksSummary.allCases))
+        for summary in GitHubChecksSummary.allCases {
+            XCTAssertEqual(summary.indicatorGlyph, expected[summary] ?? nil, "\(summary)")
+        }
+        // The glyph's colour is the summary's own role, never a second answer.
+        XCTAssertEqual(ChromeColorRole.checksRole(for: .success), .statusGreen)
+        XCTAssertEqual(ChromeColorRole.checksRole(for: .failure), .statusRed)
+    }
+
     func testEveryCheckBucketHasItsWordsAndRole() {
         let expected: [GitHubCheckBucket: (words: String, role: ChromeColorRole)] = [
             .pass: ("Passed", .statusGreen),
@@ -118,6 +136,18 @@ final class ChromeRoleMappingTests: XCTestCase {
         XCTAssertEqual(Set(expected.keys), Set(UnifiedDiffLine.Kind.allCases))
         for kind in UnifiedDiffLine.Kind.allCases {
             XCTAssertEqual(ChromeColorRole.diffWashRole(for: kind), expected[kind] ?? nil, "\(kind)")
+        }
+    }
+
+    func testTheUnifiedTextTintCoversEveryLineKind() {
+        let expected: [UnifiedDiffLine.Kind: ChromeColorRole?] = [
+            .context: nil,
+            .removed: .statusRed,
+            .added: .statusGreen,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(UnifiedDiffLine.Kind.allCases))
+        for kind in UnifiedDiffLine.Kind.allCases {
+            XCTAssertEqual(ChromeColorRole.diffTextRole(for: kind), expected[kind] ?? nil, "\(kind)")
         }
     }
 

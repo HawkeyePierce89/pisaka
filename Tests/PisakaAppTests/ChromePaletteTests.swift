@@ -190,16 +190,17 @@ final class ChromePaletteTests: XCTestCase {
     /// The inactive-selection wash and the current-line wash are two different
     /// facts, and must not be the same colour.
     ///
-    /// **This states a rule about a future, not a defect that was visible.** The
-    /// two roles are not drawn together today, and in fact are not drawn together
-    /// at all: `selectionInactive` has exactly one consumer — a project-tree row
-    /// selected while its window is not key — and `currentLine` is painted by
-    /// nothing whatsoever. They were byte-identical once; the palette row is now
-    /// a deliberate step stronger because the design states that value, and this
-    /// assertion is what keeps a current-line highlight, once someone adds one,
-    /// from silently arriving in the selection's own wash. Read as evidence of a
-    /// symptom that was fixed, it would be read wrong: nothing on screen changed
-    /// but one tree row's background.
+    /// **This was written as a rule about a future, and the future has arrived.**
+    /// When the two roles were made distinct, `currentLine` was painted by
+    /// nothing; the editor's current-line highlight now paints it — a full-width
+    /// band under the caret's line in the layout manager, continued in the
+    /// gutter — and a selection within that same line draws its own wash on top.
+    /// A project-tree row selected while its window is not key paints
+    /// `selectionInactive`. They were byte-identical once; the palette row is
+    /// now a deliberate step stronger because the design states that value, and
+    /// this assertion is what keeps the highlight from silently arriving in the
+    /// selection's own wash. `testTheCurrentLineRowNamesTheFilesThatPaintIt`,
+    /// below, is what keeps "the highlight paints it" true.
     ///
     /// The rule is about the property, not about today's numbers: it survives any
     /// later palette change that keeps the two washes distinguishable, and fails
@@ -318,6 +319,44 @@ final class ChromePaletteTests: XCTestCase {
             XCTAssertTrue(
                 palette.contains(name),
                 "ChromePalette's selectionInactive comment does not name \(name), which paints it"
+            )
+        }
+    }
+
+    /// The current-line wash is painted by exactly the highlight's two painters,
+    /// and the palette row's comment names both.
+    ///
+    /// The live half of the distinctness rule above: without it, the highlight
+    /// could be deleted and that rule would go on guarding a wash nothing draws.
+    /// Matched on the painting spelling against comment- and literal-stripped
+    /// text, so prose naming the role does not count as painting it.
+    func testTheCurrentLineRowNamesTheFilesThatPaintIt() throws {
+        let sources = Self.repositoryRoot.appendingPathComponent("Sources")
+        let palettePath = "Sources/Pisaka/ChromePalette.swift"
+        var painters: Set<String> = []
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        )
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let relative = Self.relativePath(of: url)
+            guard relative != palettePath else { continue }
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = SyntaxBaseForegroundGatingTests.strippingCommentsAndStringLiterals(raw)
+            if text.contains("nsColor(.currentLine)") {
+                painters.insert((relative as NSString).lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            painters, ["BracketOverlayLayoutManager.swift", "LineNumberRulerView.swift"],
+            "the current-line wash must be painted by the layout manager's band and the gutter's, and nothing else"
+        )
+        let palette = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent(palettePath), encoding: .utf8
+        )
+        for painter in painters {
+            XCTAssertTrue(
+                palette.contains(painter),
+                "ChromePalette's currentLine comment does not name \(painter), which paints it"
             )
         }
     }

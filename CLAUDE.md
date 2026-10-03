@@ -41,6 +41,9 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   `docs/architecture/core-services.md` + `core-intelligence.md` +
   `core-markdown-preview.md`. Release
   versioning and the build-number override are in `docs/RELEASING.md`.
+  One directory here is deliberately **not bundled**: `DesignGlyphs/`, holding
+  only `VENDORED.md`, the provenance record of the design's glyphs (which ship
+  from the asset catalog, not from here; see Conventions).
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library and
   its test target, so `swift test` stays the fast, dependency-free gate for the
   domain logic — compiled for the host and source-compatible with iOS. All
@@ -81,13 +84,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
-  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`
+  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`
 
 `docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
   `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
 
 `docs/architecture/core-search.md` — Find in Files & the search query history:
-  `GitignoreMatcher.swift`, `ProjectSearchModel.swift`, `SearchQueryHistory.swift`
+  `GitignoreMatcher.swift`, `ProjectSearchModel.swift`, `SearchScopeLine.swift`, `SearchQueryHistory.swift`
 
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
@@ -108,13 +111,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-  `LocalChangesModel.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
+  `LocalChangesModel.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
-  `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
+  `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
 
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
-  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
+  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
   `LocalHistorySnapshot.swift`, `LocalHistoryLayout.swift`, `LocalHistoryPolicy.swift`, `LocalHistoryStore.swift`, `LocalHistoryModel.swift`, `LocalHistoryBrowserModel.swift`
@@ -129,7 +132,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`
+  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
   `DatabaseFileRule.swift`, `DatabaseValue.swift`, `DatabaseServicing.swift`, `DatabaseQuery.swift`, `DatabaseSchema.swift`, `DatabasePage.swift`, `DatabaseCellEntry.swift`, `DatabaseRowIdentity.swift`, `DatabaseUpdatePlan.swift`, `DatabaseConsolePlan.swift`, `DatabaseConsoleModel.swift`, `DatabaseViewerModel.swift`
@@ -166,7 +169,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
   `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
@@ -181,7 +184,7 @@ headlessly in `Tests/PisakaAppTests`.
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-  `CodeEditorView.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
+  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
   `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`
@@ -311,8 +314,8 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty, by set
-  equality) and its forty-five rules, inventoried in that suite's own header and
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-one, by set
+  equality) and its forty-six rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,
@@ -327,7 +330,9 @@ because nothing else states them.
   code font the pointer can reach declares itself a surface**, including views merely
   *beside* a text view; unreachable ≡ chrome exempts the hover popover alone. The interface
   scale reaches views only as `InterfaceMetrics` through the environment, never inline and
-  never on a code-font site. `ZoomSourceGatingTests` pins both sets.
+  never on a code-font site. Every code-zone font — size and family — is built
+  through `EditorFont`; only it and the terminal call `monospacedSystemFont`.
+  `ZoomSourceGatingTests` pins both sets and that rule.
 - **A completion candidate is one identifier-shaped token** (`core-intelligence.md`): the
   symbol source of both completion surfaces is filtered by one predicate — `.heading` is
   excluded by name, and every candidate's name must satisfy the same boundary rule that
@@ -420,7 +425,7 @@ silently, which is what keeps `swift test` dependency-free.
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `FoldingSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
-`ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+`DesignGlyphAssetTests`, `ChromeThemeSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for
 anything that ships in the bundle with no Swift code behind it, and for any architectural
 rule `swift test` cannot otherwise see.
@@ -463,7 +468,8 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`, `StubFileTree`, `Gate`,
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
-`ScriptedGitHubCLI`, `ScriptedMarkdownSeams` and `MarkdownPreviewVendoredDoc`. A fake
+`ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc` and
+`DesignGlyphRecord`. A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
 writes into a `StubFileTree` must hop to the main actor first — two threads in one
 `Dictionary` is a corrupted hash table, not a flaky assertion.
@@ -572,6 +578,13 @@ owed are documented in `docs/RELEASING.md`.
   `Resources/PrivacyInfo.xcprivacy` and the audit record in `core-services.md`, which carries
   the symbol check that catches the dependency half. `ReleaseMetadataTests` asserts the
   category/reason set by set equality.
+- **The design's glyphs are an asset class of their own**: template vector imagesets
+  under `Sources/Pisaka/Assets.xcassets/Glyphs/`, named only by Core's `DesignGlyph` and
+  drawn only through `DesignGlyphImage`. They ship a licence like a dependency
+  (`Resources/Licenses/` + manifest entry, `LicenseCoverageTests`), their bytes are pinned
+  to the export's manifest by `DesignGlyphAssetTests`, and their provenance is
+  `Resources/DesignGlyphs/VENDORED.md` — a record that is **not bundled** and **not under
+  `Vendor/`**, which holds the four grammar packages and nothing else (`core-theme.md`).
 - **Four tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
   directory content is the pin), for four different reasons, each recorded in full in its
   package's `VENDORED.md` — one of which carries a **mandatory verification recipe re-run on

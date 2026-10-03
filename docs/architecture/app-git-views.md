@@ -96,9 +96,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     grammar) would let those dialogs adopt the same live validation with **no view
     change at all**, since `validator` is already threaded through.
   - `BranchSwitcherView.swift` — the macOS branch-switcher widget in the
-    always-visible bottom bar (the status-bar convention): its
-    `arrow.triangle.branch` glyph, the current branch label and — since the
-    chrome theme's part three — a trailing `chevron.down` caret, clicked to a
+    always-visible bottom bar (the status-bar convention): its branch glyph
+    (the design's `git-branch` at 12 since the design pass, drawn through
+    `DesignGlyphImage`; it was the `arrow.triangle.branch` symbol), the current
+    branch label and — since the chrome theme's part three — a trailing caret
+    (the design's `chevron-down` at 10 since the design pass), clicked to a
     popover with the Local/Remote branch list (the current one
     marked), a filter field, and a "New Branch…" item (name only, created from
     `HEAD`). That part is what restyled it: the three elements are drawn in
@@ -367,45 +369,87 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     git or `ssh` a controlling terminal to prompt on whenever the app was launched
     from a shell.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
-    the main window. Left, the changed files with three-state checkboxes and
-    status badges (reading Core's one answer — `FileStatus.letter`,
+    the main window, laid out top to bottom as the design draws it — the
+    "Commit Changes" strip, the message box at full width, the changed files
+    beside the selected file's unified diff, and a 64-point footer. Its own
+    measurements are an internal `CommitDialogLayout` enum (message padding 20,
+    file list 260, footer 64, author glyph 13, gaps), scaled at the use site and
+    read by the app-layer `CommitDialogLayoutTests`.
+    **The files.** A **fixed 260-point list** (scaled; no longer a draggable
+    `HSplitView` — the diff takes every point beyond it, and the sheet's minimum
+    width still scales so a 200% dialog holds both) with a `hairline` column
+    between it and the diff. Each `CommitFileRow` reads **checkbox, status
+    letter, then the name over its folder** — no file glyph, as the Local
+    Changes rows draw none (it therefore left chrome rule eight's `FileIcon(`
+    set). The letter reads Core's one answer — `FileStatus.letter`,
     `ChromeColorRole.changedFileRole(for:)` through `@Environment(\.chromeTheme)`,
-    and `FileStatus.spokenName` as the letter's accessibility value — the same
-    three the Local Changes panel and the Log's detail pane read, since two lists
-    of changed files disagreeing about what "M" looks like would be a needless
-    inconsistency; the rest of the dialog's chrome is the paragraph below)
-    inside a `ScrollViewReader` whose one job is the **preselect**: opened from a
-    file's Commit… item the single checked row is the only thing the user came for,
-    and on a change list taller than the panel it would otherwise sit off screen
-    under a column of unchecked rows, reading as if the preselect had been ignored,
-    so an `onAppear` scrolls `model.selectedPath` to the center (a no-preselect
-    opening simply scrolls to its own first row). The scroll is **deferred one
-    main-actor turn** rather than issued from `onAppear` directly, which is what
-    makes it work at all: `onAppear` runs before the subtree's first layout pass
-    and the rows live in a `LazyVStack` that has realized nothing yet, so
-    `scrollTo` would name an id that does not exist and be dropped — precisely in
-    the case the scroll exists for (a row far down a list taller than the panel).
-    It may fire more than once per opening — a *reopen for the same root* takes
-    `prepareForFolderChange`'s no-op path, so the first frame still draws the
-    previous opening's `files` (the load that empties them runs a later turn) and
-    this branch is built, then rebuilt when the fresh list is published — and the
-    last firing carries the fresh `selectedPath`, so the list settles on the
-    requested row;
-    right, the selected file's unified diff; at the bottom the multiline message
-    field, the author line with a two-field local-config editor
-    (`AuthorEditorView` → `CommitDialogModel.setLocalIdentity`, an unset identity
-    shown in red and blocking Commit) — labelled **"Committer:" while Amend is
-    ticked**, with a "(amend keeps the original author)" note beside it, because
-    `git commit --amend` without `--reset-author` keeps the amended commit's
-    author name, email and date and replaces only the committer: calling that line
-    "Author" would state something git will not record, which is the same failure
-    the per-field source labelling exists to prevent, only with the screen
-    confidently wrong rather than silent (a user who fixes their local identity
-    and amends to re-attribute the commit does not re-attribute it). The identity
-    is still required and still blocks Commit when unset — git needs a committer
-    either way — and naming the role costs no further git read, whereas showing
-    the amended commit's own author would — the Amend and "Push after commit" switches,
-    and Commit/Cancel with the blocked reason shown on its own line above them —
+    and `FileStatus.spokenName` as its accessibility value — the same three the
+    Local Changes panel and the Log's detail pane read, since two lists of
+    changed files disagreeing about what "M" looks like would be a needless
+    inconsistency. The list sits inside a `ScrollViewReader` whose one job is the
+    **preselect**: opened from a file's Commit… item the single checked row is
+    the only thing the user came for, and on a change list taller than the panel
+    it would otherwise sit off screen under a column of unchecked rows, reading as
+    if the preselect had been ignored, so an `onAppear` scrolls
+    `model.selectedPath` to the center (a no-preselect opening simply scrolls to
+    its own first row). The scroll is **deferred one main-actor turn** rather
+    than issued from `onAppear` directly, which is what makes it work at all:
+    `onAppear` runs before the subtree's first layout pass and the rows live in a
+    `LazyVStack` that has realized nothing yet, so `scrollTo` would name an id
+    that does not exist and be dropped — precisely in the case the scroll exists
+    for (a row far down a list taller than the panel). It may fire more than once
+    per opening — a *reopen for the same root* takes `prepareForFolderChange`'s
+    no-op path, so the first frame still draws the previous opening's `files`
+    (the load that empties them runs a later turn) and this branch is built, then
+    rebuilt when the fresh list is published — and the last firing carries the
+    fresh `selectedPath`, so the list settles on the requested row.
+    **The message.** Directly under the header, 20 points from the sheet's
+    edges and from the rules above and below it, in `ChromeControlBox`
+    (`@FocusState`, `fieldPaddingX` — the design's 12 taken as the shared 10 —
+    hidden scroll background, `textPrimary`), keeping its code zoom marker. Its
+    height is **four lines of the code font** (a private `messageLineHeight`, the
+    default line height of the monospaced font at `settings.fontSize`) — about
+    the design's 68 at the default size, and following the code zone rather than
+    the interface scale (chrome rule twenty-seven pins that every frame in the
+    box names `messageLineHeight` and none names `metrics`). It draws no visible
+    label: an empty message shows "Commit Message" in `textSecondary` at the
+    code font, inset by the text view's 5-point line-fragment padding and hidden
+    from accessibility, and the editor speaks that name.
+    **The footer.** Left, the author control — the `user-round` design glyph
+    at 13 (`DesignGlyphImage`, `textSecondary`) and `CommitIdentity.displayName`
+    (`textPrimary`, or `statusRed` when the identity is incomplete, which also
+    blocks Commit) as one `.plain` button that opens `AuthorEditorView` (→
+    `CommitDialogModel.setLocalIdentity`) — then the Amend `ChromeCheckbox`.
+    The author's **tooltip** carries what the old author line spelled out: the
+    role — **"Committer" while Amend is ticked**, with "(amend keeps the original
+    author)", because `git commit --amend` without `--reset-author` keeps the
+    amended commit's author name, email and date and replaces only the committer:
+    calling it "Author" would state something git will not record (a user who
+    fixes their local identity and amends to re-attribute the commit does not
+    re-attribute it) — and the full `signature` with its sources, which is also
+    its accessibility value. Naming the role costs no further git read, whereas
+    showing the amended commit's own author would. The control is disabled with
+    no root, while the commit runs (`setLocalIdentity` shares the commit's serial
+    queue) and while a previous identity write is in flight. Right: **Cancel**
+    (`.chromeSecondary`, Esc), **Commit** (`.chromeSecondary`, **⌘Return** — not
+    Return, the message being a multiline editor; it stays on Commit so the
+    shortcut never publishes) and **Commit and Push** (`.chromePrimary`, the
+    one primary). The "Push after commit" switch is gone: each button passes
+    its push choice (false / true) as the operation's own argument through
+    `onCommit: (Int, Bool)`, and **synchronously in its action**, beside the
+    generation pin and before the `Task` hop, calls `model.reserveCommit()` —
+    which raises `isRunning` at once, so a second press during `PisakaApp`'s
+    pre-commit Local History capture finds every control disabled instead of
+    starting a second commit or rewriting the first one's intent; a refused
+    reservation starts no task — and Commit and Push is enabled by `model.canCommitAndPush`, i.e.
+    exactly when Commit is and the loaded `PushPlan` is available, the cases the
+    old switch was enabled in. Its tooltip is the push target ("Push to
+    origin/main", "… (new upstream)") or the plan's unavailable reason. Cancel is
+    disabled while `model.isRunning` — dismissing mid-commit would fire
+    `onDismiss` and release the modal autosave suspension in the middle of git
+    reading the working tree into the temporary index, while cancelling nothing.
+    **The status sentence** sits in its own strip *above* the footer, so the
+    footer keeps its 64 and a long git stderr wraps there:
     `model.errorMessage ?? model.block?.message`, i.e. the last *failure* (red)
     takes precedence over `CommitGate`'s reason (secondary), which is why every
     selection/Amend mutator clears it. The gate half is **silent until the
@@ -417,51 +461,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is not that question — `openCommitDialog` presents the sheet and *then* spawns
     the load, so the first frame renders with it still `false` — and a folder that
     genuinely is not a repository arrives as `errorMessage`, which both takes
-    precedence and ends the wait. Commit is **⌘Return**, not Return: the
-    message field is a multiline editor where Return has to insert a newline.
-    Cancel is Esc, and is disabled while `model.isRunning` — dismissing mid-commit
-    would fire `onDismiss` and release the modal autosave suspension in the middle
-    of git reading the working tree into the temporary index, while cancelling
-    nothing, since the commit carries on regardless. Thin and untested like the
-    rest of the view layer: what may
-    be committed, what a checkbox's state is, what a whole-only file says instead
-    of a diff and what a push would do are all decided in Core; the commit itself
-    is handed back to `PisakaApp` through `onCommit`, which owns the writer
-    coordination and the post-success refreshes.
-    **Chrome (part five (b), `core-theme.md`).** Gated. A 44-point `bgPanel`
-    header strip (`dialogEdgeStripHeight`, `hairline` bottom rule) carries
-    "Commit Changes" at `.headline` semibold in `textPrimary` — the design's 14 is
-    not on the chrome's scale. The file-count and diff-path headers are pane
-    headers (`panelHeaderHeight`, `bgPanel`, `hairline` rule, `textSecondary`);
-    the dialog stands on `bgPanel`, the diff preview on `bgEditor`, and its three
-    former `Divider()`s are `hairline` rules. The sheet keeps the system's
-    corners: the content does not clip (it would only expose the sheet's ground).
-    `CommitFileRow` is two lines — name `textPrimary` `.body`, directory
-    `textSecondary` `.caption` — with no fixed height, a `changedFileRole(for:)`
-    icon at its own `.callout` (the row has no container font to inherit, so an
-    unsized glyph would stand still under the interface scale — chrome rule
-    thirty-four) and hidden from accessibility, the status letter `.callout` semibold
-    monospaced, a three-state `ChromeCheckbox` ("Include <name> in the commit"),
-    and `TreeRowState`'s precedence for its background (`accentTintStrong`,
-    `selectionInactive`, `hoverTint`) — the design's one mock draws only
-    `accentTint`. The message editor sits in `ChromeControlBox` (`@FocusState`,
-    `fieldPaddingX` — the design's 12 taken as the shared 10 — hidden scroll
-    background, `textPrimary`), keeping its zoom marker; its height is counted
-    in lines of the code font (4 to 7 of a private `messageLineHeight`, the
-    default line height of the monospaced font at `settings.fontSize`), so the
-    box grows with the text it holds — chrome rule twenty-seven pins it.
-    Author line: labels and the amend note `textSecondary`, the signature
-    `textPrimary` or `statusRed` when incomplete, "Edit…" a `.plain` button with
-    an `accent` label (the link style is forbidden). Amend and Push after commit
-    are `ChromeCheckbox`es; the status sentence is `statusRed`/`textSecondary`; a
-    `hairline` rule sits above a content-sized footer; Cancel `.chromeSecondary`,
-    Commit `.chromePrimary`. `AuthorEditorView` stands on `bgPanel`, title
+    precedence and ends the wait. Thin and untested like the rest of the view
+    layer (the layout suite measures what it draws, not what it decides): what
+    may be committed, what a checkbox's state is, what a whole-only file says
+    instead of a diff, what a push would do and whether Commit and Push is
+    offered are all decided in Core; the commit itself is handed back to
+    `PisakaApp` through `onCommit`, which owns the writer coordination and the
+    post-success refreshes.
+    **Chrome (part five (b) and the design pass, `core-theme.md`).** Gated. The
+    44-point `bgPanel` header strip (`dialogEdgeStripHeight`, `hairline` bottom
+    rule, 20-point inset) carries "Commit Changes" at `.headline` semibold in
+    `textPrimary` — the design's 14 is not on the chrome's scale. The file-count
+    and diff-path headers are pane headers (`panelHeaderHeight`, `bgPanel`,
+    `hairline` rule, `textSecondary`); the dialog stands on `bgPanel`, the diff
+    preview on `bgEditor`, and every rule is a `hairline`. The sheet keeps the
+    system's corners: the content does not clip (it would only expose the sheet's
+    ground). `CommitFileRow` is two lines — name `textPrimary` `.body`, directory
+    `textSecondary` `.caption` — with no fixed height, the status letter
+    `.callout` semibold monospaced, a three-state `ChromeCheckbox` ("Include
+    <name> in the commit"), and `TreeRowState`'s precedence for its background
+    (`accentTintStrong`, `selectionInactive`, `hoverTint`) — the design's one
+    mock draws only `accentTint`. `AuthorEditorView` stands on `bgPanel`, title
     `textPrimary`, caption `textSecondary`, two stacked `ChromeThemedTextField`s
     ("Name", "Email", no platform `Form`), Save `.chromePrimary`, Cancel
-    `.chromeSecondary`. Rules thirty and thirty-three pin the controls and the row.
+    `.chromeSecondary`. Rules thirty and thirty-three pin the controls and the
+    row; part five (b)'s button count for the file is six (Cancel, Commit,
+    Commit and Push, the author control, and the editor's two).
   - `CommitUnifiedDiffView.swift` — the dialog's right-hand panel: a **unified**
-    (single-column) diff of one file with a checkbox on every changed line. A
-    standalone SwiftUI panel rather than an extension of the AppKit `DiffView`,
+    (single-column) diff of one file with a checkbox on every changed line. It
+    draws `CommitDialogModel.unifiedDisplayRows(for:)`: the `--- a/` and `+++ b/`
+    file header rows, then each hunk's `@@ -a,b +c,d @@` row and its lines
+    (`UnifiedDiffDisplayRows`, `core-commit.md`). A header row draws in
+    `textSecondary` at the code font, starting where a line's checkbox does; it
+    has no checkbox, takes no click and carries no wash. A standalone SwiftUI panel rather than an extension of the AppKit `DiffView`,
     because neither of that view's properties survives here — it is a read-only
     *side-by-side* renderer over two `NSTextView`s, while the dialog needs one
     column (a `.modified` row showing its old and new line one above the other,
@@ -489,7 +521,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chrome belonging to a code row, and scaling it with the interface would make
     the two zones interact (`docs/architecture/core-zoom.md`).
     **Colour.** Every colour is a chrome role read through `\.chromeTheme`
-    (the text itself stays `SyntaxTheme`'s `.plain`): the row wash is Core's
+    except a context line's text, which stays `SyntaxTheme`'s `.plain`. An added
+    line's text is `statusGreen` and a removed line's `statusRed`, Core's
+    `ChromeColorRole.diffTextRole(for:)`, drawn on top of the wash. The row wash is Core's
     `ChromeColorRole.diffWashRole(for: UnifiedDiffLine.Kind)` — the same two
     `diffRemovedBackground`/`diffAddedBackground` roles the side-by-side pane
     spends, a context line drawing none — the checkbox is `accent` when on and
@@ -613,12 +647,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     no controller sets one (rule twenty-eight). The problem browser's window
     gains `bgPanel` with the rest.
   - `LocalChangesView.swift` — the Local Changes bottom dock panel (no longer a
-    left-panel mode). Observes
-    `LocalChangesModel` and renders `changedFiles` flat or grouped by folder
-    (`ChangeTree`, recursing in-memory `ChangeNode.children` — no disk read), per
-    `model.groupingMode`. A two-segment glyph control in the toolbar toggles
-    flat/by-folder and a glyph refreshes against the project root; it also
-    auto-refreshes on appear and on `projectRoot` change. That
+    left-panel mode): the changed files on the left, the selected file's diff on
+    the right. Observes `LocalChangesModel`. **Since the design pass** the
+    macOS view draws no flat/by-folder choice — `model.groupingMode` stays in
+    Core because iOS still reads it — and the list is one level of folder rows,
+    Core's `ChangedFileGroups.group(_:rootName:)` (one row per distinct parent
+    directory, sorted by path; root-level files under the project folder's name;
+    every folder starts expanded). The toolbar sits at the leading edge:
+    **Commit…** in the shared `.chromePrimary`, then a revert glyph button
+    (`undo-2`, 15) and a refresh glyph button (`refresh-cw`, 15), each with its
+    help and accessibility label. Revert acts on `model.toolbarRevertTarget` —
+    the first checked file when any is checked (which `filesToRevert(contextFile:)`
+    widens to the checked set, exactly as a checked row's context-menu Revert
+    does), else the selected file — through the same `onRevert` and its
+    confirmation, and is disabled (dimmed) when that is `nil`. The list defaults
+    to 320 pt wide and a hand-rolled `hairline` divider drags it between 200 and
+    640 pt (unscaled), its resize cursor balanced through `syncDividerCursor()`
+    and released from `onDisappear` (rule twenty-two). To the right, the
+    selected file's project-relative path heads an embedded `DiffView` drawn at
+    `codeFontSize` (`settings.fontSize`, threaded from `ContentView` — the panes
+    are the code zone, and `DiffView` already declares itself a zoom surface);
+    its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
+    claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
+    hop** on appear, on every selection change and on every `listRevision`
+    advance (a refresh that left the list equal — an already-modified file
+    edited again — still re-reads). The diff is shown only while
+    `selectionDiff.file == selected`, "Loading…" otherwise, and an empty state
+    with nothing selected. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
     and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the
@@ -627,14 +682,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     bumped it, so a stale-root refresh pinning the *current* generation is accepted,
     re-derives a switch back inside `refreshImpl` and strands the panel on the
     previous repository. `refreshIfPossible` (the `onAppear`/manual-button form,
-    where the property is current) now forwards to the same `refresh(root:)`. Each row
-    (`ChangedFileRow`, used by both the flat list and the by-folder
-    `ChangeNodeView` leaf) shows a leading checkbox bound to
-    `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
-    multi-file revert, a monochrome `FileIcon(for:)` glyph, the name, plus a
-    one-letter badge — `FileStatus.letter`, coloured by
+    where the property is current) now forwards to the same `refresh(root:)`. Each
+    file row (`ChangedFileRow`, indented beneath its `ChangedFileGroupView`
+    folder row) shows a leading checkbox bound to `model.revertSelection`
+    (toggled via `model.toggleChecked(file)`) for multi-file revert, then the
+    one-letter status — `FileStatus.letter`, coloured by
     `ChromeColorRole.changedFileRole(for:)` and spoken as `FileStatus.spokenName`
-    (Core's one answer; the letter carries the identity, the colour the weight).
+    (Core's one answer; the letter carries the identity, the colour the weight)
+    in a fixed 12 pt column — then the name.
     Four triggers share one activation path through `LocalChangesModel`: (1) a
     *double*-click (`.onTapGesture(count: 2)`, declared before the single-tap
     select) calls `onSelect()` first (so the panel focuses on that row) then
@@ -654,8 +709,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     item calls `onCommitFile(file)` and a **Revert**
     item calls `onRevert(file)`. The
     callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
-    through the rows (and through `ChangeNodeView`, recursively, for the by-folder
-    mode; same shape as `onOpenFile`/`onOpenFolder`). `onJumpToSource` is threaded
+    through the folder rows to the file rows (same shape as
+    `onOpenFile`/`onOpenFolder`). `onJumpToSource` is threaded
     the same way and, in `ContentView`, resolves
     `LocalChangesModel.jumpToSourceURL(for:root:)` against `localChanges.root`
     before calling the existing `onOpenFile` — no new callback from `PisakaApp`, no
@@ -707,34 +762,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at
     no font at all, so it does not declare `ZoomSurfaceProviding`. Placeholders
     cover no-folder / error / no-changes. The toolbar's primary button is
-    **Commit**, calling `onCommit()` — the same handler
+    **Commit…**, calling `onCommit()` — the same handler
     the ⌘K menu item runs, so button and command behave identically — disabled on
     exactly the one condition that item is (no project root; see there for why an
     empty change list deliberately does *not* disable it).
-    **On the chrome roles** since part four (b) of the chrome theme; the shared
-    `statusColor(_:)`/`statusLetter(_:)` helpers and the private `iconColor(for:)`
-    are gone, the status mapping being Core's. The measurements, in a private
-    `LocalChangesLayout`, scaled at the use site: the toolbar is 32 pt tall with
-    10 pt padding and an 8 pt gap and draws its own bottom `hairline`; Commit is an
-    `accent` ground with an `onAccent` `.subheadline` semibold label,
-    `ChromeGeometry.buttonPaddingX` and `buttonCornerRadius`; the grouping control
-    is two 22 pt glyph segments in a hairline-bordered box, the chosen one on
-    `accentTint`, each segment named and speaking its selection; refresh is a
-    15 pt `textSecondary` glyph with an accessibility label and its symbol hidden.
-    A folder header is drawn by hand rather than by a `DisclosureGroup` (whose
-    system triangle would bring its own colour): 22 pt tall, 10 pt padding, 6 pt
-    gap, a `textSecondary` chevron, the monochrome folder glyph and the name in
-    `.subheadline` monospaced, speaking expanded/collapsed as its value; each
-    level indents by `treeIndentStep`. A file row is `rowHeight` tall, inset 26 pt
-    under a folder (level with the folder's glyph) or 10 pt in the flat list; its
-    checkbox is the shared `ChromeCheckbox` (part five (b)), lifted from this
-    very row: `checkboxSide` 14 at `checkboxCornerRadius` 3 — a `hairline` border
-    off, an `accent` ground with an `onAccent` check on — labelled with the file
-    it includes and speaking on/off. The check **grew from 8 to 10 points**: the
-    shared shape takes the design's glyph, and the private builder and its three
-    `LocalChangesLayout` numbers are gone; the status letter is `.callout` monospaced
-    semibold; the glyph is `textSecondary` and the name `textPrimary` `.body`.
-    Washes are `accentTintStrong` (selection) and `hoverTint` (hover).
+    **On the chrome roles** since part four (b) of the chrome theme; the status
+    mapping is Core's. The measurements, in `LocalChangesLayout` (internal so
+    `LocalChangesLayoutTests` measures against the same numbers), scaled at the
+    use site: the toolbar is 36 pt tall (the primary button's 28 plus 4 above
+    and below) with 10 pt padding and an 8 pt gap and draws its own bottom
+    `hairline`; the two glyph buttons are `textSecondary` design glyphs in a
+    15 pt slot, the revert one at half opacity while disabled. A folder row is
+    drawn by hand rather than by a `DisclosureGroup` (whose system triangle would
+    bring its own colour): `rowHeight` tall, 10 pt padding, 6 pt gap, the
+    `chevron-down`/`chevron-right` glyph at 12, `FileGlyph.forFolder(expanded:)`
+    at 14 and the path in `.callout`, all `textSecondary`, speaking
+    expanded/collapsed as its value. A file row is `rowHeight` tall, inset 28 pt
+    (past the chevron, level with the folder glyph); its checkbox is the shared
+    `ChromeCheckbox` (part five (b)), lifted from this very row: `checkboxSide`
+    14 at `checkboxCornerRadius` 3 — a `hairline` border off, an `accent` ground
+    with an `onAccent` check on — labelled with the file it includes and
+    speaking on/off; the status letter is `.callout` monospaced semibold; the
+    name `textPrimary` `.body`. The diff's path header is a 28 pt strip in
+    `.callout` `textSecondary` over its own bottom `hairline`. Washes are
+    `accentTintStrong` (selection) and `hoverTint` (hover). Measured headlessly
+    by `LocalChangesLayoutTests` at scales 1.0 and 1.8: the divider at 320, the
+    toolbar's order (the `accent` Commit… leading at the padding, then two
+    glyph-sized clusters) and the status letter left of the name.
   - `DiffView.swift` — `NSViewRepresentable` rendering a pre-computed `[DiffRow]`
     (`HEAD` left, working copy right) as two side-by-side read-only TextKit-1
     `NSTextView`s (no soft-wrap, so one logical line = one visual row and the
@@ -782,8 +836,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     thirty-one).
   - `CommitLogView.swift` — the Git Log view (shown in the bottom dock panel): a
     a read-only
-    commit table (a fixed-`rowHeight` list of short hash, ref badges, subject,
-    author, date) observing `CommitLogModel`, with row selection setting
+    commit table (a fixed-`rowHeight` list of ref badges and subject, author,
+    relative date and short hash, in that order) observing `CommitLogModel`, with row selection setting
     `model.selected`. Each row's leading cell is the branch-graph gutter — the view
     lays the graph out once (`CommitGraphLayout.layout`) and threads each row plus
     the previous row's edges into `CommitGraphView` so cells align. The graph is
@@ -817,14 +871,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the previous commit's files. `onOpenCommitDiff` is threaded `PisakaApp →
     ContentView → CommitLogView → CommitDetailPane → CommitFileRow`. The
     filter/search bar (`LogFilterBar`) sits above the table once a repo is open.
+    **No title row (design pass).** The "History" header strip is gone: the
+    filter strip is the panel's only toolbar, and `refreshControls` — the
+    loading spinner (labelled "Loading commits") and the refresh button (its
+    label and help unchanged) — is handed to the bar as its `trailing` content,
+    after the search field. With no folder open the bar is not drawn and there is
+    nothing to refresh. **The date column is relative**: `RelativeCommitDate`
+    (`core-git-models.md`) answers from the raw `%aI` string, `now`, the user's
+    calendar and locale — `now` being the date cell's own `TimelineView(.everyMinute)`,
+    so an idle Log advances "just now", the minute counts and the day boundaries
+    rather than waiting for an unrelated re-render — and the row's tooltip is the exact date and time
+    (`.long` date, `.medium` time), or the raw string when it does not parse.
     **Chrome (part four (b)).** Every colour is a `ChromeColorRole` read from
     `\.chromeTheme`; the gutter's lane hues (`CommitGraphPalette`) are the one
-    table it does not read. The header strip is the Problems panel's shape
-    (`panelHeaderHeight`, `panelHeaderPaddingX`, its own bottom `hairline` by
-    overlay); below the filter bar a static, non-interactive **column header row**
-    (24 pt, 12 pt inset, 16 pt gap, bottom hairline) labels Hash / Message /
-    Author / Date in `textSecondary` `.subheadline` semibold over an empty graph
-    column when the gutter is drawn — it reads the rows' own widths from one
+    table it does not read. Below the filter bar a static, non-interactive
+    **column header row** (24 pt, 12 pt inset, 16 pt gap, bottom hairline) labels
+    Message / Author / Date / Hash in `textSecondary` `.subheadline` semibold
+    after an empty graph column when the gutter is drawn — it reads the rows' own widths from one
     private `CommitLogLayout` (hash 58, author 160, date 120, the subject column
     flexible), which is what keeps "Message" over the ref badges and subject.
     The graph column is `max(40, laneCount × 14 + 6)` pt, scaled: it still grows
@@ -839,7 +902,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `accent` text. The detail pane's file rows read Core's one changed-file
     answer — `FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)` and
     `FileStatus.spokenName` as the accessibility value — so no private table
-    remains. **No `Divider()`:** the header, the detail pane's subject and the
+    remains. **No `Divider()`:** the column header, the detail pane's subject and the
     list/detail divide each draw their own `hairline` by overlay. The divide is
     therefore no longer an `HSplitView` (whose divider the system draws in its
     separator value): the list owns a trailing hairline with a 5 pt drag strip
@@ -869,7 +932,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     edge, and the previous row's edges (`incomingEdges`) from the top edge to
     center — so a lane's bottom-half in one cell meets its top-half in the next to
     form a continuous line without any view owning the whole list.
-  - `LogFilterBar.swift` — the Log filter/search bar above the commit table. A thin
+  - `LogFilterBar.swift` — the Log filter/search bar above the commit table, and
+    the panel's only toolbar: generic over its owner's `trailing` controls (the
+    Log's spinner and refresh button), drawn at the row's trailing end after the
+    search field and scrolling with the row below the floor. A thin
     (untested) view whose server-side dimensions live in a single `@State private
     var draft: LogFilterDraft` plus a separate `search: String` (message search is
     not a `LogFilter` dimension). **Seeding rule:** a seed *assigns* the
@@ -992,7 +1058,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hairline sit outside both shapes. Crossing the floor with a field focused
     swaps the row and drops focus — harmless, the draft being `@State` above
     both. The fixed widths it replaced (≈1000 points at scale 1) clipped the
-    branch menu, the search, the Log header's refresh button and the rows' date
+    branch menu, the search, the Log's refresh button and the rows' date
     column below that; `ChromeThemeSourceGatingTests` rule twenty-one pins the
     shape (`core-theme.md`).
 

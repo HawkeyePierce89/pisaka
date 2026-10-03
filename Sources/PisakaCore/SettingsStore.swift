@@ -28,6 +28,13 @@ public final class SettingsStore: ObservableObject {
         public static let tabOrientation = "settings.tabOrientation"
         public static let themePreference = "settings.themePreference"
         public static let fontSize = "settings.fontSize"
+        /// The code zone's font family, by family name; absent means the
+        /// system monospaced font.
+        ///
+        /// A key of its own beside `fontSize` rather than a combined "font"
+        /// value: the size is the code zoom zone and moves with every gesture,
+        /// while the family is chosen once in Preferences. Only macOS reads it.
+        public static let editorFontFamily = "settings.editorFontFamily"
         /// Whether the editor offers completions at all.
         ///
         /// A stable key like the rest, and deliberately **one** flag rather than
@@ -166,6 +173,28 @@ public final class SettingsStore: ObservableObject {
                 return
             }
             defaults.set(fontSize, forKey: Keys.fontSize)
+        }
+    }
+
+    /// The code zone's font family, or `nil` for the system monospaced font.
+    ///
+    /// Blank is absent, in both directions — the `leetCodeFolderPath`
+    /// discipline: assigning `""` reads back as `nil` and removes the key, and
+    /// a stored `""` loads as `nil`. Whether the named family is installed and
+    /// fixed-pitch is the app layer's question (`EditorFont`), asked every time
+    /// a font is built, so a family uninstalled since it was chosen falls back
+    /// rather than being forgotten.
+    @Published public var editorFontFamily: String? {
+        didSet {
+            if let family = editorFontFamily, !family.isEmpty {
+                defaults.set(family, forKey: Keys.editorFontFamily)
+            } else {
+                if editorFontFamily != nil {
+                    editorFontFamily = nil
+                    return
+                }
+                defaults.removeObject(forKey: Keys.editorFontFamily)
+            }
         }
     }
 
@@ -368,17 +397,18 @@ public final class SettingsStore: ObservableObject {
             .flatMap(TabOrientation.init(rawValue:)) ?? .vertical
         let theme = (defaults.string(forKey: Keys.themePreference))
             .flatMap(ThemePreference.init(rawValue:)) ?? .system
-        // `object(forKey:)` distinguishes "unset" (nil → default) from a stored 0.
-        let storedFont = (defaults.object(forKey: Keys.fontSize) as? Double)
+        // `object(forKey:)` distinguishes "unset" (nil → default) from a stored 0;
+        // `storedDouble` also takes a launch argument's string form.
+        let storedFont = SettingsStore.storedDouble(defaults, forKey: Keys.fontSize)
             .map(SettingsStore.clampFontSize) ?? SettingsStore.defaultFontSize
         // The two other zoom zones, read exactly like the font size and for the
         // same reasons: `object(forKey:)` so an absent key is told from a stored
         // 0, the cast so a value of the wrong type falls back instead of reading
         // as zero, and the rule's clamp so a non-finite or out-of-range stored
         // value collapses to the default rather than surviving into the UI.
-        let storedTerminalFont = (defaults.object(forKey: Keys.terminalFontSize) as? Double)
+        let storedTerminalFont = SettingsStore.storedDouble(defaults, forKey: Keys.terminalFontSize)
             .map(ZoomScaleRule.terminalFont.clamp) ?? ZoomScaleRule.terminalFont.defaultValue
-        let storedInterfaceScale = (defaults.object(forKey: Keys.interfaceScale) as? Double)
+        let storedInterfaceScale = SettingsStore.storedDouble(defaults, forKey: Keys.interfaceScale)
             .map(ZoomScaleRule.interfaceScale.clamp) ?? ZoomScaleRule.interfaceScale.defaultValue
         // The `fontSize` precedent, for the same reason and one more: `bool(forKey:)`
         // reads a missing key as `false`, so every user who has never touched this
@@ -403,7 +433,7 @@ public final class SettingsStore: ObservableObject {
         // falls back rather than reading as zero, and the rule's clamp so a
         // non-finite or out-of-range value collapses to the even split rather
         // than surviving into the layout.
-        let storedPreviewFraction = (defaults.object(forKey: Keys.markdownPreviewFraction) as? Double)
+        let storedPreviewFraction = SettingsStore.storedDouble(defaults, forKey: Keys.markdownPreviewFraction)
             .map(MarkdownPreviewWidthRule.clampFraction) ?? MarkdownPreviewWidthRule.defaultFraction
         // Read entry by entry rather than as a whole `[String: String]` cast: a
         // single value of the wrong type — or a raw value this app version does
@@ -432,6 +462,7 @@ public final class SettingsStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true
         let storedBookmark = defaults.data(forKey: Keys.leetCodeFolderBookmark)
+        let storedFontFamily = defaults.string(forKey: Keys.editorFontFamily)
         // A slug this build does not offer — LeetCode's `kotlin`, or one this app
         // dropped — falls back to the default rather than leaving the picker on a
         // language it cannot seed a file in.
@@ -442,6 +473,7 @@ public final class SettingsStore: ObservableObject {
         self.tabOrientation = orientation
         self.themePreference = theme
         self.fontSize = storedFont
+        self.editorFontFamily = (storedFontFamily?.isEmpty ?? true) ? nil : storedFontFamily
         self.terminalFontSize = storedTerminalFont
         self.interfaceScale = storedInterfaceScale
         self.completionEnabled = storedCompletion
@@ -528,6 +560,26 @@ public final class SettingsStore: ObservableObject {
     /// is now shared with the two other zoom zones.
     public static func clampFontSize(_ value: Double) -> Double {
         ZoomScaleRule.editorFont.clamp(value)
+    }
+
+    /// The one read behind every numeric preference: a stored number as it is,
+    /// or a `String` that parses as a finite `Double` — the form a
+    /// `-settings.<key> <value>` launch argument arrives in, through the
+    /// volatile argument domain. Anything else, absence included, is `nil`, so
+    /// the caller's fallback applies exactly as before. The caller's clamp still
+    /// runs on the answer, and nothing is written back to the defaults.
+    private static func storedDouble(_ defaults: UserDefaults, forKey key: String) -> Double? {
+        switch defaults.object(forKey: key) {
+        case let number as Double:
+            return number
+        case let text as String:
+            guard let parsed = Double(text.trimmingCharacters(in: .whitespaces)), parsed.isFinite else {
+                return nil
+            }
+            return parsed
+        default:
+            return nil
+        }
     }
 
     // MARK: - Zoom zones

@@ -53,6 +53,7 @@ struct SourceViewerContent: View {
             fileName: fileName,
             text: text,
             fontSize: settings.fontSize,
+            fontFamily: settings.editorFontFamily,
             reveal: reveal
         )
         .preferredColorScheme(settings.themePreference.colorScheme)
@@ -79,7 +80,14 @@ struct SourceViewerPane: NSViewRepresentable {
     let fileName: String
     let text: String
     var fontSize: Double
+    /// The code font's family, resolved with `fontSize` through `EditorFont`.
+    var fontFamily: String?
     @ObservedObject var reveal: EditorRevealState
+
+    /// The pane's font: the code zone's, through the one resolver.
+    private var paneFont: NSFont {
+        EditorFont.font(size: CGFloat(fontSize), family: fontFamily)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -117,7 +125,7 @@ struct SourceViewerPane: NSViewRepresentable {
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        textView.font = paneFont
         // The colour of a character no capture covers — the same question
         // `SyntaxTokenKind.plain` answers — so it is read from the one table
         // rather than left on the text view's system-label default. That default
@@ -137,7 +145,7 @@ struct SourceViewerPane: NSViewRepresentable {
 
         let coordinator = context.coordinator
         coordinator.attach(scrollView: scrollView, textView: textView, ruler: ruler)
-        coordinator.appliedFontSize = CGFloat(fontSize)
+        coordinator.appliedFont = paneFont
         coordinator.load(text: text, fileName: fileName)
         return scrollView
     }
@@ -145,13 +153,13 @@ struct SourceViewerPane: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
 
-        // Re-apply the shared font when its size changed, exactly as the diff panes
+        // Re-apply the shared font when its size or family changed, exactly as the diff panes
         // do: setting `.font` re-styles the whole buffer and the tree-sitter colors
         // (temporary attributes on the layout manager) survive.
-        let desiredFontSize = CGFloat(fontSize)
-        if coordinator.appliedFontSize != desiredFontSize {
-            coordinator.appliedFontSize = desiredFontSize
-            coordinator.textView?.font = .monospacedSystemFont(ofSize: desiredFontSize, weight: .regular)
+        let font = paneFont
+        if coordinator.appliedFont != font {
+            coordinator.appliedFont = font
+            coordinator.textView?.font = font
             coordinator.ruler?.editorFontChanged()
         }
 
@@ -174,9 +182,9 @@ struct SourceViewerPane: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         weak var ruler: LineNumberRulerView?
 
-        /// The font size currently applied, so `updateNSView` re-applies only on a
+        /// The font currently applied, so `updateNSView` re-applies only on a
         /// real change.
-        var appliedFontSize: CGFloat?
+        var appliedFont: NSFont?
 
         /// The highlighter installs itself as the text storage's delegate; held
         /// strongly so it lives as long as the window does.

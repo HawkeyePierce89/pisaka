@@ -19,7 +19,8 @@ import PisakaCore
 /// none gets a box one text line high. The box cannot fill whatever it is
 /// offered instead: a stack's spare room reaches it exactly as a fixed frame
 /// does, and a filling box grew the in-editor find bar, above the editor, from
-/// about 29 to about 239 points in this harness — which is what the find-bar
+/// about 29 (31 since the query toggles draw a 16-point glyph) to about 239
+/// points in this harness — which is what the find-bar
 /// case below holds down. Verified by mutation: with the box's height frame
 /// removed, a field given 33 points measured a 15-point box at scale 1 (26
 /// against 59.5 at 1.8).
@@ -157,9 +158,13 @@ final class ChromeThemedTextFieldLayoutTests: XCTestCase {
         addTeardownBlock { @MainActor in render.window.close() }
 
         let barHeight = try XCTUnwrap(render.extent(of: .bgPanel, atX: 10 + metrics.scaled(2)), "no find bar drawn", file: file, line: line)
-        // The bar is the field's line plus its two 5-point paddings and its hairline.
+        // The bar is its tallest control plus its two 5-point paddings and its
+        // hairline. The tallest is the field's line or, since the query toggles
+        // draw a 16-point glyph, the toggle's 22-point square — a fixed size,
+        // so the bound still holds the bar down against the spare room.
+        let tallest = max(natural, metrics.scaled(ChromeQueryToggleLayout.side))
         XCTAssertLessThan(
-            barHeight.maxY - barHeight.minY, natural + metrics.scaled(14),
+            barHeight.maxY - barHeight.minY, tallest + metrics.scaled(14),
             "the find bar grew above a flexible sibling at scale \(scale)", file: file, line: line
         )
     }

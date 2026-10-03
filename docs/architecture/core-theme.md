@@ -88,11 +88,15 @@ adds no write of any kind. Its only persisted input is the existing
     `currentLine`, `bracketMatch` and `conflictBackground`. Part five (b)
     spends `conflictBackground` on the merge panes, through
     `mergeWashRole(for:)`, which leaves **two**: `currentLine` and
-    `bracketMatch`. **Both are deliberately still unused** — both
-    belong to the *code* zone, whose overlays are temporary text attributes on the
-    editor's own theme (`SyntaxTheme`), so spending them is a decision about where
-    the chrome ends rather than a restyle. They are declared nonetheless, because
-    the table is the design rather than an inventory of today's call sites. The raw values are the stable names the
+    `bracketMatch`. The current-line highlight then spends `currentLine` — the
+    full-width band the layout manager paints under the caret's line and its
+    continuation in the gutter (see *The current-line highlight*, below) — which
+    leaves **one**: `bracketMatch`, deliberately still unused, because it
+    belongs to the *code* zone, whose matched-pair overlay is a temporary text
+    attribute on the editor's own theme (`SyntaxTheme`), so spending it is a
+    decision about where the chrome ends rather than a restyle. It is declared
+    nonetheless, because the table is the design rather than an inventory of
+    today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
     **`diagnosticRole(for:)` — the chrome's one severity answer**, moved here in
@@ -129,7 +133,9 @@ two new geometry tokens) and each with its readers pinned by a gating
     nil; on the old side removed and modified `diffRemovedBackground`, added
     nil, the plain filler row; on the new side added and modified
     `diffAddedBackground`, removed nil), `diffWashRole(for: UnifiedDiffLine.Kind)`
-    (context nil, removed and added their grounds) and
+    (context nil, removed and added their grounds), `diffTextRole(for:
+    UnifiedDiffLine.Kind)` (context nil, removed `statusRed`, added
+    `statusGreen` — the unified diff's text tint, drawn on top of the wash) and
     `diffMarkerRole(for:side:)` (`statusRed` on the old side for removed and
     modified, `statusGreen` on the new side for added and modified, nil
     otherwise). `DiffSide` is Core's one diff-side type (`core-diff-merge.md`).
@@ -273,6 +279,31 @@ two new geometry tokens) and each with its readers pinned by a gating
     is the currently active editor tab's file** (there is no click-to-select in
     the tree, and a folder is never selected), and **"focused" means the window
     is key**.
+  - `DesignGlyph.swift` — the design's glyphs as one name table: a `String`-raw
+    `CaseIterable` enum, twenty-four cases, whose **raw value is the asset
+    name** in `Sources/Pisaka/Assets.xcassets/Glyphs/` (`assetName` returns it),
+    and a `nativeSize` column holding each glyph's drawn size in points at
+    interface scale 1.0 as the design export states it — 11 for the bar and
+    status glyphs, 12 for the file and folder glyphs, 13 for `undo-2` and
+    `refresh-cw`, 14 for the three query toggles. Foundation-only, colour-free:
+    it names a picture, and the role it is tinted with is the drawing site's.
+    `DesignGlyphTests` pins the names and sizes; `DesignGlyphAssetTests` holds
+    the case set equal to the catalog's imagesets by set equality, each PDF to
+    the export manifest's sha256 prefix, each imageset to the template intent
+    and preserved vector data, and each `nativeSize` to the size
+    `Resources/DesignGlyphs/VENDORED.md` records. The one helper that draws them
+    is `DesignGlyphImage.swift`, under "The design's glyphs" below.
+  - `FileGlyph.swift` — which design glyph stands for a file or a folder on the
+    macOS chrome. `forFile(named:)` has three answers: `database` when
+    `DatabaseFileRule` recognises the name (asked first, so a `.db` file is not
+    text), `file-text` for a name no `SyntaxLanguage` claims and for Markdown,
+    `.gitignore`, `.env` and `.editorconfig`, and `file-code` for every other
+    language — the language switch is exhaustive, so a new language is a compile
+    error until it is placed. `forFolder(expanded:)` answers `folder-open` or
+    `folder`. It reads the two rules that already own the question rather than a
+    third extension table, and `FileIcon` is untouched for iOS.
+    `FileGlyphTests` walks every `SyntaxLanguage` through a sample table held
+    equal to `allCases`, plus the database extensions, unknown names and folders.
 
 ## App
 
@@ -308,15 +339,16 @@ when it changed, exactly one consumer — `ProjectTreeView.swift`'s
 selected while its window is not key, never an editor text selection; part five
 (b)'s commit dialog file row paints the same state by *calling* that mapping, not
 by naming the role, so the consumer is still one —
-and `currentLine` is painted by *nothing
+and `currentLine` was then painted by *nothing
 at all*, its only occurrences being its declaration, its palette row and the
-comment on the row above it. The two have therefore never shared a surface, and
-the only thing that looks different after the change is one tree row's
+comment on the row above it. The two had therefore never shared a surface, and
+the only thing that looked different after the change was one tree row's
 background. What `ChromePaletteTests` states —
 `testTheInactiveSelectionWashIsNotTheCurrentLineWash`, asserted in both
 appearances through `ChromeTheme` and through the concrete AppKit colours — is a
-rule about the *future*: whoever adds a current-line highlight must not let it
-arrive in the selection's own wash. It is written as the property rather than as
+rule about what was then the *future* and is now spent: the current-line
+highlight (see *The current-line highlight*) must not arrive in the selection's
+own wash, and the assertion is what keeps it from doing so. It is written as the property rather than as
 the new numbers, so it survives a later palette change; the restated row carries
 the new pair beside it. A second assertion,
 `testTheInactiveSelectionRowNamesTheFileThatPaintsIt`, keeps the row's comment
@@ -532,12 +564,12 @@ disagree.
     right angle: `bgPanel` ground, **no pane-edge rule at all** — its host is the
     `HSplitView` in `ContentView.editorSplit`, whose splitter already states the
     column/editor boundary, exactly as the gated `ProjectTreeView` beside it in
-    the same split view leaves its own — the active row filled `bgEditor` with the
-    `accentIndicator`-wide `accent` bar on its **leading** edge rather than
-    underneath, `textPrimary` for the active label and `textSecondary` for the
-    rest, `hoverTint` for an inactive row under the pointer — which the active row
-    does not need, being the one row that is filled — and the monochrome
-    `FileIcon` symbol. The two orientations stay two views on purpose: they state
+    the same split view leaves its own — a one-point `hairline` rule along every
+    row's bottom, the active row's ground **unchanged** (no fill; the design's
+    column marks it only by the `accentIndicator`-wide `accent` bar on its
+    **leading** edge rather than underneath), `textPrimary` for the active label
+    and `textSecondary` for the rest, `hoverTint` for an inactive row under the
+    pointer only, and the monochrome `FileIcon` symbol. The two orientations stay two views on purpose: they state
     *different* chrome (a height and a rule under it, the strip's host being a
     `VStack` that draws nothing between its children, versus a width it is given
     and a boundary its splitter states for it), so neither can be a branch inside
@@ -585,12 +617,14 @@ disagree.
     the `hairline` rules beside it in either appearance). The
     question line is `textPrimary`; the explanatory caption and the runtime-network
     note are `textSecondary`, being the same kind of fact; the leading symbol is
-    `accent`. The two actions are where the strip states the sweep's rule about
-    **mixed looks**: the confirming one is drawn by one private helper — `accent`
-    fill, `onAccent` label, `cornerRadiusMax`, padding off `rowPaddingX`, and
-    `.buttonStyle(.plain)` — used by all three rows, and the declining one is a
-    plain `textSecondary` label button, because a system-drawn button beside an
-    accent-filled one is precisely the look this sweep removes. The weight of the
+    `accent`. The two actions are the shared styles, as everywhere else in the
+    chrome: each row's confirming action is `.chromePrimary` and its declining
+    one `.chromeSecondary`. The strip first drew them through two private helpers
+    of its own — an `accent`-filled `.plain` label at `cornerRadiusMax`, and a
+    bare `textSecondary` label — and the design pass replaced both with the
+    shared styles and deleted the helpers, because a one-off pair beside the
+    styles every other surface uses is itself the mixed look this sweep removes;
+    rule thirty's caller sets name the file under both styles. The weight of the
     two buttons is the only thing saying which is the offer, which is honest: both
     answers are non-destructive and reversible from Preferences. No keyboard
     shortcut is added — the reason in that file's own comment (a default button in
@@ -676,10 +710,13 @@ gated set.
     seven controls became **icon-only squares**: `bottomBarToggleSide` on a
     side, `bottomBarToggleRadius` of corner radius, the icon at `.body`, an
     `accentTintStrong` ground with an `accent` icon when active and no ground
-    with a `textSecondary` icon when not. That visual decision is what rule ten
+    with a `textSecondary` icon when not (since the design pass: the panel's
+    design glyph at 13 on an `accentTint` ground — see the design-pass bar
+    entry below). That visual decision is what rule ten
     exists for: the `Label(title, systemImage:)` they carried *was* each one's
-    accessibility name, so every one of them now spells `.help(` and
-    `.accessibilityLabel(` — nothing misrenders without them, and the only
+    accessibility name, so every one of them now spells a tooltip and
+    `.accessibilityLabel(` (since the design pass the tooltip is `BarToolTip(`,
+    an AppKit `toolTip`, and `.help(` — which never showed — is refused) — nothing misrenders without them, and the only
     reader who notices is the one who cannot see the bar. Full entry in
     `app-window.md`.
   - **The sidebar's host and its header** — `ProjectTreeView.swift`, already
@@ -710,6 +747,16 @@ gated set.
     stated gaps and height are the measurements actually drawn, each keeping
     `.contentShape(Rectangle())` as its click target. Full entries in
     `app-window.md`.
+  - **The design pass's bar.** The widgets' and toggles' SF Symbols became the
+    design's glyphs, drawn through `DesignGlyphImage`: `package` 12 /
+    `git-branch` 12 / `git-pull-request` 12 leading each widget and
+    `chevron-down` 10 trailing both switchers; the indicator's checks mark is
+    `check` in `statusGreen` or `x` in `statusRed` for a verdict
+    (`GitHubChecksSummary.indicatorGlyph`, a Core column) and today's symbol at
+    12 otherwise; each toggle shows `BottomPanel.glyph` at 13 in its 22-point
+    square, and the active toggle's ground is `accentTint`, no longer
+    `accentTintStrong` — the completion switch's too. The Pull Requests panel's
+    rows keep `symbolName`. `BottomBarLayoutTests` measures the result.
 
 **The caret both switchers gained is an addition, not a restyle**: neither drew
 one before, and a control that opens a list should say so. It is recorded here
@@ -867,7 +914,8 @@ a placeholder, so it is left out; the six are exactly `BottomPanel`'s cases.
 "Terminal", "Log", "Local Changes", "Problems", "Usages" and "Pull Requests",
 and both the tab row and the bar's toggles read it (`bottomBarButton` lost its
 `title:` parameter, and in the review round its `systemImage:` one too — the
-glyph is `BottomPanel.systemImage`, the same table's second column, and the bar
+glyph was `BottomPanel.systemImage`, the same table's second column — since the
+design pass `BottomPanel.glyph`, a `DesignGlyph` — and the bar
 builds its six toggles from `allCases`, so neither strip keeps a second list), so a tab and a tooltip cannot disagree — which is how "Git"
 and "Changes" became "Log" and "Local Changes" on the bar. The View menu's item
 titles ("Show Git Log" and its siblings) are **deliberately left alone**: menu
@@ -940,12 +988,13 @@ a lane colour is an identity token, not a chrome meaning. Its eight hues are
 today's system values carried over so the gutter changes nothing visually;
 choosing hues that sit on the design's ground is an open design question.
 
-  - **The Log panel** — `CommitLogView.swift`, the environment path. The header
-    strip is the Problems panel's; a new static, non-interactive column-header
-    row (Hash / Message / Author / Date, 24 pt) reads the rows' own widths; rows
+  - **The Log panel** — `CommitLogView.swift`, the environment path. Since the
+    design pass it draws no title row: the refresh controls sit at the filter
+    strip's trailing end. A static, non-interactive column-header row
+    (Message / Author / Date / Hash, 24 pt) reads the rows' own widths; rows
     are 25 pt, 12 pt inset, 16 pt column gap; washes `accentTintStrong` /
-    `hoverTint`, ref badges `accent` on `accentTint`; the date keeps its short
-    date+time format. The graph column is `max(40, lanes × 14 + 6)` pt, scaled,
+    `hoverTint`, ref badges `accent` on `accentTint`; the date is relative
+    (`RelativeCommitDate`), the exact date and time its tooltip. The graph column is `max(40, lanes × 14 + 6)` pt, scaled,
     40 being a named minimum. The three `Divider()`s are the surface's own
     hairlines — including the list/detail divide, which is therefore a hairline
     with a drag strip rather than an `HSplitView`. Full entry in
@@ -961,10 +1010,13 @@ choosing hues that sit on the design's ground is an open design question.
     box (4 pt radius, `bgEditor`, a `hairline` border that becomes a two-point
     `accent` one on focus). Full entry in `app-git-views.md`.
   - **The Local Changes panel** — `LocalChangesView.swift`, the environment
-    path, keeping its single-list structure: a 32 pt toolbar whose Commit is the
-    primary button, a hand-drawn folder header, a drawn checkbox, the two
-    context-menu `Divider()`s become `Section`s rendering the same separators.
-    Full entry in `app-git-views.md`.
+    path. Since the design pass: a 36 pt toolbar leading with Commit… in the
+    shared `.chromePrimary`, then the `undo-2` and `refresh-cw` design glyphs at
+    15; a 320 pt list of hand-drawn folder rows (the design's chevron and folder
+    glyph, `textSecondary`) over checkbox / status letter / name file rows; a
+    `hairline` divider to the inline `DiffView`. The context-menu `Divider()`s
+    are `Section`s rendering the same separators. Full entry in
+    `app-git-views.md`.
   - **The Pull Requests panel** — `PullRequestsPanelView.swift`, the environment
     path: 40 pt rows with primary and secondary buttons, the checks glyph and job
     dots from Core, review decisions as bordered capsules; the indicator beside
@@ -977,8 +1029,11 @@ choosing hues that sit on the design's ground is an open design question.
     `hairlineWidth` **unscaled**, under the token's stated code-zoom exception.
     The characters keep `SyntaxTheme`. Full entry in `app-git-views.md`.
    - **The unified diff** — `CommitUnifiedDiffView.swift`, the environment path:
-     the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, the checkbox
-     `accent`/`textSecondary`, line numbers `textSecondary`. A changed line's
+     the row wash through `diffWashRole(for: UnifiedDiffLine.Kind)`, an added or
+     removed line's text through `diffTextRole(for:)` (`statusGreen`/`statusRed`,
+     context text keeping `SyntaxTheme`'s plain colour), the file and hunk header
+     rows `textSecondary`, the checkbox `accent`/`textSecondary`, line numbers
+     `textSecondary`. A changed line's
      wash spans the whole pane: the horizontal scroll axis proposes no width, so
      a row's own fill resolved to its text's width, and the content is now as
      wide as the larger of the pane's measured visible width and the widest
@@ -994,7 +1049,7 @@ The sweep's first floating surfaces and its two search surfaces: the completion
 panel and the hover popover, the find/replace bar above the editor, the Find in
 Files window and its window controller, the recent-searches menu, and the two
 bottom-bar popovers plus the Log calendar. It spends `bgPopover`, leaving three
-roles unspent (`currentLine`, `bracketMatch`, `conflictBackground`), and takes
+roles unspent at the time (`currentLine`, `bracketMatch`, `conflictBackground`), and takes
 the gated set from twenty-seven to thirty-four. Seven files join the set:
 `ChromeControls.swift` (new, holding the shared field shape and the secondary
 button), `CompletionPanel.swift`, `HoverPanel.swift`, `SearchBarView.swift`,
@@ -1027,7 +1082,9 @@ Only the caller knows which of the two it means, so the caller says it.
 `ChromeThemedTextFieldLayoutTests` (app bundle) renders a field given 33 points
 and samples its `bgEditor` ground and `hairline` border above and below the text
 line, and hosts an unheighted field above a flexible view in a tall window and
-holds it to one text line, both at interface scale 1 and 1.8. **The platform's
+holds it to one text line — the find bar to its tallest control, the field's
+line or the query toggle's fixed 22-point square since the toggles draw a
+16-point glyph — both at interface scale 1 and 1.8. **The platform's
 focus ring is suppressed** on the inner field (`.focusEffectDisabled()`), so the
 box's `accent` border is the one focus indication; the platform draws that ring
 only on a key window with real first-responder focus, which the headless bundle
@@ -1042,10 +1099,12 @@ coming in as a `FocusState` binding plus the value it equals — taking a
 text-style parameter defaulting to `.callout` (so the Log filter bar's pixels stay
 as they are) and an inner gap defaulting to `6`, with Find in Files' three
 fields and the branch switcher's filter passing `.body`. `ChromeQueryToggle` is
-the one query-mode toggle (label, `isOn` binding, help text), drawing the label
-at `subheadline` semibold monospaced — `accent` on `accentTint` while on,
-`textPrimary` with no ground while off — with the spoken name, tooltip and
-on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
+the one query-mode toggle (glyph, `isOn` binding, help text), drawing the mode's
+design glyph through `DesignGlyphImage` at 16 in a 16-point slot padded 3 — the
+design's size, above the export's 14 — `accent` on `accentTint` while on,
+`textPrimary` with no ground while off (it drew an `Aa`/`ab`/`.*` label at
+`subheadline` semibold monospaced until the design-match pass), with the spoken
+name, tooltip and on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
 is 28 high (`secondaryButtonHeight`), with a one-point `hairline` border, radius
 `buttonCornerRadius`, padding `secondaryButtonPaddingX` and a `callout` label in
 `textPrimary`. Everything is scaled through `InterfaceMetrics` and colours come
@@ -1134,8 +1193,8 @@ now pass `.body`; the bar keeps the field's `.callout` default and its `6`-point
 gap default); the system rounded-border style is gone. Colours: the match
 counter and the labels are `textSecondary`, the inline regex error is
 `statusRed`, the three query-mode toggles are the shared `ChromeQueryToggle` —
-`subheadline` semibold monospaced, `accent` on `accentTint` while on,
-`textPrimary` with no ground while off — the navigation/close/disclosure glyphs
+the mode's design glyph at 16 since the design-match pass, `accent` on
+`accentTint` while on, `textPrimary` with no ground while off — the navigation/close/disclosure glyphs
 take roles, Replace and Replace All use the shared secondary button style, and
 `.caption` becomes `.subheadline`. Accessibility: each toggle has a spoken name,
 a `.help` tooltip and an on/off `.accessibilityValue`; Previous, Next, Close
@@ -1154,12 +1213,16 @@ remains and no comment pins an exception.
 `ChromePalette.nsColor(.bgPanel)`, the standard title bar and its style mask
 unchanged. Design values: content body padding 16 at the top and on both sides,
 0 at the bottom, gap 12; query row 33 high in the shared field with the shared
-`ChromeQueryToggle` triple at its trailing end (gap 10), each toggle at
-`subheadline` semibold monospaced — `accent` on `accentTint` while on,
-`textPrimary` with no ground while off; replace row the shared field gap 8 then
-Replace All in the secondary button style; scope line `callout` in
-`textSecondary`; results gap 8; group header 24 high padding 8 a 14-point icon
-the path in `callout` and the count in `subheadline` all in `textSecondary`;
+`ChromeQueryToggle` triple at its trailing end (gap 10), each toggle its
+mode's design glyph at 16 — `accent` on `accentTint` while on, `textPrimary`
+with no ground while off; replace row the shared field gap 8 then Replace All
+in the secondary button style at the row's trailing end; the file-mask row, then
+the scope line (`SearchScopeLine`) in `callout` `textSecondary`; results gap 8;
+group header 24 high padding 16 the file's `FileGlyph` at 12, gap 6, so the path
+starts at the 34-point match indent, the path in `callout` and `N matches` in
+`subheadline` all in `textSecondary` (padding 8 and a 14-point `doc` symbol
+before the design-match pass, inside a `List` whose own inset the window's
+`ScrollView` no longer has);
 match row padding 8 on the right and 34 on the left, no fixed height — its height
 is the content's, at the code font (`settings.fontSize`) so it never overflows,
 and `.contentShape` comes after the paddings so the insets are the click target;
@@ -1265,7 +1328,7 @@ box, author line, footer and author editor sheet), the three-pane merge editor,
 the four secondary windows that host code — diff, merge, Local History and the
 out-of-project source viewer — and `EscClosableWindow`, the subclass all six
 secondary windows are built from. It spends `conflictBackground`, leaving two
-roles unspent (`currentLine`, `bracketMatch`, both code zone), and takes the
+roles unspent at the time (`currentLine`, `bracketMatch`, both code zone), and takes the
 gated set from thirty-four to **forty-four**. Ten files join:
 `CommitDialogView.swift` (`CommitFileRow` and `AuthorEditorView` live in it),
 `MergeView.swift`, `MergeWindowController.swift`, `DiffWindowContent.swift`,
@@ -1342,7 +1405,8 @@ rule thirty-five from the third.
    against the drawing. One shape serving five callers takes one value, and the
    drawing wins — the revert checkbox's check grew two points, said beside the
    constant. The mixed-state dash uses the same width. Callers: the commit
-   dialog (file rows, Amend, Push after commit), Local Changes' revert checkbox
+   dialog (file rows, Amend — and Push after commit until the design pass
+   made pushing a button), Local Changes' revert checkbox
    and the Log filter bar's two date bounds, which replaced a platform `Toggle`.
 5. **The rule-matching convention**, which this part's eight rules (the six
    above plus the review rounds' thirty-four and thirty-five) follow and
@@ -1394,7 +1458,16 @@ an error and `textSecondary` otherwise; a `hairline` rule sits above a footer
 sized by its content; Cancel is `.chromeSecondary`, Commit `.chromePrimary`,
 shortcuts and disabled rules unchanged. The author editor sheet stands on
 `bgPanel` with its title in `textPrimary`, caption in `textSecondary`, Save
-`.chromePrimary` and Cancel `.chromeSecondary`. It joins rule twenty-six's
+`.chromePrimary` and Cancel `.chromeSecondary`. (**Since the design pass** the
+dialog reads top to bottom: header, the message box at full width 20 from every
+edge and four code-font lines high, a fixed 260 pt file list beside the diff, a
+status strip only when there is something to say, and a 64 pt footer — the
+`user-round` design glyph at 13 and the author name as one `.plain` button
+opening the editor, its role, signature and amend note moved into its tooltip;
+Amend; then Cancel and Commit in `.chromeSecondary` and Commit and Push, the one
+`.chromePrimary`. The "Push after commit" checkbox and the "Edit…" link are
+gone, and the file row reads checkbox, status letter, name over folder with no
+file icon. Full entry in `app-git-views.md`.) It joins rule twenty-six's
 shared-field callers (now five). Part five (c) replaces its platform `Form` with
 two stacked `ChromeThemedTextField`s ("Name", "Email") at `.body`, focused
 through a private enum, 360 wide as before.
@@ -1448,18 +1521,21 @@ search surfaces.
    sheet's own ground at the corners, so the content does not clip, and the
    file says so.
 5. **"Edit…"** on the author line is a `.plain` button with an `accent` label,
-   not `.buttonStyle(.link)`, a platform style rule thirty forbids.
+   not `.buttonStyle(.link)`, a platform style rule thirty forbids. (The design
+   pass folded it into the footer's author control, still a `.plain` button.)
 6. **The unified diff's per-line checkbox keeps its SF Symbol glyph — an open
    question.** It sits inside a code-font row; the shared checkbox is
    interface-scaled, and putting it in a code-zoom row is the mixed-zone
    mistake rule twenty-seven exists to catch. Rule thirty bans platform toggles,
    and the glyph is neither. Whether that row's checkbox should be a code-zone
    shape of its own is a design question.
-7. **The unified diff's added and removed text keeps the code zone's plain
-   colour — an open question.** The design tints a changed line's text as well
-   as its ground; the row is code, drawn in `SyntaxTheme`'s plain colour on the
-   role wash, and a tinted *text* would be a chrome colour on code, which is
-   the zone question rather than a restyle.
+7. **The unified diff's added and removed text — closed by the design pass.**
+   This was left open: the design tints a changed line's text as well as its
+   ground, and a tinted *text* is a chrome colour on code. The design pass
+   settled it the design's way: an added line's text draws in `statusGreen` and
+   a removed line's in `statusRed` on top of the wash, through Core's
+   `diffTextRole(for:)`; context text keeps `SyntaxTheme`'s plain colour, and
+   the two line-number columns stay.
 
 **Six new gating rules (twenty-eight to thirty-three)** — the window ground in
 the subclass, the merge wash as Core's one answer, one primary button / one
@@ -1508,7 +1584,7 @@ The settings surfaces: the Preferences window (its host, its tab bar and all
 four pages — General, Language Servers, the problem-catalog tab and
 Acknowledgements), the licence text pane behind Acknowledgements, and the
 create and merge pull-request sheets. It spends **no new colour role** —
-`currentLine` and `bracketMatch` stay unspent — and adds **controls** instead:
+`currentLine` and `bracketMatch` stayed unspent then — and adds **controls** instead:
 the design draws a replacement for every platform form control these files
 used, and those replacements live in `ChromeControls.swift`. Seven files join
 the gated set, taking it from forty-four to **fifty-one**: `SettingsView.swift`,
@@ -1611,7 +1687,8 @@ the way `SearchLayout.queryFieldHeight` and `FilterBarLayout.controlHeight` size
 the other pinned-height fields. Rule thirty-seven pins the token's spellings per
 file by count over every source file — the declaration plus four `height:`
 arguments, each a `ChromeMenuField`'s (`SettingsView.swift`, `NewPullRequestSheet.swift`,
-`LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`) — and checks each
+`LeetCodeBrowserView.swift`, `LeetCodeOpenProblemSheet.swift`; `SettingsView.swift`
+spells it twice, once per menu field) — and checks each
 count against that file's pinned menu field constructions. What a spelling
 sizes is not something a token rule can see; that is checked by reading.
 
@@ -1713,8 +1790,8 @@ label itself. The catalog tab's rows and account buttons are in
 `core-leetcode.md`, Language Servers' in `core-provisioning.md`, Acknowledgements'
 and the licence pane's in `app-shell.md`, the sheets' in `core-github.md`. The
 commit dialog's message box is also counted in lines of the code font here (4 to
-7 of `messageLineHeight`, where it had been a fixed 70–120 points), pinned by
-rule twenty-seven.
+7 of `messageLineHeight`, where it had been a fixed 70–120 points — four exactly
+since the design pass, about the design's 68), pinned by rule twenty-seven.
 
 **Open questions**, deliberately left:
 
@@ -1740,7 +1817,7 @@ after it part five (f)'s fold placeholder a second. The database viewer tab and 
 console, and the problem-catalog browser window, the statement pane, the judge
 section, the open-problem sheet (with the menu-bar commands in the same file) and
 the sign-in sheet. It spends **no new colour role** — `ChromeColorRole` stays at
-twenty-one cases, `currentLine` and `bracketMatch` stay unspent — and adds three
+twenty-one cases, `currentLine` and `bracketMatch` stayed unspent then — and adds three
 Core colour answers and one shared control, the spinner, with two geometry
 tokens. Seven files join the gated set, taking it from fifty-one to
 **fifty-eight**: `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`,
@@ -1998,8 +2075,8 @@ keeps the mistake is what stops the next part repeating it (the surface itself
 was swept in part five (f), below), and rule forty-three is what now reads such
 a claim against the tree.
 **No new role**:
-`ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stay
-the two unspent. One Core value is added, `DocumentPageChrome` (its entry
+`ChromeColorRole` stays at twenty-one, and `currentLine` and `bracketMatch` stayed
+the two unspent then. One Core value is added, `DocumentPageChrome` (its entry
 above, with the role table), plus the palette's CSS reading. One file joins the
 gated set, taking it from fifty-eight to **fifty-nine**: `FilePanels.swift`,
 whose line now reads `ChromePalette.nsColor(.statusRed)` — the dynamic colour,
@@ -2120,7 +2197,7 @@ restoring the chevron's local palette call, each turned rule six red; each was
 restored.
 
 **No new role**: `ChromeColorRole` stays at twenty-one, `currentLine` and
-`bracketMatch` stay the two unspent, and nothing in Core changes. One file joins
+`bracketMatch` stayed the two unspent then, and nothing in Core changes. One file joins
 the gated set, taking it from fifty-nine to **sixty**:
 `BracketOverlayLayoutManager.swift`, and `unsweptColorSurfaces` empties. The
 suite's rule count stays forty-three.
@@ -2152,8 +2229,9 @@ colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
 stay named under *What is still waiting*: the terminal's own palette (its four
-chrome colours since swept, part five (h)), the caret readout, the lane hues, the unified diff's per-line checkbox glyph and
-changed-line text tint.
+chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph. (The caret readout and the
+changed-line text tint were waiting here too; both are now drawn — see the
+bottom bar's caret readout below, and part five (b)'s departure seven.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2171,7 +2249,7 @@ request, so the third becomes a role, `dropTargetTint`, in the row-and-line
 states group after `hoverTint`: the accent's own hues, `0x4F8DFF` dark and
 `0x2F6FE0` light, at alpha `0x66` — 102 ÷ 255, exactly 0.4, so **no pixel
 changes**. `ChromeColorRole` goes from twenty-one to **twenty-two** cases;
-`currentLine` and `bracketMatch` stay the two unspent; the set stays closed
+`currentLine` and `bracketMatch` stayed the two unspent then; the set stays closed
 against call sites. The gated set stays at **sixty** files and the suite at
 **forty-three** rules.
 
@@ -2203,7 +2281,7 @@ text, the caret and the selection — are chrome, and they become roles:
 
 | Terminal colour | Role | Dark | Light |
 |---|---|---|---|
-| ground | `bgCanvas` | `0x1E1F22` | `0xF5F5F7` |
+| ground | `bgCanvas`, since moved to `bgPanel` (below) | `0x1E1F22` | `0xF5F5F7` |
 | default text | `textPrimary` | `0xDFE1E5` | `0x1D1D1F` |
 | caret | `accent` | `0x4F8DFF` | `0x2F6FE0` |
 | selection | `accentTintStrong` | accent hues at alpha `0x33` | accent hues at alpha `0x33` |
@@ -2271,10 +2349,143 @@ ANSI entry clears 4.5:1 against the light `bgCanvas`, that each appearance
 installs its own array, and that both arrays have sixteen entries.
 
 **No new role**: `ChromeColorRole` stays at twenty-two, `currentLine` and
-`bracketMatch` stay the two unspent, and nothing in Core changes. The gated set
+`bracketMatch` stayed the two unspent then, and nothing in Core changes. The gated set
 stays at **sixty** files — `TerminalTheme.swift` stays one of the four
 exemptions, now narrowed — and the suite goes from forty-three rules to
 **forty-four**.
+
+#### The design's glyphs — one helper, one name table
+
+The design draws its icons from a set of its own, not from SF Symbols, so its
+glyphs ship as **template vector assets**: twenty-four PDFs from the design
+export, one imageset each under `Sources/Pisaka/Assets.xcassets/Glyphs/`, every
+one marked `template-rendering-intent: template` (so it takes the tint it is
+handed) and `preserves-vector-representation: true` (so it stays sharp at every
+interface scale). Their names live in one Foundation-only Core enum,
+`DesignGlyph` — raw value = asset name, plus `nativeSize`, the drawn size the
+export states — and that enum is the one name table every surface reads.
+
+They are drawn through **one helper**, `DesignGlyphImage.swift`, and nowhere
+else:
+
+- `DesignGlyphImage(_ glyph:, size:, slot:, role:)`, the SwiftUI half, draws the
+  template `.resizable()` and fitted (never stretched) at `size × interface
+  scale` — `size` defaulting to the glyph's `nativeSize` — centred in a
+  `slot × interface scale` square, tinted by the role out of the injected
+  theme, and `accessibilityHidden(true)`: a glyph is a control's picture, never
+  its name.
+- `DesignGlyphDrawing.image(_:pointSize:tint:)`, the AppKit half, returns the
+  glyph as an `NSImage` fitted into a square and filled with the tint at draw
+  time. The caller resolves the tint inside its own drawing appearance, on rule
+  twenty-five's footing.
+
+The helper joins the gated set, taking it from sixty to **sixty-one**, and is
+the tenth file exempt from the role-naming self-check, because it paints the
+role its caller names and spells none itself. The suite goes from forty-five
+rules to **forty-six**: rule forty-six holds that no macOS source but the helper
+loads an image by a glyph's name, and rules ten and thirty-four learn that a
+`DesignGlyphImage(` is a sized, accessibility-hidden glyph — thirty-four
+re-checking the helper's own `Image(` for both. Provenance — the export, the
+manifest digest the acknowledgement records as its revision, which glyphs fall
+under the MIT notice, and the by-hand update procedure — is in
+`Resources/DesignGlyphs/VENDORED.md`, a record `project.yml` does not bundle;
+`DesignGlyphAssetTests` and `LicenseCoverageTests` hold the catalog, the record,
+the enum and the `licenses.json` entry to one another. The run-time half the Core gate
+cannot see is `DesignGlyphImageTests` in the app bundle: every glyph loads from
+the compiled catalog as a template, the AppKit half fills its square with the
+tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
+1.8 and draws the glyph centred, at its size, in its role.
+
+#### The bottom bar's caret readout
+
+`BottomBar` draws `CaretReadout`'s `Ln <line>, Col <column> · <encoding> ·
+<language>` after its toggles, 10 points (a bare local number, scaled once,
+like the bar's other gaps) past the completion switch, at `subheadline` (11
+regular) in `textSecondary`, one line and never truncated. With no text tab
+focused — a database viewer tab, or no tab — the bar is handed an empty string
+and draws nothing, the gap included, so the toggles end at the bar's padding
+exactly as before. `BottomBarLayoutTests` measures the gap at scale 1.0 and 1.8
+against the text's own side bearing, rendered alone. Where the string comes
+from is `app-window.md`'s (`CaretReadoutModel`) and `app-editor.md`'s
+(`onCaretMoved`).
+
+#### The current-line highlight
+
+The editor washes the caret's line in `currentLine`, full width, and continues
+the band into the gutter. Which line is `CurrentLineRule`'s answer
+(`core-editor.md`): the line holding the caret, a selection within one line
+still highlighting, a selection spanning lines highlighting nothing. The
+coordinator asks it on every selection change and on every view update, over
+the whole selection (a column selection across lines is a multi-line one) and
+the ruler's own line-start table, and hands the answer to the layout manager,
+which redraws only the band the wash leaves and the band it lands on. The text
+side paints in `drawBackground`, after the indentation levels and before
+`super`, so the matched pair, the search matches and the selection all land on
+top of it; the gutter reads the same answer and geometry off the layout manager
+and paints its band over `bgEditor`, under the hairline and the numbers. Both
+fills are dynamic colours resolved inside the drawing pass, rule twenty-five's
+footing, so an appearance switch repaints them untold. Rule twenty-nine holds
+the files spelling `currentLine` to the palette and these two painters, by set
+equality; Until this highlight `currentLine` was one of the two unspent roles; the parts
+above that say so record their own moment. `ChromePaletteTests` keeps the wash distinct from
+`selectionInactive`; `CurrentLineHighlightTests` samples the band in both
+halves, on the caret's line and not its neighbour, and none under a multi-line
+selection.
+
+#### The terminal's ground and inset
+
+The design sets the terminal into its panel rather than edge to edge: a
+14-point margin on the left and right, at interface scale 1.0 and scaling with
+the interface (the margin is chrome, so zooming the terminal changes its rows
+and columns and leaves the margin where it is). The terminal's ground moves
+from part five (h)'s `bgCanvas` to **`bgPanel`** — `0x2B2D30` dark, `0xECECEF`
+light — the role the dock slot paints, and `TerminalPanelInset` paints the
+margin the same role, so the slot, the margin and the terminal read as one
+surface. Nothing about the exemption changes: `TerminalTheme` still resolves the
+role concretely for the matched appearance under rule forty-four, which now
+requires `.bgPanel` where it required `.bgCanvas`. The new light ground is
+darker, so the light ANSI-16 floor of 4.5:1 is now measured against
+`0xECECEF`, and four entries were darkened along their own hues to hold it:
+ANSI 8 `0x707070` → `0x6A6A6A` (it measured 4.2:1), ANSI 11 `0x926A00` →
+`0x8A6400` (4.2:1), ANSI 13 `0xA83BB5` → `0xA63AB3` (4.50:1, on the floor) and
+ANSI 14 `0x007C8B` → `0x007583` (4.2:1). `TerminalThemeTests` pins the ground
+on a live view in both appearances and the floor on the new ground;
+`TerminalPanelInsetTests` measures the margin at scale 1.0 and 1.8 and samples
+it as `bgPanel`.
+
+#### The design pass's departures
+
+The design pass matched every surface it found off, and drew six things other
+than the design does, each deliberately and in the repository's favour. Each is
+recorded where its surface is described, and gathered here:
+
+1. **The Log keeps its richer filters and its ref badges.** The design's filter
+   strip is sparser than `LogFilterBar`'s branch, author, path, message and
+   date-range filters, and its commit rows draw no ref badges. Both are working
+   features the drawing simply does not show; removing them would remove
+   behaviour, not restyle it. The badges keep `accent` on `accentTint` (part
+   four (b)).
+2. **The terminal keeps its session strip.** The design draws one terminal; the
+   app runs several sessions per project, and the strip is how one is chosen,
+   added and closed. It stays the panel's header strip (part four (a)).
+3. **Find in Files' current match stays orange.** The match ⌘G steps to is
+   `SyntaxTheme`'s saturated orange over the warm yellow of every other match —
+   one family, so it still reads as a match, but unmistakably the current one.
+   The design draws no distinct current match; losing it would lose the only
+   cue for where ⌘G landed (`app-editor-overlays.md`).
+4. **Blame stays behind its per-file toggle.** The design draws the gutter's
+   blame column; the app draws it only when "Annotate with Git Blame" is turned
+   on for that file. Annotate starts off for every tab, because a blame is a
+   `git` run per file and a column of authors is noise while editing
+   (`app-editor.md`, `app-editor-overlays.md`).
+5. **The unified diff keeps two line-number columns.** The design draws one;
+   the commit dialog's diff shows the old and the new line numbers side by side,
+   so a removed line and an added line each say where they were and where they
+   land (part five (b)'s departure seven).
+6. **The dock draws six tabs and a single close button.** The design's seventh
+   tab names a panel this application does not have, and its minimise and close
+   would perform the same action on a dock with one state (*Six tabs, not
+   seven* and *Close alone*, part four (a)).
 
 #### What is still waiting
 
@@ -2292,25 +2503,28 @@ The dock's tab row is **no longer deferred** — part four (a) drew it, and
 `ChromeGeometry.dockTabRowHeight` is spent. The popovers are **no longer
 deferred** — part five (a) drew them on `bgPopover` and replaced their
 `Divider()` calls with `hairline` rules, and `ChromeGeometry.fieldCornerRadius`
-and `secondaryButtonHeight` are spent on the shared field. What stays deferred:
-the **caret readout** beside the bar, which waits on a design decision rather
-than on a file, the **lane hues**, and the unified diff's **per-line checkbox
-glyph** and **changed-line text tint** (part five (b)'s departures six and
-seven), all open design questions. The terminal's own palette is **no longer
+and `secondaryButtonHeight` are spent on the shared field. The **caret
+readout** is **no longer deferred**: it sits after the bar's toggles (see *The
+bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
+**no longer deferred** either: the design pass drew it (part five (b)'s
+departure seven). What stays deferred: the **lane hues**, and the unified
+diff's **per-line checkbox glyph** (part five (b)'s departure six), both open
+design questions. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — but
 one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
 entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
 `0x1E1F22` than on the black they were tuned for. Each follows the six-step guide at the end of
-this document, on its own. Two roles remain unspent — `currentLine` and
-`bracketMatch`, both code zone — after fifty-seven surfaces, the same two roles
+this document, on its own. One role remains unspent — `bracketMatch`, code
+zone — after the current-line highlight spent `currentLine`, the same one role
 `ChromeColorRole.swift`'s own doc comment names.
 
 ### The monochrome-icon decision
 
 Every icon in the swept surfaces is drawn in `textSecondary`: the tab strip's
-file icon, the vertical column's, the tree's folder and file icons, the draft
-field's icon column. `FileIcon` answers a symbol **and** a semantic tint, and these surfaces
-deliberately read only the symbol. A column of differently-tinted glyphs
+file glyph, the vertical column's, the tree's folder and file glyphs, the draft
+field's icon column. Since part eight those four draw `FileGlyph`'s design
+glyphs, which carry no tint at all; the panels still reading `FileIcon` answer a
+symbol **and** a semantic tint, and deliberately read only the symbol. A column of differently-tinted glyphs
 competes for the eye with the one thing each surface actually has to say — the
 accent underline on the active tab, the selection wash on the active file's row
 — and a tinted icon inside a selected row's wash is two colours arguing. The
@@ -2345,7 +2559,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — **sixty** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — and the design glyphs' helper, `DesignGlyphImage.swift`, one more: **sixty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -2353,7 +2567,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-five rules, each invisible to the compiler:
+The forty-six rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2434,14 +2648,20 @@ The forty-five rules, each invisible to the compiler:
    orientations once already. The paste had a second cost read from the other
    side: rule one drops every line naming `FileIcon(`, so each copy bought
    itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set of seven
-   (`ProjectTreeView.swift`, `ProjectTreeDraftField.swift`,
-   `TabStripView.swift`, since part four (a) `ProblemsPanelView.swift` and
+   files carrying such a line are themselves a counted set, three today. Since
+   part eight the fallback is `file.url?.lastPathComponent ?? file.displayName`
+   handed to `FileGlyph`, matched whitespace-free, and the tree, its draft field
+   and `TabStripView.swift` construct no `FileIcon` at all and left the set.
+   What stays: since part four (a) `ProblemsPanelView.swift` and
    `UsagesPanelView.swift`, whose one exempted line each is the file-group
    header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
    glyph is drawn in `textSecondary` on a line rule one still scans — and since
-   part four (b) `CommitLogView.swift` and `LocalChangesView.swift`, whose
-   changed-file rows and folder headers carry the same binding).
+   part four (b) `CommitLogView.swift`, whose changed-file row carries the same
+   binding. `LocalChangesView.swift` carried it too until the design pass, when
+   its file rows stopped drawing a file glyph and its folder rows took
+   `FileGlyph`'s, and it left the set; so did `CommitDialogView.swift`, whose
+   file row (in the set since part five (b)) the same pass reduced to checkbox,
+   status letter and name.
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
    nowhere else under `Sources/`, by set equality in both directions. It is a
@@ -2458,7 +2678,10 @@ The forty-five rules, each invisible to the compiler:
    keeps its platform title bar.
 10. **Every bottom-bar control is identifiable without sight.** Inside
    `ContentView.swift`, the brace-matched bodies of `bottomBarButton(` and
-   `completionToggleButton` each spell `.help(` and `.accessibilityLabel(`, and
+   `completionToggleButton` each spell `BarToolTip(` — the AppKit `toolTip`
+   that replaced `.help`, which never showed on these toggles in the shipped
+   window (`app-window.md` records the diagnosis) — and `.accessibilityLabel(`,
+   and neither spells `.help(`, so the bar keeps one tooltip mechanism; and
    `bottomBarButton(` occurs exactly twice — one declaration and one call inside
    `panelToggles`, which `bottomBar` draws, which builds the toggles from
    `BottomPanel.allCases` and names no panel case in its body, so the bar keeps
@@ -2466,12 +2689,12 @@ The forty-five rules, each invisible to the compiler:
    (`BottomPanelTests` pins the order; this rule pins who reads it). Part three made all seven controls icon-only, and the
    `Label(title, systemImage:)` they used to carry *was* each one's
    accessibility name; an unhidden `Image(systemName:)` supplies a name of its
-   own instead — the *symbol's* — and `.help(` is a tooltip VoiceOver does not
-   read as a name. So the visual decision silently renames named controls after
+   own instead — the *symbol's* — and a tooltip is not a name VoiceOver
+   reads. So the visual decision silently renames named controls after
    their glyphs: nothing misrenders, no other gate goes red, and the only reader
    who notices is the one who cannot see the bar. The bodies are read
-   brace-matched, in rule six's idiom, so a `.help(` elsewhere in a
-   fourteen-hundred-line file cannot satisfy it; the call count is pinned so a
+   brace-matched, in rule six's idiom, so a `BarToolTip(` elsewhere in a
+   fifteen-hundred-line file cannot satisfy it; the call count is pinned so a
    seventh dock panel arrives through the one builder whose name the rule
    already requires, rather than as a hand-written call shipping nameless. The
    **same rule read from the other side** covers the bar's three widgets: a
@@ -2480,7 +2703,8 @@ The forty-five rules, each invisible to the compiler:
    ("chevron.right, folder fill, Sources"). `ProjectSwitcherView.swift` and
    `BranchSwitcherView.swift` must therefore hide every decorative symbol they
    draw, asserted by counting `Image(systemName:` against
-   `.accessibilityHidden(true)` in each file, with
+   `.accessibilityHidden(true)` in each file — a `DesignGlyphImage(`, which every
+   bar widget's own glyph now is, hides itself and so counts on both sides — with
    `PullRequestIndicatorView.swift` the stated exception because it names itself
    outright with an explicit `.accessibilityLabel(`. That count has a **second
    half**, because it went green on the change that broke the thing it exists
@@ -2528,13 +2752,16 @@ The forty-five rules, each invisible to the compiler:
    `header` and its column-header row's `label(_:)`, the filter bar's
    `filterField(…)` and `dateBound(…)` (the branch picker's menu items are menu
    rows, not strip labels), Local Changes' `toolbar`, and the Pull Requests
-   panel's `header` and row `summaryLine`. Two of those have since moved.
+   panel's `header` and row `summaryLine`. Three of those have since moved.
    Part five (a) deleted the private `filterField(…)` when the bar's fields
    became the shared field, dropping that builder from the rule. Part five (b)
    moved the date bound's label into the shared checkbox's trailing title, so
    since then that label is counted in `ChromeCheckbox`
    (`ChromeControls.swift`) rather than in `dateBound(…)`, and `LogFilterBar.swift`
-   is no longer among the rule's files. The rule's files are therefore
+   is no longer among the rule's files. The design pass removed the Log's
+   `header` strip altogether — its refresh controls sit at the filter strip's
+   trailing end and draw no `Text` — so the Log's entry names the column
+   header's `label(_:)` alone. The rule's files are therefore
    `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `TerminalPanelView.swift`,
    `CommitLogView.swift`, `ChromeControls.swift`, `LocalChangesView.swift` and
    `PullRequestsPanelView.swift` — a list the suite checks against its own
@@ -2643,7 +2870,7 @@ The forty-five rules, each invisible to the compiler:
    enough.
 18. **The checks-state mapping is Core's one answer.** The glyph, words and
    role of a checks summary and of a job bucket are Core's
-   (`symbolName`/`spokenWords`, `ChromeColorRole.checksRole(for:)`). No app file
+   (`symbolName`/`indicatorGlyph`/`spokenWords`, `ChromeColorRole.checksRole(for:)`). No app file
    declares `func checksRole`; the app files spelling `checksRole(for:` equal
    `{PullRequestIndicatorView.swift, PullRequestsPanelView.swift}`; and no gated
    file spells a case label naming `.noChecks`, `.pending`, `.failure`,
@@ -2660,6 +2887,8 @@ The forty-five rules, each invisible to the compiler:
    diffMarkerRole`; the app files spelling `diffWashRole(for:` equal
    `{DiffView.swift, CommitUnifiedDiffView.swift}`, and neither spells
    `withAlphaComponent(` or `.opacity(` — the wash's alpha is the palette's.
+   The text tint the same way: none declares `func diffTextRole`, and the app
+   files spelling `diffTextRole(for:` equal `{CommitUnifiedDiffView.swift}`.
    The side clause: neither reader declares an `enum Side`, and no file under
    `Sources/Pisaka` outside `Sources/Pisaka/iOS/` spells `DiffTextView.Side`, so
    a new macOS caller cannot bring the old type back. Both limits are in the
@@ -2750,12 +2979,14 @@ The forty-five rules, each invisible to the compiler:
    the drag's `onEnded`; neither arrives when the divider leaves the tree with
    the pointer on it or mid-drag — the Log's list/detail divide goes when the
    model clears its selection or the dock switches tabs, the database viewer's
-   sidebar divide when its tab closes or its sidebar folds — and `NSCursor`'s stack
+   sidebar divide when its tab closes or its sidebar folds, Local Changes' divider
+   when the list empties or the dock switches tabs — and `NSCursor`'s stack
    is global, so the cursor stays pushed after the flag that would have popped
    it is gone. The set of pushing functions is pinned by equality (the Log
    divide's, the two `ContentView` dividers', — since part five (d) — the
-   statement pane's resize handle, `syncResizeHandleCursor`, and the database
-   viewer's sidebar divide, `syncSidebarDivideCursor`), so a scanner that stopped
+   statement pane's resize handle, `syncResizeHandleCursor`, the database
+   viewer's sidebar divide, `syncSidebarDivideCursor`, and — since the design
+   pass — Local Changes' list/diff divider, `syncDividerCursor`), so a scanner that stopped
    finding them fails rather than going vacuous. Stated limit: the rule sees the
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
@@ -2853,8 +3084,10 @@ The forty-five rules, each invisible to the compiler:
     `ChromeControls.swift` declares a toggle builder. Because the toggle speaks
     its `help` as its accessibility label, the two rows must also speak one name
     per mode — each caller's `help:` literals are exactly "Match case", "Whole
-    word", "Regular expression", in that order, read from comment-stripped text
-    with literals kept, since the names under test are the literals. This
+    word", "Regular expression", in that order, each paired with its one
+    `glyph:` (`.caseSensitive`, `.wholeWord`, `.regex`), read from
+    comment-stripped text with literals kept, since the names under test are
+    the literals. This
     entry's file set and the shared field's `Callers:` paragraph are both
     checked against the suite's own set, since both once stopped a caller
     short.
@@ -2879,8 +3112,10 @@ The forty-five rules, each invisible to the compiler:
     designated initializer assigns `backgroundColor` and names `bgPanel`.
 29. **The merge wash is Core's one answer.** The `mergeWashRole` token is read
     by `MergeView.swift` alone among the app files; no app file other than
-    `ChromePalette.swift` spells `conflictBackground`, `currentLine` or
-    `bracketMatch`; no gated file chains `.withAlphaComponent`/`.opacity` onto a
+    `ChromePalette.swift` spells `conflictBackground` or `bracketMatch`; the app
+    files spelling `currentLine` are exactly `ChromePalette.swift`,
+    `BracketOverlayLayoutManager.swift` and `LineNumberRulerView.swift` (the
+    current-line highlight's two painters), by set equality; no gated file chains `.withAlphaComponent`/`.opacity` onto a
     role's colour (`nsColor(…)`, `.color(…)` or `chromeColor(…)`, brace-matched,
     line breaks allowed — `MinimapView.swift`'s alpha on a syntax-table colour is
     code zone and outside the rule); part five (b)'s ten files spell
@@ -2934,7 +3169,9 @@ The forty-five rules, each invisible to the compiler:
     items) and `LeetCodeLoginView.swift` 1/1. The same part adds the
     open-problem sheet to `chromePrimary`'s callers; the console, the browser,
     the judge, the sheet and the sign-in sheet to `chromeSecondary`'s; and the
-    browser to `ChromeCheckbox`'s.
+    browser to `ChromeCheckbox`'s. The design pass adds the consent banner and
+    then Local Changes, whose toolbar Commit… left its hand-drawn accent button
+    for the shared style, to `chromePrimary`'s callers.
 31. **A code pane's ground goes through one definition.** `CodePaneGround.apply(`
     is called in exactly `CodeEditorView.swift`, `SourceViewerContent.swift`,
     `DiffView.swift` and `MergeView.swift`; the rule is **total and resolves no
@@ -3059,8 +3296,9 @@ The forty-five rules, each invisible to the compiler:
     `SettingsView.swift`. Each caller's constructions are pinned by count
     besides, matched through `callRanges(_:in:)` so a wrapped call counts —
     rule thirty's shape applied to these five: `SettingsView.swift` two
-    segmented controls, one menu field, two steppers, two switches and one
-    tab bar; `PullRequestMergeSheet.swift` one segmented control;
+    segmented controls, two menu fields (LeetCode's default language and the
+    editor font family), three steppers (editor font size, interface zoom,
+    terminal font size), two switches and one tab bar; `PullRequestMergeSheet.swift` one segmented control;
     `LogFilterBar.swift`, `NewPullRequestSheet.swift`,
     `LeetCodeBrowserView.swift` and `LeetCodeOpenProblemSheet.swift` one menu
     field each;
@@ -3138,7 +3376,7 @@ The forty-five rules, each invisible to the compiler:
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
     spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
-    hex literal *is* a string literal — one of the suite's three literal-keeping
+    hex literal *is* a string literal — one of the suite's four literal-keeping
     readings, named in its header.
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
@@ -3179,7 +3417,7 @@ The forty-five rules, each invisible to the compiler:
     because the converters' `red`/`green`/`blue` name channels — so
     `NSColor.red` or `.magenta` fails; the `.…Color` members
     it reaches are pinned by set equality, so `.controlAccentColor` fails; it
-    must name each of `.bgCanvas`, `.textPrimary`, `.accent`
+    must name each of `.bgPanel`, `.textPrimary`, `.accent`
     and `.accentTintStrong`; and each array holds exactly sixteen top-level
     `rgb8(` entries. The presence check is what catches a restored
     `.selectedTextBackgroundColor` selection: that token is also SwiftTerm's
@@ -3205,11 +3443,22 @@ The forty-five rules, each invisible to the compiler:
     `TextField(` constructions. The ring compiles, and only a key window with real
     first-responder focus shows it, which the headless app bundle cannot reliably
     reach — so this rule and the live check are the only nets for it.
+46. **Design glyphs are drawn only through the helper.** Every macOS source
+    under `Sources/Pisaka/` (the iOS directory aside) other than
+    `DesignGlyphImage.swift` is read through the comments-only scanner, literals
+    kept — the name an image is loaded by *is* a literal — and no `Image(` or
+    `NSImage(named:` call in it may name a glyph: neither a string literal equal
+    to a `DesignGlyph` raw value nor the token `assetName`. `Image(systemName:`
+    is a different call and is not matched; `AppIcon` is not a glyph and stays
+    exempt. The helper must itself load by `assetName` exactly twice, once per
+    half, so the rule cannot read nothing. A glyph loaded inline compiles and
+    draws — untinted by the theme, or announced by its asset name.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with nine
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
 exceptions, each naming no role by construction while staying gated for the
-rules it *can* break: `ChromeThemeEnvironment.swift`, which carries the
+rules it *can* break: `DesignGlyphImage.swift`, which paints the role its caller
+names (gated for rules one and two and rule forty-six), `ChromeThemeEnvironment.swift`, which carries the
 appearance down the tree and paints nothing, `LSPInstalledLicenses.swift`
 (since part five (c)), a Foundation-only enum that returns the installed licence
 documents and has no view, and `CommitGraphView.swift`, which draws only lanes

@@ -34,7 +34,7 @@ final class CompletionPanel {
         selection: CompletionPopupSelection?,
         anchoredTo anchor: NSRect,
         in parent: NSWindow?,
-        codeFontSize: CGFloat,
+        codeFont: NSFont,
         metrics: InterfaceMetrics
     ) {
         guard !rows.isEmpty else {
@@ -61,8 +61,8 @@ final class CompletionPanel {
         // stay raw: one tracks the code font's cell, the other is the same
         // class of fixed anchor offset `DiffView`'s code-side paddings are.
         let maximumWidth = CGFloat(metrics.pt(Double(Self.maximumWidth)))
-        let width = min(maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize, metrics: metrics))
-        let rowHeight = contentView.rowHeight(codeFontSize: codeFontSize)
+        let width = min(maximumWidth, contentView.measureWidth(for: rows, codeFont: codeFont, metrics: metrics))
+        let rowHeight = contentView.rowHeight(codeFont: codeFont)
         // The provider's 30 is a *list* cap, not a visible one: at a zoomed code
         // font thirty rows outrun the screen, so the drawn count is bounded by
         // whatever space the anchor's screen actually has on either side. The
@@ -77,7 +77,7 @@ final class CompletionPanel {
         contentView.update(
             rows: rows,
             selection: selection?.selectedIndex ?? 0,
-            codeFontSize: codeFontSize,
+            codeFont: codeFont,
             metrics: metrics,
             width: width
         )
@@ -235,7 +235,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
 
     private var rows: [CompletionRow] = []
     private var selection: Int = 0
-    private var codeFontSize: CGFloat = 13
+    private var codeFont: NSFont = EditorFont.font(size: 13, family: nil)
     private var metrics: InterfaceMetrics = .unscaled
 
     var onCommit: ((Int) -> Void)?
@@ -247,16 +247,16 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     func update(
         rows: [CompletionRow],
         selection: Int,
-        codeFontSize: CGFloat,
+        codeFont: NSFont,
         metrics: InterfaceMetrics,
         width: CGFloat
     ) {
         self.rows = rows
         self.selection = selection
-        self.codeFontSize = codeFontSize
+        self.codeFont = codeFont
         self.metrics = metrics
 
-        let height = rowHeight(codeFontSize: codeFontSize) * CGFloat(rows.count)
+        let height = rowHeight(codeFont: codeFont) * CGFloat(rows.count)
         self.frame = NSRect(x: 0, y: 0, width: width, height: height)
 
         needsDisplay = true
@@ -268,9 +268,8 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         needsDisplay = true
     }
 
-    func rowHeight(codeFontSize: CGFloat) -> CGFloat {
+    func rowHeight(codeFont: NSFont) -> CGFloat {
         // monospaced font + padding
-        let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         return ceil(codeFont.ascender - codeFont.descender) + 6 // padding
     }
 
@@ -292,8 +291,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         return head + "…"
     }
 
-    func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat, metrics: InterfaceMetrics) -> CGFloat {
-        let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
+    func measureWidth(for rows: [CompletionRow], codeFont: NSFont, metrics: InterfaceMetrics) -> CGFloat {
         var maxW: CGFloat = 0
         let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
         for row in rows {
@@ -307,7 +305,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let rHeight = rowHeight(codeFontSize: codeFontSize)
+        let rHeight = rowHeight(codeFont: codeFont)
         let index = Int(point.y / rHeight)
         if index >= 0 && index < rows.count {
             onCommit?(index)
@@ -315,14 +313,13 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     }
 
     private func scrollToSelection() {
-        let rHeight = rowHeight(codeFontSize: codeFontSize)
+        let rHeight = rowHeight(codeFont: codeFont)
         let rect = NSRect(x: 0, y: CGFloat(selection) * rHeight, width: bounds.width, height: rHeight)
         scrollToVisible(rect)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let rHeight = rowHeight(codeFontSize: codeFontSize)
-        let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
+        let rHeight = rowHeight(codeFont: codeFont)
 
         for (index, row) in rows.enumerated() {
             let originY = CGFloat(index) * rHeight

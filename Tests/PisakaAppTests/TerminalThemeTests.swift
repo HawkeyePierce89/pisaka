@@ -7,7 +7,7 @@ import PisakaCore
 
 /// The terminal's four chrome colours and its light ANSI-16 set, pinned.
 ///
-/// `TerminalTheme` resolves `bgCanvas`, `textPrimary`, `accent` and
+/// `TerminalTheme` resolves `bgPanel`, `textPrimary`, `accent` and
 /// `accentTintStrong` concretely at apply time, because SwiftTerm stores the
 /// colours it is handed and never re-resolves them. The key the session guard
 /// compares is the only observable form of what an apply installs, so it is
@@ -20,7 +20,7 @@ final class TerminalThemeTests: XCTestCase {
 
     /// The roles in the order `ThemeKey` fingerprints them: ground, text, caret,
     /// selection.
-    private static let roles: [ChromeColorRole] = [.bgCanvas, .textPrimary, .accent, .accentTintStrong]
+    private static let roles: [ChromeColorRole] = [.bgPanel, .textPrimary, .accent, .accentTintStrong]
 
     func testThemeKeyIsTheFourRolesResolvedForEachAppearance() throws {
         let cases: [(NSAppearance.Name, ChromeAppearance)] = [
@@ -41,7 +41,7 @@ final class TerminalThemeTests: XCTestCase {
     }
 
     func testEveryLightANSIEntryClearsTheFloorOnTheLightGround() {
-        let ground = Self.sixteenBit(ChromePalette.nsColor(.bgCanvas, in: .light))
+        let ground = Self.sixteenBit(ChromePalette.nsColor(.bgPanel, in: .light))
         let groundLuminance = Self.luminance(red: ground[0], green: ground[1], blue: ground[2])
         for (index, entry) in TerminalTheme.lightANSIColors.enumerated() {
             let luminance = Self.luminance(red: entry.red, green: entry.green, blue: entry.blue)
@@ -50,6 +50,31 @@ final class TerminalThemeTests: XCTestCase {
                 ratio,
                 4.5,
                 "light ANSI \(index) sits at \(String(format: "%.2f", ratio)):1 on the light ground"
+            )
+        }
+    }
+
+    /// What an apply actually leaves on a live view, rather than the key: the
+    /// layer's ground and the text under a block caret are both the terminal's
+    /// ground, and that ground is `bgPanel` resolved for the appearance — the
+    /// role the dock slot and the panel's inset paint, so the three read as one
+    /// surface. A plain `TerminalView` starts no process.
+    func testAnApplyPaintsTheGroundBgPanelInBothAppearances() throws {
+        let cases: [(NSAppearance.Name, ChromeAppearance)] = [(.aqua, .light), (.darkAqua, .dark)]
+        for (name, chrome) in cases {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+            view.wantsLayer = true
+            TerminalTheme.apply(to: view, appearance: appearance)
+            let expected = Self.sixteenBit(ChromePalette.nsColor(.bgPanel, in: chrome))
+            let layerGround = try XCTUnwrap(
+                view.layer?.backgroundColor.flatMap { NSColor(cgColor: $0) },
+                "the apply left no layer ground under \(name.rawValue)"
+            )
+            XCTAssertEqual(Self.sixteenBit(layerGround), expected, "the layer's ground under \(name.rawValue) is not bgPanel")
+            XCTAssertEqual(
+                Self.sixteenBit(view.caretTextColor ?? .clear), expected,
+                "the text under the caret under \(name.rawValue) is not drawn in the bgPanel ground"
             )
         }
     }

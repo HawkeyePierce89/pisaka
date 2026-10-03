@@ -230,11 +230,15 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
         "ZoomSurfaceMarker(kind: .code)",
     ]
 
-    /// The two spellings of "this surface's base foreground is the table's plain
-    /// row" — an `NSTextView`/`UITextView` property and a SwiftUI modifier.
+    /// The three spellings of "this surface's base foreground is the table's
+    /// plain row" — an `NSTextView`/`UITextView` property, a SwiftUI modifier,
+    /// and the fallback of a line whose text may carry a tint instead (the
+    /// commit dialog's unified diff tints an added or removed line's text and
+    /// falls back to the plain row for a context line).
     private static let baseForegroundNeedles = [
         "textColor = SyntaxTheme.shared.color(for: .plain)",
         ".foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))",
+        "?? Color(SyntaxTheme.shared.color(for: .plain))",
     ]
 
     /// Every code-zone surface in the tree, as `<file>:<declaring type>`.

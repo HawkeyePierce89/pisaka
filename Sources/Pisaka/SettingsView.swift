@@ -281,22 +281,18 @@ struct GeneralSettingsView: View {
     /// beside a value that is still whatever the editor is drawn at.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// The installed fixed-pitch families, read once when the page appears:
+    /// the menu lists them after "System Monospaced". Filled in `onAppear`, not
+    /// as the state's initial value — that expression runs on every rebuild of
+    /// this struct (each settings or download-progress change), and the scan
+    /// asks every installed family for a font, on the main thread.
+    @State private var fixedPitchFamilies: [String] = []
+
     var body: some View {
         SettingsPage {
-            SettingsRow(label: "Tab orientation") {
+            SettingsRow(label: "Appearance") {
                 ChromeSegmentedControl(
-                    label: "Tab orientation",
-                    options: [
-                        (value: TabOrientation.vertical, title: "Vertical"),
-                        (value: TabOrientation.horizontal, title: "Horizontal"),
-                    ],
-                    selection: $settings.tabOrientation
-                )
-            }
-
-            SettingsRow(label: "Theme") {
-                ChromeSegmentedControl(
-                    label: "Theme",
+                    label: "Appearance",
                     options: [
                         (value: ThemePreference.system, title: "System"),
                         (value: ThemePreference.light, title: "Light"),
@@ -306,20 +302,56 @@ struct GeneralSettingsView: View {
                 )
             }
 
-            // Bounds and step come from `ZoomScaleRule.editorFont`, the same rule
-            // the zoom gestures and ⌘0 go through, so a stepper press and a zoom
-            // step land on the same grid, and the store's clamp-on-write can never
-            // be driven out of range from here.
-            SettingsRow(label: "Editor font size") {
-                ChromeStepper(
-                    label: "Editor font size",
-                    value: $settings.fontSize,
-                    rule: ZoomScaleRule.editorFont,
-                    format: { "\(Int($0)) pt" }
+            // Top is the horizontal strip, Side the vertical column.
+            SettingsRow(label: "Tab placement") {
+                ChromeSegmentedControl(
+                    label: "Tab placement",
+                    options: [
+                        (value: TabOrientation.horizontal, title: "Top"),
+                        (value: TabOrientation.vertical, title: "Side"),
+                    ],
+                    selection: $settings.tabOrientation
                 )
             }
 
-            // The terminal zone's size, beside the code zone's — the two are
+            // The family menu, then the size. The family is a set read at run
+            // time, so it is a menu field; `nil` is the system monospaced font
+            // and is listed first. The size's bounds and step come from
+            // `ZoomScaleRule.editorFont`, the same rule the zoom gestures and ⌘0
+            // go through, so a stepper press and a zoom step land on the same
+            // grid, and the store's clamp-on-write can never be driven out of
+            // range from here.
+            SettingsRow(label: "Editor font", controlSpeaksLabel: false) {
+                HStack(spacing: metrics.scaled(ChromeGeometry.settingsLabelGap)) {
+                    ChromeMenuField(
+                        label: "Editor font family",
+                        options: fontFamilyOptions,
+                        selection: $settings.editorFontFamily,
+                        currentTitle: settings.editorFontFamily ?? Self.systemMonospacedTitle,
+                        height: ChromeGeometry.menuFieldHeight
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
+                    ChromeStepper(
+                        label: "Editor font size",
+                        value: $settings.fontSize,
+                        rule: ZoomScaleRule.editorFont,
+                        format: { "\(Int($0)) pt" }
+                    )
+                }
+            }
+
+            // The interface zone's scale, on its own rule's grid for the editor
+            // row's reason, shown as the percentage the zoom readout uses.
+            SettingsRow(label: "Interface zoom") {
+                ChromeStepper(
+                    label: "Interface zoom",
+                    value: $settings.interfaceScale,
+                    rule: ZoomScaleRule.interfaceScale,
+                    format: { "\(Int(($0 * 100).rounded()))%" }
+                )
+            }
+
+            // The terminal zone's size, after the code zone's — the two are
             // independent settings and this is the one place both are visible at
             // once. Its grid is `ZoomScaleRule.terminalFont`, for the editor row's
             // reason.
@@ -352,6 +384,23 @@ struct GeneralSettingsView: View {
                 ChromeSwitch(label: "Highlight indentation levels", isOn: $settings.indentLevelHighlightingEnabled)
             }
         }
+        .onAppear {
+            fixedPitchFamilies = EditorFont.installedFixedPitchFamilies()
+        }
+    }
+
+    /// The family menu's first entry, which stands for `nil`.
+    private static let systemMonospacedTitle = "System Monospaced"
+
+    /// "System Monospaced" first, then every installed fixed-pitch family. A
+    /// stored family that is no longer installed is still listed, so the menu
+    /// shows the selection it holds; the font itself falls back (`EditorFont`).
+    private var fontFamilyOptions: [(value: String?, title: String)] {
+        var families = fixedPitchFamilies
+        if let chosen = settings.editorFontFamily, !families.contains(chosen) {
+            families.append(chosen)
+        }
+        return [(value: nil, title: Self.systemMonospacedTitle)] + families.map { (value: $0, title: $0) }
     }
 }
 

@@ -88,9 +88,30 @@ final class LocalChangesModelTests: XCTestCase {
             return []
         }
 
+        /// Paths whose `headContents` read suspends until `releaseHead(_:)`, so
+        /// a test can resolve two inline-diff loads out of order.
+        var gatedHeadPaths: Set<String> = []
+        /// The gated paths that have suspended so far, in order.
+        private(set) var suspendedHeadPaths: [String] = []
+        private var headContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+        /// Every `headContents` read, in order.
+        private(set) var headReads: [String] = []
+
         func headContents(of path: String, root: URL) async throws -> String? {
+            headReads.append(path)
             if let error { throw error }
+            if gatedHeadPaths.contains(path) {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    headContinuations[path] = cont
+                    suspendedHeadPaths.append(path)
+                }
+            }
             return headByPath[path]
+        }
+
+        /// Release the suspended `headContents` read for `path`.
+        func releaseHead(_ path: String) {
+            headContinuations.removeValue(forKey: path)?.resume()
         }
 
         func revert(_ file: ChangedFile, root: URL) async throws {
@@ -131,6 +152,23 @@ final class LocalChangesModelTests: XCTestCase {
     /// have reached its git I/O before the next one starts).
     private func waitForGatedCalls(_ count: Int, in git: StubGit) async {
         while git.gatedCallIndices.count < count { await Task.yield() }
+    }
+
+    /// Wait for `condition`, failing loudly rather than spinning forever when a
+    /// regression means it never holds.
+    private func waitFor(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
     }
 
     // MARK: - refresh
@@ -1710,5 +1748,159 @@ final class LocalChangesModelTests: XCTestCase {
             LocalChangesModel.shortcutJumpToSourceURL(selected: file, root: root),
             root.appendingPathComponent("a.swift")
         )
+    }
+
+    // MARK: - toolbar revert target
+
+    func testToolbarRevertTargetIsNilWithNothingCheckedOrSelected() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        XCTAssertNil(model.toolbarRevertTarget)
+    }
+
+    func testToolbarRevertTargetIsTheSelectionWhenNothingIsChecked() async {
+        let git = StubGit()
+        let first = ChangedFile(path: "a.swift", status: .modified)
+        let second = ChangedFile(path: "b.swift", status: .modified)
+        git.files = [first, second]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        model.select(second)
+        XCTAssertEqual(model.toolbarRevertTarget, second)
+        XCTAssertEqual(model.filesToRevert(contextFile: second), [second])
+    }
+
+    func testToolbarRevertTargetIsTheFirstCheckedFileAndWidensToTheCheckedSet() async {
+        let git = StubGit()
+        let first = ChangedFile(path: "a.swift", status: .modified)
+        let second = ChangedFile(path: "b.swift", status: .modified)
+        let third = ChangedFile(path: "c.swift", status: .added)
+        git.files = [first, second, third]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        model.select(first)
+        model.toggleChecked(third)
+        model.toggleChecked(second)
+
+        // Checked files win over the selection, in list order.
+        XCTAssertEqual(model.toolbarRevertTarget, second)
+        XCTAssertEqual(model.filesToRevert(contextFile: second), [second, third])
+    }
+
+    // MARK: - inline selection diff
+
+    func testSelectionDiffLoadsTheSelectedFilesRows() async {
+        let git = StubGit()
+        let file = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [file]
+        git.headByPath["a.swift"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.swift"] = "new\n"
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(file)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.file, file)
+        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "new\n"))
+    }
+
+    func testSelectionDiffClearsWhenNothingIsSelected() async {
+        let git = StubGit()
+        let file = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [file]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        model.select(file)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertNotNil(model.selectionDiff)
+
+        model.select(nil)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertNil(model.selectionDiff)
+    }
+
+    func testASupersededSelectionDiffNeverPublishes() async {
+        // The older selection's `git show` resolves *after* the newer one's: its
+        // rows must be discarded, leaving the newer selection's diff on screen.
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified)
+        let newer = ChangedFile(path: "newer.swift", status: .modified)
+        git.files = [older, newer]
+        git.headByPath = ["older.swift": "o1\n", "newer.swift": "n1\n"]
+        git.gatedHeadPaths = ["older.swift"]
+        let files = StubFiles()
+        files.contentsByPath = ["/repo/older.swift": "o2\n", "/repo/newer.swift": "n2\n"]
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+
+        model.select(older)
+        let olderToken = model.beginSelectionDiffLoad()
+        let olderLoad = Task { await model.loadSelectionDiff(token: olderToken) }
+        await waitFor("the older load to reach its HEAD read") { git.suspendedHeadPaths == ["older.swift"] }
+
+        model.select(newer)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+
+        git.releaseHead("older.swift")
+        await olderLoad.value
+
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "n1\n", new: "n2\n"))
+    }
+
+    func testATokenSupersededBeforeItsHopDoesNothing() async {
+        let git = StubGit()
+        let file = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [file]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        model.select(file)
+
+        let stale = model.beginSelectionDiffLoad()
+        _ = model.beginSelectionDiffLoad()
+        await model.loadSelectionDiff(token: stale)
+
+        XCTAssertNil(model.selectionDiff)
+        // Refused before the hop: the stale load never reads HEAD at all.
+        XCTAssertEqual(git.headReads, [])
+    }
+
+    func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        let first = model.listRevision
+        await model.refresh(root: root)
+        XCTAssertEqual(model.listRevision, first + 1)
+
+        git.error = StubError.boom
+        await model.refresh(root: root)
+        XCTAssertEqual(model.listRevision, first + 1)
+    }
+
+    func testASupersededRefreshDoesNotAdvanceListRevision() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let before = model.listRevision
+
+        let older = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(1, in: git)
+        let newer = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(2, in: git)
+
+        git.release(call: 1)
+        await newer.value
+        git.release(call: 0)
+        await older.value
+
+        XCTAssertEqual(model.listRevision, before + 1)
     }
 }

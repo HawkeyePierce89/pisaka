@@ -5,13 +5,15 @@ import PisakaCore
 /// A single tab row in the **vertical** tab column: the file's icon, its display
 /// name, and the trailing slot the two orientations share.
 ///
-/// The active row is filled in `bgEditor` and carries an `accent` bar as wide as
-/// `ChromeGeometry.accentIndicator` on its **leading** edge — the same statement
-/// the strip's cell makes with an underline, turned through a right angle: the
-/// row reads as the left edge of the editor rather than as a highlighted list
-/// entry. Its label is `textPrimary`; every other row's is `textSecondary`. An
-/// inactive row under the pointer takes `hoverTint`, which the active row does
-/// not need: it is already the one row that is filled.
+/// Every row is `verticalTabRowHeight` (28) tall and carries a one-point
+/// `hairline` rule along its bottom edge, so the column reads as a ruled list.
+/// The active row's ground does **not** change — the column's own ground shows
+/// through it as through every other row; it is marked by an `accent` bar as
+/// wide as `ChromeGeometry.accentIndicator` on its **leading** edge — the same
+/// statement the strip's cell makes with an underline, turned through a right
+/// angle — and by its label, `textPrimary` where every other row's is
+/// `textSecondary`. An inactive row under the pointer takes `hoverTint`; the
+/// active one does not, so hovering it never reads as a second selection.
 ///
 /// The horizontal strip's cell is `TabStripView`'s own, not a second branch
 /// here; the two things the orientations genuinely share are views living
@@ -56,6 +58,11 @@ struct TabRowView: View {
             alignment: .leading
         )
         .background(rowBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
         .overlay(alignment: .leading) {
             if isActive {
                 Rectangle()
@@ -68,12 +75,11 @@ struct TabRowView: View {
         .onHover { isHovering = $0 }
     }
 
-    /// The row's ground: the editor's own background when it is the active row,
-    /// the hover wash when the pointer is in an inactive one, and otherwise
-    /// nothing at all — the column's ground shows through.
+    /// The row's ground: the hover wash when the pointer is in an inactive row,
+    /// and otherwise nothing at all — the column's ground shows through, the
+    /// active row's included.
     private var rowBackground: Color {
-        if isActive { return theme.color(.bgEditor) }
-        if isHovering { return theme.color(.hoverTint) }
+        if !isActive && isHovering { return theme.color(.hoverTint) }
         return Color.clear
     }
 }

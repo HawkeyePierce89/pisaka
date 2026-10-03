@@ -67,6 +67,12 @@ struct CodeEditorView: NSViewRepresentable {
     /// re-applies the font and re-syncs the gutter/minimap in `updateNSView`.
     let fontSize: Double
 
+    /// The code font's family — `SettingsStore.editorFontFamily`, `nil` for the
+    /// system monospaced font. A plain value beside `fontSize`, for its reason;
+    /// the two are resolved together through `EditorFont`, and a change to
+    /// either re-applies the font.
+    let fontFamily: String?
+
     /// Whether the completion popup is offered at all — `SettingsStore.completionEnabled`,
     /// which `ContentView` already observes and passes down.
     ///
@@ -227,13 +233,19 @@ struct CodeEditorView: NSViewRepresentable {
     /// by the glue that receives it.
     var onScrolled: ((Int) -> Void)?
 
+    /// The caret moved: this tab's id and the caret's 1-based line and column
+    /// (`CaretReadout`), for the bottom bar's readout. Sent on every selection change and once when the view
+    /// switches to another tab, so the readout follows the focused tab; `nil`
+    /// for an editor nobody reads the caret of.
+    var onCaretMoved: ((UUID, (line: Int, column: Int)) -> Void)?
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
 
-    /// The shared monospaced editor font at the current size.
+    /// The shared editor font at the current size and family.
     private func editorFont() -> NSFont {
-        .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        EditorFont.font(size: CGFloat(fontSize), family: fontFamily)
     }
 
     /// The two attributes every character starts from: the editor font, and the
@@ -410,7 +422,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.allowsUndo = true
         textView.isRichText = false
         applyBaseTypography(to: textView)
-        context.coordinator.appliedFontSize = CGFloat(fontSize)
+        context.coordinator.appliedFont = editorFont()
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -484,7 +496,7 @@ struct CodeEditorView: NSViewRepresentable {
         // `HoverContent.dwellDelay`.
         context.coordinator.attachHover(textView: textView)
         context.coordinator.syncHover(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
         // Record which file the gutter would annotate (enabling/disabling its menu
@@ -606,18 +618,18 @@ struct CodeEditorView: NSViewRepresentable {
         // Keep the binding the coordinator writes to current across view updates.
         context.coordinator.text = $text
 
-        // Re-apply the shared font when its size changed (the Stepper or a
-        // Cmd+scroll). Setting `NSTextView.font` re-styles the whole buffer; the
+        // Re-apply the shared font when its size or family changed (the Stepper,
+        // a Cmd+scroll or the Preferences family menu). Setting `NSTextView.font` re-styles the whole buffer; the
         // tree-sitter colors (temporary attributes on the layout manager) survive.
         // The gutter re-derives its own font from the text view per draw, so a
         // thickness recompute + redraw re-syncs it; the minimap geometry depends on
         // the (now-changed) document height, so refresh it too. (The text view's
         // frame-change notification also drives `refreshGeometry`, but call it
         // explicitly so the viewport rectangle is correct on the same turn.)
-        let desiredFontSize = CGFloat(fontSize)
-        if context.coordinator.appliedFontSize != desiredFontSize {
-            context.coordinator.appliedFontSize = desiredFontSize
-            textView.font = editorFont()
+        let desiredFont = editorFont()
+        if context.coordinator.appliedFont != desiredFont {
+            context.coordinator.appliedFont = desiredFont
+            textView.font = desiredFont
             context.coordinator.lineNumberRuler?.editorFontChanged()
             context.coordinator.refreshGeometry()
             // A font change re-lays out the whole buffer, so a popover anchored in
@@ -641,11 +653,11 @@ struct CodeEditorView: NSViewRepresentable {
         // the controller only stores them, and they are read when the *next*
         // answer is drawn.
         context.coordinator.syncHover(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
         context.coordinator.syncCompletionAppearance(
-            codeFontSize: CGFloat(fontSize),
+            codeFont: editorFont(),
             metrics: interfaceMetrics
         )
 
@@ -973,6 +985,11 @@ struct CodeEditorView: NSViewRepresentable {
         // which nulls the pending line. After the turn drains, both have run
         // whichever way round they were, the restore has settled the clip view,
         // and the preview holds the incoming text the offset is a line of.
+        // Left unassigned by `makeNSView`, so the first update — which SwiftUI
+        // runs straight after it — reads as gaining the listener and reports the
+        // new editor's caret before any move.
+        let gainedCaretListener = context.coordinator.reportCaret == nil && onCaretMoved != nil
+        context.coordinator.reportCaret = onCaretMoved
         let gainedScrollListener = context.coordinator.reportScrolled == nil && onScrolled != nil
         context.coordinator.reportScrolled = onScrolled
         if gainedScrollListener || (switchedFile && onScrolled != nil) {
@@ -1036,6 +1053,17 @@ struct CodeEditorView: NSViewRepresentable {
         // is the one that installs its contents, so selecting earlier would land
         // the range in the previous tab's text.
         context.coordinator.applyReveal(reveal.request, fileID: fileID)
+
+        // Once the incoming tab's selection is restored or revealed, say where
+        // its caret is outright: a restore that leaves the selection where the
+        // outgoing tab had it sends no selection change at all.
+        if switchedFile || gainedCaretListener {
+            context.coordinator.reportCaretPosition(of: textView)
+        }
+        // The same reason, for the current-line wash: a restored selection that
+        // sends no selection change would leave the band where it was. A no-op
+        // when the line has not moved.
+        context.coordinator.updateCurrentLine(of: textView)
     }
 
     /// Remove the scroll/frame observers and cancel any in-flight minimap parse
@@ -1075,10 +1103,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// geometry's `contentHeight`.
         weak var lineNumberRuler: LineNumberRulerView?
 
-        /// The editor font size currently applied to the text view, so
+        /// The editor font currently applied to the text view, so
         /// `updateNSView` re-applies the font (and re-syncs the gutter/minimap)
-        /// only when the shared size actually changed.
-        var appliedFontSize: CGFloat?
+        /// only when the shared size or family actually changed.
+        var appliedFont: NSFont?
 
         /// The minimap's own full-file tokenizer (debounced/cached). Separate
         /// from Neon's visible-range highlighter by design.
@@ -1287,8 +1315,8 @@ struct CodeEditorView: NSViewRepresentable {
         /// Forward the panel's two font inputs (`updateNSView`). Cheap and
         /// unconditional: the controller only stores them, and reads them when
         /// the next answer is presented.
-        func syncCompletionAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-            completion.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
+        func syncCompletionAppearance(codeFont: NSFont, metrics: InterfaceMetrics) {
+            completion.syncAppearance(codeFont: codeFont, metrics: metrics)
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -1404,8 +1432,8 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Forward the two font inputs the popover draws with
         /// (`makeNSView`/`updateNSView`).
-        func syncHover(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-            hover.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
+        func syncHover(codeFont: NSFont, metrics: InterfaceMetrics) {
+            hover.syncAppearance(codeFont: codeFont, metrics: metrics)
         }
 
         /// The pointer moved over the text, in the text view's coordinates.
@@ -1561,6 +1589,28 @@ struct CodeEditorView: NSViewRepresentable {
         func reportScroll() {
             guard let reportScrolled, let offset = captureViewport()?.topCharacterOffset else { return }
             reportScrolled(offset)
+        }
+
+        // MARK: - Caret reporting
+
+        /// Report the caret to the bottom bar's readout, or `nil` when nobody
+        /// reads it. Assigned from `CodeEditorView` on every update, like
+        /// `reportScrolled`.
+        var reportCaret: ((UUID, (line: Int, column: Int)) -> Void)?
+
+        /// Tell the readout where the caret is: the selection's trailing end, so
+        /// a selection still reads a caret position rather than nothing. The line
+        /// comes off the ruler's incremental table and the text is read through
+        /// the storage's own string, so a caret move never copies the buffer —
+        /// `textView.string` would, on every keystroke (see `textDidChange`).
+        func reportCaretPosition(of textView: NSTextView) {
+            guard let reportCaret, let fileID, let storage = textView.textStorage,
+                  let ruler = lineNumberRuler else { return }
+            reportCaret(fileID, CaretReadout.position(
+                text: storage.mutableString,
+                caretOffset: NSMaxRange(textView.selectedRange()),
+                lineStarts: ruler.lineStarts
+            ))
         }
 
         /// The one place the caret's word becomes a question, shared by the two
@@ -1749,6 +1799,30 @@ struct CodeEditorView: NSViewRepresentable {
             // `EditorSearchController.selectionChanged()`), so it must move with
             // it — otherwise Replace edits a different match than the one shown.
             searchController.selectionChanged()
+            reportCaretPosition(of: textView)
+            updateCurrentLine(of: textView)
+        }
+
+        /// Hand the current-line highlight its line: `CurrentLineRule` over the
+        /// whole selection (a column selection's ranges spanning lines is a
+        /// multi-line selection) and the ruler's own line-start table, so the
+        /// band sits on exactly the line the gutter numbers. The layout manager
+        /// redraws the two bands that changed, and the ruler — which reads the
+        /// same answer off the layout manager — redraws only when it moved.
+        func updateCurrentLine(of textView: NSTextView) {
+            guard let layoutManager = overlayLayoutManager, let ruler = lineNumberRuler,
+                  let first = textView.selectedRanges.first?.rangeValue,
+                  let last = textView.selectedRanges.last?.rangeValue
+            else { return }
+            let selection = NSRange(location: first.location, length: max(0, NSMaxRange(last) - first.location))
+            let line = CurrentLineRule.highlightedLine(
+                selection: selection,
+                lineStarts: ruler.lineStarts,
+                length: textView.textStorage?.length ?? 0
+            )
+            guard line != layoutManager.currentLineRange else { return }
+            layoutManager.setCurrentLine(line)
+            ruler.needsDisplay = true
         }
 
         func textDidEndEditing(_ notification: Notification) {

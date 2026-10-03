@@ -144,6 +144,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     as a rename does on a real volume — without that, a binary unpacked into
     staging would arrive at its version directory unexecutable, a property of the
     stub and of nothing else.
+    `FileService.encodingName` (`"UTF-8"`) is the name of the one encoding
+    `read`/`write` use, for the caret readout (`CaretReadout`,
+    `core-editor.md`): a constant rather than a per-file field, because nothing
+    else is ever read or written, so there is nothing per file to record.
   - `FileName.swift` — pure, testable name/path validation for the project-tree
     inline naming draft, in two shapes over *one* rule: the boolean predicates
     `isValidFileName(_:) -> Bool` / `parseRelativeEntryPath(_:) -> [String]?` (the

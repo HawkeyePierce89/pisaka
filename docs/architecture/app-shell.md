@@ -1340,13 +1340,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     at the row's call site: a second copy of this sequence is exactly how one of
     those gates goes missing on one of the paths. What a preselect means, and what
     a path absent from the fresh `git status` means, are `CommitDialogModel`'s
-    decisions, not this method's. `commitFromDialog(originGeneration:)` takes its pin as a
+    decisions, not this method's. `commitFromDialog(originGeneration:push:)` takes its pin as a
     *parameter* rather than reading it: the whole body runs inside the view's
     `Task`, i.e. after the window the pin exists to close, so a token read here
     would be compared against itself and could never fire — `CommitDialogView`'s
     Commit button reads `model.currentRequestGeneration` synchronously in its
-    action and threads it through `onCommit: (Int) async -> Void`, the
-    `ProjectSearchView.confirmReplaceAll`/`onReplaceAll` shape. It also raises the
+    action and threads it through `onCommit: (Int, Bool) async -> Void`, the
+    `ProjectSearchView.confirmReplaceAll`/`onReplaceAll` shape; the `Bool` is the
+    pressed button's push choice, forwarded to `commit(originGeneration:push:)`. It also raises the
     **full writer bracket** every sibling takes — `autosave.suspend()` +
     `localChanges.beginRevert()` synchronously before the first `await`, and
     lowered again the instant `commit()` returns, **before any modal**
@@ -1470,7 +1471,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     presenter call — `LeetCodeCommands.signIn()` awaits
     `awaitAccountResolution()` and raises the login sheet only when the settled
     state is not signed in, because the optimistic one would have a stored-but-dead
-    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome()` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
+    session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome(model: model)` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over
     (both halves verified live in the preferences domain): the framework-derived
@@ -1500,11 +1501,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `MainWindowFrameAutosave`'s mould: its view reaches the hosting window on
     `viewDidMoveToWindow`, skips sheets (a sheet is hosted by its own window,
     and the commit dialog's chrome is not the main window's) and applies the
-    chrome through one idempotent `static func apply(to:)`. What it sets is two
-    properties and nothing else: `titlebarAppearsTransparent = true`, and
-    `backgroundColor = ChromePalette.nsColor(.bgPanel)`. The transparency is
-    what makes the second line visible at all — without it the framework draws
-    its own material over the strip and the colour below never shows.
+    chrome through one idempotent `static func apply(to:title:)`. What it sets
+    is four properties and nothing else: `titlebarAppearsTransparent = true`,
+    `backgroundColor = ChromePalette.nsColor(.bgPanel)`, `titleVisibility =
+    .visible` and the `title` (written only when it differs). The transparency
+    is what makes the second line visible at all — without it the framework
+    draws its own material over the strip and the colour below never shows.
+
+    **The title.** The marker takes the `WorkspaceModel` as an
+    `@ObservedObject` and hands its view the string Core's `MainWindowTitle`
+    decides — `<project folder name> — <file name>` with a file focused, the
+    project name alone with none, and `MainWindowTitle.defaultTitle` (the app's
+    display name, the title the scene gave the window before) with no project
+    open. `updateNSView` re-reads it on every workspace publish, and the view
+    re-applies only when the string changed, so typing in a buffer costs one
+    string comparison. The window has no toolbar, so the framework centres the
+    title in the title bar, which is the design's placement; `titleVisibility`
+    is stated rather than left to the default so that placement is written down
+    here. The marker stays the window's one configurer — the title is applied
+    from the same `apply` the transparency is, so rule nine's single setter
+    and the scene's single attachment still describe everything that touches
+    the title bar.
 
     **Why the ground is `bgPanel` while `ContentView`'s root paints
     `bgCanvas`.** The window's ground *is* the canvas, and that is where the
@@ -1519,10 +1536,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that resolves against the effective appearance whenever it is drawn, so a
     Theme change repaints the title bar with no appearance observer here and no
     cached value to invalidate — the rule `ChromePalette` states for every
-    AppKit chrome surface, spent at one more call site. The title *text* and the
-    window buttons are left alone: the framework draws both against the window's
-    appearance, which the Theme preference already sets at the content root, so
-    they follow without being told.
+    AppKit chrome surface, spent at one more call site. The title's *colour* and
+    the window buttons are left alone: the framework draws both against the
+    window's appearance, which the Theme preference already sets at the content
+    root, so they follow without being told.
 
     **A sibling of the frame marker, not a change to it.** The two answer
     unrelated questions about the same window — where it sits, and what colour
@@ -1530,7 +1547,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     persistence contract with its own gating suite and its own long explanation
     of why the framework's machinery is bypassed. It is attached in the scene by
     **chaining** onto the frame marker's existing line
-    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome())`)
+    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome(model: model))`)
     rather than on a line of its own, because `PisakaApp.swift` sits exactly at
     its `file_length` ceiling — the precedent that file already documents for
     its chained `.environmentObject` pair. `ChromeThemeSourceGatingTests`' ninth
@@ -1539,10 +1556,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     silently, and a removed one hands the strip back to the framework's
     material. `MainWindowChromeTests` (app bundle) asserts both properties on a
     real `NSWindow` — the ground in both appearances, which is what a frozen,
-    once-resolved colour would fail — twice over: through `apply(to:)`, and
-    again through the path the app actually takes, a marker added to the
-    window's content view with nobody calling the method. It also asserts the
-    marker is hit-test transparent. Its *other* rule, the
+    once-resolved colour would fail — twice over: through `apply(to:title:)`,
+    and again through the path the app actually takes, a marker added to the
+    window's content view with nobody calling the method. It asserts the title
+    is applied and visible with no toolbar on the window, and drives the title
+    the way the app does: the representable hosted over a real `WorkspaceModel`
+    in a titled window, read back as the workspace opens a folder, opens two
+    files and switches back — so a marker that titled the window once and
+    never again fails. It also asserts the marker is hit-test transparent. Its *other* rule, the
     `setAccessibilityElement(false)` in the initialiser, is deliberately **not**
     pinned: a plain `NSView` already answers `false`, so an assertion on it
     would pass with the line deleted. The line stays because it states the
@@ -1953,10 +1974,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rust-analyzer's bare `.gz` unpacks one binary and no license file either — so
     neither leaves anything in the installed tree for Acknowledgements to read,
     and each row names the origin and the SPDX id instead.
-    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view: a
-    `ChromeSegmentedControl` for tab orientation (Vertical, Horizontal) and for
-    theme (System, Light, Dark), a `ChromeStepper` for "Editor font size" bound to
-    `settings.fontSize` over `ZoomScaleRule.editorFont`, and two `ChromeSwitch`es —
+    `GeneralSettingsView` is a thin `@ObservedObject SettingsStore` view, its rows
+    in the design's order: a `ChromeSegmentedControl` for "Appearance" (System,
+    Light, Dark — `themePreference`) and for "Tab placement" (Top = horizontal,
+    Side = vertical — `tabOrientation`); "Editor font", one row holding a
+    `ChromeMenuField` over `settings.editorFontFamily` — "System Monospaced"
+    (`nil`) first, then `EditorFont.installedFixedPitchFamilies()`, read once
+    in the page's `onAppear` (never as the `@State`'s initial value, which would
+    re-run the scan on every rebuild of the struct), plus a stored family no longer installed so the menu
+    still shows what is selected — and a `ChromeStepper` for the size bound to
+    `settings.fontSize` over `ZoomScaleRule.editorFont`; "Interface zoom", a
+    `ChromeStepper` bound to `settings.interfaceScale` over
+    `ZoomScaleRule.interfaceScale`, formatted as a percentage — the one app file
+    besides the environment plumbing that names the raw scale, and only to bind
+    it (`ZoomSourceGatingTests`' owners); "Terminal font size"; and two
+    `ChromeSwitch`es —
     "Offer completions as you type" bound to `settings.completionEnabled`, and
     "Highlight indentation levels" bound to
     `settings.indentLevelHighlightingEnabled`, bound straight through in the same
@@ -1977,8 +2009,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     wiring only (untested like the rest of the view layer). Settings application is
     spread across the views that read `settings`: the theme via
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
-    layout in `ContentView`, the shared editor font size in the
-    code views (`CodeEditorView`/`DiffView`/`MergeView`), completion on/off
+    layout in `ContentView`, the shared editor font size and
+    family on every code-zone surface, through `EditorFont`, completion on/off
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
     item's `.disabled` in `PisakaApp`, and indentation-level highlighting as a
     second such value on `CodeEditorView` (`app-editor-overlays.md`).
@@ -1986,8 +2018,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     editor's, bound to `settings.terminalFontSize` over `ZoomScaleRule.terminalFont`
     (both show `"<n> pt"` and step through the rule's `stepped(_:by:)`, pinned by
     `ZoomSourceGatingTests`), so the two font zones read as one pair of rows and
-    share the store's clamping; the interface zone has no row of its own (it is a gesture
-    and ⌘=/⌘−/⌘0, per `core-zoom.md`). The Preferences form is itself *scaled* by
+    share the store's clamping; the interface zone has the "Interface zoom" stepper
+    besides its gesture and ⌘=/⌘−/⌘0 (`core-zoom.md`). The Preferences form is itself *scaled* by
     the interface zone — `PisakaApp` applies `.interfaceScaled(settings)` to the
     `Settings` scene rather than inside `SettingsView`, because an environment
     write never reaches the view that makes it and the settings form has to grow

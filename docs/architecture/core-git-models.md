@@ -36,7 +36,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (selectable/revertable) during the query for the new repo's status. A
     same-root refresh (a save, the manual refresh button) skips this so the
     list/selection do not flicker on the common path.
-    `select(_:)` validates the file is current; `tree` builds the `ChangeTree`;
+    `select(_:)` validates the file is current; `tree` builds the `ChangeTree`
+    (iOS's by-folder grouping; the macOS panel groups through
+    `ChangedFileGroups` instead);
     `rows(for:)`/`selectedRows()` build the side-by-side diff via `LineDiff` — old
     side from `HEAD` (empty for added/untracked, read from `oldPath` for a
     rename), new side from the working copy (a changed symlink uses its target
@@ -262,6 +264,54 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     path (`LogFilterDraft.selectRef(tag:)` → `filter.refSelection`) carries the
     selection verbatim so an apply fired before the ref list arrives cannot collapse
     the branch to "All".
+    **The macOS panel's three additions** (the design pass):
+    `toolbarRevertTarget` — the first checked file in list order when any is
+    checked, else `selected`, else `nil` — is what the toolbar's revert button
+    hands the app's revert path as its context file, so
+    `filesToRevert(contextFile:)` widens a checked target to the whole checked
+    set exactly as a checked row's context-menu Revert does. `selectionDiff`
+    (`SelectionDiff`: the rows *and* the `ChangedFile` they were computed for)
+    is the inline diff beside the list, loaded by `loadSelectionDiff(token:)`
+    under a token from `beginSelectionDiffLoad()`, which the view calls
+    **synchronously before the `Task` hop**; a load whose token is superseded
+    before it starts does nothing, and one superseded while its `git show` is
+    in flight discards its rows, so an older selection's diff never publishes
+    over a newer one's (the generation-token invariant). With nothing selected
+    the load publishes `nil`. `listRevision` advances on every successful
+    refresh publish — not on a failed one — so the view can re-read the diff
+    after a refresh whose list came out *equal* (an already-modified file
+    edited again), which fires no change of its own. Tests stage the race with
+    a gated `headContents` read, resolved out of order.
+  - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
+    grouping. `group(_:rootName:)` returns one `ChangedFileGroup` (`path`,
+    `label`, `files`; identity `path`) per distinct parent directory — no row
+    for an intermediate directory that holds no changed file, unlike
+    `ChangeTree`'s one node per path component, because the design draws a
+    file's directory as one row showing its whole path. Root-level files form
+    the group with path `""`, labelled with the project folder's name. A rename
+    is grouped by its new path, the file the worktree holds. Ordering is total so
+    the list never reshuffles between two refreshes of the same status: groups
+    by path, files by name (`name(of:)`, the last component), each compared
+    case-insensitively with digits read numerically and the exact string
+    breaking a tie; `""` sorts before every path, so the root group is always
+    first. `directory(of:)` and `name(of:)` are public because the view labels
+    each file row with the same name the sort used. Tests cover nested paths,
+    root files, renames, numeric order and stability across input permutations.
+  - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
+    `date(from:)` parses git's raw strict ISO-8601 `%aI` string
+    (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`
+    answers, tried in order: `just now` under a minute (and up to a minute in the
+    future — clock skew between machines); `Nm ago` under an hour, even across
+    midnight; `Nh ago` on the same calendar day; `Yesterday` on the previous
+    calendar day; `N days ago` two to six calendar days back; otherwise a short
+    date `MMM d`, plus `, yyyy` when the year is not now's — which is also what a
+    date more than a minute in the future gets, since no relative phrase
+    describes it honestly. Calendar days are the injected calendar's, in its time
+    zone (`startOfDay` difference); the short date is formatted in the injected
+    locale. Unparsable input is returned unchanged, so the column never blanks.
+    The app passes `Date()`, `.current` and `.current`; the tests pin every
+    boundary at a fixed `now` in `Europe/Berlin` with `en_US_POSIX`, including
+    midnight and New Year crossings, future dates and unparsable input.
   - `LogFilterDraft.swift` — the Log filter bar's single editable draft, shared by
     the macOS bar and the iOS advanced-filter form. Pure, Foundation-only, fully
     unit-tested; the view layer holds one `LogFilterDraft` value (plus a separate

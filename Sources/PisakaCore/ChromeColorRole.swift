@@ -17,16 +17,18 @@ import Foundation
 /// value the table did not carry, not because a call site asked. A role whose
 /// only justification is a call site is still a case for the refusal.
 ///
-/// Some roles are consequently still unused after the surfaces restyled so
-/// far — two of them (`currentLine`, `bracketMatch`), both waiting for the
-/// surface that means them: the code zone's two line overlays.
+/// One role is consequently still unused after the surfaces restyled so far —
+/// `bracketMatch`, waiting for the surface that means it: the code zone's
+/// matched-pair overlay. `currentLine` was the other code-zone role and is
+/// spent by the current-line highlight — the layout manager's full-width band
+/// under the caret's line and the gutter's continuation of it.
 /// `conflictBackground` was the third and is spent by the merge panes, through
 /// `mergeWashRole(for:)`, in part five (b); `bgPopover` was the fourth and is
 /// spent by the popovers — the completion panel, the hover popover, the two
 /// switcher popovers and the Log calendar — in part five (a); the two diff
 /// backgrounds are spent by the diff pane and the unified diff, through
 /// `diffWashRole(for:side:)` / `diffWashRole(for:)`.
-/// They are declared here nonetheless, because the table is the design, not an
+/// It is declared here nonetheless, because the table is the design, not an
 /// inventory of today's call sites.
 ///
 /// The raw values are the stable names the gating suite and the palette test
@@ -220,6 +222,18 @@ extension ChromeColorRole {
         case .context: return nil
         case .removed: return .diffRemovedBackground
         case .added: return .diffAddedBackground
+        }
+    }
+
+    /// A unified diff line's text colour, or `nil` for a context line, whose
+    /// text keeps the code zone's plain colour. An added line's text is
+    /// `statusGreen` and a removed line's `statusRed`, drawn on top of the wash
+    /// `diffWashRole(for:)` gives the same line.
+    public static func diffTextRole(for kind: UnifiedDiffLine.Kind) -> ChromeColorRole? {
+        switch kind {
+        case .context: return nil
+        case .removed: return .statusRed
+        case .added: return .statusGreen
         }
     }
 

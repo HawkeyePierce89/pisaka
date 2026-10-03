@@ -58,7 +58,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `<file>:<declaring type>` set equality, so `DiffView.swift`'s two surfaces
     are two entries and a second pane added inside a passing file cannot ride in
     on its neighbour. The base-foreground statements are counted by **site**, not
-    by file, for the same reason. A code-zone surface with nothing of the file's
+    by file, for the same reason; a statement is one of three spellings — the
+    text view's `textColor`, the SwiftUI `.foregroundStyle`, or the `??` fallback
+    of a line whose text may carry a tint instead (the unified diff's added and
+    removed lines, `diffTextRole(for:)`). A code-zone surface with nothing of the file's
     to colour is a **named exemption carrying its reason** — the two gutters, the
     minimap, the completion list, the scroll view behind a pane, the two web
     views (each with its own stylesheet) and the commit message field (the user's
@@ -319,11 +322,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `MergeView`'s panes — including its *editable* result pane (`MergePaneTextView`,
     `isEditable = true`), so "untouched" here means "does not use `EditorTextView`",
     not "is read-only" — are deliberately untouched.
-    Shared font size, and the code zoom surface: `CodeEditorView` takes a
-    `fontSize: Double` (threaded from `settings` via `ContentView`); `makeNSView`
-    sets the text view's `font` to `.monospacedSystemFont(ofSize:weight:.regular)`
-    at that size, and `updateNSView` re-applies it when `fontSize` changes (tracked
-    by the coordinator's `appliedFontSize`), then re-derives the gutter (the
+    Shared font size and family, and the code zoom surface: `CodeEditorView` takes a
+    `fontSize: Double` and a `fontFamily: String?` (threaded from `settings` via
+    `ContentView`); `makeNSView` sets the text view's `font` to
+    `EditorFont.font(size:family:)` (below), and `updateNSView` re-applies it when
+    either changes (tracked by the coordinator's `appliedFont`), then re-derives the gutter (the
     `LineNumberRulerView` reads `textView.font?.pointSize`, so a redraw +
     `ruleThickness` recompute) and `refreshGeometry` (so the line-height-dependent
     minimap geometry and viewport rect stay correct). There is **no
@@ -679,6 +682,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     viewport, so an ordinary tab does not even capture one: the hit test below is
     work worth skipping on every scroll frame. It carries an *offset* rather than a
     line because that is what the editor has.
+    The caret has the same shape of channel: the optional `onCaretMoved`
+    closure, assigned to the coordinator's `reportCaret` on every update, receives
+    `(fileID, offset, buffer)` from `reportCaretPosition(of:)` — the selection's
+    **trailing end** (`NSMaxRange`), so a selection still reads a position — at
+    the end of every `textViewDidChangeSelection`, and at the end of an update
+    that **switched tabs** or **gained the listener**, after the viewport restore
+    and the reveal — a restore that leaves the selection where the outgoing tab
+    had it sends no selection change at all. `makeNSView` deliberately leaves
+    `reportCaret` unassigned, so the update SwiftUI runs straight after it reads
+    as gaining the listener and reports the new editor's caret before any move
+    (the scroll listener's own gained-listener idiom, and it keeps `makeNSView`
+    inside the body-length limit).
+    It reports a line and column, not an offset and a buffer:
+    `CaretReadout.position(text:caretOffset:lineStarts:)` over the storage's
+    `mutableString` and the ruler's `lineStarts`, so a caret move never copies
+    the buffer (`textView.string` would, on every keystroke — `textDidChange`'s
+    reason). What the position reads as is Core's (`CaretReadout`); the
+    readout's model and its deferral are `app-window.md`'s.
+    The current-line highlight is wired beside it: `updateCurrentLine(of:)` asks
+    `CurrentLineRule` over the whole selection — first range's start to last
+    range's end, so a column selection across lines is a multi-line one — and
+    the ruler's `lineStarts`, and hands a changed answer to the layout manager's
+    `setCurrentLine(_:)` and marks the ruler for display. It runs at the end of
+    every `textViewDidChangeSelection` and at the end of **every** update — a
+    restored selection may send no selection change, and an unchanged line is a
+    no-op — so it costs a binary search per update. The painting is
+    `app-editor-overlays.md`'s.
     `captureViewport()` reads `textView.selectedRange()` and resolves the top
     visible character by handing the clip view's `documentVisibleRect` top-left to
     `NSTextView.characterIndexForInsertion(at:)`; it answers `nil` only when the
@@ -1034,6 +1064,36 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     have made "one definition" false on day one. The file stays outside the
     chrome's gated set, but rule thirty-one reads it: no code-pane
     `backgroundColor` assignment may appear outside that definition.
+  - `EditorFont.swift` (macOS) — the one resolver of the code font.
+    `font(size:family:)` returns the regular member of `family` (asked of
+    `NSFontManager.font(withFamily:traits:weight:size:)`) when that family is
+    installed **and** fixed-pitch (`isFixedPitch` or the `monoSpace` symbolic
+    trait), and otherwise the system monospaced font at the same size — so `nil`,
+    a family uninstalled since it was chosen and a proportional family typed into
+    a launch argument all draw today's font. The question is asked on every
+    build, never cached, so the stored choice survives an uninstall.
+    `swiftUIFont(size:family:)` wraps the same `NSFont` for SwiftUI sites, so the
+    two kinds of surface cannot disagree. `installedFixedPitchFamilies()` feeds
+    the Preferences menu: the font manager's fixed-pitch name set narrows the
+    candidates, and the resolver's own test decides, because a family with one
+    fixed-pitch member can still have a proportional regular one — so every
+    listed entry is one the resolver honours.
+    Every code-zone site builds its font here, from `SettingsStore.fontSize` and
+    `editorFontFamily`, and re-applies it live when either changes: the editor,
+    `DiffView`, `MergeView`, `SourceViewerContent` (each tracking an `appliedFont`
+    rather than a size), the completion and hover popovers (which now receive an
+    `NSFont`, `codeFont`, instead of a size), the commit dialog's message box and
+    `CommitUnifiedDiffView`, Find in Files' preview rows and the fold
+    placeholder's fallback in `BracketOverlayLayoutManager`. The gutter and the
+    minimap follow the text view's font. The terminal keeps its own font — a zone
+    of its own. `ZoomSourceGatingTests` pins that outside iOS only this file,
+    `TerminalSession.swift` and the licence text view (chrome, not code) spell
+    `monospacedSystemFont`, and that no file builds SwiftUI's
+    `.system(size:design: .monospaced)`; the chrome's monospaced text goes
+    through `metrics.scaledFont(_:design:)`, the interface zone's.
+    `EditorFontTests` (app bundle) covers `nil`, an unknown family, an installed
+    proportional family (Helvetica) and an installed fixed-pitch one (Menlo), and
+    that every family the menu lists resolves to itself.
   - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
     sync (D30), and the reason a server ever re-diagnoses anything after its first
     look: D2's flush is request-driven, diagnostics are pushed unasked, so every
@@ -1327,8 +1387,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     because the two kinds want opposite line-breaking: prose wraps (a paragraph is
     meant to be read at whatever width there is) and code truncates (a wrapped
     signature invents indentation the language never had). Code segments use
-    `monospacedSystemFont` at the editor's own `SettingsStore.fontSize`, passed
-    through untouched — a signature drawn at any other size reads as a different
+    the editor's own font — `EditorFont` at `SettingsStore.fontSize` in
+    `SettingsStore.editorFontFamily`, handed over as an `NSFont` (`codeFont`) by
+    `CodeEditorView` through the controller, as the completion panel's is —
+    passed through untouched — a signature drawn at any other size reads as a different
     file — while prose uses the system font at `InterfaceMetrics.font(.body)`, so
     the two zoom zones stay independent *inside one popover*, exactly as they do
     everywhere else. When Core says the content was cut, a trailing ellipsis line
@@ -1923,10 +1985,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       `.callout` default and `6`-point inner gap kept; Find in Files' three and
       the branch switcher's filter pass `.body`; it passes no `height:`, so each
       field is one text line high inside the bar however tall the editor below
-      it is, and the platform's focus ring is suppressed in the shared field), the `Aa`/`ab`/`.*` toggles as the
-      shared `ChromeQueryToggle` in `ChromeControls.swift` (`subheadline` semibold
-      monospaced, `accent` on `accentTint` while on and `textPrimary` with no
-      ground while off), the match counter and labels in `textSecondary` at
+      it is, and the platform's focus ring is suppressed in the shared field), the match-case, whole-word and
+      regular-expression toggles as the shared `ChromeQueryToggle` in
+      `ChromeControls.swift` (each mode's design glyph — `case-sensitive`,
+      `whole-word`, `regex` — drawn through `DesignGlyphImage` at 16 in a
+      16-point slot padded 3, `ChromeQueryToggleLayout`, 22 square; `accent` on
+      an `accentTint` ground while on and `textPrimary` with no ground while
+      off), the match counter and labels in `textSecondary` at
       `.subheadline` (`.caption` before), the inline regex error in `statusRed` at
       `.subheadline`, the navigation/close/disclosure glyphs in roles with symbols
       hidden, Replace and Replace All in the shared secondary button style, and
@@ -1984,13 +2049,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       gap 12, query row 33 high in the shared field — the 33 passed to it as
       `height: SearchLayout.queryFieldHeight`, so the box itself is 33 high, not
       framed from outside (`core-theme.md`, `ChromeControls.swift`) — with the shared
-      `ChromeQueryToggle` triple at its trailing end gap 10 (`subheadline` semibold
-      monospaced, `accent` on `accentTint` while on, `textPrimary` with no ground
-      while off), replace row the shared field at the same `height:` gap 8
-     then Replace All in the secondary button style, scope line `callout` in
-     `textSecondary`, results gap 8, group header 24 high padding 8 a 14-point icon
-     the path in `callout` and the count in `subheadline` all in `textSecondary`,
-     match row padding 8 right 34 left
+      `ChromeQueryToggle` triple at its trailing end gap 10 (the shared toggle's
+      design glyphs, see `SearchBarView` above), replace row the shared field at
+      the same `height:` gap 8 then Replace All in the secondary button style at
+      the row's **trailing end** — no spacer after it, the field takes the slack —
+      under the toggles, then the file-mask row, then the scope line from
+      `SearchScopeLine.text(projectName:fileMask:)` (`In: <project> · [Files:
+      <mask> · ]Exclude: ignored files`, the root's last component and the mask as
+      typed, nothing with no folder open) in `callout` `textSecondary`; the
+      results a `ScrollView` over a `LazyVStack` with pinned section headers —
+      not a `List`, whose table insets rows and headers by a fixed margin of its
+      own in every style, so neither the header's padding nor the match indent
+      could be measured from the window's edge — each match row identified by
+      file *and* index (`MatchRowID`; a bare index repeated in every group and the
+      list reused one group's row for another's, the second file drawing the
+      first file's preview line); group header 24 high padding 16 on a `bgPanel`
+      ground (it is pinned over the rows), the file's `FileGlyph` at its own 12 in
+      a 12 slot, gap 6 — so the path starts at 34, the match indent — the path in
+      `callout` and `FileSearchResult.matchCountText` (`1 match` / `N matches`)
+      in `subheadline` at the trailing edge, all in `textSecondary`;
+     match row padding 8 right 34 left, the line number drawn leading in its
+     44-point column so the row's first ink is at the 34-point indent
       with no fixed height — its height is the code-font content's
       (`settings.fontSize`) so it never overflows and `.contentShape` follows the
       paddings so the insets are the click target (group header's `24`-point
@@ -2007,7 +2086,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       the code
      font multiplied by the interface scale and vice versa, no selection added, the
      regex/validation error in `statusRed`, fields/toggles/Replace All named and
-     decorative symbols hidden. Otherwise the same window as before: results grouped
+     decorative symbols hidden. Measured headlessly by `ProjectSearchLayoutTests`
+     at scale 1.0 and 1.8 over a two-file project searched through the real model
+     (one render per scale): every inked column at the query row's trailing end
+     falls inside one of the three toggles' 16-point glyph slots and each slot
+     holds ink; Replace All's border is the replace row's last ink, at the
+     trailing padding; a match row — told from a header by its hit's highlight —
+     starts at 34, the header glyph inside its slot at the content padding; and
+     an on toggle draws its glyph in `accent` inside the slot on `accentTint`
+     (`SearchLayout` is internal so the suite reads its numbers, and an
+     `init(…, replaceExpanded:)` opens the replace row without a click).
+     Otherwise the same window as before: results grouped
      by file with per-match preview lines (the match highlighted inside the clipped
      line `MatchPreview` carries), a "results truncated" note at the cap,
      `.preferredColorScheme` and the shared `SettingsStore` font as in the diff/merge

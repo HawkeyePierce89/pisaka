@@ -711,7 +711,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// placeholder is drawn and measured in it because it stands in the
     /// document's own text flow — the code zone's font, not the chrome's.
     private var editorFont: NSFont {
-        textContainers.first?.textView?.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textContainers.first?.textView?.font ?? EditorFont.font(size: NSFont.systemFontSize, family: nil)
     }
 
     // MARK: - Indentation levels
@@ -755,6 +755,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// untouched for the same reason: nothing here writes an attribute at all.
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         paintIndentLevels(forGlyphRange: glyphsToShow, at: origin)
+        paintCurrentLine(at: origin)
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         paintFoldPlaceholders(forGlyphRange: glyphsToShow, at: origin)
     }
@@ -804,6 +805,71 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             theme.nsIndentLevelColor(forLevel: run.level).setFill()
             rect.fill()
         }
+    }
+
+    // MARK: - Current line
+
+    /// The line the current-line wash covers — `CurrentLineRule`'s answer,
+    /// handed over by `CodeEditorView.Coordinator` on every selection change —
+    /// or `nil` when nothing is washed (a multi-line selection, or no caret yet).
+    private(set) var currentLineRange: NSRange?
+
+    /// Hand over the current line, and redraw the band it leaves and the band it
+    /// lands on — two line-high strips, never the viewport, because this runs on
+    /// every caret move. Unchanged is a no-op.
+    func setCurrentLine(_ range: NSRange?) {
+        guard range != currentLineRange else { return }
+        let previous = currentLineRange.flatMap { currentLineBand(for: $0) }
+        currentLineRange = range
+        guard let view = textContainers.first?.textView else { return }
+        let origin = view.textContainerOrigin
+        for band in [previous, range.flatMap { currentLineBand(for: $0) }] {
+            guard let band else { continue }
+            view.setNeedsDisplay(band.offsetBy(dx: 0, dy: origin.y))
+        }
+    }
+
+    /// The current line's band in **text-container** y and the text view's own
+    /// x: every fragment the line occupies, from the left edge across the view's
+    /// whole width, so the wash reads as one full-width strip whatever the
+    /// line's length. A zero-length range at the end of the text is the trailing
+    /// empty line (or an empty document's one line), which lives in the extra
+    /// line fragment. Measured at draw time, never cached, like the level blocks.
+    func currentLineBand(for range: NSRange) -> NSRect? {
+        guard let container = textContainers.first else { return nil }
+        let length = storageLength
+        let width = container.textView?.bounds.width ?? 0
+        guard width > 0 else { return nil }
+        let fragments: NSRect
+        if range.location >= length {
+            // The extra fragment exists once layout has reached the end; laying
+            // out the last character (or the empty container) is all it takes,
+            // never the whole file.
+            if length > 0 {
+                ensureLayout(forCharacterRange: NSRange(location: length - 1, length: 1))
+            } else {
+                ensureLayout(for: container)
+            }
+            fragments = extraLineFragmentRect
+        } else {
+            let first = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: range.location), effectiveRange: nil)
+            let lastCharacter = max(range.location, min(NSMaxRange(range), length) - 1)
+            let last = lineFragmentRect(forGlyphAt: glyphIndexForCharacter(at: lastCharacter), effectiveRange: nil)
+            fragments = first.union(last)
+        }
+        guard fragments.height > 0 else { return nil }
+        return NSRect(x: 0, y: fragments.minY, width: width, height: fragments.height)
+    }
+
+    /// Wash the current line in `currentLine`, after the indentation levels and
+    /// before `super` — so the matched pair, the search matches and the selection
+    /// all land on top of it, the ordering `drawBackground` explains. The role is
+    /// a dynamic colour resolved here, inside the drawing appearance, so an
+    /// appearance switch repaints it without being told.
+    private func paintCurrentLine(at origin: NSPoint) {
+        guard let range = currentLineRange, let band = currentLineBand(for: range) else { return }
+        ChromePalette.nsColor(.currentLine).setFill()
+        band.offsetBy(dx: 0, dy: origin.y).fill()
     }
 
     /// Invalidate what is on screen, so the next draw repaints it.

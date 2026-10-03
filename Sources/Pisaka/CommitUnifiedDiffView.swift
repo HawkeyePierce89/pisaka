@@ -11,7 +11,8 @@ import PisakaCore
 /// `.modified` row shows its old and new line one above the other, sharing a single
 /// checkbox) and it needs per-line hit targets. Thin and untested like the rest of
 /// the view layer: every decision — what a unit is, how a row flattens into lines,
-/// which files may be selected at all — is `CommitDiffUnits`'.
+/// which files may be selected at all — is `CommitDiffUnits`', and where the
+/// file and hunk header rows go is `UnifiedDiffDisplayRows`'.
 ///
 /// **The "committed as a whole" branch is the substance of this view, not a
 /// fallback.** When `wholeOnlyMessage` is non-`nil` it draws that sentence and
@@ -24,8 +25,9 @@ import PisakaCore
 /// as "every HEAD line removed", i.e. as an invitation to exactly the silent
 /// corruption the classification exists to prevent.
 struct CommitUnifiedDiffView: View {
-    /// The flattened rows, from `CommitDialogModel.unifiedLines(for:)`.
-    let lines: [UnifiedDiffLine]
+    /// The rows to draw, from `CommitDialogModel.unifiedDisplayRows(for:)`: the
+    /// file's `---`/`+++` header rows, then each hunk's `@@` row and lines.
+    let rows: [UnifiedDiffDisplayRow]
     /// The units currently checked, so each changed line draws its own state.
     let selectedUnits: Set<Int>
     /// The sentence to draw *instead of* the diff, or `nil` to draw the diff.
@@ -33,6 +35,9 @@ struct CommitUnifiedDiffView: View {
     let wholeOnlyMessage: String?
     /// The shared editor font size, so the diff matches the rest of the app.
     let fontSize: Double
+    /// The code font's family (`SettingsStore.editorFontFamily`), resolved with
+    /// `fontSize` through `EditorFont`; `nil` is the system monospaced font.
+    var fontFamily: String?
     /// Whether the selection may still be changed — false while a commit runs.
     ///
     /// `CommitDialogModel.commit` pins the whole selection at entry, so a unit
@@ -69,7 +74,7 @@ struct CommitUnifiedDiffView: View {
     var body: some View {
         if let wholeOnlyMessage {
             placeholder(wholeOnlyMessage)
-        } else if lines.isEmpty {
+        } else if rows.isEmpty {
             placeholder("No changes to show.")
         } else {
             diff
@@ -124,10 +129,10 @@ struct CommitUnifiedDiffView: View {
                 // one tuple per line on *every* body pass — and this body
                 // re-runs on every keystroke in the message field, over a diff
                 // that can be tens of thousands of lines long, which is the
-                // very cost `CommitDialogModel.unifiedLines(for:)` is memoized
+                // very cost `CommitDialogModel.unifiedDisplayRows(for:)` is memoized
                 // to avoid.
-                ForEach(lines.indices, id: \.self) { index in
-                    row(lines[index])
+                ForEach(rows.indices, id: \.self) { index in
+                    displayRow(rows[index])
                 }
             }
             .id(measureGeneration)
@@ -143,8 +148,9 @@ struct CommitUnifiedDiffView: View {
         // storage-identity fast path on every pass but a file switch. `initial`
         // covers a diff that reappears after a placeholder, whose earlier
         // widest row this view's state would otherwise still carry.
-        .onChange(of: lines, initial: true) { remeasure() }
+        .onChange(of: rows, initial: true) { remeasure() }
         .onChange(of: fontSize) { remeasure() }
+        .onChange(of: fontFamily) { remeasure() }
         .background(ZoomSurfaceMarker(kind: .code))
     }
 
@@ -158,22 +164,41 @@ struct CommitUnifiedDiffView: View {
         measureGeneration += 1
     }
 
+    @ViewBuilder
+    private func displayRow(_ row: UnifiedDiffDisplayRow) -> some View {
+        switch row {
+        case let .fileHeader(text), let .hunkHeader(text):
+            header(text)
+        case let .line(line):
+            self.row(line)
+        }
+    }
+
+    /// A `---`/`+++` or `@@` row: display only, so it draws no checkbox, takes
+    /// no click and carries no wash. Its text starts where a line's checkbox
+    /// does and draws in `textSecondary`, at the code font like every row.
+    private func header(_ text: String) -> some View {
+        Text(text)
+            .font(codeFont(size: fontSize))
+            .foregroundStyle(theme.color(.textSecondary))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                if width > widestRow { widestRow = width }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func row(_ line: UnifiedDiffLine) -> some View {
         HStack(spacing: 6) {
             checkbox(for: line)
             number(line.oldNumber)
             number(line.newNumber)
             Text(sign(line.kind) + line.text)
-                .font(.system(size: fontSize, design: .monospaced))
-                // A diff row is file content drawn at the code font, so its
-                // colour comes from the one table rather than from SwiftUI's
-                // default label: that default is not the design's value (the
-                // palette's plain row is `#1d1d1f`/`#dfe1e5`, the label colour is
-                // pure black/white), so an unstated foreground would put this
-                // panel a step off the table beside the editor behind the sheet.
-                // Only the *text* is stated; the added/removed tint stays a
-                // background, so a row still reads as added or removed.
-                .foregroundStyle(Color(SyntaxTheme.shared.color(for: .plain)))
+                .font(codeFont(size: fontSize))
+                .foregroundStyle(textColor(line.kind))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
@@ -216,9 +241,14 @@ struct CommitUnifiedDiffView: View {
 
     private func number(_ value: Int?) -> some View {
         Text(value.map(String.init) ?? "")
-            .font(.system(size: max(9, fontSize - 2), design: .monospaced))
+            .font(codeFont(size: max(9, fontSize - 2)))
             .foregroundStyle(theme.color(.textSecondary))
             .frame(width: 34, alignment: .trailing)
+    }
+
+    /// The code font at `size`, in the chosen family — the one resolver.
+    private func codeFont(size: Double) -> Font {
+        EditorFont.swiftUIFont(size: CGFloat(size), family: fontFamily)
     }
 
     private func sign(_ kind: UnifiedDiffLine.Kind) -> String {
@@ -227,6 +257,18 @@ struct CommitUnifiedDiffView: View {
         case .removed: return "- "
         case .added: return "+ "
         }
+    }
+
+    /// A line's text colour. An added or removed line's is Core's one answer
+    /// (`diffTextRole(for:)`), drawn on top of its wash. A context line is file
+    /// content drawn at the code font, so its colour comes from the code table
+    /// rather than from SwiftUI's default label: that default is not the
+    /// design's value (the palette's plain row is `#1d1d1f`/`#dfe1e5`, the label
+    /// colour is pure black/white), so an unstated foreground would put this
+    /// panel a step off the table beside the editor behind the sheet.
+    private func textColor(_ kind: UnifiedDiffLine.Kind) -> Color {
+        ChromeColorRole.diffTextRole(for: kind).map { theme.color($0) }
+            ?? Color(SyntaxTheme.shared.color(for: .plain))
     }
 
     /// The row's wash: Core's one answer, `nil` (a context line) drawing none.

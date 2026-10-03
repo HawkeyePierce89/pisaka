@@ -38,6 +38,15 @@ struct DiffView: NSViewRepresentable {
     /// re-applies the panes' font and refreshes the gutters in `updateNSView`.
     var fontSize: Double = Double(NSFont.systemFontSize)
 
+    /// The code font's family (`SettingsStore.editorFontFamily`), resolved with
+    /// `fontSize` through `EditorFont`; `nil` is the system monospaced font.
+    var fontFamily: String?
+
+    /// The panes' font: the code zone's, through the one resolver.
+    private var paneFont: NSFont {
+        EditorFont.font(size: CGFloat(fontSize), family: fontFamily)
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -55,7 +64,7 @@ struct DiffView: NSViewRepresentable {
 
         let container = DiffContainerView(leftScroll: leftScroll, rightScroll: rightScroll)
 
-        coordinator.appliedFontSize = CGFloat(fontSize)
+        coordinator.appliedFont = paneFont
         coordinator.fileID = fileID
         coordinator.loadContent(rows: rows, fileName: fileName)
         return container
@@ -63,15 +72,14 @@ struct DiffView: NSViewRepresentable {
 
     func updateNSView(_ container: DiffContainerView, context: Context) {
         let coordinator = context.coordinator
-        // Re-apply the shared font to both panes when its size changed (the
-        // Stepper or a Cmd+scroll). Setting `.font` re-styles each pane's whole
+        // Re-apply the shared font to both panes when its size or family changed
+        // (the Stepper, a Cmd+scroll or the Preferences family menu). Setting `.font` re-styles each pane's whole
         // buffer; the tree-sitter colors survive. The gutters re-derive their font
         // from their pane per draw, so a `refresh()` (thickness + redraw) re-syncs
         // them. The font is uniform across both panes, so rows stay aligned.
-        let desiredFontSize = CGFloat(fontSize)
-        if coordinator.appliedFontSize != desiredFontSize {
-            coordinator.appliedFontSize = desiredFontSize
-            let font = NSFont.monospacedSystemFont(ofSize: desiredFontSize, weight: .regular)
+        let font = paneFont
+        if coordinator.appliedFont != font {
+            coordinator.appliedFont = font
             coordinator.leftText?.font = font
             coordinator.rightText?.font = font
             coordinator.leftGutter?.refresh()
@@ -121,7 +129,7 @@ struct DiffView: NSViewRepresentable {
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        textView.font = paneFont
         // The colour of a character no capture covers — the same question
         // `SyntaxTokenKind.plain` answers — so it is read from the one table
         // rather than left on the text view's system-label default. That default
@@ -146,9 +154,9 @@ struct DiffView: NSViewRepresentable {
         var fileID: String?
         var rows: [DiffRow] = []
 
-        /// The font size currently applied to both panes, so `updateNSView`
+        /// The font currently applied to both panes, so `updateNSView`
         /// re-applies the font (and refreshes the gutters) only on a real change.
-        var appliedFontSize: CGFloat?
+        var appliedFont: NSFont?
 
         weak var leftScroll: NSScrollView?
         weak var rightScroll: NSScrollView?

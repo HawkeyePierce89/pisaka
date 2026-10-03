@@ -96,9 +96,9 @@ final class HoverController: NSObject {
     /// rather than once per mouse-moved event.
     private var anchorRange: NSRange?
 
-    /// The editor's own font size — the code zone's, forwarded from
+    /// The editor's own font — the code zone's, forwarded from
     /// `CodeEditorView` exactly as it is to the text view itself.
-    private var codeFontSize: CGFloat = 12
+    private var codeFont: NSFont = EditorFont.font(size: 12, family: nil)
 
     /// The interface zone's metrics, for the popover's prose. Arrives as a plain
     /// value beside the font size; the raw scale is never named here.
@@ -126,12 +126,12 @@ final class HoverController: NSObject {
 
     /// Keep the two font inputs current (`makeNSView`/`updateNSView`). Applied to
     /// the next popover: a live one is never re-laid out, it is dismissed. For the
-    /// code size `CodeEditorView` does that itself, in the same branch that
+    /// code font `CodeEditorView` does that itself, in the same branch that
     /// re-applies the font — a zoom reflows the buffer under a popover anchored in
     /// screen coordinates, and neither ⌘+/⌘− nor ⌘-scroll moves the pointer, so
     /// nothing else would take it down.
-    func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-        self.codeFontSize = codeFontSize
+    func syncAppearance(codeFont: NSFont, metrics: InterfaceMetrics) {
+        self.codeFont = codeFont
         self.metrics = metrics
     }
 
@@ -365,7 +365,7 @@ final class HoverController: NSObject {
             content.truncated(),
             anchoredTo: anchor,
             in: window,
-            codeFontSize: codeFontSize,
+            codeFont: codeFont,
             metrics: metrics
         )
     }

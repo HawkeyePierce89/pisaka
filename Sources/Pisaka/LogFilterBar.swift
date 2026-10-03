@@ -53,7 +53,12 @@ import PisakaCore
 /// height, ground and bottom hairline are unchanged. Crossing the floor while a
 /// field holds focus swaps the row and drops the focus — the cost of the two
 /// shapes, and harmless (the draft lives in `@State` above both).
-struct LogFilterBar: View {
+///
+/// The strip is also the Log's only toolbar: the panel draws no title row, so
+/// the owner's `trailing` controls (the loading spinner and the refresh button)
+/// sit at the row's trailing end, after the search field, and scroll with the
+/// row below the floor like every other control.
+struct LogFilterBar<Trailing: View>: View {
     /// The branch/tag refs offered in the ref picker — **full** refnames (e.g.
     /// `refs/heads/main`, `refs/tags/v1.0`) sourced from the service. The full name
     /// is the picker's *value* (the unambiguous revision `git log` receives), while
@@ -70,6 +75,8 @@ struct LogFilterBar: View {
     let onApplyFilter: (LogFilter) -> Void
     /// Report a new client-side message-search query (no re-fetch).
     let onSearch: (String) -> Void
+    /// The owner's controls drawn at the row's trailing end.
+    let trailing: Trailing
 
     // The single editable server-side value plus the separate message search.
     // Seeding assigns these directly, so a model-published filter/search change
@@ -167,6 +174,7 @@ struct LogFilterBar: View {
             )
             Spacer(minLength: metrics.scaled(FilterBarLayout.gap))
             searchField
+            trailing
         }
         .padding(.horizontal, metrics.scaled(FilterBarLayout.padding))
         .frame(maxHeight: .infinity)

@@ -42,7 +42,8 @@ struct DiffWindowContent: View {
                     fileID: fileID,
                     fileName: fileName,
                     rows: rows,
-                    fontSize: settings.fontSize
+                    fontSize: settings.fontSize,
+                    fontFamily: settings.editorFontFamily
                 )
             } else {
                 Text("Loading…")

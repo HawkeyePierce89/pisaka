@@ -26,9 +26,11 @@ user sees it.
   and both row kinds highlight identically under the pointer.
   When the project pane is empty, clicking anywhere in it
   opens the folder picker. Opening a folder auto-expands its first level so the
-  immediate children are visible right away. Each entry shows a file-type icon
-  (tinted by type) so Swift, JS/TS, JSON, Markdown, images, archives, and other
-  common types are recognizable at a glance. Dotfiles are visible,
+  immediate children are visible right away. On macOS each entry shows one of
+  three monochrome glyphs — code file, text file or database — and a folder
+  shows an open or a closed folder; iPhone and iPad keep a per-type tinted icon
+  so Swift, JS/TS, JSON, Markdown, images, archives, and other common types are
+  recognizable at a glance. Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
   delete; only the service entries `.git` and `.DS_Store` are hidden (and cannot
   be created or renamed to from the tree — a create path refuses them in any
@@ -105,7 +107,9 @@ user sees it.
   the disk rather than by the highlight, so it surfaces as an "already exists"
   failure on release instead of as a refused drop.
 - Vertical tab list with active-tab highlight, an unsaved-changes dot, and a
-  per-tab close button.
+  per-tab close button. On macOS the column opens 220 points wide and can be
+  widened to at most a third of the window, and the window's centred title names
+  the project and the focused file (`pisaka — ContentView.swift`).
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
   line-number gutter on the left that tracks scrolling, edits, and the system
   light/dark appearance.
@@ -243,6 +247,9 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
+- Current-line highlight (macOS): the line holding the caret is tinted across
+  the text and the gutter; a selection spanning more than one line shows no
+  tint.
 - Indentation-level highlighting: the leading whitespace of every line is
   tinted one indentation unit at a time, in a translucent color that cycles with
   the unit's level, so nesting reads at a glance and a mis-nested line stands
@@ -288,8 +295,8 @@ user sees it.
   toggle. A menu item (Edit > Toggle Comment) exists, so the command works from
   the keyboard (Cmd+/) or the menu. macOS only for now — no iOS wiring.
 - Find and replace in a file (macOS): Cmd+F opens a search bar
-  above the editor with `Aa` (match case), `ab` (whole word), and `.*` (regular
-  expression) toggles, a `3/17` match counter, and ▲/▼ to step through the
+  above the editor with match case, whole word and regular expression toggles
+  (each drawn as its own glyph, named in its tooltip), a `3/17` match counter, and ▲/▼ to step through the
   matches — Cmd+G and Cmd+Shift+G do the same from the keyboard, wrapping around
   the ends. Every match is highlighted in the text and the current one gets its
   own color, coexisting with the rainbow brackets and the matched-pair highlight
@@ -322,9 +329,12 @@ user sees it.
   open folder since the search *is* a walk of the project) opens a separate,
   non-modal project-wide
   search window (a repeat press focuses the one already open). It has the same
-  `Aa`/`ab`/`.*` toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
+  match case / whole word / regular expression toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
   will not match `foo.ts`), and lists matches
-  grouped by file with a preview line per match. The traversal honors your
+  grouped by file — each group's header shows the file's glyph, its path and
+  its match count (`3 matches`) — with a preview line per match; a line under the
+  fields states the scope (`In: <project> · Files: <mask> · Exclude: ignored
+  files`), and Replace All ends the replace row. The traversal honors your
   `.gitignore` files — the root's and every nested one, with negation and
   directory rules as git applies them — so a JS project's `node_modules` is
   skipped without configuring anything; `.git` and `.DS_Store` are always skipped,
@@ -429,8 +439,8 @@ user sees it.
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
   character, and works after a dot too. Nothing pops up mid-composition with an
   input method. If you would rather it stayed out of the way, there is a
-  **lightbulb button at the right end of the always-visible bottom bar** (beside
-  the branch switcher, and with a matching "Offer completions as you type"
+  **lightbulb button after the panel toggles on the always-visible bottom bar**
+  (followed by the caret readout, and with a matching "Offer completions as you type"
   checkbox in Preferences → General — the two are the
   same switch) that turns completion off entirely: no popup as you type, and
   Ctrl+Space / Find > Complete do nothing either, the menu item greying out to
@@ -827,7 +837,7 @@ user sees it.
   project you leave keeps its tabs and selection, and the one you open comes back
   exactly as you left it — empty the first time you open it, rather than showing
   the previous project's files behind the new tree. "Untitled" buffers travel with
-  their project. The bottom bar holds a **project switcher** (a folder icon on the right, next to the branch switcher) listing your recent projects; clicking one switches to it instantly, and its "Open Folder…" item is the same Cmd+Shift+O. Re-opening the folder already open changes nothing. Before the
+  their project. The bottom bar's left end holds a **project switcher** (a package glyph, the project name and a chevron, followed by the branch switcher) listing your recent projects; clicking one switches to it instantly, and its "Open Folder…" item is the same Cmd+Shift+O. Re-opening the folder already open changes nothing. Before the
   switch every unsaved titled file is written to disk; if one cannot be written
   the switch is refused and an alert names it, because switching would close it and
   lose those edits (save it elsewhere or close its tab, then switch). The very
@@ -897,11 +907,16 @@ user sees it.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
   Changes" in the View menu, the Local Changes button on the bottom bar, or
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
-  View the list flat or grouped by folder; each file shows a type icon plus a
+  On macOS the list is grouped by folder (one row per parent directory, every
+  folder starting expanded); on iPhone and iPad view it flat or grouped by
+  folder. Each file shows a type icon plus a
   one-letter status badge (M/A/D/R/U/C). On macOS the icon is a monochrome
   secondary glyph and the letter carries the status colour (green added,
   yellow modified or renamed, red deleted or conflicted, grey untracked); on
-  iPhone and iPad the icon itself is tinted by its git status. Double-click a file to open
+  iPhone and iPad the icon itself is tinted by its git status. On macOS the
+  selected file's diff is shown **inline, to the right of the list** (its
+  project-relative path above it, drawn at the editor font and following
+  selection); the list's width is draggable. Double-click a file to open
   a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. A
@@ -928,11 +943,12 @@ user sees it.
   same dialog with only that file checked.
 - Commit (macOS): a modal dialog, opened with Cmd+K (Git > Commit…),
   the Commit button in the Local Changes header, or **Commit…** in a changed
-  file's context menu. On the left the changed files
-  with three-state checkboxes and status badges; on the right the selected file's
-  unified diff with **a checkbox on every changed line**, so you can commit part
-  of a file and leave the rest as local changes; at the bottom the message field,
-  the author line, and the Amend and "Push after commit" switches. Everything
+  file's context menu. At the top the message field; under it, on the left, the
+  changed files with three-state checkboxes and status letters; on the right the
+  selected file's unified diff with **a checkbox on every changed line**, so you
+  can commit part of a file and leave the rest as local changes; at the bottom the
+  author, the Amend switch, and the Cancel, Commit and **Commit and Push**
+  buttons. Everything
   starts checked, so opening the dialog and confirming commits every local change
   — except when you opened it from a single file's Commit… item, where only that
   file starts checked (and scrolled into view) while everything else is left for a
@@ -954,15 +970,16 @@ user sees it.
   index, so your `pre-commit`/`commit-msg` hooks still run (and see exactly the
   content being committed) and git resolves the author as it normally would; a
   failing hook aborts with its own message and leaves the repository untouched.
-  The author line always shows the name and email the commit will carry **and
-  which config each came from** — `(local)` or `(global)`, named per field so a
-  mixed pair cannot be misreported — with an editor that writes the repository's
+  The author's name sits in the footer; its tooltip shows the name and email the
+  commit will carry **and which config each came from** — `(local)` or `(global)`, named per field so a
+  mixed pair cannot be misreported — and clicking it opens an editor that writes the repository's
   **local** config only, never the global one; an unset identity blocks the
   commit. Amend rewrites the previous commit, offering its message into an empty
   message field (and leaving text you have typed alone) — the dialog opens
   whenever a project is open, including on a clean working tree, so a
-  message-only amend needs nothing to be checked; "Push after commit"
-  pushes when done, using the branch's upstream or creating one
+  message-only amend needs nothing to be checked; Commit and Push
+  commits and then pushes (its tooltip says where, and it is disabled when there
+  is nowhere to push), using the branch's upstream or creating one
   (`--set-upstream`) when it has none, and reports "commit created, push failed"
   as its own outcome rather than as a failed commit. Files that cannot be split
   line by line — a deleted file, a binary, non-UTF-8, unreadable or very large one
@@ -999,9 +1016,12 @@ user sees it.
   Changes, and closes the window. Non-binary text files only.
 - Git Log: a read-only commit history shown in the **Log** bottom panel (toggle
   with "Show/Hide Git Log" in the View menu, the Log button on the bottom bar, or
-  Cmd+Shift+L). It shows a commit table — short
-  hash, ref/branch/tag badges, subject, author, and date — with a colored branch
-  graph in the left gutter that draws lanes for branches and merges. A "Load
+  Cmd+Shift+L). It shows a commit table — message
+  (with ref/branch/tag badges), author, date and short hash, in that order — with a colored branch
+  graph in the left gutter that draws lanes for branches and merges. On macOS
+  dates read relative to now (`just now`, `5m ago`, `3h ago`, `Yesterday`,
+  `4 days ago`, then `Mar 2` / `Mar 2, 2025`), hovering a row shows the exact
+  date and time, and Refresh sits at the end of the filter bar. A "Load
   more" affordance fetches an additional page of history. Selecting a commit shows
   the files it changed (against its first parent; a merge shows its mainline diff);
   double-click a file to open its side-by-side diff in a separate window — the same
@@ -1221,18 +1241,27 @@ user sees it.
   terminal), and to the interface otherwise. Everything persists across launches;
   the code zone and the Preferences font-size row stay in sync in both
   directions, because they are one value.
-- Preferences (Cmd+,): a Settings window with six persisted options — tab
-  orientation (a vertical column beside the editor, or a horizontal strip above
-  it), theme (follow the system, or force light/dark), a shared editor font
-  size used by the editor, diff, and merge views, a terminal font size,
+- Caret readout (macOS): the bottom bar shows where the caret is and what the
+  file is — `Ln 12, Col 5 · UTF-8 · Swift` — updating as the caret moves. The
+  column counts characters as you see them (a tab is one), the encoding is
+  always UTF-8 because that is what Pisaka reads and writes, and a file with no
+  recognised language reads `Plain Text`.
+- Preferences (Cmd+,): a Settings window with eight persisted options —
+  appearance (follow the system, or force light/dark), tab placement (Top, a
+  horizontal strip above the editor, or Side, a vertical column beside it), the
+  editor font family (System Monospaced, or any installed fixed-pitch family; a
+  family that is later uninstalled falls back to the system monospaced font) and
+  a shared editor font size — both used by every code surface: the editor, diff,
+  merge and source views, completion and hover, the commit dialog's diff and
+  Find in Files' previews — the interface zoom, a terminal font size,
   whether the editor offers
   completions as you type (the same switch as the bottom bar's lightbulb), and
   whether it tints each line's leading whitespace by indentation level (on by
   default; this one has no second surface). The
   two font sizes are also adjustable on the fly by zooming over a code view or
-  over the terminal (see Zoom above); the interface scale has no row of its own
-  and is set by zooming over the chrome.
-  All six settings persist across launches. The Settings window's other tabs are **Language
+  over the terminal (see Zoom above), and the interface zoom by zooming over the
+  chrome.
+  All eight settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party component the app

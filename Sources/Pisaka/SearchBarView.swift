@@ -134,9 +134,9 @@ struct SearchBarView: View {
                 onClear: { settings.clearSearchQueryHistory() }
             )
 
-            ChromeQueryToggle(label: "Aa", isOn: $search.caseSensitive, help: "Match case")
-            ChromeQueryToggle(label: "ab", isOn: $search.wholeWord, help: "Whole word")
-            ChromeQueryToggle(label: ".*", isOn: $search.isRegex, help: "Regular expression")
+            ChromeQueryToggle(glyph: .caseSensitive, isOn: $search.caseSensitive, help: "Match case")
+            ChromeQueryToggle(glyph: .wholeWord, isOn: $search.wholeWord, help: "Whole word")
+            ChromeQueryToggle(glyph: .regex, isOn: $search.isRegex, help: "Regular expression")
 
             Text(counterText)
                 .font(metrics.scaledFont(.subheadline))

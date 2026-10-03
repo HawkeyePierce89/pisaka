@@ -88,6 +88,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     wording stays general because line endings are only its commonest cause —
     a mode-only change and a file staged and then restored in the worktree land
     there too).
+  - `UnifiedDiffDisplayRows.swift` — how the dialog's unified diff is *laid out*,
+    reading `unified(rows:)`'s lines and changing none of them (so neither
+    `CommitDiffUnits` nor `PartialCommitBuilder` depends on it).
+    `rows(for: ChangedFile, lines:, contextLines: 3)` returns
+    `[UnifiedDiffDisplayRow]`: `.fileHeader("--- a/<path>")` and
+    `.fileHeader("+++ b/<path>")` first — the old side `/dev/null` for an added
+    or untracked file, the new side `/dev/null` for a deleted one, a rename's old
+    side naming its `oldPath` — then per hunk one `.hunkHeader("@@ -a,b +c,d @@")`
+    followed by that hunk's `.line`s. **A hunk is a run of changed lines with up to
+    three context lines on each side**, git's default; two runs whose gap is at
+    most six context lines share one hunk, so no context line is drawn twice, and
+    context further from every change is not drawn at all. Changed lines are
+    never dropped. **The numbers follow git's rule:** a side's start is its first
+    line's number in the hunk, or — for a side with no line in it — the count of
+    that side's lines before the hunk, so a new file reads `@@ -0,0 +1,N @@`;
+    the counts are always written, `,1` included. Header rows carry no line, so
+    the view draws no checkbox beside them and no click on them selects
+    anything. No changed line means no rows at all — the panel then draws its
+    placeholder. Tests: `UnifiedDiffDisplayRowsTests`.
   - `PartialCommitBuilder.swift` — the central new logic: assemble what a
     *partial* commit records for one file, i.e. the `HEAD` version with only the
     selected changes applied. `assemble(head:worktree:rows:selectedUnits:) ->
@@ -130,7 +149,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     it. `IdentityFieldSource` (`.local`/`.global`/`.unset` — `.global` being
     "everything above this repository", one answer as far as the dialog is
     concerned) and `CommitIdentity` (`name`, `email`, `nameSource`, `emailSource`,
-    `isComplete`, `signature`) plus the pure
+    `isComplete`, `signature`, `displayName`) plus the pure
     `resolve(localName:localEmail:effectiveName:effectiveEmail:)`. The feature
     exists for one failure it must make impossible — a work repository silently
     committing under a personal *global* name because nothing on screen said which
@@ -147,7 +166,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     only** (`git config --local user.name/user.email`): nothing in this feature
     touches the global config, a deliberate limit rather than an omission — the
     global identity is a machine-wide setting and a commit dialog is the wrong
-    place to change one.
+    place to change one. `displayName` is the name alone — or `(name not set)`
+    when git has none — for the dialog footer's author control, whose tooltip
+    and accessibility value carry the full `signature` with its sources.
   - `CommitContext.swift` — the repository state the dialog reads once on open
     (pure value type, the `BranchRef`/`ChangedFile` precedent): `isUnbornHEAD`,
     `isDetachedHEAD`, `currentBranch` (short name), `upstream` (short tracking
@@ -223,7 +244,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — so without the re-check the merge would be recorded as an ordinary
     one-parent commit. The other blocks are deliberately *not* repeated: the
     identity, the message and the selection are the dialog's own state.
-  - `PushPlan.swift` — what "Push after commit" would do, decided from the
+  - `PushPlan.swift` — what a push after the commit would do, decided from the
     repository state alone (pure; `GitCLIService.push(_:root:)` turns the plan
     into a command and decides nothing). `PushUnavailableReason`
     (`.detachedHEAD`/`.noRemote`/`.branchChanged`, each with its `message` — the
@@ -336,11 +357,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `GitServicing`/`FileServicing`, every *decision* a pure function from the
     types above, pure Foundation — no `Process`/AppKit/SwiftUI). Publishes
     `context`, `files` (`[CommitFileSelection]` in git's order), `identity`,
-    `message`, `amend`, `pushAfterCommit`, `selectedPath`, `errorMessage`,
+    `message`, `amend`, `selectedPath`, `errorMessage`,
     `isLoading`, `isRunning` and `root`, with computed `selectedFiles`/
     `selectedFileCount`, `conflictedPaths`, `block`/`canCommit` (through
-    `CommitGate`), `pushPlan`, `checkboxState(for:)`, `wholeOnlyMessage(for:)` and
-    `unifiedLines(for:)` — the last **empty for every whole-only file** (asked
+    `CommitGate`), `pushPlan`, `canCommitAndPush` (Commit's own `canCommit` *and*
+    an available `pushPlan` — the Commit and Push button's enablement, exactly the
+    cases the former "Push after commit" switch was enabled in; the plan is
+    re-derived after the commit regardless, so this decides what is offered,
+    never what the push does), `checkboxState(for:)`, `wholeOnlyMessage(for:)`,
+    `unifiedDisplayRows(for:)` (the `internal`, uncached
+    `unifiedLines(for:)` — which only the tests read — laid out by
+    `UnifiedDiffDisplayRows`) — both **empty for every whole-only file** (asked
     after `wholeOnlyMessage`, so a line-endings-only change flattens nothing the
     panel would ignore) and **memoized by path**, invalidated from `files`'
     `didSet` so the cache cannot drift: the sheet's body re-evaluates on every
@@ -416,13 +443,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `prepareForFolderChange(root:)` is the synchronous
     switch registration (the `LocalChangesModel` precedent, clearing the message
     along with the files — it was composed about another repository's changes).
-    Its `reset()` also drops `root`, `isLoading` and `pushAfterCommit`, each for
+    Its `reset()` also drops `root` and `isLoading`, each for
     its own reason: `root` is what every mutation runs against, so keeping the
     previous one would let the still-open author editor write `git config --local`
-    into the repository the user just left; a load *discarded* by this very switch
+    into the repository the user just left; and a load *discarded* by this very switch
     returns without clearing `isLoading`, so leaving it raised strands the dialog
-    on its loading placeholder with no path back; and "Push after commit" is a
-    per-project opt-in that must not carry over silently. A *reopen for the same
+    on its loading placeholder with no path back. A *reopen for the same
     root* takes `prepareForFolderChange`'s no-op path and so runs no `reset()`,
     which is why `load` additionally clears `files`/`selectedPath`/`errorMessage`
     itself before its first `await`: leaving them published let the sheet draw the
@@ -499,11 +525,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     editor dismisses on Save while the two `git config --local` commands are still
     queued behind the commit's own serial queue, so an ungated Commit in that window
     records the identity being replaced, or the new name beside the old email. The
-    "Edit…" button is disabled for the same window, so a second editor cannot be
+    author control is disabled for the same window, so a second editor cannot be
     seeded from the identity being replaced. `commit(
     originGeneration:) -> CommitOutcome` sequences: the origin pin (the
     `revert(_:originGeneration:)` precedent — captured by the *view*, in the
-    Commit button's action before its `Task` hop, since this body already runs
+    Commit buttons' action before its `Task` hop, since this body already runs
     inside that task and a token read here would only ever be compared against
     itself), the gate, the re-read of the **whole change list** (the list itself
     has to be fresh — a file that became conflicted since is not in the plan and
@@ -519,15 +545,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`CommitGate.evaluateRepositoryState`), the plan built from the **fresh** facts
     — both lookups over those facts going through `CommitStaleness.indexed(_:)`, so
     the check and the plan cannot resolve one path to two different sets of rows —
-    and only then the push — *whether* it runs being the `pushAfterCommit` value
-    **pinned at entry** beside `amendNow`/`messageNow`/the file selection, since the
-    switches stay live while the commit does (a sheet disables its own controls no
-    more than it disables the main menu) and the commit is the long part: reading
-    the flag afterwards let a tick made in that window publish to a remote the user
-    had not armed when they pressed Commit, and an untick silently drop a push they
-    had. The view disables **every control feeding a pinned input** while
-    `isRunning` — the message field, the Amend and push switches, the file and
-    per-line checkboxes, and the author "Edit…" button — so what is on screen
+    and only then the push — *whether* it runs being `commit(push:)`'s **argument**,
+    the pressed button's immutable intent, never a published flag: a shared flag
+    written by each button was overwritable by a second press landing before the
+    first one's `commit()` read it, so a plain Commit could push.
+    **`reserveCommit()`** closes the window between the press and `commit()`: the
+    app awaits a Local History capture there, so the view calls it synchronously in
+    the button's action, beside the generation pin — it refuses (raising nothing)
+    when the gate does, and otherwise raises `isRunning` at once, so a second press
+    finds every control disabled and the gate shut. A `true` owes exactly one
+    `commit()`, which releases the reservation at entry, in the same turn as its own
+    `isRunning = true`, so the gate does not block the commit it was taken for and
+    no turn ever observes it lowered — including the `.abandoned` return, which a
+    project switch during the capture produces. The view disables **every control feeding a pinned input** while
+    `isRunning` — the message field, the Amend switch, the file and per-line
+    checkboxes, and the author control — so what is on screen
     cannot disagree with the pinned value. The message field is the case that
     loses work rather than merely misleading: the run *is* the long window (hooks,
     signing) in which a typo gets noticed, and on success the field is cleared and
