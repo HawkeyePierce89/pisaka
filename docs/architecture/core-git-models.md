@@ -270,8 +270,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hands the app's revert path as its context file, so
     `filesToRevert(contextFile:)` widens a checked target to the whole checked
     set exactly as a checked row's context-menu Revert does. `selectionDiff`
-    (`SelectionDiff`: the rows, the `ChangedFile` they were computed for and
-    the `LocalChangesInlineDiff.Fingerprint` they were computed from) is the
+    (`SelectionDiff`: the `LocalChangesInlineDiff.Content` — rows, `.binary`
+    or `.tooLarge` — the `ChangedFile` it was computed for and the
+    `LocalChangesInlineDiff.Fingerprint` it was computed from) is the
     inline diff beside the list, loaded by `loadSelectionDiff(token:)` under a
     token from `beginSelectionDiffLoad()`, which the view calls
     **synchronously before the `Task` hop**. A load runs in one fixed order:
@@ -281,12 +282,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     call); when `LocalChangesInlineDiff.needsRebuild` answers `false` the load
     returns having read nothing, so the refresh after saving *another* file
     costs the selected file no `git show`, no read and no diff. Otherwise the
-    `HEAD` side is awaited (the git subprocess is already off the main actor),
-    and the working-copy read plus `LineDiff` run inside an `offMain { }` block
-    on the model's private serial queue through the `nonisolated static`
-    `diffRows`, in `ProjectSearchModel`'s mould. A load whose token is
-    superseded before it starts does nothing, and one superseded at either
-    `await` discards its rows, so an older selection's diff never publishes
+    working side is classified first, inside an `offMain { }` block on the
+    model's private serial queue through `LocalChangesInlineDiff.workingSide`
+    (in `ProjectSearchModel`'s mould); **only a working side that was not
+    refused reads `HEAD`** — as bytes, through `headBlob(of:root:)`, the git
+    subprocess already off the main actor — and the `HEAD` classification plus
+    `LineDiff` run on the same queue. A load whose token is superseded before
+    it starts does nothing, and one superseded at any `await` discards its
+    content, so an older selection's diff never publishes
     over a newer one's (the generation-token invariant). With nothing selected
     the load publishes `nil`. The fingerprint precedes the reads on purpose: a
     write landing between the stamp and the read publishes newer content under
@@ -296,9 +299,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     refresh publish — not on a failed one — so the view can re-read the diff
     after a refresh whose list came out *equal* (an already-modified file
     edited again), which fires no change of its own. Tests stage the race with
-    a gated `headContents` read, resolved out of order.
-  - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**,
-    pure. `Fingerprint` is everything a file's inline diff is computed from as
+    a gated `HEAD` read, resolved out of order.
+  - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**
+    and its **refusal of binary and oversized files**, pure. `Fingerprint` is everything a file's inline diff is computed from as
     far as it can be known without reading a side: the repository root, the
     file's status, path, old path and `headObject`, plus the working copy's
     `FileStamp?`. `needsRebuild(published:current:)` answers `true` when
@@ -320,6 +323,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     edit to the selected file and a `HEAD`-only change each rebuild, that a
     `nil` stamp always rebuilds, and that the working-copy read runs off the
     main thread.
+
+    **The cap and the refusals.** `maxSideBytes` is `1 << 20`, and the reason
+    is written beside it: it is the commit dialog's `maxSelectableFileBytes`,
+    so a file whose hunks the commit dialog refuses to split is a file the panel
+    refuses to diff inline — one threshold for "too large to read line by line"
+    across the two git surfaces (restated rather than referenced, because the
+    dialog model is main-actor; a test pins the two equal). `Content` is
+    `.rows([DiffRow])`, `.binary` or `.tooLarge`, and a binary side is **never
+    turned into lines**. The cap is decided **before any read wherever the size
+    is known**: `workingSide` makes a deleted file absent, a symlink its target
+    string (what git stores), a stamp over the cap `.tooLarge` with no read, and
+    otherwise reads through `readTextIfNotBinary(url:maxBytes:)`, whose `nil` is
+    `.binary` (a read that throws is the empty side it always was). `headSide`
+    takes the raw blob — never the lossy `headContents`, which would decode a
+    binary blob into plausible lines — so data over the cap is `.tooLarge` and
+    the rest goes through `GitBlobText.classify`; added and untracked files have
+    no `HEAD` side. `content(head:working:)` lets a refused working side win
+    outright (the model never reads `HEAD` after one), then a refused `HEAD`
+    side; only two text-or-absent sides reach `LineDiff`. `rows(for:)` and the
+    diff window are unaffected. Tests: `LocalChangesInlineDiffTests` covers a
+    binary `HEAD` side, a binary working side, an over-cap working side (no read,
+    counted on the stub), an over-cap `HEAD` side, an exactly-at-cap side and
+    text on both sides; `LocalChangesModelTests` pins that a selected binary
+    file publishes `.binary` without reading `HEAD`, and that an over-cap stamp
+    publishes `.tooLarge` having read neither side.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
     grouping. `group(_:rootName:)` returns one `ChangedFileGroup` (`path`,
     `label`, `files`; identity `path`) per distinct parent directory — no row

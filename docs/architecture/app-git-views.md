@@ -680,7 +680,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     off the main actor and only the publish lands on it (`core-git-models.md`).
     The diff is shown only while
     `selectionDiff.file == selected`, "Loading…" otherwise, and an empty state
-    with nothing selected. It auto-refreshes on appear and on `projectRoot` change. That
+    with nothing selected. When the model's content is a refusal — a binary
+    side, or a side over `LocalChangesInlineDiff.maxSideBytes` (1 MiB, the
+    commit dialog's cap) — the rows' place holds a short centred placeholder in
+    the panel's existing placeholder style: "Binary file" or "Too large to show
+    inline". Double click, Show Diff and ⌘D still open the diff window through
+    `rows(for:)`, unchanged. `LocalChangesLayoutTests` renders each placeholder
+    state once and asserts `textSecondary` text where the rows would sit and no
+    diff-row wash. It auto-refreshes on appear and on `projectRoot` change. That
     **change handler refreshes the root its parameter carries**, never
     `self.projectRoot`: `projectRoot` is a plain stored property of the view value
     and the single-parameter `onChange(of:perform:)` runs the closure captured *before* the

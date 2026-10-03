@@ -20,6 +20,11 @@ import PisakaCore
 /// inked columns across the toolbar band, clustered: the first cluster holds the
 /// `accent` ground, the next two are glyph-sized. The row order compares the
 /// status colour's rightmost pixel with the name's leftmost `textPrimary` one.
+///
+/// **The inline-diff placeholders.** A selected binary or over-cap file is
+/// rendered once per state; the detail area beside the list must draw
+/// `textSecondary` text where the rows would sit, and no diff-row wash — its
+/// two outer strips are the panel's ground and nothing else.
 @MainActor
 final class LocalChangesLayoutTests: XCTestCase {
 
@@ -118,6 +123,71 @@ final class LocalChangesLayoutTests: XCTestCase {
                           "the status letter is not left of the name at scale \(scale)", file: file, line: line)
     }
 
+    func testABinaryFileShowsThePlaceholderInPlaceOfTheRows() async throws {
+        let files = StubFiles()
+        files.text = "a\u{0}b\n"
+        try await assertPlaceholder(files: files, expected: .binary)
+    }
+
+    func testAnOverCapFileShowsThePlaceholderInPlaceOfTheRows() async throws {
+        let files = StubFiles()
+        files.stamp = FileStamp(byteCount: LocalChangesInlineDiff.maxSideBytes + 1, modificationDate: nil)
+        try await assertPlaceholder(files: files, expected: .tooLarge)
+    }
+
+    private func assertPlaceholder(
+        files: StubFiles,
+        expected: LocalChangesInlineDiff.Content,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let root = URL(fileURLWithPath: "/tmp/LocalChangesLayoutTests-project")
+        let changed = ChangedFile(path: "data.bin", status: .modified)
+        let model = LocalChangesModel(gitService: StubGit(files: [changed]), fileService: files)
+        await model.refresh(root: root)
+        model.select(changed)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.content, expected, file: file, line: line)
+
+        let theme = ChromeTheme(.dark)
+        let panel = theme.color(.bgPanel)
+        let render = try HostedRender(
+            size: CGSize(width: 900, height: 240),
+            root: LocalChangesView(model: model, projectRoot: root)
+                .background(panel)
+                .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
+                .environment(\.chromeTheme, theme)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+
+        // The detail body: right of the list's divider, below the toolbar and
+        // the detail's path header.
+        let bodyTop = LocalChangesLayout.toolbarHeight + LocalChangesLayout.detailHeaderHeight + 2
+        let rows = CGFloat(bodyTop)..<238
+        let columns = CGFloat(330)..<898
+        let text = xExtent(in: render, rows: rows, columns: columns) {
+            render.matches(.textSecondary, atX: $0, y: $1, ground: panel)
+        }
+        XCTAssertNotNil(text, "no textSecondary placeholder where the rows would sit", file: file, line: line)
+
+        // A row wash spans its pane's full width, so it is looked for in the
+        // detail's two outer strips — one inside each side's pane — which the
+        // centred placeholder never reaches (the text's own antialiased edges
+        // would otherwise pass for a wash). Every pixel there must be the
+        // panel's ground: a row of any kind, washed or not, fails. Read as
+        // "not ground" rather than as a wash swatch, because the diff panes are
+        // AppKit and resolve their dynamic colours by the window's appearance,
+        // not by the SwiftUI theme this render injects.
+        XCTAssertGreaterThan(text?.lowerBound ?? 0, 420, "the placeholder is not centred", file: file, line: line)
+        XCTAssertLessThan(text?.upperBound ?? .infinity, 820, "the placeholder is not centred", file: file, line: line)
+        for strip in [CGFloat(330)..<400, CGFloat(830)..<898] {
+            let drawn = xExtent(in: render, rows: rows, columns: strip) {
+                !render.matches(.bgPanel, atX: $0, y: $1)
+            }
+            XCTAssertNil(drawn, "the detail drew a diff row under a placeholder at \(strip)", file: file, line: line)
+        }
+    }
+
     // MARK: - Sampling (all off the one bitmap)
 
     /// The first `x` in `range` along row `y` satisfying `test`, at pixel steps.
@@ -183,7 +253,11 @@ final class LocalChangesLayoutTests: XCTestCase {
     }
 
     private final class StubFiles: FileServicing {
-        func read(url: URL) throws -> String { "" }
+        /// The working copy's text and stamp; configured before any load.
+        var text = ""
+        var stamp: FileStamp?
+        func read(url: URL) throws -> String { text }
+        func fileStamp(at url: URL) -> FileStamp? { stamp }
         func write(_ text: String, to url: URL) throws {}
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? { nil }

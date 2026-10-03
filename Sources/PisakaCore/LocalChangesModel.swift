@@ -768,11 +768,12 @@ public final class LocalChangesModel: ObservableObject {
         changedFiles.first { revertSelection.contains($0.id) } ?? selected
     }
 
-    /// The inline diff the macOS panel shows beside its list: the rows of one
-    /// file, tagged with the file they were computed for.
+    /// The inline diff the macOS panel shows beside its list: the content of one
+    /// file — its rows, or the reason there are none — tagged with the file it
+    /// was computed for.
     public struct SelectionDiff: Equatable {
         public let file: ChangedFile
-        public let rows: [DiffRow]
+        public let content: LocalChangesInlineDiff.Content
         /// What the rows were computed from — the next load compares against
         /// it to decide whether there is anything to rebuild
         /// (`LocalChangesInlineDiff.needsRebuild`).
@@ -808,12 +809,15 @@ public final class LocalChangesModel: ObservableObject {
     /// 3. when `LocalChangesInlineDiff.needsRebuild` says the published diff
     ///    still describes the file, the load returns with no read at all — the
     ///    common refresh after saving *another* file;
-    /// 4. otherwise the `HEAD` side is awaited (the git subprocess already runs
-    ///    off the main actor), then the working-copy read and `LineDiff` run on
-    ///    the model's private serial queue;
-    /// 5. the token is re-checked and the result published on the main actor,
+    /// 4. otherwise the working side is classified on the model's private
+    ///    serial queue — a stamp over `LocalChangesInlineDiff.maxSideBytes` is
+    ///    refused with no read, a binary file is refused by its read;
+    /// 5. only a working side that was not refused awaits the `HEAD` blob (the
+    ///    git subprocess already runs off the main actor), and its
+    ///    classification plus `LineDiff` run on the same queue;
+    /// 6. the token is re-checked and the result published on the main actor,
     ///    tagged with its fingerprint. A load superseded at any `await` discards
-    ///    its rows instead of publishing over the newer selection's.
+    ///    its content instead of publishing over the newer selection's.
     ///
     /// The fingerprint is taken *before* the reads, so a write landing between
     /// the stamp and the read publishes newer content under an older stamp —
@@ -835,14 +839,24 @@ public final class LocalChangesModel: ObservableObject {
         guard LocalChangesInlineDiff.needsRebuild(published: selectionDiff?.fingerprint, current: fingerprint) else {
             return
         }
-        let head = await headText(for: file, root: root)
-        guard token == selectionDiffGeneration else { return }
         let fileService = self.fileService
-        let rows = await offMain {
-            Self.diffRows(old: head, file: file, url: url, fileService: fileService)
+        let stamp = fingerprint.workingStamp
+        let working = await offMain {
+            LocalChangesInlineDiff.workingSide(for: file, url: url, stamp: stamp, fileService: fileService)
         }
         guard token == selectionDiffGeneration else { return }
-        selectionDiff = SelectionDiff(file: file, rows: rows, fingerprint: fingerprint)
+        let content: LocalChangesInlineDiff.Content
+        if working.isRefusal {
+            content = LocalChangesInlineDiff.content(head: .absent, working: working)
+        } else {
+            let headData = await headBlob(for: file, root: root)
+            guard token == selectionDiffGeneration else { return }
+            content = await offMain {
+                LocalChangesInlineDiff.content(head: LocalChangesInlineDiff.headSide(headData), working: working)
+            }
+        }
+        guard token == selectionDiffGeneration else { return }
+        selectionDiff = SelectionDiff(file: file, content: content, fingerprint: fingerprint)
     }
 
     /// Serial, so inline-diff work runs one load after another off the main
@@ -856,17 +870,6 @@ public final class LocalChangesModel: ObservableObject {
         await withCheckedContinuation { continuation in
             diffQueue.async { continuation.resume(returning: work()) }
         }
-    }
-
-    /// The inline diff's off-main half: read the working side of `file` and
-    /// diff it against `old`. Touches nothing on the model.
-    nonisolated static func diffRows(
-        old: String,
-        file: ChangedFile,
-        url: URL,
-        fileService: FileServicing
-    ) -> [DiffRow] {
-        LineDiff.rows(old: old, new: workingText(for: file, url: url, fileService: fileService))
     }
 
     /// Build the side-by-side diff (working copy vs `HEAD`) for `file`.
@@ -899,9 +902,22 @@ public final class LocalChangesModel: ObservableObject {
         }
     }
 
-    /// `nonisolated` because the inline diff reads it on `diffQueue`, while
-    /// `rows(for:)` reads it on the main actor.
-    private nonisolated static func workingText(for file: ChangedFile, url: URL, fileService: FileServicing) -> String {
+    /// The inline diff's `HEAD` side as bytes, so a binary blob is classified
+    /// rather than lossily decoded into lines; `nil` for a file `HEAD` does not
+    /// hold, or when the read fails (an empty old side, as `headText`). For a
+    /// rename, `HEAD` is read from `oldPath`.
+    private func headBlob(for file: ChangedFile, root: URL) async -> Data? {
+        switch file.status {
+        case .added, .untracked:
+            return nil
+        case .modified, .deleted, .renamed, .conflicted:
+            return (try? await gitService.headBlob(of: file.oldPath ?? file.path, root: root)).flatMap { $0 }
+        }
+    }
+
+    /// The diff window's working side (`rows(for:)`); the inline diff classifies
+    /// its own through `LocalChangesInlineDiff.workingSide`.
+    private static func workingText(for file: ChangedFile, url: URL, fileService: FileServicing) -> String {
         // A deleted file has no working copy; the new side is empty.
         guard file.status != .deleted else { return "" }
         // Git stores a symlink's *target string* as its blob (so `HEAD` reads it

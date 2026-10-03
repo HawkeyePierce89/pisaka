@@ -85,4 +85,118 @@ final class LocalChangesInlineDiffTests: XCTestCase {
             XCTAssertEqual(current.hasHeadSide, ![.added, .untracked].contains(status), "\(status)")
         }
     }
+
+    // MARK: - Content: binary and oversized sides are refused
+
+    /// An in-memory working copy that counts its reads.
+    private final class Files: FileServicing {
+        var text: String?
+        var symlinkTarget: String?
+        private(set) var reads = 0
+        func read(url: URL) throws -> String {
+            reads += 1
+            guard let text else { throw CocoaError(.fileReadNoSuchFile) }
+            return text
+        }
+        func write(_ text: String, to url: URL) throws {}
+        func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+        func symbolicLinkDestination(at url: URL) -> String? { symlinkTarget }
+        func isExecutableFile(at url: URL) -> Bool { false }
+    }
+
+    private let cap = LocalChangesInlineDiff.maxSideBytes
+    private let modified = ChangedFile(path: "a.swift", status: .modified)
+
+    private func working(_ files: Files, file: ChangedFile? = nil, stamp: FileStamp? = nil) -> LocalChangesInlineDiff.Side {
+        LocalChangesInlineDiff.workingSide(
+            for: file ?? modified,
+            url: root.appendingPathComponent("a.swift"),
+            stamp: stamp,
+            fileService: files
+        )
+    }
+
+    @MainActor
+    func testTheCapIsTheCommitDialogsSelectableFileCap() {
+        XCTAssertEqual(LocalChangesInlineDiff.maxSideBytes, 1 << 20)
+        XCTAssertEqual(LocalChangesInlineDiff.maxSideBytes, CommitDialogModel.maxSelectableFileBytes)
+    }
+
+    func testABinaryHeadSideIsBinary() {
+        let head = LocalChangesInlineDiff.headSide(Data([0x61, 0x00, 0x62]))
+        XCTAssertEqual(head, .binary)
+        XCTAssertEqual(LocalChangesInlineDiff.content(head: head, working: .text("a\n")), .binary)
+    }
+
+    func testANonUTF8HeadSideIsBinary() {
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(Data([0xFF, 0xFE, 0x41])), .binary)
+    }
+
+    func testABinaryWorkingSideIsBinary() {
+        let files = Files()
+        files.text = "a\u{0}b"
+        let side = working(files)
+        XCTAssertEqual(side, .binary)
+        XCTAssertTrue(side.isRefusal)
+        XCTAssertEqual(LocalChangesInlineDiff.content(head: .text("a\n"), working: side), .binary)
+    }
+
+    func testAnOverCapWorkingStampIsTooLargeWithNoRead() {
+        let files = Files()
+        files.text = "small"
+        let side = working(files, stamp: FileStamp(byteCount: cap + 1, modificationDate: nil))
+        XCTAssertEqual(side, .tooLarge)
+        XCTAssertEqual(files.reads, 0)
+        XCTAssertEqual(LocalChangesInlineDiff.content(head: .text("a\n"), working: side), .tooLarge)
+    }
+
+    func testAnOverCapHeadSideIsTooLarge() {
+        let head = LocalChangesInlineDiff.headSide(Data(repeating: 0x61, count: cap + 1))
+        XCTAssertEqual(head, .tooLarge)
+        XCTAssertEqual(LocalChangesInlineDiff.content(head: head, working: .text("a\n")), .tooLarge)
+    }
+
+    func testExactlyAtTheCapIsText() {
+        let atCap = String(repeating: "a", count: cap)
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(Data(atCap.utf8)), .text(atCap))
+        let files = Files()
+        files.text = atCap
+        XCTAssertEqual(working(files, stamp: FileStamp(byteCount: cap, modificationDate: nil)), .text(atCap))
+        XCTAssertEqual(files.reads, 1)
+    }
+
+    func testTextOnBothSidesIsRows() {
+        let files = Files()
+        files.text = "new\n"
+        let content = LocalChangesInlineDiff.content(
+            head: LocalChangesInlineDiff.headSide(Data("old\n".utf8)),
+            working: working(files)
+        )
+        XCTAssertEqual(content, .rows(LineDiff.rows(old: "old\n", new: "new\n")))
+    }
+
+    func testOneSidedFilesDiffAgainstAnEmptySide() {
+        XCTAssertEqual(LocalChangesInlineDiff.headSide(nil), .absent)
+        XCTAssertEqual(
+            LocalChangesInlineDiff.content(head: .absent, working: .text("a\n")),
+            .rows(LineDiff.rows(old: "", new: "a\n"))
+        )
+        let files = Files()
+        files.text = "ignored"
+        let deleted = ChangedFile(path: "a.swift", status: .deleted)
+        XCTAssertEqual(working(files, file: deleted), .absent)
+        XCTAssertEqual(files.reads, 0)
+        XCTAssertEqual(
+            LocalChangesInlineDiff.content(head: .text("x\n"), working: .absent),
+            .rows(LineDiff.rows(old: "x\n", new: ""))
+        )
+    }
+
+    func testASymlinkIsItsTargetStringAndAFailedReadIsAbsent() {
+        let files = Files()
+        files.symlinkTarget = "/elsewhere"
+        XCTAssertEqual(working(files), .text("/elsewhere"))
+        XCTAssertEqual(files.reads, 0)
+        XCTAssertEqual(working(Files()), .absent)
+    }
 }

@@ -109,6 +109,17 @@ final class LocalChangesModelTests: XCTestCase {
             return headByPath[path]
         }
 
+        /// Raw `HEAD` blobs keyed by path, for a side that is not UTF-8 text;
+        /// `headBlob` falls back to `headByPath`'s text.
+        var headBlobByPath: [String: Data] = [:]
+
+        /// The inline diff's `HEAD` read: recorded and gated exactly as
+        /// `headContents`, so the ordering tests drive either.
+        func headBlob(of path: String, root: URL) async throws -> Data? {
+            _ = try await headContents(of: path, root: root)
+            return headBlobByPath[path] ?? headByPath[path].map { Data($0.utf8) }
+        }
+
         /// Release the suspended `headContents` read for `path`.
         func releaseHead(_ path: String) {
             headContinuations.removeValue(forKey: path)?.resume()
@@ -1826,7 +1837,7 @@ final class LocalChangesModelTests: XCTestCase {
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
         XCTAssertEqual(model.selectionDiff?.file, file)
-        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "new\n"))
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "new\n")))
     }
 
     func testSelectionDiffClearsWhenNothingIsSelected() async {
@@ -1871,7 +1882,7 @@ final class LocalChangesModelTests: XCTestCase {
         await olderLoad.value
 
         XCTAssertEqual(model.selectionDiff?.file, newer)
-        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "n1\n", new: "n2\n"))
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "n1\n", new: "n2\n")))
     }
 
     func testATokenSupersededBeforeItsHopDoesNothing() async {
@@ -1909,7 +1920,7 @@ final class LocalChangesModelTests: XCTestCase {
         await model.refresh(root: root)
         model.select(git.files[0])
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
-        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "new\n"))
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "new\n")))
         return (model, git, files)
     }
 
@@ -1935,7 +1946,7 @@ final class LocalChangesModelTests: XCTestCase {
         await model.refresh(root: root)
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
-        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "old\n", new: "newer\n"))
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "newer\n")))
         XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
     }
 
@@ -1949,7 +1960,7 @@ final class LocalChangesModelTests: XCTestCase {
         await model.refresh(root: root)
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
-        XCTAssertEqual(model.selectionDiff?.rows, LineDiff.rows(old: "committed\n", new: "new\n"))
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "committed\n", new: "new\n")))
         XCTAssertEqual(model.selectionDiff?.fingerprint.headObject, "h2")
     }
 
@@ -1973,6 +1984,73 @@ final class LocalChangesModelTests: XCTestCase {
         let diffReads = files.reads.filter { $0.path == "/repo/a.swift" }
         XCTAssertEqual(diffReads.count, 1)
         XCTAssertEqual(diffReads.first?.onMainThread, false)
+    }
+
+    // MARK: - inline diff: binary and oversized files are refused
+
+    /// A refreshed, selected, modified `a.bin` whose sides the test configures.
+    private func selectedFile(git: StubGit, files: StubFiles) async -> LocalChangesModel {
+        git.files = [ChangedFile(path: "a.bin", status: .modified, headObject: "h1")]
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(git.files[0])
+        return model
+    }
+
+    func testABinaryWorkingCopyPublishesBinaryWithoutReadingHead() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "text\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "PNG\u{0}\u{1}"
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .binary)
+        XCTAssertEqual(git.headReads, [])
+    }
+
+    func testABinaryHeadSidePublishesBinary() async {
+        let git = StubGit()
+        git.headBlobByPath["a.bin"] = Data([0x89, 0x50, 0x00, 0x47])
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "now text\n"
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .binary)
+        XCTAssertEqual(git.headReads, ["a.bin"])
+    }
+
+    func testAnOverCapWorkingCopyPublishesTooLargeWithNoReadAtAll() async {
+        let git = StubGit()
+        git.headByPath["a.bin"] = "old\n"
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "new\n"
+        files.stampsByPath["/repo/a.bin"] = FileStamp(
+            byteCount: LocalChangesInlineDiff.maxSideBytes + 1,
+            modificationDate: nil
+        )
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .tooLarge)
+        XCTAssertTrue(files.reads.isEmpty)
+        XCTAssertEqual(git.headReads, [])
+    }
+
+    func testAnOverCapHeadSidePublishesTooLarge() async {
+        let git = StubGit()
+        git.headBlobByPath["a.bin"] = Data(repeating: 0x61, count: LocalChangesInlineDiff.maxSideBytes + 1)
+        let files = StubFiles()
+        files.contentsByPath["/repo/a.bin"] = "small\n"
+        let model = await selectedFile(git: git, files: files)
+
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        XCTAssertEqual(model.selectionDiff?.content, .tooLarge)
     }
 
     func testListRevisionAdvancesOnEverySuccessfulRefreshEvenWhenTheListIsEqual() async {

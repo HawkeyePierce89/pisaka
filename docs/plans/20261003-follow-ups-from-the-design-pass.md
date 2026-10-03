@@ -168,20 +168,20 @@ Facts established while planning, which the tasks rely on:
 - Modify: `Tests/PisakaCoreTests/LocalChangesInlineDiffTests.swift`, `Tests/PisakaCoreTests/LocalChangesModelTests.swift`, `Tests/PisakaAppTests/LocalChangesLayoutTests.swift`
 - Modify: `docs/architecture/core-git-models.md`, `docs/architecture/app-git-views.md`
 
-- [ ] `LocalChangesInlineDiff.maxSideBytes = 1 << 20`, one named constant. Its reason, written beside it: it is the commit dialog's `maxSelectableFileBytes`, so a file whose hunks the commit dialog refuses to split is a file the panel refuses to diff inline. One threshold for "too large to read line by line" across the two git surfaces.
-- [ ] `Content` is the inline-diff state: `.rows([DiffRow])`, `.binary` or `.tooLarge`. `SelectionDiff` publishes `content` instead of `rows`.
-- [ ] `nonisolated static` classification. The cap is decided before any read wherever the size is known.
+- [x] `LocalChangesInlineDiff.maxSideBytes = 1 << 20`, one named constant. Its reason, written beside it: it is the commit dialog's `maxSelectableFileBytes`, so a file whose hunks the commit dialog refuses to split is a file the panel refuses to diff inline. One threshold for "too large to read line by line" across the two git surfaces.
+- [x] `Content` is the inline-diff state: `.rows([DiffRow])`, `.binary` or `.tooLarge`. `SelectionDiff` publishes `content` instead of `rows`.
+- [x] `nonisolated static` classification. The cap is decided before any read wherever the size is known.
   - Working side: a stamp's `byteCount > maxSideBytes` gives `.tooLarge` without reading. Otherwise read with `readTextIfNotBinary(url:maxBytes:)`, where `nil` gives `.binary`. A symlink is its target text, and a deleted file is absent.
   - HEAD side: read only when the working side was not already refused. Use `headBlob(of:root:)`: data over the cap gives `.tooLarge`, otherwise `GitBlobText.classify`. Added and untracked files are absent.
   - When both sides are known, either side `.binary` gives `.binary`. Otherwise the rows come from `LineDiff` over the two texts.
   - A binary side is never turned into lines.
-- [ ] `LocalChangesView` shows a short centred placeholder in place of the rows: "Binary file" or "Too large to show inline". It uses the panel's existing placeholder style. Double click, Show Diff and ⌘D still open the diff window through `rows(for:)`, unchanged.
-- [ ] Tests (Core):
+- [x] `LocalChangesView` shows a short centred placeholder in place of the rows: "Binary file" or "Too large to show inline". It uses the panel's existing placeholder style. Double click, Show Diff and ⌘D still open the diff window through `rows(for:)`, unchanged.
+- [x] Tests (Core):
   - Classification for a binary HEAD side, a binary working side, an over-cap working side (no read happens, counted on the stub), an over-cap HEAD side, an exactly-at-cap text side, and text on both sides.
   - At the model level, a selected binary file publishes `.binary` and reads no text into rows.
-- [ ] Test (app): `LocalChangesLayoutTests` renders the panel once per placeholder state, one `HostedRender` each. It asserts the detail area draws `textSecondary` text where the rows would sit, and no diff-row wash.
-- [ ] Document the cap, its reason and the placeholder in `core-git-models.md` and `app-git-views.md`.
-- [ ] Run the gates. They must pass before Task 4.
+- [x] Test (app): `LocalChangesLayoutTests` renders the panel once per placeholder state, one `HostedRender` each. It asserts the detail area draws `textSecondary` text where the rows would sit, and no diff-row wash.
+- [x] Document the cap, its reason and the placeholder in `core-git-models.md` and `app-git-views.md`.
+- [x] Run the gates. They must pass before Task 4.
 
 ### Task 4: Local Changes paths relative to the project, and the toolbar order pinned
 
