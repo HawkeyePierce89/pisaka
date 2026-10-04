@@ -24,20 +24,34 @@ struct ChromePopover<Head: View, List: View, Foot: View>: View {
     private let head: Head?
     private let list: List
     private let foot: Foot?
+    /// The row the List keeps in view while it scrolls — the keyboard selection.
+    private var scrollTarget: String?
 
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
 
+    /// A popover whose Foot comes and goes with the caller's state — the
+    /// branch list's error line. `nil` draws no Foot and no rule, and the Head
+    /// and List keep their identity across the change, so a focused field in
+    /// the Head stays focused when the Foot appears.
     init(
         maxHeight: CGFloat,
         @ViewBuilder head: () -> Head,
         @ViewBuilder list: () -> List,
-        @ViewBuilder foot: () -> Foot
+        foot: Foot?
     ) {
         self.maxHeight = maxHeight
         self.head = head()
         self.list = list()
-        self.foot = foot()
+        self.foot = foot
+    }
+
+    /// The same popover, its List scrolled — when it scrolls — so the row `id`
+    /// stays in view. Rows take their id through `chromePopoverRowAnchor`.
+    func scrolling(to id: String?) -> Self {
+        var copy = self
+        copy.scrollTarget = id
+        return copy
     }
 
     var body: some View {
@@ -50,7 +64,12 @@ struct ChromePopover<Head: View, List: View, Foot: View>: View {
             }
             ViewThatFits(in: .vertical) {
                 listContent
-                ScrollView(.vertical) { listContent }
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) { listContent }
+                        .onChange(of: scrollTarget) { id in
+                            if let id { proxy.scrollTo(id) }
+                        }
+                }
             }
             .clipped()
             .layoutValue(key: ChromePopoverListSlot.self, value: true)
@@ -97,38 +116,6 @@ struct ChromePopover<Head: View, List: View, Foot: View>: View {
     }
 }
 
-extension ChromePopover {
-    /// A popover whose Foot comes and goes with the caller's state — the
-    /// branch list's error line. `nil` draws no Foot and no rule, and the Head
-    /// and List keep their identity across the change, so a focused field in
-    /// the Head stays focused when the Foot appears.
-    init(
-        maxHeight: CGFloat,
-        @ViewBuilder head: () -> Head,
-        @ViewBuilder list: () -> List,
-        foot: Foot?
-    ) {
-        self.maxHeight = maxHeight
-        self.head = head()
-        self.list = list()
-        self.foot = foot
-    }
-}
-
-extension ChromePopover where Head == EmptyView {
-    /// A popover with no Head — the remote row's submenu.
-    init(
-        maxHeight: CGFloat,
-        @ViewBuilder list: () -> List,
-        @ViewBuilder foot: () -> Foot
-    ) {
-        self.maxHeight = maxHeight
-        self.head = nil
-        self.list = list()
-        self.foot = foot()
-    }
-}
-
 extension ChromePopover where Foot == EmptyView {
     /// A popover with no Foot: no rule is drawn above a Foot that is absent.
     init(
@@ -144,7 +131,7 @@ extension ChromePopover where Foot == EmptyView {
 }
 
 extension ChromePopover where Head == EmptyView, Foot == EmptyView {
-    /// A popover with a List alone.
+    /// A popover with a List alone — the remote row's submenu.
     init(maxHeight: CGFloat, @ViewBuilder list: () -> List) {
         self.maxHeight = maxHeight
         self.head = nil

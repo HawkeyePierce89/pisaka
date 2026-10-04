@@ -86,6 +86,11 @@ final class ChromePopoverPresenter: ObservableObject {
     private var mouseMonitor: Any?
     private var keyMonitor: Any?
     private var resignObserver: NSObjectProtocol?
+    /// What held the window's focus when the popover opened — a field
+    /// editor's owning control, never the field editor itself. The filter
+    /// field takes the focus inside this same window, so nothing gives it back
+    /// on its own when the overlay goes away.
+    private weak var priorResponder: NSResponder?
 
     var isOpen: Bool { openID != nil }
 
@@ -104,6 +109,9 @@ final class ChromePopoverPresenter: ObservableObject {
             dismiss()
             return
         }
+        if openID == nil {
+            priorResponder = Self.focusOwner(rootView?.window?.firstResponder)
+        }
         closeSubmenu()
         rows = []
         rowTops = [:]
@@ -118,6 +126,7 @@ final class ChromePopoverPresenter: ObservableObject {
     func dismiss() {
         removeMonitors()
         guard openID != nil else { return }
+        restoreFocus()
         submenu = nil
         submenuFrame = .zero
         openID = nil
@@ -217,6 +226,32 @@ final class ChromePopoverPresenter: ObservableObject {
         rootView = view
     }
 
+    // MARK: - Focus
+
+    /// The responder a focus belongs to: a field editor's owning control, or
+    /// the responder itself.
+    private static func focusOwner(_ responder: NSResponder?) -> NSResponder? {
+        if let editor = responder as? NSTextView, editor.isFieldEditor,
+           let owner = editor.delegate as? NSResponder {
+            return owner
+        }
+        return responder
+    }
+
+    /// Give the focus back to what held it at open time — but only while a
+    /// field editor the popover took still holds it. A popover that never took
+    /// the focus (the project popover) changes nothing, and a click outside
+    /// still lands after this and moves the focus where it was aimed.
+    private func restoreFocus() {
+        defer { priorResponder = nil }
+        guard let window = rootView?.window,
+              let prior = priorResponder,
+              let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+              Self.focusOwner(editor) !== prior
+        else { return }
+        window.makeFirstResponder(prior)
+    }
+
     // MARK: - Keys
 
     /// The key-down's `PopoverKey`. Anything but the six named keys is `other`,
@@ -295,6 +330,12 @@ final class ChromePopoverPresenter: ObservableObject {
             guard let self else { return event }
             let consumed = MainActor.assumeIsolated { () -> Bool in
                 guard event.window === self.rootView?.window else { return false }
+                // An input method composing in the field owns Return and the
+                // arrows until it commits.
+                if let client = event.window?.firstResponder as? NSTextInputClient,
+                   client.hasMarkedText() {
+                    return false
+                }
                 return self.handle(Self.popoverKey(keyCode: event.keyCode, modifiers: event.modifierFlags))
             }
             return consumed ? nil : event
@@ -356,7 +397,8 @@ extension View {
     }
 
     /// Report a registered row's top edge to the presenter, so its submenu can
-    /// open beside it. A no-op where no presenter is in the environment.
+    /// open beside it, and give the row its id as the List's scroll target. The
+    /// report is a no-op where no presenter is in the environment.
     func chromePopoverRowAnchor(id: String) -> some View {
         modifier(ChromePopoverRowAnchor(id: id))
     }
@@ -367,7 +409,10 @@ private struct ChromePopoverRowAnchor: ViewModifier {
     @Environment(\.chromePopoverPresenter) private var presenter
 
     func body(content: Content) -> some View {
-        content.chromePopoverFrame { presenter?.noteRowTop($0.minY, for: id) }
+        content
+            // The id the List scrolls to when the keyboard selects this row.
+            .id(id)
+            .chromePopoverFrame { presenter?.noteRowTop($0.minY, for: id) }
     }
 }
 

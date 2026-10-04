@@ -894,11 +894,15 @@ state is the `accent` on the row's text, which is no more readable without sight
 than the glyph that was hidden. So both rows now **speak** it, as an
 accessibility *value* ("Current project" / "Current branch") on the combined
 element the `Button` makes — the row's name stays its label, only the state is
-added (since the in-window component the value is handed to the shared row
-piece, whose `.check` glyph hides itself) — and the comment beside each hidden symbol says it is hidden *because the
-state it showed is now spoken*, not because it is decoration. The remote-branch
-row needs nothing and says so in a comment: its glyph does not vary with
-`isCurrent`, so it carries no state to owe back. The rule the sweep reads is the
+added — and the comment beside each hidden symbol said it was hidden *because the
+state it showed is now spoken*, not because it was decoration. The remote-branch
+row needed nothing and said so in a comment: its glyph did not vary with
+`isCurrent`, so it carried no state to owe back. (Those symbols and comments are
+gone with the in-window component: the current row's state is handed as an
+accessibility value to the shared row piece, whose `.check` hides itself through
+`DesignGlyphImage` and needs no comment, and the remote row's trailing chevron
+never varies with `isCurrent`, its accessibility hint being its only
+annotation.) The rule the sweep reads is the
 construct, not these two sites: **a symbol in these files whose name or colour is
 chosen by a condition is state**, and every such state needs a spoken carrier; a
 symbol that is the same in every state is decoration and stays hidden and
@@ -2545,7 +2549,10 @@ the host hands in — the placement's available height, already capped at
 hug (the frame takes the proposal and a `ScrollView` is greedy), so a small
 layout reports the hugging height and gives the List alone whatever the fixed
 slots leave, the List being a `ViewThatFits` over its plain rows and the same
-rows in a `ScrollView`. The pieces, every literal a token scaled at the use
+rows in a `ScrollView`. While it scrolls, the List keeps the keyboard
+selection in view: the caller hands the selected row's id to
+`scrolling(to:)`, and every registered row carries its id through
+`chromePopoverRowAnchor`. The pieces, every literal a token scaled at the use
 site:
 
 - `ChromePopoverRow` — `popoverRowHeight` 28, `popoverRowPaddingX` 12,
@@ -2619,17 +2626,32 @@ it maps the key code (126 `up`, 125 `down`, 36/76 `return`, 53 `escape`, 123
 builds `PopoverKeyState`, asks `PopoverKeyRule`, and executes the answer
 against the submenu's selection while one is open, the main one otherwise, or
 the presenter's API; `passThrough` returns the event unconsumed and every other
-action consumes it. `NSWindow.didResignKeyNotification` for that window
-dismisses. The presenter is not in the gated set: it names no colour role.
+action consumes it — except while the focused field holds marked text, when
+an input method composing in it owns Return and the arrows until it commits.
+`NSWindow.didResignKeyNotification` for that window dismisses.
+
+**The focus goes back on dismiss.** The overlay lives in the main window, so
+the filter field focused on appear takes the window's first responder from the
+editor, and removing the field gives nothing back on its own. `present` records
+what held the focus (a field editor's owning control, never the field editor),
+and `dismiss` restores it only while a field editor the popover took still holds
+the focus — the project popover takes none and changes nothing, and a click
+outside still lands after the restore and moves the focus where it was aimed.
+The presenter is not in the gated set: it names no colour role.
 
 Tests: the Core rules are `PopoverPlacementTests`, `PopoverSelectionTests` and
 `PopoverKeyRuleTests` (`swift test`); `ChromeThemeTests` holds every new token
 in the inventory's set equality and values. In the app bundle,
-`ChromePopoverPresenterTests` pins the key-code mapping, the toggle, the
-selection and submenu wiring, activation dismissing first, and both popovers'
-row registration; `ChromePopoverLayoutTests` renders the branch popover (with
-its Foot) and the project popover at scale 1.0 and 1.8 — four renders, four
-windows — and measures the 300-point width between the stroke columns, the
+`ChromePopoverPresenterTests` pins the key-code mapping, the toggle, a
+replacement leaving no old rows, selection or submenu, the selection and
+submenu wiring, activation dismissing first, both popovers' row registration
+and every row's callback, the branch rows registering again when branches
+arrive and when HEAD alone moves, the focus hand-back, and the host reporting
+the submenu's frame where it draws it (the frame the mouse monitor reads);
+`ChromePopoverLayoutTests` renders the branch popover (with its Foot) and the
+project popover at scale 1.0 and 1.8, plus the branch popover once under a cap
+shorter than its content — five renders, five windows — and measures the
+capped container's height with both rules still drawn, and the 300-point width between the stroke columns, the
 field block's 8-point padding above and below, the 28- and 36-point selected
 grounds, the 1-point Head and Foot rules, and the section header's height.
 

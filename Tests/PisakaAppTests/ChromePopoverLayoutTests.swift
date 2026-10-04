@@ -9,9 +9,10 @@ import PisakaCore
 /// rendered bitmap: what the container and its pieces *draw*, against the
 /// `ChromeGeometry` tokens they are built from.
 ///
-/// **Four renders, four windows, and no more.** The branch popover is rendered
+/// **Five renders, five windows, and no more.** The branch popover is rendered
 /// once at interface scale 1.0 and once at 1.8, the project popover the same,
-/// and every measurement in a case is read off that case's one bitmap. There is
+/// and the branch popover once more under a cap shorter than its content; every
+/// measurement in a case is read off that case's one bitmap. There is
 /// no render per row and no screen-recording API; the colour swatches are
 /// `HostedRender`'s, cached per role for the life of the process.
 ///
@@ -51,6 +52,47 @@ final class ChromePopoverLayoutTests: XCTestCase {
         try await assertBranchPopover(scale: 1.8)
     }
 
+    /// Under a `maxHeight` shorter than its content the container is exactly
+    /// that tall, and the List alone gives up height: the Head's rule and the
+    /// Foot's rule are both still drawn, the Foot's flush above the bottom
+    /// stroke.
+    func testTheBranchPopoverCapsItsHeightAndOnlyTheListGivesUpHeight() async throws {
+        let metrics = InterfaceMetrics(scale: 1)
+        let model = BranchSwitcherModel(gitService: ChromePopoverStubGit())
+        await model.refresh(root: URL(fileURLWithPath: "/tmp/repo"))
+        let second = try XCTUnwrap(model.filteredLocalBranches.first { !$0.isCurrent })
+        await model.switchTo(second)
+        XCTAssertNotNil(model.errorMessage, "the Foot has nothing to draw")
+
+        let cap: CGFloat = 180
+        let context = ChromePopoverContext(
+            maxHeight: cap,
+            selectedRowID: BranchSwitcherPopover.newBranchRowID,
+            activateRow: { _ in }
+        )
+        let render = try PopoverRender(metrics: metrics, height: 420) {
+            BranchSwitcherPopover(model: model, context: context)
+        }
+        addTeardownBlock { @MainActor in render.window.close() }
+
+        let x = render.origin + metrics.scaled(ChromeGeometry.popoverWidth) * 0.75
+        let runs = render.column(atX: x)
+        let rules = runs.filter { $0.label == .hairline }
+        XCTAssertGreaterThanOrEqual(rules.count, 4, "too few hairline rules in the column: \(runs)")
+        guard rules.count >= 4 else { return }
+        let top = rules[0]
+        let bottom = rules[rules.count - 1]
+        let footRule = rules[rules.count - 2]
+        let selected = try XCTUnwrap(runs.first { $0.label == .selection }, "no selected row drawn")
+        let headRule = try XCTUnwrap(rules.first { $0.minY >= selected.maxY }, "no Head rule drawn")
+        XCTAssertEqual(bottom.maxY - top.minY, cap, accuracy: render.tolerance, "the container is not capped")
+        XCTAssertGreaterThan(footRule.minY, headRule.maxY, "the Foot's rule is not below the List")
+        XCTAssertEqual(
+            headRule.minY - selected.maxY, 4, accuracy: render.tolerance,
+            "the Head gave up its bottom padding under the cap"
+        )
+    }
+
     func testTheProjectRowDrawsItsHeight() throws {
         try assertProjectPopover(scale: 1)
     }
@@ -63,7 +105,7 @@ final class ChromePopoverLayoutTests: XCTestCase {
 
     private func assertBranchPopover(scale: Double, file: StaticString = #filePath, line: UInt = #line) async throws {
         let metrics = InterfaceMetrics(scale: scale)
-        let model = BranchSwitcherModel(gitService: StubGit())
+        let model = BranchSwitcherModel(gitService: ChromePopoverStubGit())
         let root = URL(fileURLWithPath: "/tmp/repo")
         await model.refresh(root: root)
         let second = try XCTUnwrap(model.filteredLocalBranches.first { !$0.isCurrent }, file: file, line: line)
@@ -265,8 +307,10 @@ private final class PopoverRender {
 }
 
 /// A repository with a current local branch, a second local branch and one
-/// remote, which refuses every checkout with a short message.
-private final class StubGit: GitServicing {
+/// remote, which refuses every checkout with a short message. Which local
+/// branch is current is settable, for the presenter suite's HEAD move. Shared
+/// with `ChromePopoverPresenterTests`.
+final class ChromePopoverStubGit: GitServicing {
     struct Refused: LocalizedError {
         var errorDescription: String? { "Checkout refused" }
     }
@@ -279,8 +323,10 @@ private final class StubGit: GitServicing {
     func references(root: URL) async throws -> [String] {
         ["refs/heads/main", "refs/heads/topic", "refs/remotes/origin/main"]
     }
+    var currentName = "main"
+
     func currentBranch(root: URL) async throws -> BranchRef? {
-        BranchRef.build(fromRefnames: ["refs/heads/main"], current: "main").first
+        BranchRef.build(fromRefnames: ["refs/heads/\(currentName)"], current: currentName).first
     }
     func checkout(branch: String, root: URL) async throws { throw Refused() }
 }

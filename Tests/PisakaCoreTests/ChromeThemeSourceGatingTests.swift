@@ -134,7 +134,7 @@ import XCTest
 ///   leaving the tree gets neither `onHover(false)` nor `onEnded`, and
 ///   `NSCursor`'s stack is global, so the cursor stays pushed after the flag
 ///   that would have balanced it is gone.
-/// - **A popover surface names `bgPopover`.** The six gated popover surfaces
+/// - **A popover surface names `bgPopover`.** The four gated popover surfaces
 ///   name `bgPopover` and no other gated file does; every gated file presenting
 ///   a popover (`.popover(`) or declaring an `NSPanel` is in that set; no gated
 ///   file spells `NSVisualEffectView`, a `.material` assignment or

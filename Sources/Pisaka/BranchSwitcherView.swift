@@ -120,7 +120,8 @@ struct BranchSwitcherView: View {
 /// Its rows are registered with the presenter in display order — the action row
 /// first — on appear, on every filter change and whenever the filtered lists
 /// change, and each registration returns the keyboard selection to the first
-/// row. A remote row registers a two-row submenu instead of acting itself.
+/// row, and again when the current branch changes. A remote row registers a
+/// two-row submenu instead of acting itself.
 struct BranchSwitcherPopover: View {
     @ObservedObject var model: BranchSwitcherModel
     let context: ChromePopoverContext
@@ -141,12 +142,16 @@ struct BranchSwitcherPopover: View {
 
     var body: some View {
         ChromePopover(maxHeight: context.maxHeight, head: { head }, list: { list }, foot: foot)
+            .scrolling(to: context.selectedRowID)
             .onAppear {
                 focusedField = .filter
                 registerRows()
             }
             .onChange(of: model.filterText) { _ in registerRows() }
             .onChange(of: rowIDs) { _ in registerRows() }
+            // A local row's action reads `isCurrent` at registration, and the
+            // ids alone do not change when HEAD moves.
+            .onChange(of: model.current?.name) { _ in registerRows() }
     }
 
     /// The Head: the filter field, then the "New Branch…" action row — one

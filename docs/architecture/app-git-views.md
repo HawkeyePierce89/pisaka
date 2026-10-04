@@ -137,11 +137,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hint; "No branches" as a `textSecondary` message when both are empty.
     **Foot:** `model.errorMessage` in `statusRed`, and no Foot (and no rule)
     otherwise. The rows are registered with the presenter in display order, the
-    action row first, on appear, on every `filterText` change and whenever the
-    filtered lists change, and the
+    action row first, on appear, on every `filterText` change, whenever the
+    filtered lists change and whenever the current branch changes (a local
+    row's action reads `isCurrent` at registration, and the ids alone do not
+    move with HEAD), and the
     selection returns to the first row each time; the field keeps the text
-    focus, so typing keeps filtering while ↑/↓ move the selection, Return
-    activates and Esc dismisses. The slots are separated by `hairline` rules the
+    focus, so typing keeps filtering while ↑/↓ move the selection — the List
+    scrolling to keep it in view — Return activates and Esc dismisses, the
+    focus going back to what held it when the popover opened. The slots are separated by `hairline` rules the
     component draws and the file draws on no `bgPopover` of its own. A
     remote-branch row opens the component's **submenu** beside the popover
     (click, → or Return; ← or Esc close it alone) — "Checkout" (git DWIM via

@@ -144,6 +144,7 @@ struct ProjectSwitcherPopover: View {
                 }
             }
         }
+        .scrolling(to: context.selectedRowID)
         .onAppear(perform: registerRows)
     }
 
