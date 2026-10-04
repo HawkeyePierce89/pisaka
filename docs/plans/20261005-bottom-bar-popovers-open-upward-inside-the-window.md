@@ -434,7 +434,7 @@ the window is neither dimmed nor blocked.
 - Modify: `docs/FEATURES.md`
 - Modify: `CLAUDE.md`
 
-- [ ] `core-theme.md`:
+- [x] `core-theme.md`:
   - New entries for `PopoverPlacement.swift`, `PopoverSelection.swift`,
     `PopoverKeyRule.swift`, `ChromePopover.swift` and `ChromePopoverPresenter.swift`.
     Together they cover:
@@ -449,17 +449,17 @@ the window is neither dimmed nor blocked.
     the menu files, the glyph exemptions, and the gated-file and rule counts if they
     changed.
   - Every "arrow keeps the system material" sentence is removed.
-- [ ] `app-window.md` (`ProjectSwitcherView`) and `app-git-views.md` (`BranchSwitcherView`)
+- [x] `app-window.md` (`ProjectSwitcherView`) and `app-git-views.md` (`BranchSwitcherView`)
   state the new behaviour and drop the arrow and `Divider()` sentences.
-- [ ] `docs/FEATURES.md`: one line saying the project and branch popovers support
+- [x] `docs/FEATURES.md`: one line saying the project and branch popovers support
   ↑/↓/Return/Esc and that → opens a remote branch's actions.
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - The core-theme index line gains `PopoverPlacement.swift`, `PopoverSelection.swift` and
     `PopoverKeyRule.swift` (Core list) and `ChromePopover.swift` and
     `ChromePopoverPresenter.swift` (app surfaces). Nothing else changes, apart from the
     gated-file and rule counts if Tasks 2 and 4 changed them.
   - The file stays under 60,000 characters.
-- [ ] Run `swift test`, which runs `LintConfigurationTests` (it checks the `CLAUDE.md` size)
+- [x] Run `swift test`, which runs `LintConfigurationTests` (it checks the `CLAUDE.md` size)
   and the doc-reading suites. It must pass.
 
 ### Task 7: Verify acceptance criteria

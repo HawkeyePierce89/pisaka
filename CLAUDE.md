@@ -132,7 +132,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`
+  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`, `PopoverPlacement.swift`, `PopoverSelection.swift`, `PopoverKeyRule.swift`
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
   `DatabaseFileRule.swift`, `DatabaseValue.swift`, `DatabaseServicing.swift`, `DatabaseQuery.swift`, `DatabaseSchema.swift`, `DatabasePage.swift`, `DatabaseCellEntry.swift`, `DatabaseRowIdentity.swift`, `DatabaseUpdatePlan.swift`, `DatabaseConsolePlan.swift`, `DatabaseConsoleModel.swift`, `DatabaseViewerModel.swift`
@@ -169,7 +169,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`, `ChromePopover.swift`, `ChromePopoverPresenter.swift`
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
   `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
