@@ -265,7 +265,7 @@ the window is neither dimmed nor blocked.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (only if a rule reads
   the changed sites)
 
-- [ ] Write `ChromePopoverPresenter`, a `@MainActor` `ObservableObject`.
+- [x] Write `ChromePopoverPresenter`, a `@MainActor` `ObservableObject`.
   - **State it holds:**
     - The open popover's identity, its anchor widget frame and its content (`AnyView`; the
       content structs observe their own models).
@@ -283,7 +283,7 @@ the window is neither dimmed nor blocked.
   - **Environment:** an environment key carries an optional presenter. When there is none in
     the environment (as when `BottomBarLayoutTests` and `BottomBarToolTipTests` host
     `BottomBar` alone), a widget's button does nothing harmful.
-- [ ] Write the host overlay view, `ChromePopoverHost`, and mount it once in
+- [x] Write the host overlay view, `ChromePopoverHost`, and mount it once in
   `ContentView.body`:
   - It sits inside the modifiers that inject `chromeTheme` and `interfaceMetrics`, so it
     inherits both and adds no injection root.
@@ -302,10 +302,10 @@ the window is neither dimmed nor blocked.
   - A window resize re-places it through the geometry. A window move needs nothing.
   - The overlay hit-tests only the drawn surfaces, so the rest of the window stays
     interactive.
-- [ ] `ContentView.bottomBar` reports the bar's top edge to the presenter. `BottomBar`'s
+- [x] `ContentView.bottomBar` reports the bar's top edge to the presenter. `BottomBar`'s
   initializer and stored properties do not change, so its two existing suites compile and
   run unchanged.
-- [ ] Monitors and observers are installed on present and removed on dismiss, scoped to the
+- [x] Monitors and observers are installed on present and removed on dismiss, scoped to the
   root's window:
   - **Mouse:** a local monitor for left, right and other mouse-down. A click outside the
     popover's frame, the submenu's frame and the anchor widget's frame dismisses and is
@@ -321,9 +321,9 @@ the window is neither dimmed nor blocked.
       unconsumed, and every other action consumes it. The field therefore keeps the text
       focus throughout, and typing keeps filtering.
   - **Key window:** `NSWindow.didResignKeyNotification` for that window dismisses.
-- [ ] Every row activation dismisses everything before running its closure. The current
+- [x] Every row activation dismisses everything before running its closure. The current
   branch's row and the current project's row only dismiss.
-- [ ] Tests: the key decisions are `PopoverKeyRule`'s and are enumerated in Task 1, as is
+- [x] Tests: the key decisions are `PopoverKeyRule`'s and are enumerated in Task 1, as is
   the placement and selection arithmetic. What remains here is the key-code mapping and the
   wiring, which Task 4's content and Task 5's suite exercise. Run `swift test`, the
   app-layer bundle and `swiftlint --strict`. All must pass before Task 4.

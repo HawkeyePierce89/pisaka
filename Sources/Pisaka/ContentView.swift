@@ -379,6 +379,10 @@ struct ContentView: View {
     /// `panelColumnSpace`'s reason, on the horizontal axis.
     private static let markdownSplitSpace = "pisaka.markdownPreviewSplit"
 
+    /// The window's one bar popover — what is open, its rows and its keyboard
+    /// selection. Per window, like the preview: each window's bar opens its own.
+    @StateObject private var popoverPresenter = ChromePopoverPresenter()
+
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* that injects it (see
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
@@ -477,6 +481,13 @@ struct ContentView: View {
         // the column is pinned `.topLeading` — a column wider than a narrow area
         // is a live case, not a hypothetical one.
         .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
+        // The bar popovers' one layer: an in-window overlay above the bar's
+        // `.zIndex(1)`, inside the theme and scale injections below so it
+        // inherits both and adds no root. The named space is the one the
+        // widgets, the bar and the rows report their frames in.
+        .overlay { ChromePopoverHost(presenter: popoverPresenter) }
+        .coordinateSpace(name: ChromePopoverPresenter.coordinateSpace)
+        .environment(\.chromePopoverPresenter, popoverPresenter)
         // Empty-gap fix: closing the last terminal tab leaves the panel selection
         // on `.terminal` with nothing to draw. Collapse the panel so the bar sits
         // flush at the bottom and a repeat click/⌘⇧T reopens it in one press.
@@ -852,6 +863,8 @@ struct ContentView: View {
                 .fill(chromeColor(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
+        // The bar's top edge, which the popovers open 4 points above.
+        .chromePopoverFrame { [popoverPresenter] in popoverPresenter.noteBarTop($0.minY) }
     }
 
     /// The focused tab, when it is a text tab — the only kind with a caret.
