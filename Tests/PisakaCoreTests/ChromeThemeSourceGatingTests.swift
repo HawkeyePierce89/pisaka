@@ -73,6 +73,8 @@ import XCTest
 /// - **The window's chrome is configured in one file.** A transparent title bar
 ///   is a property of the *window*, so two markers setting it would compete for
 ///   it silently — the ground decided by whichever reached the window first.
+///   The title bar's separator style is the same kind of property, pinned the
+///   same way: a second setter could bring back the line the design omits.
 /// - **Every bottom-bar toggle is identifiable without sight.** The six panel
 ///   toggles and the completion switch are icon-only squares; the `Label` that
 ///   used to supply each one's accessibility name for free is gone, and an
@@ -950,17 +952,32 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// equality in both directions, so a *removed* setter is a failure too: the
     /// window's ground is the colour the transparency exists to reveal, and
     /// without it the framework's own material covers it.
+    ///
+    /// `titlebarSeparatorStyle` is pinned the same way, for the same reason: it
+    /// is a property of the window, and the chrome sets it to `.none` because
+    /// the automatic separator draws a line between the title bar and the
+    /// strips below that the design does not have. A second setter would
+    /// decide that line by launch order; a removed one brings it back.
     func testOnlyTheWindowChromeMakesATitleBarTransparent() throws {
         var setters: Set<String> = []
+        var separatorSetters: Set<String> = []
         for url in try Self.swiftSources() {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if LSPSourceGatingTests.containsToken("titlebarAppearsTransparent", in: code) {
                 setters.insert(url.lastPathComponent)
             }
+            if LSPSourceGatingTests.containsToken("titlebarSeparatorStyle", in: code) {
+                separatorSetters.insert(url.lastPathComponent)
+            }
         }
         XCTAssertEqual(
             setters, ["MainWindowChrome.swift"],
             "the main window's chrome is configured in one file — a second setter competes with it"
+        )
+        XCTAssertEqual(
+            separatorSetters, ["MainWindowChrome.swift"],
+            "the title bar's separator is set in the window chrome alone — a second setter competes with it, "
+                + "and without the one there the framework draws a line the design omits"
         )
     }
 

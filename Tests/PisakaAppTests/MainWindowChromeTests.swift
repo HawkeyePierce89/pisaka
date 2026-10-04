@@ -7,14 +7,17 @@ import PisakaCore
 
 /// The main window's chrome, applied to a real `NSWindow`.
 ///
-/// `MainWindowChrome.apply(to:)` is two property assignments, which is exactly
+/// `MainWindowChrome.apply(to:)` is a handful of property assignments — the
+/// title bar's transparency and separator style, the window's ground, the
+/// title's visibility and the title — plus the centred label, which is exactly
 /// why it is worth a suite: nothing in the compiler, and nothing in the static
-/// gating rule that pins *where* the transparency is set, can see what the
-/// window's ground actually resolves to. The colour is dynamic by design — the
-/// rule `ChromePalette` states for every AppKit chrome surface — so the check
-/// that matters is that it answers the palette's own value **in both
-/// appearances**, which is the property a frozen, once-resolved colour would
-/// fail while still looking right in whichever appearance the reviewer is in.
+/// gating rule that pins *where* the transparency and the separator are set,
+/// can see what the window's ground actually resolves to. The colour is
+/// dynamic by design — the rule `ChromePalette` states for every AppKit chrome
+/// surface — so the check that matters is that it answers the palette's own
+/// value **in both appearances**, which is the property a frozen,
+/// once-resolved colour would fail while still looking right in whichever
+/// appearance the reviewer is in.
 ///
 /// The title is driven the way the app drives it: the representable is hosted
 /// in a titled window over a real `WorkspaceModel`, and the window's title is
@@ -50,10 +53,18 @@ final class MainWindowChromeTests: XCTestCase {
             window.titlebarAppearsTransparent,
             "a freshly built window is opaque — otherwise this suite would pass without the call"
         )
+        XCTAssertNotEqual(
+            window.titlebarSeparatorStyle, .none,
+            "a freshly built window draws a separator — otherwise this suite would pass without the call"
+        )
         MainWindowChrome.apply(to: window, title: "Pisaka")
         XCTAssertTrue(
             window.titlebarAppearsTransparent,
             "without the transparency the framework's own material covers the ground below it"
+        )
+        XCTAssertEqual(
+            window.titlebarSeparatorStyle, .none,
+            "the automatic separator draws a line between the title bar and the strips below that the design omits"
         )
     }
 
@@ -112,6 +123,10 @@ final class MainWindowChromeTests: XCTestCase {
         XCTAssertTrue(
             window.titlebarAppearsTransparent,
             "the marker must configure the window it moved to, without anyone calling apply(to:)"
+        )
+        XCTAssertEqual(
+            window.titlebarSeparatorStyle, .none,
+            "the attached marker removes the title bar's separator too"
         )
         let background = try XCTUnwrap(window.backgroundColor)
         let systemAppearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
