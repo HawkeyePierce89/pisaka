@@ -146,8 +146,8 @@ This plan makes those two changes, pins each one so it cannot quietly come back,
 
 ### Task 5: Update documentation
 
-- [ ] README.md: no user-facing feature change, so no update is expected. Confirm and leave it unchanged.
-- [ ] CLAUDE.md: only the rule count changed (Task 2). Confirm it is still under its size cap; `LintConfigurationTests` checks this.
+- [x] README.md: no user-facing feature change, so no update is expected. Confirm and leave it unchanged.
+- [x] CLAUDE.md: only the rule count changed (Task 2). Confirm it is still under its size cap; `LintConfigurationTests` checks this.
 
 ## Post-Completion
 
