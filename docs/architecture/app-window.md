@@ -1684,8 +1684,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
   - `BreadcrumbBarView.swift` — the breadcrumb bar above the editor: the open
-    file's path relative to the opened project root
-    (`backend › src › dialogs.service.ts`), or an abbreviated absolute path when
+    file's path starting with the opened project root's name, the way the project
+    tree does (`project › backend › src › dialogs.service.ts`), or an abbreviated absolute path when
     the file lives outside the root. All the segment computation is Core's
     `DisplayPath.components(fileURL:projectRoot:home:)` — the view only reads
     `home` (the `TerminalLaunch` precedent) — so this stays display-only and

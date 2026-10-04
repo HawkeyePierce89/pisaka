@@ -144,8 +144,9 @@ user sees it.
   an unsaved "Untitled" buffer, simply has nothing to annotate — the menu item is
   unavailable or the column stays empty, with no error.
 - A path bar above the editor shows where the open file lives —
-  its path relative to the opened project root, as breadcrumbs
-  (`backend › src › dialogs › dialogs.service.ts`). A file outside the project
+  its path inside the opened project as breadcrumbs that start with the
+  project's name, the way the project tree does
+  (`project › backend › src › dialogs › dialogs.service.ts`). A file outside the project
   (or with no folder open) shows its absolute path, abbreviated to `~` under your
   home directory, and an "Untitled" buffer just says "Untitled". In a narrow
   window the path truncates in the middle so the file name stays visible, and the

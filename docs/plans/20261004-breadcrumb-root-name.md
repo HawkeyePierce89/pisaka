@@ -144,7 +144,7 @@ The Problems panel and the window title do not change.
 - Modify: `Sources/Pisaka/BreadcrumbBarView.swift` (doc comment only)
 - Modify: `docs/FEATURES.md`
 
-- [ ] In `core-workspace.md`'s `DisplayPath.swift` entry:
+- [x] In `core-workspace.md`'s `DisplayPath.swift` entry:
   - Replace "the suffix *below* the root (without the root's own name, ending in the file
     name)" with the new answer: the root's name, its last path component as the user
     opened it (lexical; a root opened through a symlink shows the symlink's name; a
@@ -157,20 +157,20 @@ The Problems panel and the window title do not change.
     design's main window starts the crumb below the root, but the design's tree has no root
     row and the app's tree has one. The crumb starts where the tree starts, and a
     root-level file no longer reads as a bare name that duplicates its tab.
-- [ ] In `app-window.md`'s `BreadcrumbBarView.swift` entry and in
+- [x] In `app-window.md`'s `BreadcrumbBarView.swift` entry and in
   `BreadcrumbBarView.swift`'s header doc comment, change the description to say the path
   starts with the project root's name, and change the example from
   `backend › src › dialogs.service.ts` to one starting with the root's name (e.g.
   `project › backend › src › dialogs.service.ts`). No code change in the view.
-- [ ] In `docs/FEATURES.md`'s path-bar paragraph near line 146, say the breadcrumbs start
+- [x] In `docs/FEATURES.md`'s path-bar paragraph near line 146, say the breadcrumbs start
   with the project's name, the way the project tree does, and update the example to start
   with it (e.g. `project › backend › src › dialogs › dialogs.service.ts`). Re-read the
   limits paragraph near line 1798 and confirm it is still truthful (it should need no
   change).
-- [ ] Grep `docs/` (excluding `docs/plans/`), `README.md` and `Sources/` for other wording
+- [x] Grep `docs/` (excluding `docs/plans/`), `README.md` and `Sources/` for other wording
   that states the breadcrumb omits the root's name, and fix only statements that are now
   untrue. Expected: none beyond the files above.
-- [ ] Run `swift test` (the documentation-reading suites must stay green, including the
+- [x] Run `swift test` (the documentation-reading suites must stay green, including the
   `CLAUDE.md` size pin in `LintConfigurationTests`; `CLAUDE.md` itself is not changed).
 
 ### Task 3: Verify acceptance criteria and the four gates
