@@ -257,6 +257,14 @@ import XCTest
 ///   Its horizon is the argument list: a glyph name passed through a local
 ///   variable, or interpolated into a string, passes. That is the local-variable
 ///   form, named rather than fixed, because following a value needs data flow.
+/// - **The tab strip's grounds stay inside the strip.** Both colour backgrounds
+///   in `TabStripView.swift` — the strip's `bgPanel` and the active cell's
+///   `bgEditor` — carry `ignoresSafeAreaEdges: []`. The strip sits directly
+///   under the transparent title bar, the window's top safe-area inset, and a
+///   colour background extends into it by default, so the active fill climbed
+///   to the window's top edge. The headless `HostedRender` has no title bar, so
+///   no bitmap sees it; this rule is the only net. Its horizon is this one file
+///   and arguments spelled as `theme.color(` or `Color.`.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -5531,6 +5539,105 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule forty-seven: The tab strip's grounds stay inside the strip
+
+    /// Rule forty-seven's matcher: the argument list of every colour background
+    /// in `code` that is not confined to its own frame. Every `.background(` is
+    /// found through `callRanges(_:in:)`; a list opening with `alignment` is a
+    /// view background, which does not climb into the safe area, and is
+    /// skipped. A list counts as a colour background when it names
+    /// `theme.color(` or a `Color.` token — the conditional form names both —
+    /// and such a list must spell `ignoresSafeAreaEdges: []`, whitespace folded
+    /// so a wrapped list is the same list. `code` is expected to be stripped.
+    static func unconfinedColourBackgrounds(in code: String) -> [Substring] {
+        callRanges(".background(", in: code).compactMap { range in
+            let open = code.index(before: range.upperBound)
+            guard let end = balancedEnd(from: open, in: code) else { return nil }
+            let arguments = code[range.upperBound..<code.index(before: end)]
+            guard !arguments.drop(while: \.isWhitespace).hasPrefix("alignment") else { return nil }
+            let folded = arguments.filter { !$0.isWhitespace }
+            guard isColourBackground(folded) else { return nil }
+            return folded.contains("ignoresSafeAreaEdges:[]") ? nil : arguments
+        }
+    }
+
+    /// Whether a whitespace-folded `.background(` argument list names a colour:
+    /// `theme.color(`, or `Color.` on an identifier boundary (`NSColor.` is not
+    /// `Color.`).
+    private static func isColourBackground(_ folded: String) -> Bool {
+        folded.contains("theme.color(")
+            || folded.range(of: "(?<![A-Za-z0-9_])Color\\.", options: .regularExpression) != nil
+    }
+
+    /// Rule forty-seven. The horizontal tab strip is the topmost view under the
+    /// window's title bar, which `MainWindowChrome` makes transparent and which
+    /// is therefore the window's top safe-area inset. A SwiftUI colour
+    /// background extends into the safe area by default, so the active tab's
+    /// `bgEditor` fill ran through the title bar to the window's top edge. Both
+    /// colour backgrounds in `TabStripView.swift` must therefore carry
+    /// `ignoresSafeAreaEdges: []`, and at least two must be seen, so the rule
+    /// cannot go vacuous.
+    ///
+    /// This rule is the only net: the headless `HostedRender` has no title bar,
+    /// so the climb cannot be seen off a bitmap. **Its horizon**: it reads this
+    /// one file, and only arguments spelled as `theme.color(` or `Color.` — a
+    /// colour bound to a local and passed on, or a background added to another
+    /// file that ends up under the title bar, passes.
+    func testTheTabStripsGroundsStayInsideTheStrip() throws {
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "TabStripView.swift"))
+        )
+        XCTAssertEqual(
+            Self.unconfinedColourBackgrounds(in: code), [],
+            """
+            TabStripView.swift draws a colour background that is not confined to its frame — it climbs \
+            through the transparent title bar to the window's top edge; pass ignoresSafeAreaEdges: []
+            """
+        )
+        let seen = Self.callRanges(".background(", in: code).filter { range in
+            let open = code.index(before: range.upperBound)
+            guard let end = Self.balancedEnd(from: open, in: code) else { return false }
+            let arguments = code[range.upperBound..<code.index(before: end)]
+            return !arguments.drop(while: \.isWhitespace).hasPrefix("alignment")
+                && Self.isColourBackground(arguments.filter { !$0.isWhitespace })
+        }
+        XCTAssertGreaterThanOrEqual(
+            seen.count, 2,
+            "TabStripView.swift's two colour backgrounds are gone or respelled — re-point this rule rather than losing it"
+        )
+    }
+
+    /// Rule forty-seven's matcher, fed every shape it must flag and every shape
+    /// it must pass, so a matcher narrowed to one spelling fails here rather
+    /// than in a review.
+    func testTheGroundRuleFlagsEveryUnconfinedBackground() {
+        let flagged = [
+            ".background(theme.color(.bgPanel))",
+            ".background(isActive ? theme.color(.bgEditor) : Color.clear)",
+            ".background(\n    theme.color(.bgPanel)\n)",
+            ".background(Color.clear)",
+        ]
+        for snippet in flagged {
+            XCTAssertEqual(
+                Self.unconfinedColourBackgrounds(in: "x\(snippet)\n").count, 1,
+                "rule forty-seven's matcher lets \(snippet) through"
+            )
+        }
+        let passing = [
+            ".background(theme.color(.bgPanel), ignoresSafeAreaEdges: [])",
+            ".background(isActive ? theme.color(.bgEditor) : Color.clear, ignoresSafeAreaEdges: [])",
+            ".background(\n    theme.color(.bgPanel),\n    ignoresSafeAreaEdges: [ ]\n)",
+            ".background(alignment: .bottom) { Rectangle().fill(theme.color(.hairline)) }",
+            ".background(NSColor.clear)",
+        ]
+        for snippet in passing {
+            XCTAssertEqual(
+                Self.unconfinedColourBackgrounds(in: "x\(snippet)\n"), [],
+                "rule forty-seven's matcher flags \(snippet), which is confined or no colour background"
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5631,7 +5738,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
-        45: "forty-five", 46: "forty-six",
+        45: "forty-five", 46: "forty-six", 47: "forty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

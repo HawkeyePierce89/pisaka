@@ -90,12 +90,12 @@ This plan makes those two changes, pins each one so it cannot quietly come back,
 - Modify: `docs/architecture/core-theme.md` (canonical list count sentence and new item 47 only; the prose entries are in Task 3)
 - Modify: `CLAUDE.md` (the rule count word only)
 
-- [ ] In `TabStripView.swift`, confine both colour backgrounds to their own frames:
+- [x] In `TabStripView.swift`, confine both colour backgrounds to their own frames:
   - `.background(theme.color(.bgPanel), ignoresSafeAreaEdges: [])` on the strip;
   - `.background(isActive ? theme.color(.bgEditor) : Color.clear, ignoresSafeAreaEdges: [])` on the cell.
   - Add a comment at the strip's ground, and a short pointer to it at the cell. The comment says the strip sits directly under the transparent title bar, which is the window's top safe-area inset, so a default background would climb through it to the window's top edge.
   - Leave the height, the bottom-rule background (`.background(alignment: .bottom) { … }`, a view background that does not climb), the accent underline, the modifier order and the cell layout unchanged.
-- [ ] Add rule forty-seven to `ChromeThemeSourceGatingTests`, after rule forty-six, with the marker `// MARK: - Rule forty-seven: The tab strip's grounds stay inside the strip`.
+- [x] Add rule forty-seven to `ChromeThemeSourceGatingTests`, after rule forty-six, with the marker `// MARK: - Rule forty-seven: The tab strip's grounds stay inside the strip`.
   - Write a static matcher that takes stripped source text and returns the colour backgrounds missing the parameter. It finds every `.background(` call through `callRanges`, takes its balanced argument list and skips any list that opens with `alignment`. A list counts as a colour background when it names `theme.color(` or a `Color.` token, which covers the conditional form. Such a list must contain `ignoresSafeAreaEdges: []`, with whitespace folded so a wrapped list still matches.
   - The rule reads `TabStripView.swift` through the ordinary stripping scanner. It asserts that the matcher returns nothing, and that at least two colour backgrounds were seen, so the rule cannot go vacuous.
   - Write a self-check in rule forty-six's idiom that feeds the matcher inline snippets:
@@ -105,15 +105,15 @@ This plan makes those two changes, pins each one so it cannot quietly come back,
     - the confined forms must pass;
     - `.background(alignment: .bottom) { … }` must be ignored.
   - Give the rule a doc comment stating its reason: the window's title bar is transparent and is the top safe-area inset. A colour background extends into the safe area by default. The headless `HostedRender` has no title bar, so the climb cannot be seen off a bitmap and this rule is the only net. Name its horizon too: the rule reads this one file, and only arguments spelled as `theme.color(` or `Color.`.
-- [ ] Do the rule-count bookkeeping in the same task, because the existing checks fail until it is done:
+- [x] Do the rule-count bookkeeping in the same task, because the existing checks fail until it is done:
   - add the header bullet `/// - **The tab strip's grounds stay inside the strip.**` with its reason, after rule forty-six's bullet;
   - add `47: "forty-seven"` to `spelled`;
   - in `core-theme.md`, change "The forty-six rules, each invisible to the compiler:" to "The forty-seven rules, …";
   - add item `47. **The tab strip's grounds stay inside the strip.**` before "Plus a **self-check**", with the reason and the horizon;
   - in `CLAUDE.md`, change "and its forty-six rules" to "and its forty-seven rules".
   - Confirm that rule sixteen still finds both grounds and the rule-before-ground order. The ground arguments still name `bgPanel` and `bgEditor`, and neither opens with `alignment`.
-- [ ] Hand mutation, not committed: remove one `ignoresSafeAreaEdges: []` from `TabStripView.swift` and confirm rule forty-seven fails. Revert.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict` from the repository root. All must pass before Task 3.
+- [x] Hand mutation, not committed: remove one `ignoresSafeAreaEdges: []` from `TabStripView.swift` and confirm rule forty-seven fails. Revert.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict` from the repository root. All must pass before Task 3.
 
 ### Task 3: Documentation
 

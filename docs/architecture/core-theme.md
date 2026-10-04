@@ -2605,7 +2605,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-six rules, each invisible to the compiler:
+The forty-seven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3516,6 +3516,24 @@ The forty-six rules, each invisible to the compiler:
     local variable, or interpolated into a string, passes. That is the
     local-variable form, named rather than fixed — following a value through a
     `let` needs data flow — and the matcher is deliberately not widened.
+47. **The tab strip's grounds stay inside the strip.** Both colour backgrounds
+    in `TabStripView.swift`, the strip's `bgPanel` and the active cell's
+    `bgEditor`, must carry `ignoresSafeAreaEdges: []`. The strip is the topmost
+    view under the window's title bar, which is transparent and is therefore the
+    window's top safe-area inset, and a SwiftUI colour background extends into
+    the safe area by default, so the active fill climbed through the title bar
+    to the window's top edge. The matcher, `unconfinedColourBackgrounds(in:)`,
+    reads every `.background(` through `callRanges`, skips a list opening with
+    `alignment` (a view background, which does not climb), counts a list naming
+    `theme.color(` or a `Color.` token as a colour background, and requires
+    `ignoresSafeAreaEdges: []` in it with whitespace folded. The rule also
+    requires at least two colour backgrounds to be seen, so it cannot go vacuous,
+    and a self-check (`testTheGroundRuleFlagsEveryUnconfinedBackground`) feeds
+    the matcher the bare, conditional and wrapped forms, which must be flagged,
+    and the confined forms and the bottom-rule background, which must pass. The
+    headless `HostedRender` has no title bar, so the climb cannot be seen off a
+    bitmap and this rule is the only net. **Its horizon**: this one file, and
+    only arguments spelled as `theme.color(` or `Color.`.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

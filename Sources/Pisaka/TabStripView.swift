@@ -51,7 +51,12 @@ struct TabStripView: View {
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
-        .background(theme.color(.bgPanel))
+        // The strip sits directly under the transparent title bar, which is the
+        // window's top safe-area inset, so a default colour background would
+        // climb through it to the window's top edge. Both grounds here — this
+        // one and the active cell's — stay inside their own frames (gating rule
+        // forty-seven).
+        .background(theme.color(.bgPanel), ignoresSafeAreaEdges: [])
     }
 }
 
@@ -93,7 +98,8 @@ private struct TabStripCell: View {
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
         .frame(maxHeight: .infinity)
-        .background(isActive ? theme.color(.bgEditor) : Color.clear)
+        // Confined to the cell's frame, as the strip's ground is (see there).
+        .background(isActive ? theme.color(.bgEditor) : Color.clear, ignoresSafeAreaEdges: [])
         .overlay(alignment: .bottom) {
             if isActive {
                 Rectangle()
