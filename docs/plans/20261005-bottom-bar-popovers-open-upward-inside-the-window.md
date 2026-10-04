@@ -464,17 +464,17 @@ the window is neither dimmed nor blocked.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS'
+- [x] Run `swift test`.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS'
   test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] Run `swiftlint --strict` from the repository root.
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
   -destination 'platform=macOS' -configuration Release build`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
   'generic/platform=iOS' build`. This confirms that the three new Core files
   (`PopoverPlacement.swift`, `PopoverSelection.swift`, `PopoverKeyRule.swift`) compile for
   iOS.
-- [ ] Confirm by grep that no `.popover(` remains in either switcher file, and that no
+- [x] Confirm by grep that no `.popover(` remains in either switcher file, and that no
   "system material" sentence about these popovers remains in code or docs.
 
 ## Post-Completion
