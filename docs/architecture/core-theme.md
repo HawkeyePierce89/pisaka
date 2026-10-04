@@ -611,55 +611,59 @@ disagree.
     they stay with `SyntaxTheme` for exactly the reason the syntax highlighting
     does, and `drawTokens`/`MinimapTokenizer` are untouched. Full entry in
     `app-editor-overlays.md`.
-  - **The language-server consent card** — `LSPConsentBanner.swift`, the
-    environment path. Part two first drew it as a full-width `bgPanel` strip
-    with a bottom rule; it is now the design's **Banner** component, drawn by one
-    shipped view, `LSPConsentCard`, that all three questions build and that
-    nothing else in the file bypasses. The design's values, as literals: a
-    `bgPanel` card in a rounded rectangle of radius 6 (`cornerRadiusMax`) under a
-    1-point `hairline` border (`hairlineWidth`, a `strokeBorder`), padded 14
-    vertically and 18 horizontally; inside, one vertically centred row — a
-    16-point `accent` icon, the text column 10 beyond it, then a spacer of at
-    least 16 and the actions at the trailing edge. The card sits in a full-width
-    **band on the editor's own ground**, `bgEditor`, inset 8 on every side, and
-    its border is what separates it from the editor below: the old bottom rule is
-    gone, and no `Divider()` replaces it (a divider is drawn in the *system's*
-    separator value and would disagree with the `hairline` rules beside it in
-    either appearance). The primary line is the body size (13) in
-    `textPrimary`; the optional secondary line — present only for the YAML
-    runtime-network note and the Go build's toolchain path — is the subheadline
-    size in `textSecondary` and wraps across the whole column; the icon is
-    `accent`. Every length goes through `metrics.scaled(_:)` and the icon's 16 is
-    the one design literal, sized on the `Image`'s own chain. The two actions are
-    the shared styles, as everywhere else in the chrome, 8 apart: the confirming
-    one `.chromePrimary` and the declining one `.chromeSecondary`, both at their
-    fitting width so they never wrap or truncate. The design draws its own
-    28-point accent button with a 12-point semibold label; the card keeps the
-    shared styles instead, the same known and accepted chrome-wide difference as
-    every other surface's buttons, because a one-off pair beside the styles
-    every other surface uses is itself the mixed look this sweep removes (the
-    strip's two private helpers went for that reason in the design pass); rule
-    thirty's caller sets name the file under both styles. The weight of the two
-    buttons is the only thing saying which is the offer, which is honest: both
-    answers are non-destructive and reversible from Preferences. No keyboard
-    shortcut is added — the reason in that file's own comment (a default button
-    in the main window takes Return before the first responder, so every newline
-    typed in the file behind the banner would start a download) still holds.
-    **The text column has `.layoutPriority(1)` over the spacer.** The strip's
-    column had none and shared the free width with the spacer, wrapping at about
-    half of what it could use. `LSPConsentCardLayoutTests` (the app-layer bundle)
-    pins the drawn contract off a bitmap at scales 1 and 1.8 — the `bgEditor`
-    band around the card, the `hairline` border at the scaled 8-point inset and
-    one hairline wide, the `bgPanel` interior, the rounded corner — and, at
-    scale 1, that the primary line keeps one line at a width derived from its
-    own measured ink and the primary button's measured edge, plus a guard that
-    the generous render is itself one line; and that a wrapped secondary line
-    reaches past three quarters of the column toward the actions. A hand mutation showed that removing
-    the priority alone does not fail it — the stack lays the spacer out after
-    the text either way, with or without a secondary line — while a
-    column capped short of the actions fails both width tests; the priority stays as the stated
-    intent and the suite pins the drawn outcome. Full entry in
-    `core-provisioning.md`.
+  - **The language-server consent bar** — `LSPConsentBanner.swift`, the
+    environment path, drawn by one shipped view, `LSPConsentBar`, that all three
+    questions build and that nothing else in the file bypasses. The values, as
+    literals: a **full-width** `bgPanel` ground, edge to edge, padded 14
+    vertically and 18 horizontally, with a 1-point `hairline` rule
+    (`hairlineWidth`, a filled `Rectangle`) along its bottom separating it from
+    the editor — exactly as the breadcrumb bar and the find bar end, and no
+    `Divider()` (a divider is drawn in the *system's* separator value and would
+    disagree with the `hairline` rules beside it in either appearance). Inside,
+    one vertically centred row — a 16-point `accent` icon, the text column 10
+    beyond it, then a spacer of at least 16 and the actions at the trailing
+    edge. No radius, no border, no inset band and no `bgEditor`.
+    **A deliberate deviation from the design's Banner component.** That
+    component is a bordered card with radius 6; an earlier pass drew it as such,
+    floating in an 8-point `bgEditor` band, and between two full-width bars with
+    bottom rules — the breadcrumb above, the editor below — it read on screen on
+    2026-10-04 as a misplaced block (the line-number gutter's overpaint, since
+    fixed in `LineNumberRulerView`, made its left edge look 48 points in as
+    well). The component's inner geometry is kept, and the card stays the
+    design's answer should a floating placement ever appear.
+    The primary line is the body size (13) in `textPrimary`; the optional
+    secondary line — present only for the YAML runtime-network note and the Go
+    build's toolchain path — is the subheadline size in `textSecondary` and
+    wraps across the whole column; the icon is `accent`. Every length goes
+    through `metrics.scaled(_:)` and the icon's 16 is the one design literal,
+    sized on the `Image`'s own chain. The two actions are the shared styles, as
+    everywhere else in the chrome, 8 apart: the confirming one `.chromePrimary`
+    and the declining one `.chromeSecondary`, both at their fitting width so
+    they never wrap or truncate. The design draws its own 28-point accent button
+    with a 12-point semibold label; the bar keeps the shared styles instead, the
+    same known and accepted chrome-wide difference as every other surface's
+    buttons, because a one-off pair beside the styles every other surface uses
+    is itself the mixed look this sweep removes (the strip's two private helpers
+    went for that reason in the design pass); rule thirty's caller sets name the
+    file under both styles. The weight of the two buttons is the only thing
+    saying which is the offer, which is honest: both answers are
+    non-destructive and reversible from Preferences. No keyboard shortcut is
+    added — the reason in that file's own comment (a default button in the main
+    window takes Return before the first responder, so every newline typed in
+    the file below the bar would start a download) still holds.
+    **The text column carries no layout priority**: a hand mutation showed a
+    raised priority on it changed nothing drawn, so it went, and the suite pins
+    the drawn width instead. `LSPConsentBarLayoutTests` (the
+    app-layer bundle) pins the drawn contract off a bitmap at scales 1 and 1.8 —
+    `bgPanel` half a point in from the top-leading corner (nothing is inset) and
+    at the middle, the bottom rule one scaled hairline tall with its `maxY` at
+    the scaled 14 + 28 + 14 plus that hairline, spanning the full width, and the
+    window's ground below it — and, at scale 1, that the primary line keeps one
+    line at a width derived from its own measured ink and the primary button's
+    measured edge, plus a guard that the generous render is itself one line; and
+    that a wrapped secondary line reaches past three quarters of the column
+    toward the actions. A column capped at 400 points fails both width tests.
+    Full entry in `core-provisioning.md`.
 
 #### Part three — the window's ground, the sidebar's host, the dock and the bottom bar
 
@@ -3281,7 +3285,7 @@ The forty-six rules, each invisible to the compiler:
     `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
     16-point icon column for alignment, not a size, so they are pinned as
     container-font glyphs and the row `HStack`'s body font is re-checked.
-    `LSPConsentBanner.swift` carries no exemption either: the consent card's
+    `LSPConsentBanner.swift` carries no exemption either: the consent bar's
     one glyph takes its own scaled font on its own chain.
     Part five (d)'s seven files add no exemption: every glyph they draw — the
     banner and message marks, the key and lock glyphs, the sort and paging

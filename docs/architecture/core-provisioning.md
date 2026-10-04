@@ -695,14 +695,14 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     already decided, so an unfinished one costs a diagnostic line, not correctness.
 
   - `LSPConsentBanner.swift` — the one place this app asks to download something
-    (D15). A non-modal card between the breadcrumb and the find bar, shown only
+    (D15). A non-modal bar between the breadcrumb and the find bar, shown only
     while `consentPrompt(forOpening:)` answers for the selected tab's language,
     so it holds no state of its own and cannot disagree with the Settings surface
     about whether the question is still open.
     **Two actions and no third way out**: no ✕, no "Later", no Esc. The banner
     disappears when consent stops being `unasked`, which happens only through
     Download or No Thanks — a dismiss would leave the answer `unasked` and bring
-    the card back on the next `.ts` file, which is how a prompt turns into
+    the bar back on the next `.ts` file, which is how a prompt turns into
     something people close without reading. Both answers are reversible from
     Preferences → Language Servers, which is what makes a forced choice fair.
     **Non-modal on purpose**: the file is open, editable and already answering
@@ -731,18 +731,20 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
     **Its chrome comes wholly from the colour roles** (`core-theme.md`), through
-    the SwiftUI environment path, and it is drawn as the design's **Banner card**:
-    one shipped view, `LSPConsentCard`, that all three questions build, so the
-    three cannot drift into three looks and the app-layer bitmap suite
-    (`LSPConsentCardLayoutTests`) renders exactly what ships. The card is a
-    `bgPanel` rounded rectangle at `cornerRadiusMax` under a one-`hairline`
-    border, padded 14/18, in a full-width `bgEditor` band inset 8 on every side;
-    its border is what separates it from the editor, so there is no bottom rule
-    and no `Divider()` (drawn in the *system's* separator value, which is not the
-    table's). Inside, one vertically centred row: an `accent` symbol, a text
-    column that takes all the width the actions leave (its `.layoutPriority(1)`
-    states the intent; the stack would lay the spacer out after the text without
-    it, so the bitmap suite pins the drawn outcome) — then the two actions. **The copy is one primary line**
+    the SwiftUI environment path, and it is drawn as a **full-width bar**: one
+    shipped view, `LSPConsentBar`, that all three questions build, so the three
+    cannot drift into three looks and the app-layer bitmap suite
+    (`LSPConsentBarLayoutTests`) renders exactly what ships. The bar is a
+    `bgPanel` ground edge to edge, padded 14 vertically and 18 horizontally,
+    with one scaled `hairline` rule along its bottom separating it from the
+    editor, as the breadcrumb and the find bar do — a filled `Rectangle`, never
+    a `Divider()` (drawn in the *system's* separator value, which is not the
+    table's). No radius, no border, no inset band: the design's bordered Banner
+    card read as a misplaced block between two full-width bars, so only its
+    inner geometry is kept (the deviation is recorded in `core-theme.md`).
+    Inside, one vertically centred row: an `accent` symbol, a text column that
+    reaches the actions — no layout priority, the bitmap suite pins the drawn
+    width — then the two actions. **The copy is one primary line**
     (`textPrimary`, body size) asking the question; a **secondary line**
     (`textSecondary`, subheadline size, wrapping across the whole column) appears
     only where a fact requires one: the runtime-network note, today YAML's, and
@@ -752,7 +754,7 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     semibold `onAccent` label, `secondaryButtonHeight` high at
     `buttonCornerRadius`) and the declining one `.chromeSecondary` (a `hairline`
     border around a `textPrimary` label, same geometry), both at their fitting
-    width, so the card carries no button look of its own; rule thirty pins the
+    width, so the bar carries no button look of its own; rule thirty pins the
     file among both styles' callers.
     The **weight of the two buttons is the only thing saying which is the offer**,
     which is honest here: neither answer is destructive and both are reversible
@@ -762,9 +764,9 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     sees it, so every newline typed in the file behind the banner would start a
     download and record consent for it. Both answers stay pointer-only, and
     `LSPSourceGatingTests` fails if the file's stripped code binds any key. Every
-    measurement goes through `metrics.scaled(_:)`, so the card grows with the
-    two chrome surfaces above it rather than staying a fixed band across a scaled
-    window.
+    measurement goes through `metrics.scaled(_:)`, so the bar grows with the
+    two chrome surfaces above it rather than staying a fixed strip across a
+    scaled window.
     **It prints `LSPConsentPrompt.runtimeNetworkNote` as the secondary line**
     under the question that carries the pending size, verbatim, when the prompt
     carries one. The
@@ -1537,7 +1539,7 @@ bundle pins instead:
   Foundation and nothing else and mention neither `Process` nor a platform
   framework. `SHA256` is in that sweep, so a later `import CryptoKit` fails here.
   One rule outside the split: `LSPConsentBanner.swift`'s comment- and
-  literal-stripped code carries no `keyboardShortcut`, so the consent card can
+  literal-stripped code carries no `keyboardShortcut`, so the consent bar can
   never turn Return in the editor into consent.
   A test file under `Tests/` is invisible to it, so the suite below adds no
   exception.

@@ -4,8 +4,8 @@ import PisakaCore
 
 /// The one place this app asks to acquire something (D15).
 ///
-/// A non-modal card between the breadcrumb and the editor — drawn by
-/// `LSPConsentCard` below — shown only while
+/// A non-modal bar between the breadcrumb and the editor — drawn by
+/// `LSPConsentBar` below — shown only while
 /// one of the three contributors' `consentPrompt(forOpening:)` answers for the
 /// selected tab's language. Everything about *when* it appears is those rules' —
 /// a provisionable language, consent still `unasked`, nothing installed or
@@ -13,7 +13,7 @@ import PisakaCore
 /// holds no state of its own and cannot disagree with the Settings surface about
 /// whether the question is still open.
 ///
-/// **Three questions, one card, and never more than one at once.** The three
+/// **Three questions, one bar, and never more than one at once.** The three
 /// contributors serve disjoint languages, so the branches cannot collide today;
 /// they are nonetheless ordered and stated to win in that order — the 2b
 /// downloads, then Go, then Rust, the order they were composed in and the order
@@ -25,7 +25,7 @@ import PisakaCore
 /// Esc-to-dismiss, and that is the deliberate half of "asked once": the banner
 /// disappears when the consent stops being `unasked`, which happens only through
 /// Download or No Thanks. A dismiss would leave the answer `unasked` and bring
-/// the card back on the next `.ts` file, which is how a prompt turns into
+/// the bar back on the next `.ts` file, which is how a prompt turns into
 /// something people close without reading. Neither answer is destructive and
 /// both are reversible from Preferences → Language Servers, which is what makes
 /// a forced choice reasonable here.
@@ -38,7 +38,7 @@ struct LSPConsentBanner: View {
     @ObservedObject var provisioning: LSPProvisioningModel
 
     /// The Go half. Observed for the same reason as `provisioning`: what makes
-    /// the card appear and disappear is a published change on the model, and
+    /// the bar appear and disappear is a published change on the model, and
     /// this view is the one place that reads it.
     @ObservedObject var gopls: LSPGoplsProvisioningModel
 
@@ -80,11 +80,11 @@ struct LSPConsentBanner: View {
         // empty case and so would never run.
         VStack(spacing: 0) {
             if let prompt {
-                downloadCard(prompt)
+                downloadBar(prompt)
             } else if let goPrompt {
-                goCard(goPrompt)
+                goBar(goPrompt)
             } else if let rustPrompt {
-                rustCard(rustPrompt)
+                rustBar(rustPrompt)
             }
         }
         // The silent half of D15, and the reason this modifier is here rather
@@ -166,12 +166,12 @@ struct LSPConsentBanner: View {
     /// once and never again, which is why the sentence has to be *here* rather
     /// than only in Preferences or the docs.
     ///
-    /// `accept` is unawaited: the install runs for minutes and the card must go
+    /// `accept` is unawaited: the install runs for minutes and the bar must go
     /// away the moment the answer is recorded, which `accept` does synchronously
     /// before its first hop. Progress is the Settings row's business, not this
-    /// card's.
-    private func downloadCard(_ prompt: LSPConsentPrompt) -> some View {
-        LSPConsentCard(
+    /// bar's.
+    private func downloadBar(_ prompt: LSPConsentPrompt) -> some View {
+        LSPConsentBar(
             symbolName: "arrow.down.circle",
             message: "Download the \(prompt.displayName) language server "
                 + "(\(Self.size(prompt.downloadByteCount))) for completion and Go to Definition?",
@@ -182,7 +182,7 @@ struct LSPConsentBanner: View {
         )
     }
 
-    /// The Go question: the same card, the same two actions and the same absence
+    /// The Go question: the same bar, the same two actions and the same absence
     /// of a dismiss, with the copy that says what actually happens (D20).
     ///
     /// **A hammer rather than a download arrow**, and no size, because there is no
@@ -201,11 +201,11 @@ struct LSPConsentBanner: View {
     /// would be a promise the install does not keep; "installed only inside
     /// Pisaka's own folder", beside the sentence about the caches, is what it does.
     ///
-    /// Unawaited for the download card's reason: the build runs for minutes while
-    /// the card must go away the moment the answer is recorded, which `accept`
+    /// Unawaited for the download bar's reason: the build runs for minutes while
+    /// the bar must go away the moment the answer is recorded, which `accept`
     /// does synchronously before its first hop.
-    private func goCard(_ prompt: LSPGoConsentPrompt) -> some View {
-        LSPConsentCard(
+    private func goBar(_ prompt: LSPGoConsentPrompt) -> some View {
+        LSPConsentBar(
             symbolName: "hammer",
             message: "Build \(prompt.displayName) \(prompt.version) with your own Go toolchain?",
             detail: "The build runs as your own “go install” would with the Go at "
@@ -217,7 +217,7 @@ struct LSPConsentBanner: View {
         )
     }
 
-    /// The Rust question: the download card's arrow and size, because it *is* a
+    /// The Rust question: the download bar's arrow and size, because it *is* a
     /// download, on one primary line and no secondary (D21/D24).
     ///
     /// **The size is shown**, unlike Go's, because accepting fetches a pinned
@@ -236,11 +236,11 @@ struct LSPConsentBanner: View {
     /// upstream ships — and a date is the one version string worth putting in
     /// front of someone before they agree to download it.
     ///
-    /// Unawaited for the other two cards' reason: `accept` records the answer
+    /// Unawaited for the other two bars' reason: `accept` records the answer
     /// before it suspends, and the row it publishes reads "installing…" from that
     /// same moment.
-    private func rustCard(_ prompt: LSPRustConsentPrompt) -> some View {
-        LSPConsentCard(
+    private func rustBar(_ prompt: LSPRustConsentPrompt) -> some View {
+        LSPConsentBar(
             symbolName: "arrow.down.circle",
             message: "Download \(prompt.displayName) \(prompt.version) "
                 + "(\(Self.size(prompt.downloadByteCount))) for completion and Go to Definition?",
@@ -262,41 +262,37 @@ struct LSPConsentBanner: View {
     }
 }
 
-/// One consent question, drawn as the design's Banner card in its inset band —
-/// the only thing that draws a question, so the three cannot drift into three
-/// looks, and the very view the app-layer bitmap suite renders, so what it pins
-/// is what ships.
+/// One consent question, drawn as a full-width bar between the breadcrumb and
+/// the editor — the only thing that draws a question, so the three cannot drift
+/// into three looks, and the very view the app-layer bitmap suite renders, so
+/// what it pins is what ships.
 ///
-/// **The band** is full width on the editor's own ground, `bgEditor`, with an
-/// 8-point inset on every side; the card's hairline border is what separates it
-/// from the editor below, so there is no bottom rule and no `Divider()` — a
-/// divider is drawn in the *system's* separator value, which is not the table's.
+/// **The bar** runs edge to edge on the panel ground, `bgPanel`, padded 14
+/// vertically and 18 horizontally, with one scaled `hairline` rule along its
+/// bottom separating it from the editor — the way the breadcrumb bar and the
+/// find bar end. The rule is a `Rectangle` filled with the role rather than a
+/// `Divider()`, which is drawn in the *system's* separator value, not the
+/// table's.
 ///
-/// **The card** is the panel ground in a rounded rectangle of the largest chrome
-/// radius under a one-hairline border, padded 14 vertically and 18 horizontally:
-/// a 16-point accent icon, the text column 10 beyond it, then the actions pushed
-/// to the trailing edge at least 16 away, every item vertically centred.
-///
-/// **The text column takes all the width the actions leave**, rather than
-/// sharing it with the spacer and wrapping at half of what it could use. Its
-/// `.layoutPriority(1)` states that intent; a hand mutation showed the stack
-/// lays the spacer out after the text without it, so the bitmap suite pins the
-/// drawn outcome rather than the modifier. The primary line is the body size in
-/// `textPrimary`; the optional secondary line is the subheadline size in
-/// `textSecondary` and wraps across the whole column. The buttons keep their
-/// fitting width, so they never wrap or truncate.
+/// **The row** keeps the design's Banner geometry: a 16-point accent icon, the
+/// text column 10 beyond it, then the actions pushed to the trailing edge at
+/// least 16 away, every item vertically centred. The primary line is the body
+/// size in `textPrimary`; the optional secondary line is the subheadline size
+/// in `textSecondary` and wraps across the whole column. The buttons keep their
+/// fitting width, so they never wrap or truncate, and the text column reaches
+/// them — the bitmap suite pins that drawn width.
 ///
 /// **The actions** are the shared `.chromePrimary` (the offer) and
 /// `.chromeSecondary` (the refusal) styles, 8 apart — the one primary and one
-/// secondary button every chrome surface draws — so the card carries no button
+/// secondary button every chrome surface draws — so the bar carries no button
 /// look of its own to drift from theirs.
 ///
-/// **No `.keyboardShortcut(.defaultAction)`**, deliberately. The card lives in
+/// **No `.keyboardShortcut(.defaultAction)`**, deliberately. The bar lives in
 /// the main editor window, not in a sheet: a default button there takes Return
 /// through the window's key-equivalent pass *before* the first responder ever
-/// sees it, so every newline typed in the file behind the card would start a
+/// sees it, so every newline typed in the file below the bar would start a
 /// download and record consent for it. Both answers stay pointer-only.
-struct LSPConsentCard: View {
+struct LSPConsentBar: View {
     let symbolName: String
     /// The primary line: the question itself, short enough for one line.
     let message: String
@@ -307,63 +303,58 @@ struct LSPConsentCard: View {
     let onDecline: () -> Void
 
     /// The interface zone's metrics, inherited from `ContentView`'s root — the
-    /// card sits between the breadcrumb and the editor and is chrome like both,
-    /// so it grows with them rather than staying a fixed band across a scaled
+    /// bar sits between the breadcrumb and the editor and is chrome like both,
+    /// so it grows with them rather than staying a fixed strip across a scaled
     /// window.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The chrome's colours, inherited from the same root, so the band, the
-    /// card, its border and its text take the roles rather than whatever the
-    /// system happens to call a control background.
+    /// The chrome's colours, inherited from the same root, so the ground, the
+    /// rule and the text take the roles rather than whatever the system happens
+    /// to call a control background.
     @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax))
-        HStack(alignment: .center, spacing: 0) {
-            // The design's 16-point icon, sized on its own chain through the
-            // metrics: the message has no container font, which would be a size
-            // nothing but this glyph uses.
-            Image(systemName: symbolName)
-                .font(.system(size: metrics.scaled(16)))
-                .foregroundStyle(theme.color(.accent))
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                // The design's 16-point icon, sized on its own chain through the
+                // metrics: the message has no container font, which would be a
+                // size nothing but this glyph uses.
+                Image(systemName: symbolName)
+                    .font(.system(size: metrics.scaled(16)))
+                    .foregroundStyle(theme.color(.accent))
 
-            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                Text(message)
-                    .font(metrics.scaledFont(.body))
-                    .foregroundStyle(theme.color(.textPrimary))
-                if let detail {
-                    Text(detail)
-                        .font(metrics.scaledFont(.subheadline))
-                        .foregroundStyle(theme.color(.textSecondary))
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: metrics.scaled(2)) {
+                    Text(message)
+                        .font(metrics.scaledFont(.body))
+                        .foregroundStyle(theme.color(.textPrimary))
+                    if let detail {
+                        Text(detail)
+                            .font(metrics.scaledFont(.subheadline))
+                            .foregroundStyle(theme.color(.textSecondary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-            }
-            .padding(.leading, metrics.scaled(10))
-            .layoutPriority(1)
+                .padding(.leading, metrics.scaled(10))
 
-            Spacer(minLength: metrics.scaled(16))
+                Spacer(minLength: metrics.scaled(16))
 
-            HStack(spacing: metrics.scaled(8)) {
-                Button(confirmTitle, action: onConfirm)
-                    .buttonStyle(.chromePrimary)
-                Button("No Thanks", action: onDecline)
-                    .buttonStyle(.chromeSecondary)
+                HStack(spacing: metrics.scaled(8)) {
+                    Button(confirmTitle, action: onConfirm)
+                        .buttonStyle(.chromePrimary)
+                    Button("No Thanks", action: onDecline)
+                        .buttonStyle(.chromeSecondary)
+                }
+                .fixedSize()
             }
-            .fixedSize()
+            .padding(.vertical, metrics.scaled(14))
+            .padding(.horizontal, metrics.scaled(18))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
-        .padding(.vertical, metrics.scaled(14))
-        .padding(.horizontal, metrics.scaled(18))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(shape.fill(theme.color(.bgPanel)))
-        .overlay(
-            shape.strokeBorder(
-                theme.color(.hairline),
-                lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
-            )
-        )
-        .padding(metrics.scaled(8))
-        .frame(maxWidth: .infinity)
-        .background(theme.color(.bgEditor))
+        .background(theme.color(.bgPanel))
     }
 }
 

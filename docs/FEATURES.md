@@ -494,7 +494,7 @@ user sees it.
   no stall. Quitting the app stops every server it started.
 - Semantic code intelligence for **TypeScript / JavaScript, Python and YAML**
   (macOS), if you want it. These servers are not bundled — the app offers to download them,
-  once, the first time you open a file of that kind: a card above the editor names
+  once, the first time you open a file of that kind: a bar above the editor names
   the server and its size, with **Download** and **No Thanks** and nothing else.
   Nothing is fetched until you press Download, and nothing is fetched again if you
   don't.

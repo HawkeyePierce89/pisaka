@@ -28,7 +28,7 @@ import XCTest
 /// rewording the documentation to appease a test — is the wrong direction
 /// entirely. String literals are stripped for the same reason.
 ///
-/// **One rule is not about the platform split**: the consent card binds no
+/// **One rule is not about the platform split**: the consent bar binds no
 /// keyboard shortcut, a property no build and no bitmap can see.
 final class LSPSourceGatingTests: XCTestCase {
     /// The app-side files that must exist and must be macOS-gated. Named
@@ -151,17 +151,17 @@ final class LSPSourceGatingTests: XCTestCase {
         )
     }
 
-    /// The consent card binds no key, so both answers stay pointer-only. The
-    /// card lives in the main editor window, where a `.defaultAction` button
+    /// The consent bar binds no key, so both answers stay pointer-only. The
+    /// bar lives in the main editor window, where a `.defaultAction` button
     /// takes Return before the first responder sees it — every newline typed in
-    /// the file behind the card would start a download and record consent. The
-    /// three questions share one card, so one added line would reach all three,
+    /// the file below the bar would start a download and record consent. The
+    /// three questions share one bar, so one added line would reach all three,
     /// and no rendered bitmap can see a key binding. Matched on stripped text,
-    /// because the card's own doc comment names the modifier it refuses.
-    func testTheConsentCardBindsNoKeyboardShortcut() throws {
+    /// because the bar's own doc comment names the modifier it refuses.
+    func testTheConsentBarBindsNoKeyboardShortcut() throws {
         let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/LSPConsentBanner.swift")
         let code = Self.strippingCommentsAndStringLiterals(try read(url))
-        XCTAssertTrue(code.contains("struct LSPConsentCard"), "the consent card moved; the rule checks nothing")
+        XCTAssertTrue(code.contains("struct LSPConsentBar"), "the consent bar moved; the rule checks nothing")
         XCTAssertFalse(
             code.contains("keyboardShortcut"),
             "LSPConsentBanner.swift binds a key; a default button there turns Return in the editor into consent"

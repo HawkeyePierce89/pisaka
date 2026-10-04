@@ -130,7 +130,7 @@ window per rendered state, many pixels read per bitmap.
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/core-provisioning.md`, `docs/architecture/app-window.md`, `docs/FEATURES.md`
 
-- [ ] Rename `LSPConsentCard` to `LSPConsentBar` and redraw it: full width on
+- [x] Rename `LSPConsentCard` to `LSPConsentBar` and redraw it: full width on
       a `bgPanel` ground, padding `metrics.scaled(14)` vertical and
       `metrics.scaled(18)` horizontal, a `hairline` `Rectangle` of height
       `metrics.scaled(ChromeGeometry.hairlineWidth)` along the bottom (never a
@@ -140,13 +140,13 @@ window per rendered state, many pixels read per bitmap.
       text column, the body-size primary line and the optional subheadline-size
       secondary line, a spacer of at least 16, the two shared-style buttons 8
       apart at their fitting width.
-- [ ] Remove `.layoutPriority(1)`. Rewrite the view's doc comment and every
+- [x] Remove `.layoutPriority(1)`. Rewrite the view's doc comment and every
       comment in the file that speaks of a card, a band, a border, a radius,
       or of the text column sharing width with the spacer; keep the reasons
       that still hold (no `Divider()`, no `.keyboardShortcut`, the shared
       styles, the copy's reasons). The banner's own header says "bar" where it
       said "card".
-- [ ] Rename the suite to `LSPConsentBarLayoutTests` and re-aim it. At scales
+- [x] Rename the suite to `LSPConsentBarLayoutTests` and re-aim it. At scales
       1 and 1.8: the pixel half a point in from the window's top-leading corner
       is `bgPanel` (nothing is inset); the bar's ground at the window's
       horizontal middle is `bgPanel`; a column through the leading padding
@@ -161,11 +161,11 @@ window per rendered state, many pixels read per bitmap.
       border. Rewrite the suite's doc comment: the bar's geometry, how each
       value is measured, and the mutation record — a column capped at 400
       points fails both width tests; no sentence about a layout priority.
-- [ ] Mutation check, by hand and never committed: cap the text column at 400
+- [x] Mutation check, by hand and never committed: cap the text column at 400
       points and confirm both width tests fail; restore.
-- [ ] `LSPSourceGatingTests`: the keyboard-shortcut rule's anchor becomes
+- [x] `LSPSourceGatingTests`: the keyboard-shortcut rule's anchor becomes
       `struct LSPConsentBar`, its test and doc sentences say "bar".
-- [ ] `core-theme.md`, the consent entry: rewrite for the bar and record the
+- [x] `core-theme.md`, the consent entry: rewrite for the bar and record the
       deviation from the design's Banner component as deliberate — the
       component is a bordered card with radius 6, and between two full-width
       bars with bottom rules it read as a misplaced block on screen on
@@ -177,7 +177,7 @@ window per rendered state, many pixels read per bitmap.
       the renamed suite. `app-window.md` and `docs/FEATURES.md`: "bar" where
       they say "card". The archived plan under `docs/plans/completed/` is
       history and is not edited.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`; all
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`; all
       must pass.
 
 ### Task 3: Gates and the diff read
