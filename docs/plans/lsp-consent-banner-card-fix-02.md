@@ -113,8 +113,8 @@ test, many pixels read per bitmap, no window.
 
 **Files:** none new.
 
-- [ ] Run all four validation commands; record the counts in the commit message.
-- [ ] `git diff master...HEAD --stat` and read the diff of `LineNumberRulerView.swift`
+- [x] Run all four validation commands; record the counts in the commit message.
+- [x] `git diff master...HEAD --stat` and read the diff of `LineNumberRulerView.swift`
       and the two test files once more against the overview above: no stray change,
       no product or brand name, every comment truthful about what is now pinned.
-- [ ] Commit if anything changed.
+- [x] Commit if anything changed.
