@@ -39,10 +39,17 @@ import PisakaCore
 /// a column capped short of the actions would wrap both renders alike and the
 /// comparison would hold vacuously.
 ///
-/// **What mutation showed.** A column capped at 400 points fails the suite. The
-/// column's `.layoutPriority(1)` removed — or turned to -1 — does *not*: the
-/// stack lays the spacer out after the text either way, so the line kept its
-/// one line at the derived width, with and without a secondary line. The
+/// **How the secondary line is measured.** A one-word primary line over a
+/// secondary line long enough to wrap, checked to have wrapped against a card
+/// whose secondary line is one word. The widest ink left of the primary button
+/// across the interior rows is then the secondary line's, and it must reach
+/// past three quarters of the column — the column's own end less at most one
+/// ordinary word — where a line wrapping at half the column would stop short.
+///
+/// **What mutation showed.** A column capped at 400 points fails both width
+/// tests. The column's `.layoutPriority(1)` removed — or turned to -1 — does
+/// *not*: the stack lays the spacer out after the text either way, so the line
+/// kept its one line at the derived width, with and without a secondary line. The
 /// priority stays as the stated intent; what this suite pins is the drawn
 /// outcome, not that one modifier.
 ///
@@ -127,6 +134,63 @@ final class LSPConsentCardLayoutTests: XCTestCase {
         )
     }
 
+    func testTheSecondaryLineWrapsAcrossTheWholeTextColumn() throws {
+        let metrics = InterfaceMetrics(scale: 1)
+        let width = metrics.scaled(1_100)
+        // A one-word primary line, so the widest ink left of the actions is
+        // the secondary line's; ordinary words, so its ragged edge is at most
+        // one word short of the column's end.
+        let longDetail = Array(repeating: "Built with your own toolchain into a folder of its own.", count: 8)
+            .joined(separator: " ")
+        let wrapped = try render(width: width, metrics: metrics, message: "Download?", detail: longDetail)
+        let wrappedCard = try cardExtent(wrapped, metrics: metrics)
+        let short = try render(width: width, metrics: metrics, message: "Download?", detail: "Built.")
+        let shortCard = try cardExtent(short, metrics: metrics)
+        XCTAssertGreaterThan(
+            wrappedCard.maxY - wrappedCard.minY, shortCard.maxY - shortCard.minY + metrics.scaled(8),
+            "the long secondary line did not wrap, so the measurement below would hold vacuously"
+        )
+
+        let step = 1 / wrapped.pixelScale
+        let hairline = metrics.scaled(ChromeGeometry.hairlineWidth)
+        let rows = Array(stride(
+            from: wrappedCard.minY + hairline + step, to: wrappedCard.maxY - hairline - step, by: step
+        ))
+        var buttonEdge = width
+        for y in rows {
+            var x = width / 2
+            while x < buttonEdge {
+                if wrapped.matches(.accent, atX: x, y: y) {
+                    buttonEdge = x
+                    break
+                }
+                x += step
+            }
+        }
+        XCTAssertLessThan(buttonEdge, width, "no primary button was drawn")
+        var lineEdge: CGFloat = 0
+        for y in rows {
+            var x = buttonEdge - step
+            while x > lineEdge {
+                if !wrapped.matches(.bgPanel, atX: x, y: y) {
+                    lineEdge = x + step
+                    break
+                }
+                x -= step
+            }
+        }
+
+        // The column runs from past the inset, border, padding, icon and gap to
+        // the spacer's 16-point minimum before the actions. A line wrapping at
+        // half of it — the strip's defect — ends far short of three quarters.
+        let columnStart = metrics.scaled(8) + hairline + metrics.scaled(18 + 16 + 10)
+        let columnEnd = buttonEdge - metrics.scaled(16)
+        XCTAssertGreaterThan(
+            lineEdge, columnStart + (columnEnd - columnStart) * 0.75,
+            "the secondary line wraps at \(lineEdge) points, short of a column ending at \(columnEnd)"
+        )
+    }
+
     private func assertBandAndCard(scale: Double, file: StaticString = #filePath, line: UInt = #line) throws {
         let metrics = InterfaceMetrics(scale: scale)
         let width = metrics.scaled(900)
@@ -185,17 +249,20 @@ final class LSPConsentCardLayoutTests: XCTestCase {
         )
     }
 
-    /// The card with the download arrow, the primary line, no secondary line
-    /// and no-op actions, pinned to the top of a window taller than its band.
+    /// The card with the download arrow, the primary line, the secondary line
+    /// when one is given and no-op actions, pinned to the top of a window taller than its band.
     private func render(
-        width: CGFloat, metrics: InterfaceMetrics, message: String = LSPConsentCardLayoutTests.message
+        width: CGFloat,
+        metrics: InterfaceMetrics,
+        message: String = LSPConsentCardLayoutTests.message,
+        detail: String? = nil
     ) throws -> HostedRender {
         let render = try HostedRender(
             size: CGSize(width: width, height: metrics.scaled(200)),
             root: LSPConsentCard(
                 symbolName: "arrow.down.circle",
                 message: message,
-                detail: nil,
+                detail: detail,
                 confirmTitle: "Download",
                 onConfirm: {},
                 onDecline: {}

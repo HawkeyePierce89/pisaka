@@ -39,12 +39,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on something that could not demonstrate itself). The three contributors serve
     disjoint languages, so the branches cannot collide today; the precedence is
     nonetheless stated as **2b → Go → Rust** (the composition order, and the order
-    the Settings tab lists them), because a strip that asked two questions at once
+    the Settings tab lists them), because a card that asked two questions at once
     would be a worse thing to discover than an arbitrary order.
     `gopls: LSPGoplsProvisioningModel` and `rust: LSPRustProvisioningModel` are
     threaded in beside `provisioning` and, like it, are **not** observed by
     `ContentView` — the banner observes all three itself, so an install's state
-    changes redraw the strip and not the window. The same
+    changes redraw the card and not the window. The same
     keyed view is where an *already accepted* server is installed on first use, so
     both halves of "what happens when this file is opened" stay in one place; the
     Go and Rust halves of that await discovery rather than reading it, since each

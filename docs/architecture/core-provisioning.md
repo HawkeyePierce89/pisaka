@@ -740,8 +740,9 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     its border is what separates it from the editor, so there is no bottom rule
     and no `Divider()` (drawn in the *system's* separator value, which is not the
     table's). Inside, one vertically centred row: an `accent` symbol, a text
-    column with layout priority over the spacer — so it takes all the width the
-    actions leave — then the two actions. **The copy is one primary line**
+    column that takes all the width the actions leave (its `.layoutPriority(1)`
+    states the intent; the stack would lay the spacer out after the text without
+    it, so the bitmap suite pins the drawn outcome) — then the two actions. **The copy is one primary line**
     (`textPrimary`, body size) asking the question; a **secondary line**
     (`textSecondary`, subheadline size, wrapping across the whole column) appears
     only where a fact requires one: the runtime-network note, today YAML's, and
@@ -759,7 +760,8 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     that file holds unchanged: a `.defaultAction` in the main editor window takes
     Return through the window's key-equivalent pass before the first responder
     sees it, so every newline typed in the file behind the banner would start a
-    download and record consent for it. Both answers stay pointer-only. Every
+    download and record consent for it. Both answers stay pointer-only, and
+    `LSPSourceGatingTests` fails if the file's stripped code binds any key. Every
     measurement goes through `metrics.scaled(_:)`, so the card grows with the
     two chrome surfaces above it rather than staying a fixed band across a scaled
     window.
@@ -1534,6 +1536,9 @@ bundle pins instead:
   the app-side files open with `#if os(macOS)`, the Core-side ones import
   Foundation and nothing else and mention neither `Process` nor a platform
   framework. `SHA256` is in that sweep, so a later `import CryptoKit` fails here.
+  One rule outside the split: `LSPConsentBanner.swift`'s comment- and
+  literal-stripped code carries no `keyboardShortcut`, so the consent card can
+  never turn Return in the editor into consent.
   A test file under `Tests/` is invisible to it, so the suite below adds no
   exception.
 

@@ -277,9 +277,11 @@ struct LSPConsentBanner: View {
 /// a 16-point accent icon, the text column 10 beyond it, then the actions pushed
 /// to the trailing edge at least 16 away, every item vertically centred.
 ///
-/// **The text column has layout priority over the spacer**, so it takes all the
-/// width the actions leave rather than sharing it with the spacer and wrapping
-/// at half of what it could use. The primary line is the body size in
+/// **The text column takes all the width the actions leave**, rather than
+/// sharing it with the spacer and wrapping at half of what it could use. Its
+/// `.layoutPriority(1)` states that intent; a hand mutation showed the stack
+/// lays the spacer out after the text without it, so the bitmap suite pins the
+/// drawn outcome rather than the modifier. The primary line is the body size in
 /// `textPrimary`; the optional secondary line is the subheadline size in
 /// `textSecondary` and wraps across the whole column. The buttons keep their
 /// fitting width, so they never wrap or truncate.

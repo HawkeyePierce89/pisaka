@@ -653,10 +653,11 @@ disagree.
     one hairline wide, the `bgPanel` interior, the rounded corner — and, at
     scale 1, that the primary line keeps one line at a width derived from its
     own measured ink and the primary button's measured edge, plus a guard that
-    the generous render is itself one line. A hand mutation showed that removing
+    the generous render is itself one line; and that a wrapped secondary line
+    reaches past three quarters of the column toward the actions. A hand mutation showed that removing
     the priority alone does not fail it — the stack lays the spacer out after
-    the text either way, now that the strip's long second line is gone — while a
-    column capped short of the actions does; the priority stays as the stated
+    the text either way, with or without a secondary line — while a
+    column capped short of the actions fails both width tests; the priority stays as the stated
     intent and the suite pins the drawn outcome. Full entry in
     `core-provisioning.md`.
 
