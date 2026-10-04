@@ -138,11 +138,11 @@ This plan makes those two changes, pins each one so it cannot quietly come back,
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run `swift test`: green.
-- [ ] Run the app-layer bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`. Green.
-- [ ] Run `swiftlint --strict` from the repository root: clean.
-- [ ] Run the macOS Release build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`. It must succeed.
-- [ ] Confirm the hand mutations from Tasks 1 and 2 were all reverted (`git diff` shows only the intended changes).
+- [x] Run `swift test`: green.
+- [x] Run the app-layer bundle: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`. Green.
+- [x] Run `swiftlint --strict` from the repository root: clean.
+- [x] Run the macOS Release build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`. It must succeed.
+- [x] Confirm the hand mutations from Tasks 1 and 2 were all reverted (`git diff` shows only the intended changes).
 
 ### Task 5: Update documentation
 
