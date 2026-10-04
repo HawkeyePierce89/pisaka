@@ -106,9 +106,9 @@ never committed. The work stays on the current branch; never create a new branch
 
 **Files:** none new.
 
-- [ ] Run all four validation commands; record the counts in the commit message.
-- [ ] `git diff 290f24a3..HEAD --stat` and read the diff of `TabStripView.swift`
+- [x] Run all four validation commands; record the counts in the commit message.
+- [x] `git diff 290f24a3..HEAD --stat` and read the diff of `TabStripView.swift`
       and the gating suite once more against the overview: no stray change, no product
       or brand name, every comment truthful about what is now pinned, `CLAUDE.md`
       unchanged.
-- [ ] Commit if anything changed.
+- [x] Commit if anything changed.
