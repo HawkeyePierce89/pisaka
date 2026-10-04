@@ -52,10 +52,11 @@ final class ChromePopoverPresenter: ObservableObject {
     static let coordinateSpace = "pisaka.chromePopoverRoot"
 
     /// The open submenu: the row it hangs from, that row's top edge, its rows
-    /// and its own selection.
+    /// and its own selection. The top follows the row: a resize or a popover
+    /// height change that moves the row moves the submenu with it.
     struct Submenu {
         let anchorRowID: String
-        let anchorRowTop: CGFloat
+        var anchorRowTop: CGFloat
         let rows: [ChromePopoverSubmenuRow]
         var selection: PopoverSelection
     }
@@ -220,6 +221,9 @@ final class ChromePopoverPresenter: ObservableObject {
 
     func noteRowTop(_ top: CGFloat, for id: String) {
         rowTops[id] = top
+        if submenu?.anchorRowID == id, submenu?.anchorRowTop != top {
+            submenu?.anchorRowTop = top
+        }
     }
 
     func attachRootView(_ view: NSView) {

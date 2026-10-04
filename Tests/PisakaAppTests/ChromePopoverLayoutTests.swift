@@ -12,7 +12,9 @@ import PisakaCore
 /// **Five renders, five windows, and no more.** The branch popover is rendered
 /// once at interface scale 1.0 and once at 1.8, the project popover the same,
 /// and the branch popover once more under a cap shorter than its content; every
-/// measurement in a case is read off that case's one bitmap. There is
+/// measurement in a case is read off that case's one bitmap. One more case is
+/// no render at all: an unwindowed hosting view's fitting size, for a cap
+/// shorter than the fixed slots alone. There is
 /// no render per row and no screen-recording API; the colour swatches are
 /// `HostedRender`'s, cached per role for the life of the process.
 ///
@@ -91,6 +93,23 @@ final class ChromePopoverLayoutTests: XCTestCase {
             headRule.minY - selected.maxY, 4, accuracy: render.tolerance,
             "the Head gave up its bottom padding under the cap"
         )
+    }
+
+    /// Under a cap shorter than the Head and Foot alone — a long wrapping error,
+    /// a short window — the container still never exceeds the cap: the fixed
+    /// slots give up height too rather than push the popover outside the window.
+    func testTheContainerNeverExceedsACapShorterThanItsFixedSlots() {
+        let cap: CGFloat = 60
+        let popover = ChromePopover(
+            maxHeight: cap,
+            head: { Color.clear.frame(height: 50) },
+            list: { Color.clear.frame(height: 100) },
+            foot: Color.clear.frame(height: 50)
+        )
+        .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
+        .environment(\.chromeTheme, ChromeTheme(.dark))
+        let host = NSHostingView(rootView: popover)
+        XCTAssertEqual(host.fittingSize.height, cap, accuracy: 0.5, "the fixed slots pushed the container past its cap")
     }
 
     func testTheProjectRowDrawsItsHeight() throws {

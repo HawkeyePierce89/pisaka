@@ -127,6 +127,27 @@ final class ChromePopoverPresenterTests: XCTestCase {
         XCTAssertNil(presenter.submenu)
     }
 
+    /// The open submenu follows its anchor row: a resize or a popover height
+    /// change that moves the row moves the submenu, and another row's move
+    /// leaves it where it is.
+    func testOpenSubmenuFollowsItsAnchorRow() {
+        let presenter = ChromePopoverPresenter()
+        presenter.present(id: "branch", anchor: .zero, content: emptyContent)
+        presenter.setRows([
+            ChromePopoverRowAction(id: "local", activate: {}),
+            ChromePopoverRowAction(id: "remote", activate: {}, submenu: [
+                ChromePopoverSubmenuRow(id: "checkout", title: "Checkout", activate: {}),
+            ]),
+        ])
+        presenter.noteRowTop(100, for: "remote")
+        presenter.openSubmenu(for: "remote")
+        XCTAssertEqual(presenter.submenu?.anchorRowTop, 100)
+        presenter.noteRowTop(160, for: "remote")
+        XCTAssertEqual(presenter.submenu?.anchorRowTop, 160, "the submenu stayed at the row's old top")
+        presenter.noteRowTop(20, for: "local")
+        XCTAssertEqual(presenter.submenu?.anchorRowTop, 160, "another row's move moved the submenu")
+    }
+
     func testEscapeDismissesWithNoSubmenu() {
         let presenter = ChromePopoverPresenter()
         presenter.present(id: "project", anchor: .zero, content: emptyContent)

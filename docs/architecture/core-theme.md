@@ -2549,7 +2549,12 @@ the host hands in — the placement's available height, already capped at
 hug (the frame takes the proposal and a `ScrollView` is greedy), so a small
 layout reports the hugging height and gives the List alone whatever the fixed
 slots leave, the List being a `ViewThatFits` over its plain rows and the same
-rows in a `ScrollView`. While it scrolls, the List keeps the keyboard
+rows in a `ScrollView`. **The summed height never exceeds `maxHeight`**, even
+when the fixed slots alone would: they take their ideal in display order, each
+capped by what the slots before it left (a long wrapping error in the Foot, or
+a window too short for the Head and Foot together, is cut by the container's
+clip rather than drawn outside the window), and the List takes what remains.
+While it scrolls, the List keeps the keyboard
 selection in view: the caller hands the selected row's id to
 `scrolling(to:)`, and every registered row carries its id through
 `chromePopoverRowAnchor`. The pieces, every literal a token scaled at the use
@@ -2599,7 +2604,10 @@ their frames in it, and the host asks `PopoverPlacement.popover(...)` with
 content bottom-leading at the answer with the available height as its
 `maxHeight`. An open submenu is a Head-less `ChromePopover` of two rows, its
 height known from the row tokens and the List padding, placed by
-`PopoverPlacement.submenu(...)` with `popoverSubmenuGap` scaled. Only the
+`PopoverPlacement.submenu(...)` with `popoverSubmenuGap` scaled. Its anchor
+row's top is **live**: a row-top report for the row the open submenu hangs from
+updates the submenu, so a resize or a popover height change that moves the row
+moves the submenu with it. Only the
 drawn surfaces hit-test; the root's AppKit stand-in (flipped, `hitTest` →
 `nil`) only supplies the window and converts an event's point.
 
@@ -2647,13 +2655,16 @@ replacement leaving no old rows, selection or submenu, the selection and
 submenu wiring, activation dismissing first, both popovers' row registration
 and every row's callback, the branch rows registering again when branches
 arrive and when HEAD alone moves, the focus hand-back, and the host reporting
-the submenu's frame where it draws it (the frame the mouse monitor reads);
+the submenu's frame where it draws it (the frame the mouse monitor reads) and
+following its anchor row when the row moves;
 `ChromePopoverLayoutTests` renders the branch popover (with its Foot) and the
 project popover at scale 1.0 and 1.8, plus the branch popover once under a cap
 shorter than its content — five renders, five windows — and measures the
 capped container's height with both rules still drawn, and the 300-point width between the stroke columns, the
 field block's 8-point padding above and below, the 28- and 36-point selected
-grounds, the 1-point Head and Foot rules, and the section header's height.
+grounds, the 1-point Head and Foot rules, and the section header's height. One
+unwindowed fitting-size check, outside the five, holds the container at its cap
+when the Head and Foot alone are taller than it.
 
 #### The bottom bar's caret readout
 

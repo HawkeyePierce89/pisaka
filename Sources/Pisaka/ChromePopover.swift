@@ -176,20 +176,26 @@ private struct ChromePopoverStack: Layout {
         }
     }
 
-    /// Each subview's height: fixed slots at their ideal, the List at its ideal
-    /// capped by what the fixed slots leave under `maxHeight`, never negative.
+    /// Each subview's height, summing to no more than `maxHeight`: the fixed
+    /// slots at their ideal in display order, each capped by what the slots
+    /// before it left — so a wrapping Foot or a cap shorter than the fixed slots
+    /// alone still never overflows — and the List at its ideal capped by what
+    /// the fixed slots leave, never negative.
     private func rowHeights(width: CGFloat, subviews: Subviews) -> [CGFloat] {
         let ideal = subviews.map {
             $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
         }
-        let fixed = zip(subviews, ideal)
-            .filter { !$0.0[ChromePopoverListSlot.self] }
-            .map(\.1)
-            .reduce(0, +)
-        let room = max(0, maxHeight - fixed)
-        return zip(subviews, ideal).map { subview, height in
-            subview[ChromePopoverListSlot.self] ? min(height, room) : height
+        var room = max(0, maxHeight)
+        var heights = ideal
+        for index in subviews.indices where !subviews[index][ChromePopoverListSlot.self] {
+            heights[index] = min(ideal[index], room)
+            room -= heights[index]
         }
+        for index in subviews.indices where subviews[index][ChromePopoverListSlot.self] {
+            heights[index] = min(ideal[index], room)
+            room -= heights[index]
+        }
+        return heights
     }
 }
 
