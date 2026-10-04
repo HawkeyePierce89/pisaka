@@ -175,21 +175,21 @@ The Problems panel and the window title do not change.
 
 ### Task 3: Verify acceptance criteria and the four gates
 
-- [ ] Run `swift test`; it must pass.
-- [ ] Run `swiftlint lint --strict` from the repository root; it must be clean.
-- [ ] Run `xcodegen generate`, then
+- [x] Run `swift test`; it must pass.
+- [x] Run `swiftlint lint --strict` from the repository root; it must be clean.
+- [x] Run `xcodegen generate`, then
   `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`;
   it must pass.
-- [ ] Run
+- [x] Run
   `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`;
   it must succeed.
-- [ ] Check that the tests pin each acceptance criterion:
+- [x] Check that the tests pin each acceptance criterion:
   - `project`-rooted files read with the root's name first, at the root and nested.
   - Outside-root, `~`, absolute and `Untitled` answers are unchanged.
   - A root opened through a symlink leads with the symlink's name.
   - Every changed expectation's test name says what it asserts.
   - The deviation, with its date and reason, is in `core-workspace.md`.
-- [ ] Read `git diff` over the branch's new commits and confirm:
+- [x] Read `git diff` over the branch's new commits and confirm:
   - No file outside the lists above changed.
   - No brand or product names were added.
   - `PisakaCore` gained no imports.
