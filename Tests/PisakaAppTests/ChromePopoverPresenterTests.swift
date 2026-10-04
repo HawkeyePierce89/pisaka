@@ -110,5 +110,67 @@ final class ChromePopoverPresenterTests: XCTestCase {
         XCTAssertTrue(presenter.handle(.escape))
         XCTAssertNil(presenter.openID)
     }
+
+    // MARK: - The switchers' registration
+
+    private func context(_ selected: String? = nil) -> ChromePopoverContext {
+        ChromePopoverContext(maxHeight: 360, selectedRowID: selected, activateRow: { _ in })
+    }
+
+    /// The project popover registers "Open Folder…" first, then each recent
+    /// project in order; the current project's row only dismisses.
+    func testProjectPopoverRegistersItsRowsInDisplayOrder() throws {
+        let presenter = ChromePopoverPresenter()
+        presenter.present(id: ProjectSwitcherView.popoverID, anchor: .zero, content: emptyContent)
+        var opened: [URL] = []
+        var folderOpened = 0
+        let current = URL(fileURLWithPath: "/tmp/alpha")
+        let other = URL(fileURLWithPath: "/tmp/beta")
+        let rows = [
+            RecentProject(id: "a", url: current, name: "alpha", path: "/tmp/alpha", isCurrent: true),
+            RecentProject(id: "b", url: other, name: "beta", path: "/tmp/beta", isCurrent: false),
+        ]
+        let root = ProjectSwitcherPopover(
+            rows: rows,
+            context: context(),
+            onOpenFolder: { folderOpened += 1 },
+            onOpenRecent: { opened.append($0) }
+        )
+        .environment(\.chromePopoverPresenter, presenter)
+        let render = try HostedRender(size: CGSize(width: 320, height: 400), root: root)
+        defer { render.window.close() }
+
+        XCTAssertEqual(presenter.rows.map(\.id), ["openFolder", "project:a", "project:b"])
+        XCTAssertEqual(presenter.selectedRowID, "openFolder")
+        presenter.activateRow(id: "project:a")
+        XCTAssertTrue(opened.isEmpty, "the current project's row only dismisses")
+        XCTAssertNil(presenter.openID)
+        XCTAssertEqual(folderOpened, 0)
+    }
+
+    /// The branch popover registers its action row first; with no branches
+    /// that is its only row, and a filter change registers again, returning the
+    /// selection to it.
+    func testBranchPopoverRegistersTheActionRowFirstAndReRegistersOnFilter() throws {
+        let presenter = ChromePopoverPresenter()
+        presenter.present(id: BranchSwitcherView.popoverID, anchor: .zero, content: emptyContent)
+        var created = 0
+        let model = BranchSwitcherModel(gitService: GitCLIService())
+        let root = BranchSwitcherPopover(model: model, context: context(), onNewBranch: { created += 1 })
+            .environment(\.chromePopoverPresenter, presenter)
+        let render = try HostedRender(size: CGSize(width: 320, height: 400), root: root)
+        defer { render.window.close() }
+
+        XCTAssertEqual(presenter.rows.map(\.id), [BranchSwitcherPopover.newBranchRowID])
+        presenter.setRows([])
+        XCTAssertNil(presenter.selectedRowID)
+        model.filterText = "x"
+        render.settle()
+        XCTAssertEqual(presenter.rows.map(\.id), [BranchSwitcherPopover.newBranchRowID])
+        XCTAssertEqual(presenter.selectedRowID, BranchSwitcherPopover.newBranchRowID)
+        presenter.activateSelected()
+        XCTAssertEqual(created, 1)
+        XCTAssertNil(presenter.openID)
+    }
 }
 #endif

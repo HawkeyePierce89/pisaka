@@ -97,6 +97,24 @@ struct ChromePopover<Head: View, List: View, Foot: View>: View {
     }
 }
 
+extension ChromePopover {
+    /// A popover whose Foot comes and goes with the caller's state — the
+    /// branch list's error line. `nil` draws no Foot and no rule, and the Head
+    /// and List keep their identity across the change, so a focused field in
+    /// the Head stays focused when the Foot appears.
+    init(
+        maxHeight: CGFloat,
+        @ViewBuilder head: () -> Head,
+        @ViewBuilder list: () -> List,
+        foot: Foot?
+    ) {
+        self.maxHeight = maxHeight
+        self.head = head()
+        self.list = list()
+        self.foot = foot
+    }
+}
+
 extension ChromePopover where Head == EmptyView {
     /// A popover with no Head — the remote row's submenu.
     init(

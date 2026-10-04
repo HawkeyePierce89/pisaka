@@ -337,13 +337,13 @@ the window is neither dimmed nor blocked.
 - Modify: `CLAUDE.md`, `docs/architecture/core-theme.md` (rule count only, if a rule is
   added or removed)
 
-- [ ] Shared changes to both widgets:
+- [x] Shared changes to both widgets:
   - Each widget keeps its button label, tooltip, accessibility label and value, and disabled
     rule, unchanged.
   - `.popover(...)` and `@State isPresented` are removed. The button records its frame in
     the root's coordinate space and calls `presenter.present(...)`.
   - The sentence "the popover's arrow keeps the system material" disappears from both files.
-- [ ] Branch popover: `BranchSwitcherView.swift` gains a `BranchSwitcherPopover` view struct
+- [x] Branch popover: `BranchSwitcherView.swift` gains a `BranchSwitcherPopover` view struct
   holding the model, the four closures, the selected row id and a dismiss closure. It
   builds:
   - **Head:**
@@ -366,16 +366,16 @@ the window is neither dimmed nor blocked.
   - **Row registration:** it registers its row actions in display order (the action row
     first) on appear and on every `filterText` change. The selection resets to the first row
     each time.
-- [ ] Project popover: `ProjectSwitcherView.swift` gains a `ProjectSwitcherPopover` struct,
+- [x] Project popover: `ProjectSwitcherView.swift` gains a `ProjectSwitcherPopover` struct,
   with its rows read at open time as today. It builds:
   - **Head:** "Open Folder…" with `.folderOpen`.
   - **List:** a "Recent" header plus `ChromePopoverProjectRow`s (the accessibility value
     "Current project" on the current row), or "No recent projects" as a `textSecondary`
     message.
   - It registers its rows the same way.
-- [ ] Every SF Symbol row glyph ("checkmark", "folder", "cloud", "arrow.triangle.branch",
+- [x] Every SF Symbol row glyph ("checkmark", "folder", "cloud", "arrow.triangle.branch",
   "plus", "folder.badge.plus") is gone, and so is the remote row's `Menu`.
-- [ ] Update `ChromeThemeSourceGatingTests`: re-read every rule that names either file, and
+- [x] Update `ChromeThemeSourceGatingTests`: re-read every rule that names either file, and
   move each pin to where the code now lives.
   - Rule twenty-three's `bgPopoverReaders` drops both switcher files, since
     `ChromePopover.swift` is now the reader. The "presents a popover" half no longer sees
@@ -392,8 +392,8 @@ the window is neither dimmed nor blocked.
   - Each suite comment that described the old popover rows is updated.
   - If a rule is added or removed, the spelled rule count changes in the suite, in
     `CLAUDE.md` and in `core-theme.md`'s canonical list, all together.
-- [ ] Confirm that `BottomBarLayoutTests` and `BottomBarToolTipTests` pass unmodified.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before
+- [x] Confirm that `BottomBarLayoutTests` and `BottomBarToolTipTests` pass unmodified.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before
   Task 5.
 
 ### Task 5: Bitmap suite for the component's measurements
