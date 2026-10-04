@@ -123,18 +123,18 @@ This plan makes those two changes, pins each one so it cannot quietly come back,
 - Modify: `docs/architecture/app-window.md`
 - Modify: `Sources/Pisaka/MainWindowChrome.swift` (file header comment only)
 
-- [ ] `app-shell.md`, `MainWindowChrome.swift` entry:
+- [x] `app-shell.md`, `MainWindowChrome.swift` entry:
   - Change "four properties plus one label" to five properties, naming `titlebarSeparatorStyle = .none` and the reason for it.
   - Record the dated observation (2026-10-04): window captures of the Debug build at interface scale 1, dark appearance, showed one pure-black row under the title bar with horizontal tabs and a light-grey line with vertical tabs.
   - State that rule nine now pins both setters, and that `MainWindowChromeTests` asserts the separator on both the `apply` path and the marker path.
   - Add a matching short paragraph to the header comment of `MainWindowChrome.swift`.
-- [ ] `core-theme.md`:
+- [x] `core-theme.md`:
   - Canonical item 9: name the separator setter beside the transparency.
   - Horizontal tab strip entry: record the safe-area climb. On 2026-10-04 the active tab's `bgEditor` fill ran through the title bar's 30 rows to the window's top edge. Cause: the strip is the topmost view under the transparent title bar, which is the top safe-area inset, and a SwiftUI shape-style background extends into it by default. Fix: `ignoresSafeAreaEdges: []` on both colour backgrounds, pinned by rule forty-seven.
   - Also write the design comparison where the strip's geometry is documented: a 28-point title bar on `bgPanel`, the 32-point strip (`ChromeGeometry.tabStripHeight`) on `bgPanel` directly under it, the active fill inside the strip only, and no line between the title bar and the strip.
-- [ ] `app-window.md`, `TabStripView.swift` entry: one or two sentences restating the confinement and pointing to `core-theme.md` for the reasoning.
-- [ ] Check that no other document still describes four properties or a separator line. Change another document only if it has stopped being truthful.
-- [ ] Run `swift test` (the documentation-reading checks) and `swiftlint --strict`. Both must pass.
+- [x] `app-window.md`, `TabStripView.swift` entry: one or two sentences restating the confinement and pointing to `core-theme.md` for the reasoning.
+- [x] Check that no other document still describes four properties or a separator line. Change another document only if it has stopped being truthful.
+- [x] Run `swift test` (the documentation-reading checks) and `swiftlint --strict`. Both must pass.
 
 ### Task 4: Verify acceptance criteria
 

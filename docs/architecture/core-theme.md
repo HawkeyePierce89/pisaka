@@ -520,7 +520,23 @@ full entry; what is **not** listed here has not been swept.
 #### Part one — the tab strip, the gutter, the tree rows
 
   - **The horizontal tab strip** — `TabStripView.swift`, the environment path.
-    Full entry in `app-window.md`.
+    Full entry in `app-window.md`. **Against the design**, the window's top edge
+    reads: a 28-point title bar on `bgPanel`, the 32-point strip
+    (`ChromeGeometry.tabStripHeight`) on `bgPanel` directly under it, the active
+    tab filled in `bgEditor` inside the strip only, and no line between the title
+    bar and the strip. Two defects broke that, both observed on 2026-10-04. The
+    line was the window's automatic title-bar separator, now set to `.none` by
+    `MainWindowChrome` and pinned by rule nine. The other was a **safe-area
+    climb**: the active tab's `bgEditor` fill ran through the title bar's 30 rows
+    to the window's top edge. The strip is the topmost view under the
+    transparent title bar, which is the window's top safe-area inset, and a
+    SwiftUI shape-style `.background(_:)` extends into the safe area by default.
+    Both colour backgrounds — the strip's `bgPanel` ground and the active cell's
+    `bgEditor` fill — therefore pass `ignoresSafeAreaEdges: []`, which confines
+    each to its own frame; the bottom rule, a view background
+    (`.background(alignment: .bottom) { … }`), does not climb and is unchanged.
+    Rule forty-seven pins the confinement, and is the only net: the headless
+    `HostedRender` has no title bar, so the climb cannot be seen off a bitmap.
   - **The line-number ruler** — `LineNumberRulerView.swift` (plus one method in
     `CodeEditorView.swift`), the AppKit bridge path. Full entry in
     `app-editor-overlays.md`. The ruler has a second instance, in the read-only
@@ -2701,14 +2717,16 @@ The forty-seven rules, each invisible to the compiler:
    file row (in the set since part five (b)) the same pass reduced to checkbox,
    status letter and name.
 9. **The window's chrome is configured in one file.**
-   `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
-   nowhere else under `Sources/`, by set equality in both directions. It is a
-   property of the *window* rather than of a view tree, so whoever sets it last
-   wins and two setters would compete silently — the title bar's ground decided
+   `titlebarAppearsTransparent` and `titlebarSeparatorStyle` are each spelled in
+   `MainWindowChrome.swift` and nowhere else under `Sources/`, by set equality in
+   both directions, each with its own failure message. Each is a property of the
+   *window* rather than of a view tree, so whoever sets it last wins and two
+   setters would compete silently — the title bar's ground, or its line, decided
    by whichever marker reached the window first. The other direction matters
    just as much: the transparency is what reveals the window's background
    colour, so a *removed* setter hands the strip back to the framework's own
-   material. The rule has a **second half**, because a unique setter says
+   material, and a removed separator setter brings back the one-point line the
+   design does not have. The rule has a **second half**, because a unique setter says
    nothing about whether anything ever reaches the window: `MainWindowChrome(`
    is pinned to `PisakaApp.swift` at exactly one occurrence, the scene's own
    attachment, alongside the frame marker sharing that line — delete the
