@@ -94,29 +94,29 @@ the window is neither dimmed nor blocked.
 - Create: `Tests/PisakaCoreTests/PopoverKeyRuleTests.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeTests.swift`
 
-- [ ] Write `PopoverPlacement`, a Foundation-only enum of pure static functions over
+- [x] Write `PopoverPlacement`, a Foundation-only enum of pure static functions over
   `CGRect`. It works in the window root's top-left, y-down coordinate space, which is the
   space SwiftUI's named coordinate space reports. Its doc comment states this convention.
-- [ ] Implement `popover(widget:barTop:window:width:maxHeight:gap:)`. It returns the
+- [x] Implement `popover(widget:barTop:window:width:maxHeight:gap:)`. It returns the
   popover's leading x, its bottom y and the height available to it:
   - Leading x is the widget's minX. When the widget is nearer the window's right edge than
     `width`, x shifts left to `window.maxX - width`. It never goes below `window.minX`.
   - Bottom is `barTop - gap`.
   - Available height is `min(maxHeight, bottom - window.minY)` and is never negative. When
     the window is too short, the container caps itself at this height and the List shrinks.
-- [ ] Implement `submenu(popover:anchorRowTop:size:window:gap:)`. It returns the submenu's
+- [x] Implement `submenu(popover:anchorRowTop:size:window:gap:)`. It returns the submenu's
   frame:
   - It is placed `gap` to the right of the popover, with its top at the anchor row's top.
   - When it does not fit to the right, it goes `gap` to the left of the popover.
   - It is then clamped inside the window on both axes. It shifts up when its bottom would
     pass the window's bottom, and it never goes above the top.
-- [ ] Write `PopoverSelection`, a value type over a row count and an optional selected
+- [x] Write `PopoverSelection`, a value type over a row count and an optional selected
   index:
   - `init(count:)` selects the first row, or nothing when the count is zero.
   - `movedDown()` and `movedUp()` clamp at the ends. There is no wrap.
   - `reset(count:)` returns to the first row. It is used whenever the filter changes.
   - The submenu uses the same type.
-- [ ] Write `PopoverKeyRule`, a Foundation-only enum with one pure static function,
+- [x] Write `PopoverKeyRule`, a Foundation-only enum with one pure static function,
   `action(for:state:)`. It holds every decision about which key does what in which state:
   - The key enum, `PopoverKey`, is closed: `up`, `down`, `return`, `escape`, `left`,
     `right`, `other`.
@@ -144,7 +144,7 @@ the window is neither dimmed nor blocked.
   - The doc comment states two things. First, `other` always passes through, so typing
     keeps reaching the filter field. Second, `selectedHasSubmenu` without `hasSelection` is
     impossible and is read as no selection.
-- [ ] Add the popover tokens to `ChromeGeometry`. Each gets a one-line comment, and none of
+- [x] Add the popover tokens to `ChromeGeometry`. Each gets a one-line comment, and none of
   them is a font size:
   - `popoverWidth` 300 and `popoverMaxHeight` 360.
   - `popoverBarGap` 4 (above the bar) and `popoverSubmenuGap` 4 (beside the popover). These
@@ -161,23 +161,23 @@ the window is neither dimmed nor blocked.
   - The container's corner radius reuses `cornerRadiusMax` (6), which the type defines as
     the one radius a chrome surface's corners take. Its stroke reuses `hairlineWidth`. The
     type's doc comment adds the new padding and gap tokens to its inventory sentence.
-- [ ] Placement tests, each with literal frames:
+- [x] Placement tests, each with literal frames:
   - The ordinary case: left-aligned, bottom 4 above the bar, full height.
   - A widget near the right edge: the popover shifts left so its maxX is the window's maxX.
   - A window narrower than the popover: x is pinned at minX.
   - A short window: the available height is below 360, and the bottom is still 4 above the
     bar.
-- [ ] Submenu tests:
+- [x] Submenu tests:
   - It fits to the right.
   - It flips to the left.
   - It is clamped up from the window's bottom.
-- [ ] Selection tests:
+- [x] Selection tests:
   - The first row is selected on init.
   - An empty count gives no selection.
   - Moving down and up clamps at both ends.
   - `reset` returns to the first row after any move.
   - A reset to a smaller count stays in range.
-- [ ] Write `PopoverKeyRuleTests`. It enumerates every (key, state) pair, which is
+- [x] Write `PopoverKeyRuleTests`. It enumerates every (key, state) pair, which is
   7 keys × 8 states = 56 cases, against one literal expected-action table, and asserts the
   table covers every case by set equality. Named assertions also cover:
   - `other` passes through in all eight states, so the filter field keeps typing.
@@ -186,9 +186,9 @@ the window is neither dimmed nor blocked.
   - Esc closes the submenu alone when one is open and dismisses otherwise.
   - Return on a row with a submenu opens it rather than activating.
   - The impossible combination reads as no selection.
-- [ ] Update `ChromeThemeTests` so the token inventory's set equality and its value
+- [x] Update `ChromeThemeTests` so the token inventory's set equality and its value
   assertions include every new token.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: The popover component and its shared pieces
 

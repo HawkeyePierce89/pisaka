@@ -93,6 +93,26 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.menuFieldHeight, 26)
         XCTAssertEqual(ChromeGeometry.spinnerSide, 16)
         XCTAssertEqual(ChromeGeometry.spinnerLineWidth, 2)
+        XCTAssertEqual(ChromeGeometry.popoverWidth, 300)
+        XCTAssertEqual(ChromeGeometry.popoverMaxHeight, 360)
+        XCTAssertEqual(ChromeGeometry.popoverBarGap, 4)
+        XCTAssertEqual(ChromeGeometry.popoverSubmenuGap, 4)
+        XCTAssertEqual(ChromeGeometry.popoverShadowOffsetY, 8)
+        XCTAssertEqual(ChromeGeometry.popoverShadowBlur, 24)
+        XCTAssertEqual(ChromeGeometry.popoverHeadPaddingBottom, 4)
+        XCTAssertEqual(ChromeGeometry.popoverListPaddingBottom, 6)
+        XCTAssertEqual(ChromeGeometry.popoverFieldBlockPadding, 8)
+        XCTAssertEqual(ChromeGeometry.popoverRowHeight, 28)
+        XCTAssertEqual(ChromeGeometry.popoverProjectRowHeight, 36)
+        XCTAssertEqual(ChromeGeometry.popoverRowPaddingX, 12)
+        XCTAssertEqual(ChromeGeometry.popoverRowGap, 6)
+        XCTAssertEqual(ChromeGeometry.popoverRowGlyphSlot, 16)
+        XCTAssertEqual(ChromeGeometry.popoverProjectRowLineGap, 1)
+        XCTAssertEqual(ChromeGeometry.popoverSectionHeaderPaddingTop, 12)
+        XCTAssertEqual(ChromeGeometry.popoverSectionHeaderPaddingX, 12)
+        XCTAssertEqual(ChromeGeometry.popoverSectionHeaderPaddingBottom, 4)
+        XCTAssertEqual(ChromeGeometry.popoverMessagePaddingY, 8)
+        XCTAssertEqual(ChromeGeometry.popoverMessagePaddingX, 12)
     }
 
     /// `ChromeGeometry` is a namespace of `static let`s, so its membership is
@@ -119,6 +139,13 @@ final class ChromeThemeTests: XCTestCase {
             "settingsTabBarPaddingX", "settingsTabGap", "settingsTabLabelPaddingX",
             "settingsPagePadding", "settingsRowSpacing", "settingsLabelColumnWidth",
             "settingsLabelGap", "menuFieldHeight", "spinnerSide", "spinnerLineWidth",
+            "popoverWidth", "popoverMaxHeight", "popoverBarGap", "popoverSubmenuGap",
+            "popoverShadowOffsetY", "popoverShadowBlur", "popoverHeadPaddingBottom",
+            "popoverListPaddingBottom", "popoverFieldBlockPadding", "popoverRowHeight",
+            "popoverProjectRowHeight", "popoverRowPaddingX", "popoverRowGap", "popoverRowGlyphSlot",
+            "popoverProjectRowLineGap", "popoverSectionHeaderPaddingTop",
+            "popoverSectionHeaderPaddingX", "popoverSectionHeaderPaddingBottom",
+            "popoverMessagePaddingY", "popoverMessagePaddingX",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(
