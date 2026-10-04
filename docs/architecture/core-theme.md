@@ -557,7 +557,7 @@ disagree.
     rectangle it was **handed**, which for an `NSRulerView` is the rectangle it
     was asked to redraw and regularly spans the whole editor pane — so the code
     and the minimap were painted out in `bgEditor`. The fill is now clamped by
-    the pure `LineNumberRulerView.backgroundRect(in:ruleThickness:)`. Full entry,
+    the pure `LineNumberRulerView.backgroundRect(in:bounds:ruleThickness:)`. Full entry,
     including why no gate in the pipeline could see it, in
     `app-editor-overlays.md`.
   - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the

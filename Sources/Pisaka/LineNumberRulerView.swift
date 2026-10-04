@@ -784,31 +784,39 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     }
 
     /// The rectangle the gutter's background fill covers, given the rectangle
-    /// `drawHashMarksAndLabels` was handed and the gutter's own width.
+    /// `drawHashMarksAndLabels` was handed, the ruler's own `bounds` and the
+    /// gutter's width.
     ///
     /// A pure rule with a test of its own, `internal` for the reason
     /// `numberAttributes` is: the drawing cannot be asserted, what is about to be
-    /// drawn can. It exists to prevent one specific regression — an
+    /// drawn can. It exists to prevent two regressions of one shape — an
     /// `NSRulerView` is handed the rectangle *it was asked to redraw*, which is
-    /// not its bounds and regularly spans the whole editor pane, so filling it
-    /// wholesale paints the code and the minimap out in `bgEditor`.
+    /// not its bounds, and since macOS 14 `clipsToBounds` defaults to `false`, so
+    /// nothing limits a fill of it to the ruler. Horizontally that rectangle
+    /// regularly spans the whole editor pane, and filling it wholesale painted
+    /// the code and the minimap out in `bgEditor`. Vertically it regularly
+    /// reaches above the ruler, and filling its full height painted the gutter's
+    /// `bgEditor` and hairline over the surface sitting above the editor — the
+    /// consent bar's leading edge and icon, on 2026-10-04.
     ///
-    /// The trailing edge is clamped to `ruleThickness` rather than the answer
-    /// being `(0, ruleThickness)` outright, so a partial dirty rectangle starting
-    /// inside the gutter keeps its origin; a rectangle wholly to the right of the
-    /// gutter answers a zero width, never a negative one. The vertical half
-    /// belongs to the scroll position and is carried through untouched.
+    /// So the answer is the handed rectangle intersected with `bounds`, then
+    /// trailing-clamped to `ruleThickness`. The trailing edge is clamped rather
+    /// than the answer being `(0, ruleThickness)` outright, so a partial dirty
+    /// rectangle starting inside the gutter keeps its origin; a rectangle wholly
+    /// outside the bounds, or wholly to the right of the gutter, answers an empty
+    /// rectangle, never a negative one.
     ///
-    /// `nonisolated` because it is arithmetic over two values and touches no
+    /// `nonisolated` because it is arithmetic over three values and touches no
     /// view state — which is also what lets the suite call it off the main actor.
-    nonisolated static func backgroundRect(in rect: NSRect, ruleThickness: CGFloat) -> NSRect {
-        let maxX = min(rect.maxX, ruleThickness)
-        return NSRect(
-            x: rect.minX,
-            y: rect.minY,
-            width: max(0, maxX - rect.minX),
-            height: rect.height
-        )
+    nonisolated static func backgroundRect(in rect: NSRect, bounds: NSRect, ruleThickness: CGFloat) -> NSRect {
+        let minX = max(rect.minX, bounds.minX)
+        let maxX = min(rect.maxX, bounds.maxX, ruleThickness)
+        let minY = max(rect.minY, bounds.minY)
+        let maxY = min(rect.maxY, bounds.maxY)
+        guard maxX > minX, maxY > minY else {
+            return NSRect(x: minX, y: minY, width: 0, height: 0)
+        }
+        return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
@@ -824,9 +832,12 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // whatever the scroll view drew, which is exactly what made the gutter
         // and the text disagree once the editor took a colour of its own. The
         // rectangle filled is the gutter's own, not the one handed in —
-        // `backgroundRect(in:ruleThickness:)` says why.
+        // `backgroundRect(in:bounds:ruleThickness:)` says why — and the hairline
+        // below takes its vertical extent from that same answer, so nothing in
+        // this hook paints outside the ruler's bounds.
+        let gutter = Self.backgroundRect(in: rect, bounds: bounds, ruleThickness: ruleThickness)
         ChromePalette.nsColor(.bgEditor).setFill()
-        Self.backgroundRect(in: rect, ruleThickness: ruleThickness).fill()
+        gutter.fill()
         // The current line's band, continuing the text area's wash into the
         // gutter: the same line, read off the layout manager that paints the
         // text side, so the two can never disagree. Under the hairline and the
@@ -853,9 +864,9 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // precedent rather than inventing a second answer.
         NSRect(
             x: ruleThickness - CGFloat(ChromeGeometry.hairlineWidth),
-            y: rect.minY,
+            y: gutter.minY,
             width: CGFloat(ChromeGeometry.hairlineWidth),
-            height: rect.height
+            height: gutter.height
         ).fill()
 
         let attributes = numberAttributes

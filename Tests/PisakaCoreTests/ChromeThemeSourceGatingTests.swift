@@ -640,7 +640,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// must go through.
     ///
     /// `LineNumberRulerBackgroundTests` pins what
-    /// `backgroundRect(in:ruleThickness:)` *answers*; nothing there can see
+    /// `backgroundRect(in:bounds:ruleThickness:)` *answers*; nothing there can see
     /// whether `drawHashMarksAndLabels` still asks it. That gap is not
     /// hypothetical: restoring the one line this rule guards — `rect.fill()`,
     /// filling the rectangle an `NSRulerView` was handed rather than the gutter's
@@ -658,7 +658,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// seam pins nothing its call site does not spend* — to the two other
     /// colour seams an app-layer test reads, so this rule is where a later
     /// reader auditing which seams must be spent finds all three: the gutter
-    /// fill (`backgroundRect(in:ruleThickness:)`), the fold placeholder
+    /// fill (`backgroundRect(in:bounds:ruleThickness:)`), the fold placeholder
     /// (`placeholderAttributes` for the `…` and `placeholderOutlineColor` for
     /// its outline, both in `BracketOverlayLayoutManager.swift`) and the fold
     /// chevron (`foldChevronColor`, in the ruler). `GutterFoldTests` asserts
