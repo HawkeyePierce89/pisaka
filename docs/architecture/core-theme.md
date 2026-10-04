@@ -2622,7 +2622,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — and the design glyphs' helper, `DesignGlyphImage.swift`, one more: **sixty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — and the bottom bar's popover component, `ChromePopover.swift`, one more: **sixty-two** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -3063,7 +3063,7 @@ The forty-seven rules, each invisible to the compiler:
    handler calling the sync with both still set pops nothing.
 23. **A popover surface names `bgPopover`.** The gated files naming `bgPopover`
    equal `{CompletionPanel.swift, HoverPanel.swift, BranchSwitcherView.swift,
-   ProjectSwitcherView.swift, LogFilterBar.swift}`; every gated file presenting a
+   ProjectSwitcherView.swift, LogFilterBar.swift, ChromePopover.swift}`; every gated file presenting a
    popover (`.popover(`) or declaring an `NSPanel` is in that set, which is what
    lets the rule see a sixth popover appearing on a system material; and no gated
    file spells `NSVisualEffectView`, a `.material` assignment or

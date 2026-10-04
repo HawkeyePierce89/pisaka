@@ -134,7 +134,7 @@ import XCTest
 ///   leaving the tree gets neither `onHover(false)` nor `onEnded`, and
 ///   `NSCursor`'s stack is global, so the cursor stays pushed after the flag
 ///   that would have balanced it is gone.
-/// - **A popover surface names `bgPopover`.** The five gated popover surfaces
+/// - **A popover surface names `bgPopover`.** The six gated popover surfaces
 ///   name `bgPopover` and no other gated file does; every gated file presenting
 ///   a popover (`.popover(`) or declaring an `NSPanel` is in that set; no gated
 ///   file spells `NSVisualEffectView`, a `.material` assignment or
@@ -401,6 +401,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The design's glyphs: the one helper every surface draws them through,
         // tinting each with the role its caller names (rule forty-six).
         "DesignGlyphImage.swift",
+        // The bottom bar's popover component: the container and its pieces,
+        // drawn on `bgPopover` with no arrow and no material.
+        "ChromePopover.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2659,6 +2662,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "BranchSwitcherView.swift",
         "ProjectSwitcherView.swift",
         "LogFilterBar.swift",
+        "ChromePopover.swift",
     ]
 
     func testPopoverSurfaceNamesBgPopover() throws {
@@ -2673,7 +2677,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             readers, Self.bgPopoverReaders,
-            "the gated files naming bgPopover must be exactly its five popover surfaces"
+            "the gated files naming bgPopover must be exactly its six popover surfaces"
         )
 
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {

@@ -199,7 +199,7 @@ the window is neither dimmed nor blocked.
 - Modify: `CLAUDE.md`, `docs/architecture/core-theme.md` (the gated-file count only, if it
   changes)
 
-- [ ] Write `ChromePopover<Head, List, Foot>`, the container, under `#if os(macOS)`:
+- [x] Write `ChromePopover<Head, List, Foot>`, the container, under `#if os(macOS)`:
   - Width: `popoverWidth`, scaled.
   - Height: it hugs its content up to a `maxHeight` passed in, which is the placement's
     available height, already capped at `popoverMaxHeight`. Only the List scrolls. The Head
@@ -214,7 +214,7 @@ the window is neither dimmed nor blocked.
   - Foot: a `hairline` rule along its top, drawn only when the caller passes a Foot. An
     optional Foot, or an `EmptyView` check, decides this. The Head is optional in the same
     way, because the submenu has none.
-- [ ] Write the pieces, all in this file:
+- [x] Write the pieces, all in this file:
   - **`ChromePopoverRow`**:
     - Height `popoverRowHeight`, horizontal padding `popoverRowPaddingX`, gap
       `popoverRowGap`.
@@ -240,10 +240,10 @@ the window is neither dimmed nor blocked.
     `statusRed` for the error).
   - **`ChromePopoverFieldBlock`**: wraps any field, stretched to the inner width, with
     `popoverFieldBlockPadding` on all sides.
-- [ ] Give `ChromeThemedTextField` an optional `designGlyph: DesignGlyph?` leading slot,
+- [x] Give `ChromeThemedTextField` an optional `designGlyph: DesignGlyph?` leading slot,
   drawn through `DesignGlyphImage` at size 14 in `textSecondary`. The existing
   `glyph: String?` callers stay unchanged.
-- [ ] Update `ChromeThemeSourceGatingTests` for the new file:
+- [x] Update `ChromeThemeSourceGatingTests` for the new file:
   - Add `ChromePopover.swift` to `gatedFiles`.
   - Add it to the `bgPopoverReaders` set of rule twenty-three. During this task the switcher
     files still name `bgPopover` too; they leave in Task 4.
@@ -253,7 +253,7 @@ the window is neither dimmed nor blocked.
     theme invariant ("sixty-one") and in `core-theme.md`'s inventory paragraph, all
     together.
   - No rule is added or removed here.
-- [ ] Run `swift test`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme
+- [x] Run `swift test`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme
   Pisaka -destination 'platform=macOS' test`) and `swiftlint --strict`. All must pass before
   Task 3.
 

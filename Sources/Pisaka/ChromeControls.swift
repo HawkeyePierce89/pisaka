@@ -56,7 +56,9 @@ struct ChromeControlBox<Content: View>: View {
 /// A themed text field built on `ChromeControlBox`.
 ///
 /// A plain `TextField` with `textPrimary` content, an optional leading glyph
-/// hidden from accessibility, and a spoken label. Focus comes in as a
+/// hidden from accessibility — a symbol by name through `glyph:`, or one of the
+/// design's own through `designGlyph:`, drawn by `DesignGlyphImage` at 14 in
+/// `textSecondary` — and a spoken label. Focus comes in as a
 /// `FocusState` binding plus the value it equals, so each caller keeps its own
 /// focus enum.
 ///
@@ -77,6 +79,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
     let drawsTitle: Bool
     @Binding var text: String
     var glyph: String?
+    var designGlyph: DesignGlyph?
     let focus: FocusState<FocusValue>.Binding
     let focusedEquals: FocusValue
     var horizontalPadding: Double
@@ -92,6 +95,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         title: String,
         text: Binding<String>,
         glyph: String? = nil,
+        designGlyph: DesignGlyph? = nil,
         focus: FocusState<FocusValue>.Binding,
         focusedEquals: FocusValue,
         horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
@@ -100,7 +104,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         height: Double? = nil
     ) {
         self.init(
-            name: title, drawsName: true, text: text, glyph: glyph, focus: focus,
+            name: title, drawsName: true, text: text, glyph: glyph, designGlyph: designGlyph, focus: focus,
             focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
             textStyle: textStyle, spacing: spacing, height: height
         )
@@ -112,6 +116,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         spokenName: String,
         text: Binding<String>,
         glyph: String? = nil,
+        designGlyph: DesignGlyph? = nil,
         focus: FocusState<FocusValue>.Binding,
         focusedEquals: FocusValue,
         horizontalPadding: Double = ChromeGeometry.fieldPaddingX,
@@ -120,7 +125,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         height: Double? = nil
     ) {
         self.init(
-            name: spokenName, drawsName: false, text: text, glyph: glyph, focus: focus,
+            name: spokenName, drawsName: false, text: text, glyph: glyph, designGlyph: designGlyph, focus: focus,
             focusedEquals: focusedEquals, horizontalPadding: horizontalPadding,
             textStyle: textStyle, spacing: spacing, height: height
         )
@@ -131,6 +136,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         drawsName: Bool,
         text: Binding<String>,
         glyph: String?,
+        designGlyph: DesignGlyph?,
         focus: FocusState<FocusValue>.Binding,
         focusedEquals: FocusValue,
         horizontalPadding: Double,
@@ -142,6 +148,7 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
         self.drawsTitle = drawsName
         self._text = text
         self.glyph = glyph
+        self.designGlyph = designGlyph
         self.focus = focus
         self.focusedEquals = focusedEquals
         self.horizontalPadding = horizontalPadding
@@ -161,6 +168,9 @@ struct ChromeThemedTextField<FocusValue: Hashable>: View {
                     Image(systemName: glyph)
                         .foregroundStyle(theme.color(.textSecondary))
                         .accessibilityHidden(true)
+                }
+                if let designGlyph {
+                    DesignGlyphImage(designGlyph, size: 14, slot: 14, role: .textSecondary)
                 }
                 ZStack(alignment: .leading) {
                     if drawsTitle, text.isEmpty {
