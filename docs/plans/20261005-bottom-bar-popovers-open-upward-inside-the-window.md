@@ -401,7 +401,7 @@ the window is neither dimmed nor blocked.
 **Files:**
 - Create: `Tests/PisakaAppTests/ChromePopoverLayoutTests.swift`
 
-- [ ] Write `ChromePopoverLayoutTests`, rendering through the shared `HostedRender`:
+- [x] Write `ChromePopoverLayoutTests`, rendering through the shared `HostedRender`:
   - It uses a stub `GitServicing` that answers a fixed list (a current local branch, a
     second local branch and one remote) plus an error message, so the Foot draws, followed
     by `await model.refresh(root:)`.
@@ -411,7 +411,7 @@ the window is neither dimmed nor blocked.
     at both scales.
   - That makes four renders and four windows in total, which the suite's header states.
     There is no render per row and no screen-recording API.
-- [ ] Measurements off each branch bitmap, all within half a point:
+- [x] Measurements off each branch bitmap, all within half a point:
   - The container's width: the `hairline` stroke columns are 300 × scale apart.
   - The field block: the field box's top minus the container's top edge, and the selected
     row's top minus the field box's bottom, are each 8 × scale.
@@ -421,9 +421,9 @@ the window is neither dimmed nor blocked.
   - A section header's height: the distance from the Head's rule to the first Local row's
     top, minus that row's position, equals 12 × scale plus 4 × scale plus the 11-point
     semibold line height at that scale, within one point.
-- [ ] Measurement off the project bitmap: the selected project row's `accentTintStrong`
+- [x] Measurement off the project bitmap: the selected project row's `accentTintStrong`
   extent is 36 × scale.
-- [ ] Run the app-layer bundle and `swift test`. Both must pass before Task 6.
+- [x] Run the app-layer bundle and `swift test`. Both must pass before Task 6.
 
 ### Task 6: Documentation
 
