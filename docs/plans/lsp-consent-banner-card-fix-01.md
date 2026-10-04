@@ -182,15 +182,15 @@ window per rendered state, many pixels read per bitmap.
 
 ### Task 3: Gates and the diff read
 
-- [ ] Run every command under Validation Commands; all green.
-- [ ] Read the branch's cumulative diff against `master` and confirm: no
+- [x] Run every command under Validation Commands; all green.
+- [x] Read the branch's cumulative diff against `master` and confirm: no
       `Divider()`, no hex literal, no numeric font size other than the icon's
       `metrics.scaled(16)`, no `.keyboardShortcut`, no `layoutPriority`, no
       `LSPConsentCard` anywhere under `Sources/`, `Tests/` or
       `docs/architecture/`; `size(_:)` keeps its signature for
       `LSPServerSettingsView`; `backgroundRect` is called with the ruler's
       `bounds` at its one call site.
-- [ ] Confirm `CLAUDE.md` is unchanged and under its measured size limit.
+- [x] Confirm `CLAUDE.md` is unchanged and under its measured size limit.
 
 ## Post-Completion
 
