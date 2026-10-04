@@ -22,6 +22,15 @@ import XCTest
 /// `testTheHookPaintsNothingAboveItsBounds` draws the hook itself into a bitmap
 /// taller than the ruler, because the hairline is filled at the call site and
 /// the rule's answer alone cannot see it.
+///
+/// So the suite pins two things. The **hook's clamp** decides what the hook
+/// paints. The **view's clip** (`clipsToBounds = true`) is the only thing that
+/// reaches `NSRulerView`'s own translucent separator, which the superclass draws
+/// along its client edge over the whole handed rectangle and which still ran
+/// through the consent bar after the clamp landed;
+/// `testTheRulerDrawsNothingAboveItsBounds` drives the stock draw path to see
+/// it. Both drawing tests draw into one offscreen bitmap each — this suite opens
+/// no window.
 final class LineNumberRulerBackgroundTests: XCTestCase {
 
     /// The bounds the pure cases hand the rule: a gutter 59 wide, taller than
@@ -182,6 +191,79 @@ final class LineNumberRulerBackgroundTests: XCTestCase {
         XCTAssertTrue(
             Self.matches(rep, x: 2, y: Int(height) - 150, editor),
             "a pixel inside the bounds is not bgEditor — the hook drew nothing, and the first half proves nothing"
+        )
+    }
+
+    /// The stock draw path, drawn: nothing the ruler draws — the superclass's
+    /// own separator included — lands above its bounds.
+    ///
+    /// `testTheHookPaintsNothingAboveItsBounds` calls the hook alone, which was
+    /// already clamped; `NSRulerView`'s own `draw(_:)` paints a translucent
+    /// one-point separator along its client edge across the whole rectangle it
+    /// is handed, outside anything the hook decides. This test goes through
+    /// `displayIgnoringOpacity(_:in:)` instead, handed the ruler's bounds plus
+    /// 72 points above them, into the same 59×372 sentinel bitmap. Every pixel
+    /// of the 72 rows above — the ruler's trailing column, where the separator
+    /// lands (`ruleThickness - 1` in the app, where the ruler is exactly that
+    /// wide), included — must still be the sentinel, and a pixel inside the
+    /// bounds must not be. Verified by mutation: without `clipsToBounds = true`
+    /// the trailing column is tinted over all 72 rows and the first half turns
+    /// red while the hook test stays green, which is the point.
+    @MainActor
+    func testTheRulerDrawsNothingAboveItsBounds() throws {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let textView = NSTextView(usingTextLayoutManager: false)
+        textView.textContainer?.replaceLayoutManager(BracketOverlayLayoutManager())
+        scroll.documentView = textView
+        textView.string = (1...40).map { "line \($0)" }.joined(separator: "\n")
+        let ruler = LineNumberRulerView(scrollView: scroll, textView: textView)
+        ruler.frame = NSRect(x: 0, y: 0, width: 59, height: 300)
+        let above: CGFloat = 72
+        let height = ruler.bounds.height + above
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 59, pixelsHigh: Int(height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )?.retagging(with: .sRGB))
+        let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+        let sentinel = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+        let appearance = try XCTUnwrap(NSAppearance(named: .aqua))
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        sentinel.setFill()
+        NSRect(x: 0, y: 0, width: 59, height: height).fill()
+        // `displayIgnoringOpacity` applies the view's own flip, so unlike the
+        // hook test the context is handed a translation alone: it lifts the
+        // ruler's bounds onto the bitmap's bottom 300 points and leaves the 72
+        // points above them, rows 0 ..< 72, inside the bitmap. That placement
+        // was measured for a flipped ruler — a vertical `NSRulerView` is one —
+        // so the test states it rather than guessing the unflipped mapping.
+        XCTAssertTrue(ruler.isFlipped, "the geometry below was measured for a flipped ruler")
+        let transform = NSAffineTransform()
+        transform.translateX(by: 0, yBy: above)
+        transform.concat()
+        let handed = NSRect(x: 0, y: ruler.bounds.minY - above, width: 59, height: height)
+        appearance.performAsCurrentDrawingAppearance {
+            ruler.displayIgnoringOpacity(handed, in: context)
+        }
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+
+        var painted: [String] = []
+        for row in 0..<Int(above) {
+            for column in 0..<59 where !Self.matches(rep, x: column, y: row, sentinel) {
+                painted.append("(\(column), \(row))")
+            }
+        }
+        XCTAssertTrue(
+            painted.isEmpty,
+            "the ruler drew \(painted.count) pixels above its bounds, first \(painted.prefix(5))"
+        )
+        XCTAssertFalse(
+            Self.matches(rep, x: 2, y: Int(height) - 150, sentinel),
+            "a pixel inside the bounds is still the sentinel — the ruler drew nothing, and the first half proves nothing"
         )
     }
 

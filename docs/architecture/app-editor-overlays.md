@@ -668,7 +668,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     padding and its icon) were painted out with the gutter's exact width. The
     call site derives one clamped rectangle before any fill and takes the
     hairline's `minY` and `height` from it; the current-line band is a row of the
-    gutter read off the layout manager and is unaffected. The class is the one
+    gutter read off the layout manager and is unaffected. The clamp could not
+    reach everything: `NSRulerView`'s own `draw(_:)` paints a translucent
+    one-point separator along its client edge across the whole rectangle it is
+    handed, and on 2026-10-04 that line still ran through the consent bar at the
+    gutter's trailing column after the clamp had landed — no clamp inside the
+    hook can reach the superclass's drawing. So the initializer also sets
+    **`clipsToBounds = true`**, pinned by
+    `testTheRulerDrawsNothingAboveItsBounds`, which drives the stock draw path
+    (`displayIgnoringOpacity(_:in:)`) into a bitmap 72 points taller than the
+    ruler. The clamp decides what the hook paints; the clip decides where any
+    drawing through the view can land. The class is the one
     `DiffDividerView` had (`DrawDirtyRectSourceGatingTests`), but that suite reads
     `draw(_:)` overrides only, so this hook is pinned here instead. It is `internal` for `numberAttributes`' reason and
     tested by `LineNumberRulerBackgroundTests` in the app-layer bundle — the

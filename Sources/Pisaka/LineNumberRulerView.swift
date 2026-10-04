@@ -238,6 +238,15 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     init(scrollView: NSScrollView, textView: NSTextView) {
         self.textView = textView
         super.init(scrollView: scrollView, orientation: .verticalRuler)
+        // Since macOS 14 `clipsToBounds` defaults to `false`, and `NSRulerView`'s
+        // own `draw(_:)` paints a translucent one-point separator along its client
+        // edge across the whole rectangle it is handed — which regularly reaches
+        // above the ruler, so that line landed on the surface above the editor (the
+        // consent bar, 2026-10-04). The hook's clamp
+        // (`backgroundRect(in:bounds:ruleThickness:)`) cannot reach the
+        // superclass's drawing; the clip is the one answer covering everything
+        // drawn through this view.
+        clipsToBounds = true
         clientView = textView
 
         let center = NotificationCenter.default
@@ -797,7 +806,9 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// the code and the minimap out in `bgEditor`. Vertically it regularly
     /// reaches above the ruler, and filling its full height painted the gutter's
     /// `bgEditor` and hairline over the surface sitting above the editor — the
-    /// consent bar's leading edge and icon, on 2026-10-04.
+    /// consent bar's leading edge and icon, on 2026-10-04. The view now clips to
+    /// its bounds, which also guards the superclass's own drawing; this clamp
+    /// still decides what the hook paints.
     ///
     /// So the answer is the handed rectangle intersected with `bounds`, then
     /// trailing-clamped to `ruleThickness`. The trailing edge is clamped rather

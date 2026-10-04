@@ -42,7 +42,9 @@ import XCTest
 ///   filled its handed rectangle's vertical extent — the gutter's `bgEditor`
 ///   and hairline painted over the surface above the editor, the LSP consent
 ///   bar. `LineNumberRulerBackgroundTests` pins it instead, down to a drawing
-///   into a bitmap taller than the ruler.
+///   into a bitmap taller than the ruler. The ruler also clips to its bounds,
+///   pinned by that suite's stock-draw bitmap test, so a stock `NSRulerView`
+///   separator cannot leave the ruler either.
 /// - **The set of files declaring a draw override is pinned by set
 ///   equality**, so a new override is added here — and so reviewed against the
 ///   rule — deliberately: `DiffView.swift`, `MinimapView.swift`,
