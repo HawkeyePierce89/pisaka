@@ -1573,7 +1573,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     accounting). The title bar is not that surface — it is the
     topmost of the window's panel *strips*, sitting directly above the tab strip
     and the sidebar header, both of which draw `bgPanel`. Painting it the canvas
-    value would draw a band one step off the strips it touches.
+    value would draw a band one step off the strips it touches. Where SwiftUI
+    content sits under it, the content's own ground paints those rows: the
+    sidebar's above the sidebar and the tab strip's above the editor column,
+    both `bgPanel` and both extending into the title bar on purpose — only the
+    active tab's fill is confined to the strip (rule forty-seven,
+    `core-theme.md`).
 
     **Why the colour is dynamic.** `ChromePalette.nsColor(_:)` answers a colour
     that resolves against the effective appearance whenever it is drawn, so a

@@ -1657,11 +1657,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     until part four (a)'s review round: an overlay covers its whole content, so
     it painted over the active tab's fill and the lower point of its underline,
     the opposite of what the comment beside it claimed. Gating rule sixteen pins
-    the construct here and in `DockTabRow.swift`. Both colour backgrounds — the
-    strip's `bgPanel` and the active cell's `bgEditor` — pass
-    `ignoresSafeAreaEdges: []`, so neither climbs through the transparent title
-    bar above the strip to the window's top edge; the reasoning, and rule
-    forty-seven that pins it, are in `core-theme.md`. A cell carries `TabFileIcon`, a view of its
+    the construct here and in `DockTabRow.swift`. The active cell's `bgEditor`
+    fill passes `ignoresSafeAreaEdges: []`, so it does not climb through the
+    transparent title bar above the strip to the window's top edge; the strip's
+    `bgPanel` ground keeps the default and paints the title bar above the editor
+    column on purpose, or the root's `bgCanvas` shows there and two-tones it
+    against the sidebar. The reasoning, and rule forty-seven that pins both
+    halves, are in `core-theme.md`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
     shares with the strip: `FileGlyph`'s design glyph at 13 in `textSecondary`
     (see the monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`

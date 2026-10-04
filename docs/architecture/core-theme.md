@@ -524,19 +524,28 @@ full entry; what is **not** listed here has not been swept.
     reads: a 28-point title bar on `bgPanel`, the 32-point strip
     (`ChromeGeometry.tabStripHeight`) on `bgPanel` directly under it, the active
     tab filled in `bgEditor` inside the strip only, and no line between the title
-    bar and the strip. Two defects broke that, both observed on 2026-10-04. The
-    line was the window's automatic title-bar separator, now set to `.none` by
-    `MainWindowChrome` and pinned by rule nine. The other was a **safe-area
-    climb**: the active tab's `bgEditor` fill ran through the title bar's 30 rows
-    to the window's top edge. The strip is the topmost view under the
-    transparent title bar, which is the window's top safe-area inset, and a
-    SwiftUI shape-style `.background(_:)` extends into the safe area by default.
-    Both colour backgrounds — the strip's `bgPanel` ground and the active cell's
-    `bgEditor` fill — therefore pass `ignoresSafeAreaEdges: []`, which confines
-    each to its own frame; the bottom rule, a view background
+    bar and the strip. Three defects broke that, all observed on 2026-10-04
+    off window captures of the Debug build. The line was the window's automatic
+    title-bar separator, now set to `.none` by `MainWindowChrome` and pinned by
+    rule nine. The second was a **safe-area climb**: the active tab's `bgEditor`
+    fill ran through the title bar's 30 rows to the window's top edge. The strip
+    is the topmost view of the editor column under the transparent title bar,
+    which is the window's top safe-area inset, and a SwiftUI shape-style
+    `.background(_:)` extends into the safe area by default. The active cell's
+    fill therefore passes `ignoresSafeAreaEdges: []`, which confines it to its
+    own frame. The third came from confining the strip's `bgPanel` ground the
+    same way: the title bar turned **two-toned** — `bgPanel` above the sidebar,
+    whose ground still extends into it, against `bgCanvas` above the editor
+    column, the `ContentView` root's ground showing through where the strip's
+    no longer covered it. So the division is deliberate: **the strip's ground
+    keeps the default and paints the title bar** above the editor column,
+    exactly as the sidebar's ground does above the sidebar and the tab column's
+    does with vertical tabs, and **only the active cell's fill stays inside the
+    strip**. The bottom rule, a view background
     (`.background(alignment: .bottom) { … }`), does not climb and is unchanged.
-    Rule forty-seven pins the confinement, and is the only net: the headless
-    `HostedRender` has no title bar, so the climb cannot be seen off a bitmap.
+    Rule forty-seven pins both halves, and is the only net: the headless
+    `HostedRender` has no title bar, so neither the climb nor the two-toning can
+    be seen off a bitmap.
   - **The line-number ruler** — `LineNumberRulerView.swift` (plus one method in
     `CodeEditorView.swift`), the AppKit bridge path. Full entry in
     `app-editor-overlays.md`. The ruler has a second instance, in the read-only
@@ -3534,24 +3543,33 @@ The forty-seven rules, each invisible to the compiler:
     local variable, or interpolated into a string, passes. That is the
     local-variable form, named rather than fixed — following a value through a
     `let` needs data flow — and the matcher is deliberately not widened.
-47. **The tab strip's grounds stay inside the strip.** Both colour backgrounds
-    in `TabStripView.swift`, the strip's `bgPanel` and the active cell's
-    `bgEditor`, must carry `ignoresSafeAreaEdges: []`. The strip is the topmost
-    view under the window's title bar, which is transparent and is therefore the
-    window's top safe-area inset, and a SwiftUI colour background extends into
-    the safe area by default, so the active fill climbed through the title bar
-    to the window's top edge. The matcher, `unconfinedColourBackgrounds(in:)`,
-    reads every `.background(` through `callRanges`, skips a list opening with
-    `alignment` (a view background, which does not climb), counts a list naming
-    `theme.color(` or a `Color.` token as a colour background, and requires
-    `ignoresSafeAreaEdges: []` in it with whitespace folded. The rule also
-    requires at least two colour backgrounds to be seen, so it cannot go vacuous,
-    and a self-check (`testTheGroundRuleFlagsEveryUnconfinedBackground`) feeds
-    the matcher the bare, conditional and wrapped forms, which must be flagged,
-    and the confined forms and the bottom-rule background, which must pass. The
-    headless `HostedRender` has no title bar, so the climb cannot be seen off a
-    bitmap and this rule is the only net. **Its horizon**: this one file, and
-    only arguments spelled as `theme.color(` or `Color.`.
+47. **The tab's fill stays inside the strip; the strip's ground paints the title bar.**
+    `TabStripView.swift` is split at `struct TabStripCell`. Every colour
+    background after the declaration — the active cell's `bgEditor` fill — must
+    carry `ignoresSafeAreaEdges: []`; every one before it — the strip's
+    `bgPanel` ground — must not spell `ignoresSafeAreaEdges` at all. The strip is
+    the topmost view of the editor column under the window's title bar, which is
+    transparent and is therefore the window's top safe-area inset, and a SwiftUI
+    colour background extends into the safe area by default. Unconfined, the
+    active fill climbed through the title bar to the window's top edge;
+    confined, the strip's ground left the `ContentView` root's `bgCanvas`
+    showing above the editor column, two-toning the title bar against the
+    sidebar's `bgPanel` (both seen on 2026-10-04). So a confined ground fails the
+    rule as loudly as an unconfined fill. The reading, `groundRuleReading(of:)`,
+    collects each half's colour backgrounds through `colourBackgrounds(in:)`,
+    which reads every `.background(` through `callRanges`, skips a list opening
+    with `alignment` (a view background, which does not climb) and counts a list
+    naming `theme.color(` or a `Color.` token, whitespace folded. Each half must
+    show at least one colour background, so neither can go vacuous, and a
+    self-check (`testTheGroundRuleFlagsEveryMisScopedBackground`) feeds inline
+    snippets for both halves: a confined or otherwise scoped ground before the
+    declaration is flagged, a bare, conditional or wrapped fill after it is
+    flagged, the real file's shape passes, `.background(alignment:)` and a
+    non-`Color` background are ignored on both sides, and a file without the
+    declaration is refused. The headless `HostedRender` has no title bar, so
+    neither the climb nor the two-toning can be seen off a bitmap and this rule
+    is the only net. **Its horizon**: this one file, and only arguments spelled
+    as `theme.color(` or `Color.`.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
