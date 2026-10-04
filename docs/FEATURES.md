@@ -144,8 +144,9 @@ user sees it.
   an unsaved "Untitled" buffer, simply has nothing to annotate — the menu item is
   unavailable or the column stays empty, with no error.
 - A path bar above the editor shows where the open file lives —
-  its path relative to the opened project root, as breadcrumbs
-  (`backend › src › dialogs › dialogs.service.ts`). A file outside the project
+  its path inside the opened project as breadcrumbs that start with the
+  project's name, the way the project tree does
+  (`project › backend › src › dialogs › dialogs.service.ts`). A file outside the project
   (or with no folder open) shows its absolute path, abbreviated to `~` under your
   home directory, and an "Untitled" buffer just says "Untitled". In a narrow
   window the path truncates in the middle so the file name stays visible, and the
@@ -494,7 +495,7 @@ user sees it.
   no stall. Quitting the app stops every server it started.
 - Semantic code intelligence for **TypeScript / JavaScript, Python and YAML**
   (macOS), if you want it. These servers are not bundled — the app offers to download them,
-  once, the first time you open a file of that kind: a strip above the editor names
+  once, the first time you open a file of that kind: a bar above the editor names
   the server and its size, with **Download** and **No Thanks** and nothing else.
   Nothing is fetched until you press Download, and nothing is fetched again if you
   don't.
@@ -547,7 +548,7 @@ user sees it.
   publishes no official binaries: **it is never downloaded by Pisaka.** If you
   already have one (`~/go/bin/gopls`, `$GOBIN`, `$GOPATH/bin`), it is found and
   used with **no prompt at all**. If you don't, the first Go file you open in a
-  project offers once — *Install gopls with your Go toolchain?* — and accepting
+  project offers once — *Build gopls 0.23.0 with your own Go toolchain?* — and accepting
   runs `go install golang.org/x/tools/gopls@v0.23.0` with **your own `go`**,
   which fetches the module through Go's tooling and verifies it against Go's
   checksum database. A Go toolchain is required either way; on a Mac without one

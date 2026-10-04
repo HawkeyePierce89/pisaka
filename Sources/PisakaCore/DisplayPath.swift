@@ -1,8 +1,9 @@
 import Foundation
 
-/// The breadcrumb segments shown above the editor for the open file — the path
-/// relative to the opened project root (`backend › src › dialogs.service.ts`),
-/// or an abbreviated absolute path when the file lives outside it.
+/// The breadcrumb segments shown above the editor for the open file — the
+/// project root's name followed by the path below it
+/// (`project › backend › src › dialogs.service.ts`), or an abbreviated absolute
+/// path when the file lives outside it.
 ///
 /// Pure and Foundation-only: `home` is passed in by the view layer rather than
 /// read from `FileManager` here, the `TerminalLaunch.workingDirectory(
@@ -18,8 +19,11 @@ public enum DisplayPath {
     /// - A url-less buffer yields `["Untitled"]`, matching
     ///   `OpenFile.displayName` so the bar and the tab agree (the literal is
     ///   duplicated rather than shared; a test pins the two together).
-    /// - A file strictly under `projectRoot` yields the suffix below the root —
-    ///   without the root's own name, ending in the file name.
+    /// - A file strictly under `projectRoot` yields the root's name as the user
+    ///   opened it — its lexical last path component, symlinks never resolved,
+    ///   the same spelling the window title and the project switcher show —
+    ///   then the suffix below the root, ending in the file name. A root at `/`
+    ///   adds no name, since the leading `/` is never a segment.
     /// - Anything else yields the absolute path: `["~"] + suffix` when the file
     ///   is strictly under `home`, otherwise the plain path components.
     ///
@@ -40,7 +44,8 @@ public enum DisplayPath {
         guard let fileURL else { return ["Untitled"] }
 
         if let projectRoot, let suffix = relativeComponents(of: fileURL, under: projectRoot) {
-            return suffix
+            let rootName = projectRoot.standardizedFileURL.lastPathComponent
+            return rootName == "/" ? suffix : [rootName] + suffix
         }
         if let suffix = relativeComponents(of: fileURL, under: home) {
             return ["~"] + suffix

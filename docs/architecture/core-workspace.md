@@ -591,8 +591,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than shared through a constant, and a test pins the two together so a
     rename of the fallback is caught by the suite instead of by the user (the bar
     and the tab must not disagree); a file strictly under `projectRoot` yields the
-    suffix *below* the root (without the root's own name, ending in the file
-    name); anything else yields the absolute path — `["~"] + suffix` when the file
+    root's name — its last path component as the user opened it
+    (`projectRoot.standardizedFileURL.lastPathComponent`: lexical, so a root
+    opened through a symlink shows the symlink's name; a trailing slash changes
+    nothing; a root at `/` adds no name, since `/` is never a segment) — then the
+    suffix *below* the root, ending in the file name. The name agrees with
+    `MainWindowTitle` and the project switcher, which both name the project by the
+    same spelling, and it is computed from the root URL, never taken from
+    whichever probe matched; anything else yields the absolute path — `["~"] + suffix` when the file
     is strictly under `home`, else the plain components. Segments are always
     *names*: the leading `/` component `URL.pathComponents` reports is dropped, so
     joining with a separator can never produce `/ › Volumes › …` (the view chooses
@@ -620,7 +626,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Tests assert the cross-type consistency in both directions (a tab
     `model.fileID(forURL:)` finds through a differently-spelled path yields a
     relative — not absolute — `DisplayPath`; a sibling path the model rejects
-    falls through to the absolute branch), so matcher drift fails the suite. Clickable segments, copying the path, the window proxy icon,
+    falls through to the absolute branch), so matcher drift fails the suite; the
+    relative answer they expect now leads with the root's name. **Deviation from
+    the design (2026-10-04)**: the design's main window starts the crumb *below*
+    the root (`Sources › PisakaCore › WorkspaceModel.swift` in a project named
+    `pisaka`), but the design's tree has no root row and the app's tree has one.
+    The crumb starts where the tree starts, and a root-level file no longer reads
+    as a bare name that only duplicates its tab (`project › main.py`, not
+    `main.py`). Clickable segments, copying the path, the window proxy icon,
     and an iOS bar are deliberately **out of scope** (follow-ups).
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum

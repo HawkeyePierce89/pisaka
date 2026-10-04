@@ -520,7 +520,32 @@ full entry; what is **not** listed here has not been swept.
 #### Part one — the tab strip, the gutter, the tree rows
 
   - **The horizontal tab strip** — `TabStripView.swift`, the environment path.
-    Full entry in `app-window.md`.
+    Full entry in `app-window.md`. **Against the design**, the window's top edge
+    reads: a 28-point title bar on `bgPanel`, the 32-point strip
+    (`ChromeGeometry.tabStripHeight`) on `bgPanel` directly under it, the active
+    tab filled in `bgEditor` inside the strip only, and no line between the title
+    bar and the strip. Three defects broke that, all observed on 2026-10-04
+    off window captures of the Debug build. The line was the window's automatic
+    title-bar separator, now set to `.none` by `MainWindowChrome` and pinned by
+    rule nine. The second was a **safe-area climb**: the active tab's `bgEditor`
+    fill ran through the title bar's 30 rows to the window's top edge. The strip
+    is the topmost view of the editor column under the transparent title bar,
+    which is the window's top safe-area inset, and a SwiftUI shape-style
+    `.background(_:)` extends into the safe area by default. The active cell's
+    fill therefore passes `ignoresSafeAreaEdges: []`, which confines it to its
+    own frame. The third came from confining the strip's `bgPanel` ground the
+    same way: the title bar turned **two-toned** — `bgPanel` above the sidebar,
+    whose ground still extends into it, against `bgCanvas` above the editor
+    column, the `ContentView` root's ground showing through where the strip's
+    no longer covered it. So the division is deliberate: **the strip's ground
+    keeps the default and paints the title bar** above the editor column,
+    exactly as the sidebar's ground does above the sidebar and the tab column's
+    does with vertical tabs, and **only the active cell's fill stays inside the
+    strip**. The bottom rule, a view background
+    (`.background(alignment: .bottom) { … }`), does not climb and is unchanged.
+    Rule forty-seven pins both halves, and is the only net: the headless
+    `HostedRender` has no title bar, so neither the climb nor the two-toning can
+    be seen off a bitmap.
   - **The line-number ruler** — `LineNumberRulerView.swift` (plus one method in
     `CodeEditorView.swift`), the AppKit bridge path. Full entry in
     `app-editor-overlays.md`. The ruler has a second instance, in the read-only
@@ -557,7 +582,7 @@ disagree.
     rectangle it was **handed**, which for an `NSRulerView` is the rectangle it
     was asked to redraw and regularly spans the whole editor pane — so the code
     and the minimap were painted out in `bgEditor`. The fill is now clamped by
-    the pure `LineNumberRulerView.backgroundRect(in:ruleThickness:)`. Full entry,
+    the pure `LineNumberRulerView.backgroundRect(in:bounds:ruleThickness:)`. Full entry,
     including why no gate in the pipeline could see it, in
     `app-editor-overlays.md`.
   - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the
@@ -611,27 +636,59 @@ disagree.
     they stay with `SyntaxTheme` for exactly the reason the syntax highlighting
     does, and `drawTokens`/`MinimapTokenizer` are untouched. Full entry in
     `app-editor-overlays.md`.
-  - **The language-server consent strip** — `LSPConsentBanner.swift`, the
-    environment path. One `strip(_:)` helper gives all three questions one ground
-    (`bgPanel`) and one bottom rule (a `hairline` rectangle, not a `Divider()`,
-    which would be drawn in the *system's* separator value and so disagree with
-    the `hairline` rules beside it in either appearance). The
-    question line is `textPrimary`; the explanatory caption and the runtime-network
-    note are `textSecondary`, being the same kind of fact; the leading symbol is
-    `accent`. The two actions are the shared styles, as everywhere else in the
-    chrome: each row's confirming action is `.chromePrimary` and its declining
-    one `.chromeSecondary`. The strip first drew them through two private helpers
-    of its own — an `accent`-filled `.plain` label at `cornerRadiusMax`, and a
-    bare `textSecondary` label — and the design pass replaced both with the
-    shared styles and deleted the helpers, because a one-off pair beside the
-    styles every other surface uses is itself the mixed look this sweep removes;
-    rule thirty's caller sets name the file under both styles. The weight of the
-    two buttons is the only thing saying which is the offer, which is honest: both
-    answers are non-destructive and reversible from Preferences. No keyboard
-    shortcut is added — the reason in that file's own comment (a default button in
-    the main window takes Return before the first responder, so every newline
-    typed in the file behind the banner would start a download) still holds. Full
-    entry in `core-provisioning.md`.
+  - **The language-server consent bar** — `LSPConsentBanner.swift`, the
+    environment path, drawn by one shipped view, `LSPConsentBar`, that all three
+    questions build and that nothing else in the file bypasses. The values, as
+    literals: a **full-width** `bgPanel` ground, edge to edge, padded 14
+    vertically and 18 horizontally, with a 1-point `hairline` rule
+    (`hairlineWidth`, a filled `Rectangle`) along its bottom separating it from
+    the editor — exactly as the breadcrumb bar and the find bar end, and no
+    `Divider()` (a divider is drawn in the *system's* separator value and would
+    disagree with the `hairline` rules beside it in either appearance). Inside,
+    one vertically centred row — a 16-point `accent` icon, the text column 10
+    beyond it, then a spacer of at least 16 and the actions at the trailing
+    edge. No radius, no border, no inset band and no `bgEditor`.
+    **A deliberate deviation from the design's Banner component.** That
+    component is a bordered card with radius 6; an earlier pass drew it as such,
+    floating in an 8-point `bgEditor` band, and between two full-width bars with
+    bottom rules — the breadcrumb above, the editor below — it read on screen on
+    2026-10-04 as a misplaced block (the line-number gutter's overpaint, since
+    fixed in `LineNumberRulerView`, made its left edge look 48 points in as
+    well). The component's inner geometry is kept, and the card stays the
+    design's answer should a floating placement ever appear.
+    The primary line is the body size (13) in `textPrimary`; the optional
+    secondary line — present only for the YAML runtime-network note and the Go
+    build's toolchain path — is the subheadline size in `textSecondary` and
+    wraps across the whole column; the icon is `accent`. Every length goes
+    through `metrics.scaled(_:)` and the icon's 16 is the one design literal,
+    sized on the `Image`'s own chain. The two actions are the shared styles, as
+    everywhere else in the chrome, 8 apart: the confirming one `.chromePrimary`
+    and the declining one `.chromeSecondary`, both at their fitting width so
+    they never wrap or truncate. The design draws its own 28-point accent button
+    with a 12-point semibold label; the bar keeps the shared styles instead, the
+    same known and accepted chrome-wide difference as every other surface's
+    buttons, because a one-off pair beside the styles every other surface uses
+    is itself the mixed look this sweep removes (the strip's two private helpers
+    went for that reason in the design pass); rule thirty's caller sets name the
+    file under both styles. The weight of the two buttons is the only thing
+    saying which is the offer, which is honest: both answers are
+    non-destructive and reversible from Preferences. No keyboard shortcut is
+    added — the reason in that file's own comment (a default button in the main
+    window takes Return before the first responder, so every newline typed in
+    the file below the bar would start a download) still holds.
+    **The text column carries no layout priority**: a hand mutation showed a
+    raised priority on it changed nothing drawn, so it went, and the suite pins
+    the drawn width instead. `LSPConsentBarLayoutTests` (the
+    app-layer bundle) pins the drawn contract off a bitmap at scales 1 and 1.8 —
+    `bgPanel` half a point in from the top-leading corner (nothing is inset) and
+    at the middle, the bottom rule one scaled hairline tall with its `maxY` at
+    the scaled 14 + 28 + 14 plus that hairline, spanning the full width, and the
+    window's ground below it — and, at scale 1, that the primary line keeps one
+    line at a width derived from its own measured ink and the primary button's
+    measured edge, plus a guard that the generous render is itself one line; and
+    that a wrapped secondary line reaches past three quarters of the column
+    toward the actions. A column capped at 400 points fails both width tests.
+    Full entry in `core-provisioning.md`.
 
 #### Part three — the window's ground, the sidebar's host, the dock and the bottom bar
 
@@ -2573,7 +2630,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-six rules, each invisible to the compiler:
+The forty-seven rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2669,14 +2726,16 @@ The forty-six rules, each invisible to the compiler:
    file row (in the set since part five (b)) the same pass reduced to checkbox,
    status letter and name.
 9. **The window's chrome is configured in one file.**
-   `titlebarAppearsTransparent` is spelled in `MainWindowChrome.swift` and
-   nowhere else under `Sources/`, by set equality in both directions. It is a
-   property of the *window* rather than of a view tree, so whoever sets it last
-   wins and two setters would compete silently — the title bar's ground decided
+   `titlebarAppearsTransparent` and `titlebarSeparatorStyle` are each spelled in
+   `MainWindowChrome.swift` and nowhere else under `Sources/`, by set equality in
+   both directions, each with its own failure message. Each is a property of the
+   *window* rather than of a view tree, so whoever sets it last wins and two
+   setters would compete silently — the title bar's ground, or its line, decided
    by whichever marker reached the window first. The other direction matters
    just as much: the transparency is what reveals the window's background
    colour, so a *removed* setter hands the strip back to the framework's own
-   material. The rule has a **second half**, because a unique setter says
+   material, and a removed separator setter brings back the one-point line the
+   design does not have. The rule has a **second half**, because a unique setter says
    nothing about whether anything ever reaches the window: `MainWindowChrome(`
    is pinned to `PisakaApp.swift` at exactly one occurrence, the scene's own
    attachment, alongside the frame marker sharing that line — delete the
@@ -3253,6 +3312,8 @@ The forty-six rules, each invisible to the compiler:
     `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
     16-point icon column for alignment, not a size, so they are pinned as
     container-font glyphs and the row `HStack`'s body font is re-checked.
+    `LSPConsentBanner.swift` carries no exemption either: the consent bar's
+    one glyph takes its own scaled font on its own chain.
     Part five (d)'s seven files add no exemption: every glyph they draw — the
     banner and message marks, the key and lock glyphs, the sort and paging
     chevrons, the two signed-out offers' glyph, the statement pane's icons, the
@@ -3482,6 +3543,33 @@ The forty-six rules, each invisible to the compiler:
     local variable, or interpolated into a string, passes. That is the
     local-variable form, named rather than fixed — following a value through a
     `let` needs data flow — and the matcher is deliberately not widened.
+47. **The tab's fill stays inside the strip; the strip's ground paints the title bar.**
+    `TabStripView.swift` is split at `struct TabStripCell`. Every colour
+    background after the declaration — the active cell's `bgEditor` fill — must
+    carry `ignoresSafeAreaEdges: []`; every one before it — the strip's
+    `bgPanel` ground — must not spell `ignoresSafeAreaEdges` at all. The strip is
+    the topmost view of the editor column under the window's title bar, which is
+    transparent and is therefore the window's top safe-area inset, and a SwiftUI
+    colour background extends into the safe area by default. Unconfined, the
+    active fill climbed through the title bar to the window's top edge;
+    confined, the strip's ground left the `ContentView` root's `bgCanvas`
+    showing above the editor column, two-toning the title bar against the
+    sidebar's `bgPanel` (both seen on 2026-10-04). So a confined ground fails the
+    rule as loudly as an unconfined fill. The reading, `groundRuleReading(of:)`,
+    collects each half's colour backgrounds through `colourBackgrounds(in:)`,
+    which reads every `.background(` through `callRanges`, skips a list opening
+    with `alignment` (a view background, which does not climb) and counts a list
+    naming `theme.color(` or a `Color.` token, whitespace folded. Each half must
+    show at least one colour background, so neither can go vacuous, and a
+    self-check (`testTheGroundRuleFlagsEveryMisScopedBackground`) feeds inline
+    snippets for both halves: a confined or otherwise scoped ground before the
+    declaration is flagged, a bare, conditional or wrapped fill after it is
+    flagged, the real file's shape passes, `.background(alignment:)` and a
+    non-`Color` background are ignored on both sides, and a file without the
+    declaration is refused. The headless `HostedRender` has no title bar, so
+    neither the climb nor the two-toning can be seen off a bitmap and this rule
+    is the only net. **Its horizon**: this one file, and only arguments spelled
+    as `theme.color(` or `Color.`.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

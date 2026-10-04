@@ -7,25 +7,27 @@ final class DisplayPathTests: XCTestCase {
 
     // MARK: - Inside the open project root
 
-    func testFileInsideRootYieldsSuffixWithoutTheRootName() {
+    func testFileInsideRootYieldsTheRootNameThenTheSuffix() {
         XCTAssertEqual(
             DisplayPath.components(
                 fileURL: URL(fileURLWithPath: "/Users/tester/dev/proj/backend/src/a.ts"),
                 projectRoot: URL(fileURLWithPath: "/Users/tester/dev/proj"),
                 home: home
             ),
-            ["backend", "src", "a.ts"]
+            ["proj", "backend", "src", "a.ts"]
         )
     }
 
-    func testFileDirectlyAtTheRootYieldsJustItsName() {
+    /// The case the root's name exists for: a bare `main.ts` would only
+    /// duplicate the tab beside the bar and say nothing about where it lives.
+    func testFileDirectlyAtTheRootYieldsTheRootNameThenItsName() {
         XCTAssertEqual(
             DisplayPath.components(
                 fileURL: URL(fileURLWithPath: "/Users/tester/dev/proj/main.ts"),
                 projectRoot: URL(fileURLWithPath: "/Users/tester/dev/proj"),
                 home: home
             ),
-            ["main.ts"]
+            ["proj", "main.ts"]
         )
     }
 
@@ -38,14 +40,21 @@ final class DisplayPathTests: XCTestCase {
         )
     }
 
-    func testTrailingSlashOnTheRootStillMatches() {
+    func testTrailingSlashOnTheRootYieldsTheSameRootName() {
+        let file = URL(fileURLWithPath: "/Users/tester/dev/proj/src/a.ts")
+        let withSlash = DisplayPath.components(
+            fileURL: file,
+            projectRoot: URL(fileURLWithPath: "/Users/tester/dev/proj/"),
+            home: home
+        )
+        XCTAssertEqual(withSlash, ["proj", "src", "a.ts"])
         XCTAssertEqual(
+            withSlash,
             DisplayPath.components(
-                fileURL: URL(fileURLWithPath: "/Users/tester/dev/proj/src/a.ts"),
-                projectRoot: URL(fileURLWithPath: "/Users/tester/dev/proj/"),
+                fileURL: file,
+                projectRoot: URL(fileURLWithPath: "/Users/tester/dev/proj"),
                 home: home
-            ),
-            ["src", "a.ts"]
+            )
         )
     }
 
@@ -128,6 +137,19 @@ final class DisplayPathTests: XCTestCase {
         )
     }
 
+    /// A project opened at `/` adds no name: its last path component is `/`,
+    /// and the leading `/` is never a segment.
+    func testProjectRootAtTheFilesystemRootAddsNoName() {
+        XCTAssertEqual(
+            DisplayPath.components(
+                fileURL: URL(fileURLWithPath: "/a.txt"),
+                projectRoot: URL(fileURLWithPath: "/"),
+                home: home
+            ),
+            ["a.txt"]
+        )
+    }
+
     func testFileAtTheFilesystemRootYieldsItsNameOnly() {
         XCTAssertEqual(
             DisplayPath.components(
@@ -141,14 +163,14 @@ final class DisplayPathTests: XCTestCase {
 
     // MARK: - Standardization
 
-    func testUnstandardizedPathsAreStandardizedOnBothSides() {
+    func testUnstandardizedPathsAreStandardizedOnBothSidesIncludingTheRootName() {
         XCTAssertEqual(
             DisplayPath.components(
                 fileURL: URL(fileURLWithPath: "/Users/tester/dev/proj/src/./sub/../a.ts"),
                 projectRoot: URL(fileURLWithPath: "/Users/tester/dev/other/../proj"),
                 home: home
             ),
-            ["src", "a.ts"]
+            ["proj", "src", "a.ts"]
         )
     }
 
@@ -195,8 +217,9 @@ final class DisplayPathTests: XCTestCase {
 
     /// (a) The project root opened *through* a symlink, the file spelled
     /// canonically: the canonical probe resolves both sides and the file is
-    /// still shown relative to the root.
-    func testRootOpenedThroughSymlinkStillMatchesCanonicallySpelledFile() throws {
+    /// still shown relative to the root, led by the symlink's name — the root's
+    /// name comes from the root as opened, never from whichever probe matched.
+    func testRootOpenedThroughSymlinkLeadsWithTheSymlinksNameForCanonicallySpelledFile() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -206,13 +229,29 @@ final class DisplayPathTests: XCTestCase {
                 projectRoot: fixture.link,
                 home: home
             ),
-            ["src", "a.swift"]
+            ["link", "src", "a.swift"]
+        )
+    }
+
+    /// The root and the file both spelled through the symlink: the lexical
+    /// probe matches, and the symlink's name leads — never the referent's.
+    func testRootAndFileBothThroughSymlinkLeadWithTheSymlinksName() throws {
+        let fixture = try SymlinkFixture()
+        defer { fixture.cleanUp() }
+
+        XCTAssertEqual(
+            DisplayPath.components(
+                fileURL: fixture.link.appendingPathComponent("src/a.swift"),
+                projectRoot: fixture.link,
+                home: home
+            ),
+            ["link", "src", "a.swift"]
         )
     }
 
     /// (b) The file opened *through* a symlink to the root, the root spelled
     /// canonically — the mirror image of (a).
-    func testFileOpenedThroughSymlinkedRootStillMatchesCanonicalRoot() throws {
+    func testFileOpenedThroughSymlinkedRootLeadsWithTheCanonicalRootsName() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -222,7 +261,7 @@ final class DisplayPathTests: XCTestCase {
                 projectRoot: fixture.real,
                 home: home
             ),
-            ["src", "a.swift"]
+            ["real", "src", "a.swift"]
         )
     }
 
@@ -230,7 +269,7 @@ final class DisplayPathTests: XCTestCase {
     /// lives elsewhere, but the tab's own path is lexically under the root, so
     /// the lexical probe shows it relative to the root rather than as an absolute
     /// path to the referent.
-    func testSymlinkInsideTheRootPointingOutsideIsShownRelativeToTheRoot() throws {
+    func testSymlinkInsideTheRootPointingOutsideIsShownUnderTheRootName() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -241,7 +280,7 @@ final class DisplayPathTests: XCTestCase {
 
         XCTAssertEqual(
             DisplayPath.components(fileURL: alias, projectRoot: fixture.real, home: home),
-            ["src", "alias.swift"]
+            ["real", "src", "alias.swift"]
         )
     }
 
@@ -250,7 +289,7 @@ final class DisplayPathTests: XCTestCase {
     /// match, so the lexical one wins and the bar shows the path as the user
     /// opened it — the same segments the project tree and the tab show — rather
     /// than the referent's expansion under a name never opened.
-    func testSymlinkInsideTheRootPointingInsideIsShownAsOpened() throws {
+    func testSymlinkInsideTheRootPointingInsideIsShownAsOpenedUnderTheRootName() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -261,7 +300,7 @@ final class DisplayPathTests: XCTestCase {
 
         XCTAssertEqual(
             DisplayPath.components(fileURL: alias, projectRoot: fixture.real, home: home),
-            ["src", "alias.swift"]
+            ["real", "src", "alias.swift"]
         )
     }
 
@@ -270,8 +309,9 @@ final class DisplayPathTests: XCTestCase {
     /// `DisplayPath` and `WorkspaceModel` must agree on "this file is the one
     /// open in that tab / inside this root". Both go through `CanonicalPath`, so
     /// a tab the model finds through a *differently spelled* url is also shown
-    /// relative to the root, whichever spelling each side used.
-    func testAgreesWithWorkspaceModelAcrossPathSpellings() throws {
+    /// relative to the root, whichever spelling each side used — led by the
+    /// root's name as that root was spelled.
+    func testAgreesWithWorkspaceModelAcrossPathSpellingsUnderTheRootName() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -281,7 +321,10 @@ final class DisplayPathTests: XCTestCase {
             fixture.real.appendingPathComponent("src/./a.swift"),
             fixture.real.appendingPathComponent("src/sub/../a.swift"),
         ]
-        let roots = [fixture.real, fixture.link]
+        let roots: [(url: URL, expected: [String])] = [
+            (fixture.real, ["real", "src", "a.swift"]),
+            (fixture.link, ["link", "src", "a.swift"]),
+        ]
 
         for opened in spellings {
             let model = WorkspaceModel()
@@ -297,9 +340,9 @@ final class DisplayPathTests: XCTestCase {
             }
             for root in roots {
                 XCTAssertEqual(
-                    DisplayPath.components(fileURL: opened, projectRoot: root, home: home),
-                    ["src", "a.swift"],
-                    "tab \(opened.path) under root \(root.path)"
+                    DisplayPath.components(fileURL: opened, projectRoot: root.url, home: home),
+                    root.expected,
+                    "tab \(opened.path) under root \(root.url.path)"
                 )
             }
         }
@@ -309,7 +352,7 @@ final class DisplayPathTests: XCTestCase {
     /// does *not* consider the open tab is also not shown relative to the root —
     /// it falls through to the absolute branch. Drift in the permissive direction
     /// (one side matching a path the other rejects) fails here.
-    func testDisagreementWithWorkspaceModelIsAlsoConsistent() throws {
+    func testDisagreementWithWorkspaceModelIsAlsoConsistentUnderTheRootName() throws {
         let fixture = try SymlinkFixture()
         defer { fixture.cleanUp() }
 
@@ -323,7 +366,7 @@ final class DisplayPathTests: XCTestCase {
         XCTAssertNil(model.fileID(forURL: sibling))
         XCTAssertNotEqual(
             DisplayPath.components(fileURL: sibling, projectRoot: fixture.real, home: home),
-            ["src", "a.swift"]
+            ["real", "src", "a.swift"]
         )
         XCTAssertEqual(
             DisplayPath.components(fileURL: sibling, projectRoot: fixture.real, home: home),

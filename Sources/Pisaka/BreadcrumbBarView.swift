@@ -2,9 +2,9 @@
 import SwiftUI
 import PisakaCore
 
-/// The breadcrumb bar above the editor: the open file's path relative to the
-/// opened project root (`backend › src › dialogs.service.ts`), or an abbreviated
-/// absolute path when it lives outside the root. All the segment computation is
+/// The breadcrumb bar above the editor: the open file's path starting with the
+/// opened project root's name (`project › backend › src › dialogs.service.ts`),
+/// or an abbreviated absolute path when it lives outside the root. All the segment computation is
 /// `PisakaCore.DisplayPath` — this is display only, so the view stays thin and
 /// the rule stays unit-tested. `home` is read here (Core takes it as a
 /// parameter, the `TerminalLaunch` precedent).

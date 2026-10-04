@@ -695,14 +695,14 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     already decided, so an unfinished one costs a diagnostic line, not correctness.
 
   - `LSPConsentBanner.swift` — the one place this app asks to download something
-    (D15). A non-modal strip between the breadcrumb and the find bar, shown only
+    (D15). A non-modal bar between the breadcrumb and the find bar, shown only
     while `consentPrompt(forOpening:)` answers for the selected tab's language,
     so it holds no state of its own and cannot disagree with the Settings surface
     about whether the question is still open.
     **Two actions and no third way out**: no ✕, no "Later", no Esc. The banner
     disappears when consent stops being `unasked`, which happens only through
     Download or No Thanks — a dismiss would leave the answer `unasked` and bring
-    the strip back on the next `.ts` file, which is how a prompt turns into
+    the bar back on the next `.ts` file, which is how a prompt turns into
     something people close without reading. Both answers are reversible from
     Preferences → Language Servers, which is what makes a forced choice fair.
     **Non-modal on purpose**: the file is open, editable and already answering
@@ -730,40 +730,46 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     where accepting demonstrably changes nothing.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
-    **Its chrome comes wholly from the colour roles** (the second part of the
-    chrome sweep, `core-theme.md`), through the SwiftUI environment path: the
-    strip is chrome sitting between two other chrome surfaces — the breadcrumb
-    above it and the tab strip above that — so it takes its ground, its rule and
-    its text from the roles rather than from whatever the system happens to call a
-    control background. The generic `strip(_:)` helper gives all three questions
-    one `bgPanel` ground and one bottom rule, drawn as a `hairline` **rectangle**
-    rather than a `Divider()`: a divider is drawn in the *system's* separator
-    value, which is not the table's, so it would disagree with the hairlines above
-    it in either appearance. The question line is
-    `textPrimary`; the explanatory caption *and* the runtime-network note are
-    `textSecondary`, being the same kind of fact; the leading symbol is `accent`.
-    The two actions are the chrome's **shared** button styles: every row's
+    **Its chrome comes wholly from the colour roles** (`core-theme.md`), through
+    the SwiftUI environment path, and it is drawn as a **full-width bar**: one
+    shipped view, `LSPConsentBar`, that all three questions build, so the three
+    cannot drift into three looks and the app-layer bitmap suite
+    (`LSPConsentBarLayoutTests`) renders exactly what ships. The bar is a
+    `bgPanel` ground edge to edge, padded 14 vertically and 18 horizontally,
+    with one scaled `hairline` rule along its bottom separating it from the
+    editor, as the breadcrumb and the find bar do — a filled `Rectangle`, never
+    a `Divider()` (drawn in the *system's* separator value, which is not the
+    table's). No radius, no border, no inset band: the design's bordered Banner
+    card read as a misplaced block between two full-width bars, so only its
+    inner geometry is kept (the deviation is recorded in `core-theme.md`).
+    Inside, one vertically centred row: an `accent` symbol, a text column that
+    reaches the actions — no layout priority, the bitmap suite pins the drawn
+    width — then the two actions. **The copy is one primary line**
+    (`textPrimary`, body size) asking the question; a **secondary line**
+    (`textSecondary`, subheadline size, wrapping across the whole column) appears
+    only where a fact requires one: the runtime-network note, today YAML's, and
+    the Go build's toolchain path with its two narrowed claims.
+    The two actions are the chrome's **shared** button styles, 8 apart: the
     confirming action is `.chromePrimary` (an `accent` ground, a `callout`
     semibold `onAccent` label, `secondaryButtonHeight` high at
-    `buttonCornerRadius`) and its declining one `.chromeSecondary` (a `hairline`
-    border around a `textPrimary` label, same geometry), so the strip carries no
-    button look of its own. The two private helpers that once drew them —
-    an accent-filled `.plain` label at `cornerRadiusMax` and a bare
-    `textSecondary` one — are gone, since a one-off pair beside the styles every
-    other chrome surface uses is the mixed look the sweep removes; rule thirty
-    pins the file among both styles' callers.
+    `buttonCornerRadius`) and the declining one `.chromeSecondary` (a `hairline`
+    border around a `textPrimary` label, same geometry), both at their fitting
+    width, so the bar carries no button look of its own; rule thirty pins the
+    file among both styles' callers.
     The **weight of the two buttons is the only thing saying which is the offer**,
     which is honest here: neither answer is destructive and both are reversible
     from Preferences. **No keyboard shortcut is added** — the reason already in
     that file holds unchanged: a `.defaultAction` in the main editor window takes
     Return through the window's key-equivalent pass before the first responder
     sees it, so every newline typed in the file behind the banner would start a
-    download and record consent for it. Both answers stay pointer-only. Every
-    measurement goes through `metrics.scaled(_:)`, so the strip grows with the
-    two chrome surfaces above it rather than staying a fixed band across a scaled
-    window.
-    **It prints `LSPConsentPrompt.runtimeNetworkNote` under the size sentence**,
-    verbatim and in the same caption style, when the prompt carries one. The
+    download and record consent for it. Both answers stay pointer-only, and
+    `LSPSourceGatingTests` fails if the file's stripped code binds any key. Every
+    measurement goes through `metrics.scaled(_:)`, so the bar grows with the
+    two chrome surfaces above it rather than staying a fixed strip across a
+    scaled window.
+    **It prints `LSPConsentPrompt.runtimeNetworkNote` as the secondary line**
+    under the question that carries the pending size, verbatim, when the prompt
+    carries one. The
     presence of the note is the whole condition — no server is named in this view
     and there is no per-server branch — so a server that starts using the network
     after its download says so by carrying a sentence in Core, not by anyone
@@ -772,31 +778,32 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     told about the traffic that follows it in the same breath.
     **It asks the Go question too, and never both at once.** A second branch
     renders `LSPGoplsProvisioningModel.consentPrompt(forOpening:)` in the same
-    strip, with the same two actions and the same absence of a dismiss, and the
+    card, with the same two actions and the same absence of a dismiss, and the
     `.task` calls both models' `prepareForOpening` in the same branch order. The
     copy is what differs, because what happens differs: a hammer rather than a
-    download arrow, no size at all, and a sentence naming the user's own `go` —
+    download arrow, no size at all, a short primary line — "Build gopls <version>
+    with your own Go toolchain?" — and a secondary line naming the user's own `go`
+    by its path, so a long path wraps that line and never the question:
     accepting builds gopls from source with the toolchain at that path, and
     Pisaka downloads nothing (D20). **That copy claims only what the install
-    keeps**: nothing is *installed* outside the app's own folder, and the build
-    "runs as your own `go install` would, using and adding to your Go module and
-    build caches". Only `GOBIN` is redirected, so the intermediates are the user's
+    keeps**: the build "runs as your own `go install` would", "using and adding
+    to your module and build caches", and the result "is installed only inside
+    Pisaka's own folder". Only `GOBIN` is redirected, so the intermediates are the user's
     (`GOMODCACHE`/`GOCACHE`, plus whatever `GOTOOLCHAIN=auto` fetches into them) —
     both recorded known limits in `core-lsp.md`, and the reason an earlier
     "nothing outside its own folder is changed" was too strong a sentence to show
     above a button that grants consent. The download branch is checked first and is
     stated to win; the two contributors serve disjoint languages and cannot
-    collide today, but a strip asking two questions in one row would be a worse
-    thing to discover than an arbitrary order. `strip` is generic over its
-    content so both rows share the bottom rule.
-    **And the Rust question, as a third branch** (D21). Same strip, same two
+    collide today, but a card asking two questions in one row would be a worse
+    thing to discover than an arbitrary order.
+    **And the Rust question, as a third branch** (D21). Same card, same two
     actions, same absence of a dismiss, and the `.task` calls all three models'
     `prepareForOpening`. This one is a *download*, so the copy takes the 2b shape
     rather than gopls's — the download arrow and the size, formatted through the
     same `ByteCountFormatter` — while the precedence is stated as **2b → Go →
     Rust**, the composition order and the order the Settings tab lists them.
-    Two things the copy deliberately does and does not say: the **version is
-    named**, because it is a *date* and that is the one version string worth
+    It is one primary line and no secondary. Two things the copy deliberately
+    does and does not say: the **version is folded into the line**, because it is a *date* and that is the one version string worth
     showing before someone agrees to a download; and the **toolchain is not
     mentioned at all**, because D23 means this prompt cannot appear without a
     `cargo`, so the sentence would only ever be read by someone who already has
@@ -1531,6 +1538,9 @@ bundle pins instead:
   the app-side files open with `#if os(macOS)`, the Core-side ones import
   Foundation and nothing else and mention neither `Process` nor a platform
   framework. `SHA256` is in that sweep, so a later `import CryptoKit` fails here.
+  One rule outside the split: `LSPConsentBanner.swift`'s comment- and
+  literal-stripped code carries no `keyboardShortcut`, so the consent bar can
+  never turn Return in the editor into consent.
   A test file under `Tests/` is invisible to it, so the suite below adds no
   exception.
 

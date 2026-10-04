@@ -1504,12 +1504,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `viewDidMoveToWindow`, skips sheets (a sheet is hosted by its own window,
     and the commit dialog's chrome is not the main window's) and applies the
     chrome through one idempotent `static func apply(to:title:)`. What it sets
-    is four properties plus one label, and nothing else:
-    `titlebarAppearsTransparent = true`, `backgroundColor =
-    ChromePalette.nsColor(.bgPanel)`, `titleVisibility = .hidden`, the `title`
-    (written only when it differs), and the centred title label below. The transparency
-    is what makes the second line visible at all — without it the framework
-    draws its own material over the strip and the colour below never shows.
+    is five properties plus one label, and nothing else:
+    `titlebarAppearsTransparent = true`, `titlebarSeparatorStyle = .none`,
+    `backgroundColor = ChromePalette.nsColor(.bgPanel)`, `titleVisibility =
+    .hidden`, the `title` (written only when it differs), and the centred title
+    label below. The transparency is what makes the background colour visible at
+    all — without it the framework draws its own material over the strip and the
+    colour below never shows.
+
+    **Why the title bar draws no separator.** The window's automatic title-bar
+    separator draws a one-point line across the whole window, and the design has
+    no line there: the title bar and the strips below it are meant to read as one
+    `bgPanel` surface. Observed on 2026-10-04: window captures of the Debug build
+    at interface scale 1, dark appearance, showed one pure-black row under the
+    title bar with horizontal tabs, and a light-grey line with vertical tabs.
+    `apply` therefore sets `titlebarSeparatorStyle = .none` beside the
+    transparency.
 
     **The title.** The marker takes the `WorkspaceModel` as an
     `@ObservedObject` and hands its view the string Core's `MainWindowTitle`
@@ -1563,7 +1573,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     accounting). The title bar is not that surface — it is the
     topmost of the window's panel *strips*, sitting directly above the tab strip
     and the sidebar header, both of which draw `bgPanel`. Painting it the canvas
-    value would draw a band one step off the strips it touches.
+    value would draw a band one step off the strips it touches. Where SwiftUI
+    content sits under it, the content's own ground paints those rows: the
+    sidebar's above the sidebar and the tab strip's above the editor column,
+    both `bgPanel` and both extending into the title bar on purpose — only the
+    active tab's fill is confined to the strip (rule forty-seven,
+    `core-theme.md`).
 
     **Why the colour is dynamic.** `ChromePalette.nsColor(_:)` answers a colour
     that resolves against the effective appearance whenever it is drawn, so a
@@ -1584,11 +1599,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than on a line of its own, because `PisakaApp.swift` sits exactly at
     its `file_length` ceiling — the precedent that file already documents for
     its chained `.environmentObject` pair. `ChromeThemeSourceGatingTests`' ninth
-    rule pins `titlebarAppearsTransparent` to this file by set equality in both
-    directions: it is a property of the *window*, so two setters would compete
-    silently, and a removed one hands the strip back to the framework's
-    material. `MainWindowChromeTests` (app bundle) asserts both properties on a
-    real `NSWindow` — the ground in both appearances, which is what a frozen,
+    rule pins both `titlebarAppearsTransparent` and `titlebarSeparatorStyle` to
+    this file by set equality in both directions: each is a property of the
+    *window*, so two setters would compete silently, and a removed one hands the
+    strip back to the framework's material or brings the line back.
+    `MainWindowChromeTests` (app bundle) asserts the separator is `.none` on both
+    the `apply` path and the marker path — and that a fresh window's is not, so
+    the assertion cannot pass without the call — and asserts the transparency and
+    the ground on a real `NSWindow` — the ground in both appearances, which is what a frozen,
     once-resolved colour would fail — twice over: through `apply(to:title:)`,
     and again through the path the app actually takes, a marker added to the
     window's content view with nobody calling the method. It asserts the

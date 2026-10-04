@@ -4,7 +4,8 @@ import PisakaCore
 
 /// The one place this app asks to acquire something (D15).
 ///
-/// A non-modal strip between the breadcrumb and the editor, shown only while
+/// A non-modal bar between the breadcrumb and the editor — drawn by
+/// `LSPConsentBar` below — shown only while
 /// one of the three contributors' `consentPrompt(forOpening:)` answers for the
 /// selected tab's language. Everything about *when* it appears is those rules' —
 /// a provisionable language, consent still `unasked`, nothing installed or
@@ -12,7 +13,7 @@ import PisakaCore
 /// holds no state of its own and cannot disagree with the Settings surface about
 /// whether the question is still open.
 ///
-/// **Three questions, one strip, and never more than one at once.** The three
+/// **Three questions, one bar, and never more than one at once.** The three
 /// contributors serve disjoint languages, so the branches cannot collide today;
 /// they are nonetheless ordered and stated to win in that order — the 2b
 /// downloads, then Go, then Rust, the order they were composed in and the order
@@ -24,7 +25,7 @@ import PisakaCore
 /// Esc-to-dismiss, and that is the deliberate half of "asked once": the banner
 /// disappears when the consent stops being `unasked`, which happens only through
 /// Download or No Thanks. A dismiss would leave the answer `unasked` and bring
-/// the strip back on the next `.ts` file, which is how a prompt turns into
+/// the bar back on the next `.ts` file, which is how a prompt turns into
 /// something people close without reading. Neither answer is destructive and
 /// both are reversible from Preferences → Language Servers, which is what makes
 /// a forced choice reasonable here.
@@ -37,7 +38,7 @@ struct LSPConsentBanner: View {
     @ObservedObject var provisioning: LSPProvisioningModel
 
     /// The Go half. Observed for the same reason as `provisioning`: what makes
-    /// the strip appear and disappear is a published change on the model, and
+    /// the bar appear and disappear is a published change on the model, and
     /// this view is the one place that reads it.
     @ObservedObject var gopls: LSPGoplsProvisioningModel
 
@@ -62,19 +63,6 @@ struct LSPConsentBanner: View {
     /// one is opened, because this flag is part of the `.task` id below.
     let hasProjectRoot: Bool
 
-    /// The interface zone's metrics, inherited from `ContentView`'s root — the
-    /// strip sits between the breadcrumb and the editor and is chrome like both,
-    /// so it grows with them rather than staying a fixed band across a scaled
-    /// window.
-    @Environment(\.interfaceMetrics) private var metrics
-
-    /// The chrome's colours, inherited from the same root. The strip is chrome
-    /// between two other chrome surfaces — the breadcrumb above it and the tab
-    /// strip above that — so it takes its ground, its rule and its text from the
-    /// roles rather than from whatever the system happens to call a control
-    /// background.
-    @Environment(\.chromeTheme) private var theme
-
     var body: some View {
         // An empty `VStack` renders nothing and contributes no height, so the
         // common case — every language no downloadable server serves, and every
@@ -92,11 +80,11 @@ struct LSPConsentBanner: View {
         // empty case and so would never run.
         VStack(spacing: 0) {
             if let prompt {
-                strip { downloadRow(prompt) }
+                downloadBar(prompt)
             } else if let goPrompt {
-                strip { goRow(goPrompt) }
+                goBar(goPrompt)
             } else if let rustPrompt {
-                strip { rustRow(rustPrompt) }
+                rustBar(rustPrompt)
             }
         }
         // The silent half of D15, and the reason this modifier is here rather
@@ -161,169 +149,76 @@ struct LSPConsentBanner: View {
         return rust.consentPrompt(forOpening: language)
     }
 
-    /// The strip all three questions are drawn into: one ground, one rule, one
-    /// set of colours, so the three rows cannot drift into three looks.
+    /// The pinned downloads' question — TypeScript/JavaScript, Python, YAML —
+    /// on one primary line carrying the size, so nobody is asked to download
+    /// something unsized (D15).
     ///
-    /// The rule is a `hairline` rectangle rather than a `Divider()` for the
-    /// breadcrumb's reason: a divider is drawn in the *system's* separator
-    /// value, which is not the table's, so it would disagree with the hairlines
-    /// above it in either appearance.
+    /// The size is `downloadByteCount`, the *pending* byte count, so the second
+    /// server offers the ~4 MB it actually costs rather than the ~56 MB the first
+    /// one did — see `LSPConsentPrompt`.
     ///
-    /// Each row's two actions are the shared `.chromePrimary` (the offer) and
-    /// `.chromeSecondary` (the refusal) styles — the one primary and one
-    /// secondary button every chrome surface draws — so the strip carries no
-    /// button look of its own to drift from theirs.
-    private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-            // The banner's own bottom rule, so the editor zone needs no
-            // conditional separator beside a view that is usually empty.
-            Rectangle()
-                .fill(theme.color(.hairline))
-                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
-        }
-        .background(theme.color(.bgPanel))
+    /// The secondary line is what this server does on the network *after* the
+    /// download, when the answer is not "nothing" — printed verbatim from
+    /// `LSPConsentPrompt.runtimeNetworkNote`. **The presence of the note is the
+    /// whole condition**: no server is named here and there is no per-server
+    /// branch, so a server that starts talking to the network says so by carrying
+    /// a note in Core rather than by anyone editing this view. Consent is asked
+    /// once and never again, which is why the sentence has to be *here* rather
+    /// than only in Preferences or the docs.
+    ///
+    /// `accept` is unawaited: the install runs for minutes and the bar must go
+    /// away the moment the answer is recorded, which `accept` does synchronously
+    /// before its first hop. Progress is the Settings row's business, not this
+    /// bar's.
+    private func downloadBar(_ prompt: LSPConsentPrompt) -> some View {
+        LSPConsentBar(
+            symbolName: "arrow.down.circle",
+            message: "Download the \(prompt.displayName) language server "
+                + "(\(Self.size(prompt.downloadByteCount))) for completion and Go to Definition?",
+            detail: prompt.runtimeNetworkNote,
+            confirmTitle: "Download",
+            onConfirm: { Task { await provisioning.accept(prompt.server) } },
+            onDecline: { provisioning.decline(prompt.server) }
+        )
     }
 
-    private func downloadRow(_ prompt: LSPConsentPrompt) -> some View {
-        HStack(spacing: metrics.scaled(12)) {
-            Image(systemName: "arrow.down.circle")
-                .foregroundStyle(theme.color(.accent))
-
-            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                Text("Download the \(prompt.displayName) language server?")
-                    .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(.textPrimary))
-                // The size is `pendingDownloadByteCount`, so the second server
-                // offers the ~4 MB it actually costs rather than the ~56 MB the
-                // first one did — see `LSPConsentPrompt`.
-                Text(
-                    "\(Self.size(prompt.downloadByteCount)) download. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
-                )
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(theme.color(.textSecondary))
-                .fixedSize(horizontal: false, vertical: true)
-
-                // What this server does on the network *after* the download,
-                // when the answer is not "nothing" — printed verbatim from
-                // `LSPConsentPrompt.runtimeNetworkNote` in the same caption
-                // style as the size sentence above it, because it is the same
-                // kind of fact and belongs to the same question.
-                //
-                // **The presence of the note is the whole condition**: no server
-                // is named here and there is no per-server branch, so a server
-                // that starts talking to the network says so by carrying a note
-                // in Core rather than by anyone editing this view. Consent is
-                // asked once and never again, which is why the sentence has to
-                // be *here* rather than only in Preferences or the docs.
-                if let note = prompt.runtimeNetworkNote {
-                    Text(note)
-                        .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(theme.color(.textSecondary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: metrics.scaled(8))
-
-            // Unawaited: the install runs for minutes and the banner must go
-            // away the moment the answer is recorded, which `accept` does
-            // synchronously before its first hop. Progress is the Settings
-            // row's business, not this strip's.
-            //
-            // **No `.keyboardShortcut(.defaultAction)`**, deliberately. This
-            // strip lives in the main editor window, not in a sheet: a default
-            // button there takes Return through the window's key-equivalent pass
-            // *before* the first responder ever sees it, so every newline typed
-            // in the file behind the banner would start a 52 MB download and
-            // record consent for it. Both answers stay pointer-only.
-            Button("Download") {
-                Task { await provisioning.accept(prompt.server) }
-            }
-            .buttonStyle(.chromePrimary)
-
-            Button("No Thanks") {
-                provisioning.decline(prompt.server)
-            }
-            .buttonStyle(.chromeSecondary)
-        }
-        .font(metrics.scaledFont(.body))
-        .padding(.horizontal, metrics.scaled(12))
-        .padding(.vertical, metrics.scaled(8))
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The Go question: the same strip, the same two actions and the same absence
+    /// The Go question: the same bar, the same two actions and the same absence
     /// of a dismiss, with the copy that says what actually happens (D20).
     ///
     /// **A hammer rather than a download arrow**, and no size, because there is no
     /// download: accepting runs the user's own `go`, which fetches the module
-    /// through Go's tooling and compiles it. Naming that `go` is the whole
-    /// difference between this prompt and the one above — it is the user's
-    /// toolchain, their module cache and their build cache doing the work, and a
-    /// sentence that said "Pisaka will download gopls" would be false in every
-    /// clause.
+    /// through Go's tooling and compiles it. The primary line says so — *build*,
+    /// with *your own Go toolchain* — and stays short, so the toolchain's path,
+    /// which can be any length, sits on the secondary line and a long one wraps
+    /// that line rather than the question.
     ///
-    /// The caches are named for the same reason, and the claim is deliberately
-    /// narrower than the one this copy first made: only `GOBIN` is redirected, so
-    /// the *installed binary* is the app's and the intermediates are the user's —
-    /// `go install` writes into their `GOMODCACHE`/`GOCACHE`, and with
-    /// `GOTOOLCHAIN=auto` may fetch a newer toolchain into the same cache (both
-    /// recorded known limits in `core-lsp.md`). "Nothing outside its own folder is
-    /// changed" was therefore a promise the install does not keep; "nothing is
-    /// *installed* outside its own folder", plus the sentence about the caches, is
-    /// what it does.
-    private func goRow(_ prompt: LSPGoConsentPrompt) -> some View {
-        HStack(spacing: metrics.scaled(12)) {
-            Image(systemName: "hammer")
-                .foregroundStyle(theme.color(.accent))
-
-            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                Text("Install \(prompt.displayName) with your Go toolchain?")
-                    .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(.textPrimary))
-                Text(
-                    "Pisaka will build version \(prompt.version) with the Go at "
-                    + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
-                    + "downloaded by Pisaka and nothing is installed outside its own folder. "
-                    + "The build runs as your own “go install” would, using and adding to your "
-                    + "Go module and build caches. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
-                )
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(theme.color(.textSecondary))
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: metrics.scaled(8))
-
-            // Unawaited, and pointer-only, for the download branch's two reasons:
-            // the build runs for minutes while the banner must go away the moment
-            // the answer is recorded (`accept` records it synchronously before its
-            // first hop), and a `.defaultAction` here would put every Return typed
-            // in the file behind this strip on the key-equivalent path.
-            Button("Install") {
-                Task { await gopls.accept() }
-            }
-            .buttonStyle(.chromePrimary)
-
-            Button("No Thanks") {
-                gopls.decline()
-            }
-            .buttonStyle(.chromeSecondary)
-        }
-        .font(metrics.scaledFont(.body))
-        .padding(.horizontal, metrics.scaled(12))
-        .padding(.vertical, metrics.scaled(8))
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// The caches are named on the secondary line, and the claim is deliberately
+    /// narrow: only `GOBIN` is redirected, so the *installed binary* is the app's
+    /// and the intermediates are the user's — `go install` writes into their
+    /// `GOMODCACHE`/`GOCACHE`, and with `GOTOOLCHAIN=auto` may fetch a newer
+    /// toolchain into the same cache (both recorded known limits in
+    /// `core-lsp.md`). A sentence that nothing outside the app's folder changes
+    /// would be a promise the install does not keep; "installed only inside
+    /// Pisaka's own folder", beside the sentence about the caches, is what it does.
+    ///
+    /// Unawaited for the download bar's reason: the build runs for minutes while
+    /// the bar must go away the moment the answer is recorded, which `accept`
+    /// does synchronously before its first hop.
+    private func goBar(_ prompt: LSPGoConsentPrompt) -> some View {
+        LSPConsentBar(
+            symbolName: "hammer",
+            message: "Build \(prompt.displayName) \(prompt.version) with your own Go toolchain?",
+            detail: "The build runs as your own “go install” would with the Go at "
+                + "\(prompt.goExecutablePath), using and adding to your module and build caches; "
+                + "the result is installed only inside Pisaka's own folder.",
+            confirmTitle: "Install",
+            onConfirm: { Task { await gopls.accept() } },
+            onDecline: { gopls.decline() }
+        )
     }
 
-    /// The Rust question: the download row's arrow and size, because it *is* a
-    /// download, over copy that says the two things that are true of this one and
-    /// of neither other prompt (D21/D24).
+    /// The Rust question: the download bar's arrow and size, because it *is* a
+    /// download, on one primary line and no secondary (D21/D24).
     ///
     /// **The size is shown**, unlike Go's, because accepting fetches a pinned
     /// artifact whose byte count the manifest knows exactly — D15's rule is that
@@ -337,52 +232,23 @@ struct LSPConsentBanner: View {
     /// someone who already has one. The machine that lacks one is told so in
     /// Preferences, where the row has room to say what it means.
     ///
-    /// The version is named because it is a *date* — the shape upstream ships —
-    /// and a date is the one version string worth putting in front of someone
-    /// before they agree to download it.
-    private func rustRow(_ prompt: LSPRustConsentPrompt) -> some View {
-        HStack(spacing: metrics.scaled(12)) {
-            Image(systemName: "arrow.down.circle")
-                .foregroundStyle(theme.color(.accent))
-
-            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                Text("Download the \(prompt.displayName) language server?")
-                    .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(.textPrimary))
-                Text(
-                    "\(Self.size(prompt.downloadByteCount)) download of the official "
-                    + "\(prompt.version) release, verified and kept to itself. "
-                    + "It adds project-wide completion and Go to Definition for these files; "
-                    + "without it they keep using the built-in index."
-                )
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(theme.color(.textSecondary))
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: metrics.scaled(8))
-
-            // Unawaited and pointer-only, for the two rows above's reasons: the
-            // download runs for as long as it runs while the banner must go away
-            // the moment the answer is recorded (`accept` records it before it
-            // suspends, and the row it publishes reads "installing…" from that
-            // same moment), and a `.defaultAction` here would put every Return
-            // typed in the file behind this strip on the window's key-equivalent
-            // path.
-            Button("Download") {
-                Task { await rust.accept() }
-            }
-            .buttonStyle(.chromePrimary)
-
-            Button("No Thanks") {
-                rust.decline()
-            }
-            .buttonStyle(.chromeSecondary)
-        }
-        .font(metrics.scaledFont(.body))
-        .padding(.horizontal, metrics.scaled(12))
-        .padding(.vertical, metrics.scaled(8))
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// The version is folded into the line because it is a *date* — the shape
+    /// upstream ships — and a date is the one version string worth putting in
+    /// front of someone before they agree to download it.
+    ///
+    /// Unawaited for the other two bars' reason: `accept` records the answer
+    /// before it suspends, and the row it publishes reads "installing…" from that
+    /// same moment.
+    private func rustBar(_ prompt: LSPRustConsentPrompt) -> some View {
+        LSPConsentBar(
+            symbolName: "arrow.down.circle",
+            message: "Download \(prompt.displayName) \(prompt.version) "
+                + "(\(Self.size(prompt.downloadByteCount))) for completion and Go to Definition?",
+            detail: nil,
+            confirmTitle: "Download",
+            onConfirm: { Task { await rust.accept() } },
+            onDecline: { rust.decline() }
+        )
     }
 
     /// The approximate size, in the unit the user's Mac writes sizes in.
@@ -393,6 +259,102 @@ struct LSPConsentBanner: View {
         formatter.countStyle = .file
         formatter.allowedUnits = [.useMB, .useGB]
         return formatter.string(fromByteCount: Int64(byteCount))
+    }
+}
+
+/// One consent question, drawn as a full-width bar between the breadcrumb and
+/// the editor — the only thing that draws a question, so the three cannot drift
+/// into three looks, and the very view the app-layer bitmap suite renders, so
+/// what it pins is what ships.
+///
+/// **The bar** runs edge to edge on the panel ground, `bgPanel`, padded 14
+/// vertically and 18 horizontally, with one scaled `hairline` rule along its
+/// bottom separating it from the editor — the way the breadcrumb bar and the
+/// find bar end. The rule is a `Rectangle` filled with the role rather than a
+/// `Divider()`, which is drawn in the *system's* separator value, not the
+/// table's.
+///
+/// **The row** keeps the design's Banner geometry: a 16-point accent icon, the
+/// text column 10 beyond it, then the actions pushed to the trailing edge at
+/// least 16 away, every item vertically centred. The primary line is the body
+/// size in `textPrimary`; the optional secondary line is the subheadline size
+/// in `textSecondary` and wraps across the whole column. The buttons keep their
+/// fitting width, so they never wrap or truncate, and the text column reaches
+/// them — the bitmap suite pins that drawn width.
+///
+/// **The actions** are the shared `.chromePrimary` (the offer) and
+/// `.chromeSecondary` (the refusal) styles, 8 apart — the one primary and one
+/// secondary button every chrome surface draws — so the bar carries no button
+/// look of its own to drift from theirs.
+///
+/// **No `.keyboardShortcut(.defaultAction)`**, deliberately. The bar lives in
+/// the main editor window, not in a sheet: a default button there takes Return
+/// through the window's key-equivalent pass *before* the first responder ever
+/// sees it, so every newline typed in the file below the bar would start a
+/// download and record consent for it. Both answers stay pointer-only.
+struct LSPConsentBar: View {
+    let symbolName: String
+    /// The primary line: the question itself, short enough for one line.
+    let message: String
+    /// The secondary line, present only where a fact requires one.
+    let detail: String?
+    let confirmTitle: String
+    let onConfirm: () -> Void
+    let onDecline: () -> Void
+
+    /// The interface zone's metrics, inherited from `ContentView`'s root — the
+    /// bar sits between the breadcrumb and the editor and is chrome like both,
+    /// so it grows with them rather than staying a fixed strip across a scaled
+    /// window.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    /// The chrome's colours, inherited from the same root, so the ground, the
+    /// rule and the text take the roles rather than whatever the system happens
+    /// to call a control background.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                // The design's 16-point icon, sized on its own chain through the
+                // metrics: the message has no container font, which would be a
+                // size nothing but this glyph uses.
+                Image(systemName: symbolName)
+                    .font(.system(size: metrics.scaled(16)))
+                    .foregroundStyle(theme.color(.accent))
+
+                VStack(alignment: .leading, spacing: metrics.scaled(2)) {
+                    Text(message)
+                        .font(metrics.scaledFont(.body))
+                        .foregroundStyle(theme.color(.textPrimary))
+                    if let detail {
+                        Text(detail)
+                            .font(metrics.scaledFont(.subheadline))
+                            .foregroundStyle(theme.color(.textSecondary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, metrics.scaled(10))
+
+                Spacer(minLength: metrics.scaled(16))
+
+                HStack(spacing: metrics.scaled(8)) {
+                    Button(confirmTitle, action: onConfirm)
+                        .buttonStyle(.chromePrimary)
+                    Button("No Thanks", action: onDecline)
+                        .buttonStyle(.chromeSecondary)
+                }
+                .fixedSize()
+            }
+            .padding(.vertical, metrics.scaled(14))
+            .padding(.horizontal, metrics.scaled(18))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Rectangle()
+                .fill(theme.color(.hairline))
+                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+        }
+        .background(theme.color(.bgPanel))
     }
 }
 

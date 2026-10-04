@@ -36,7 +36,15 @@ import XCTest
 ///   `intersects`; `CommitGraphView` strokes lines from `bounds` and fills no
 ///   dirty rect; the iOS `CommitGraphView_iOS`, `DiffView_iOS` and
 ///   `MergeView_iOS` do not fill their `rect` (`MergeView_iOS` passes it only
-///   to `glyphRange(forBoundingRect:in:)`).
+///   to `glyphRange(forBoundingRect:in:)`). A second drawing hook sits
+///   outside this rule's shape: `LineNumberRulerView.drawHashMarksAndLabels(in:)`
+///   is an `NSRulerView` hook, not a `draw(_:)` override, and until 2026-10-04 it
+///   filled its handed rectangle's vertical extent — the gutter's `bgEditor`
+///   and hairline painted over the surface above the editor, the LSP consent
+///   bar. `LineNumberRulerBackgroundTests` pins it instead, down to a drawing
+///   into a bitmap taller than the ruler. The ruler also clips to its bounds,
+///   pinned by that suite's stock-draw bitmap test, so a stock `NSRulerView`
+///   separator cannot leave the ruler either.
 /// - **The set of files declaring a draw override is pinned by set
 ///   equality**, so a new override is added here — and so reviewed against the
 ///   rule — deliberately: `DiffView.swift`, `MinimapView.swift`,

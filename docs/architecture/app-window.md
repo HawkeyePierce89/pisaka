@@ -39,12 +39,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on something that could not demonstrate itself). The three contributors serve
     disjoint languages, so the branches cannot collide today; the precedence is
     nonetheless stated as **2b → Go → Rust** (the composition order, and the order
-    the Settings tab lists them), because a strip that asked two questions at once
+    the Settings tab lists them), because a bar that asked two questions at once
     would be a worse thing to discover than an arbitrary order.
     `gopls: LSPGoplsProvisioningModel` and `rust: LSPRustProvisioningModel` are
     threaded in beside `provisioning` and, like it, are **not** observed by
     `ContentView` — the banner observes all three itself, so an install's state
-    changes redraw the strip and not the window. The same
+    changes redraw the bar and not the window. The same
     keyed view is where an *already accepted* server is installed on first use, so
     both halves of "what happens when this file is opened" stay in one place; the
     Go and Rust halves of that await discovery rather than reading it, since each
@@ -1657,7 +1657,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     until part four (a)'s review round: an overlay covers its whole content, so
     it painted over the active tab's fill and the lower point of its underline,
     the opposite of what the comment beside it claimed. Gating rule sixteen pins
-    the construct here and in `DockTabRow.swift`. A cell carries `TabFileIcon`, a view of its
+    the construct here and in `DockTabRow.swift`. The active cell's `bgEditor`
+    fill passes `ignoresSafeAreaEdges: []`, so it does not climb through the
+    transparent title bar above the strip to the window's top edge; the strip's
+    `bgPanel` ground keeps the default and paints the title bar above the editor
+    column on purpose, or the root's `bgCanvas` shows there and two-tones it
+    against the sidebar. The reasoning, and rule forty-seven that pins both
+    halves, are in `core-theme.md`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
     shares with the strip: `FileGlyph`'s design glyph at 13 in `textSecondary`
     (see the monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
@@ -1684,8 +1690,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
   - `BreadcrumbBarView.swift` — the breadcrumb bar above the editor: the open
-    file's path relative to the opened project root
-    (`backend › src › dialogs.service.ts`), or an abbreviated absolute path when
+    file's path starting with the opened project root's name, the way the project
+    tree does (`project › backend › src › dialogs.service.ts`), or an abbreviated absolute path when
     the file lives outside the root. All the segment computation is Core's
     `DisplayPath.components(fileURL:projectRoot:home:)` — the view only reads
     `home` (the `TerminalLaunch` precedent) — so this stays display-only and

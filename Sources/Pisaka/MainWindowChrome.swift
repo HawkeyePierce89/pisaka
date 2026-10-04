@@ -27,6 +27,14 @@
 //  cached value to invalidate — the rule `ChromePalette` states for every
 //  AppKit chrome surface, spent at one more call site.
 //
+//  **Why the title bar draws no separator.** The window's automatic title-bar
+//  separator draws a one-point line across the whole window — on 2026-10-04,
+//  captures of the Debug build at interface scale 1, dark appearance, showed a
+//  pure-black row under the title bar with horizontal tabs and a light-grey
+//  line with vertical tabs. The design has no line there, so `apply` sets
+//  `titlebarSeparatorStyle = .none` beside the transparency, and rule nine
+//  pins both setters to this file.
+//
 //  **The title.** `MainWindowTitle` decides the string — `<project> — <file>`,
 //  the project alone, or the app's default — and this marker is what applies
 //  it, so the window keeps one configurer. The marker observes the workspace
@@ -87,13 +95,18 @@ struct MainWindowChrome: NSViewRepresentable {
     ///
     /// Idempotent, and the one place the window's chrome is configured — which
     /// is what `ChromeThemeSourceGatingTests`' ninth rule pins: a second setter
-    /// of `titlebarAppearsTransparent` would compete with this one, and nothing
-    /// in the compiler can see two of them.
+    /// of `titlebarAppearsTransparent` or of `titlebarSeparatorStyle` would
+    /// compete with this one, and nothing in the compiler can see two of them.
     static func apply(to window: NSWindow, title: String) {
         // Transparent, so the window's own background colour *is* the title
         // bar's ground. Without this the framework draws its own material over
         // the strip and the colour below never shows.
         window.titlebarAppearsTransparent = true
+        // No separator. The automatic one draws a line the design does not
+        // have — black over the horizontal tab strip, grey over the vertical
+        // layout — where the title bar and the strips below are meant to read
+        // as one `bgPanel` surface.
+        window.titlebarSeparatorStyle = .none
         window.backgroundColor = ChromePalette.nsColor(.bgPanel)
         window.titleVisibility = .hidden
         if window.title != title { window.title = title }

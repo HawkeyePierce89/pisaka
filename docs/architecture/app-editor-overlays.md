@@ -641,25 +641,51 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     applied as `.preferredColorScheme` at the window root — while caching nothing
     and observing no appearance change of its own. Four colours, four roles.
     `drawHashMarksAndLabels` now **paints the gutter first**: `bgEditor` over
-    `Self.backgroundRect(in:ruleThickness:)`, then — when the layout manager is a
+    `Self.backgroundRect(in:bounds:ruleThickness:)`, then — when the layout manager is a
     `BracketOverlayLayoutManager` holding a current line — that line's band in
     `currentLine`, its y the layout manager's `currentLineBand(for:)` translated
     the way the numbers are, its x the gutter's own `0 ..< ruleThickness` (never
     the rectangle handed in, for the reason below), then a
     `ChromeGeometry.hairlineWidth` rule in `hairline` at the
-    ruler's right edge (`ruleThickness - hairlineWidth`).
+    ruler's right edge (`ruleThickness - hairlineWidth`), whose vertical extent
+    is the clamped background rectangle's, never the handed one's.
     **The rectangle filled is the gutter's own, never the one handed in**, and
     that seam is the fix for the one regression the chrome sweep has shipped: an
     `NSRulerView` is handed the rectangle *it was asked to redraw*, which is not
     its bounds and regularly spans the whole editor pane, so the first part's
     `rect.fill()` painted the code and the minimap out in `bgEditor`. The rule is
-    a `nonisolated static func` clamping the trailing edge —
-    `maxX = min(rect.maxX, ruleThickness)`, width never negative, y and height
-    carried through untouched — and it clamps rather than answering
-    `(0, ruleThickness)` outright so a **partial** dirty rectangle starting inside
-    the gutter keeps its origin; a rectangle wholly to the right of the gutter
-    answers a zero width. It is `internal` for `numberAttributes`' reason and
-    tested by `LineNumberRulerBackgroundTests` in the app-layer bundle, which is
+    a `nonisolated static func` that **clamps both halves**: the handed
+    rectangle intersected with the ruler's `bounds`, then trailing-clamped to
+    `ruleThickness`, width and height never negative. It clamps rather than
+    answering `(0, ruleThickness)` outright so a **partial** dirty rectangle
+    starting inside the gutter keeps its origin; a rectangle wholly to the right
+    of the gutter, or wholly outside the bounds, answers an empty one. The
+    vertical half was carried through untouched until 2026-10-04, and that was
+    the second regression of the same shape: the handed rectangle regularly
+    reaches **above** the ruler, and since macOS 14 `clipsToBounds` defaults to
+    `false`, so the `bgEditor` fill and the hairline landed on whatever sits
+    above the editor — the LSP consent bar, whose leading 48 points (its
+    padding and its icon) were painted out with the gutter's exact width. The
+    call site derives one clamped rectangle before any fill and takes the
+    hairline's `minY` and `height` from it; the current-line band is a row of the
+    gutter read off the layout manager and is unaffected. The clamp could not
+    reach everything: `NSRulerView`'s own `draw(_:)` paints a translucent
+    one-point separator along its client edge across the whole rectangle it is
+    handed, and on 2026-10-04 that line still ran through the consent bar at the
+    gutter's trailing column after the clamp had landed — no clamp inside the
+    hook can reach the superclass's drawing. So the initializer also sets
+    **`clipsToBounds = true`**, pinned by
+    `testTheRulerDrawsNothingAboveItsBounds`, which drives the stock draw path
+    (`displayIgnoringOpacity(_:in:)`) into a bitmap 72 points taller than the
+    ruler. The clamp decides what the hook paints; the clip decides where any
+    drawing through the view can land. The class is the one
+    `DiffDividerView` had (`DrawDirtyRectSourceGatingTests`), but that suite reads
+    `draw(_:)` overrides only, so this hook is pinned here instead. It is `internal` for `numberAttributes`' reason and
+    tested by `LineNumberRulerBackgroundTests` in the app-layer bundle — the
+    rule's answers in both halves, plus one drawing-level test that draws the
+    hook into a bitmap 72 points taller than the ruler, pre-filled with a
+    sentinel, and asserts the band above the bounds still carries it while a
+    pixel inside carries `bgEditor` — which is
     **the only thing in the pipeline that can see it**: the regression compiled,
     linted, passed every Core suite and the CI smoke launch, and was visible
     solely by looking at a running window — the drawing cannot be asserted, but

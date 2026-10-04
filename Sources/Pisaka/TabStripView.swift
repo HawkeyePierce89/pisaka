@@ -51,6 +51,14 @@ struct TabStripView: View {
                 .fill(theme.color(.hairline))
                 .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
         }
+        // The strip is the topmost view of the editor column under the
+        // transparent title bar, which is the window's top safe-area inset, and
+        // this ground deliberately extends into it: the `ContentView` root's
+        // ground is `bgCanvas` and would otherwise show there, two-toning the
+        // title bar against the sidebar's `bgPanel` (seen on 2026-10-04 with
+        // this ground confined). The sidebar and the vertical tab column paint
+        // the title bar the same way. The active cell's fill is the one that
+        // must not climb (see there; gating rule forty-seven pins both).
         .background(theme.color(.bgPanel))
     }
 }
@@ -93,7 +101,11 @@ private struct TabStripCell: View {
         }
         .padding(.horizontal, metrics.scaled(ChromeGeometry.rowPaddingX))
         .frame(maxHeight: .infinity)
-        .background(isActive ? theme.color(.bgEditor) : Color.clear)
+        // Confined to the cell's frame: a default background would climb
+        // through the transparent title bar to the window's top edge, while the
+        // strip's ground behind it is meant to (see there; gating rule
+        // forty-seven).
+        .background(isActive ? theme.color(.bgEditor) : Color.clear, ignoresSafeAreaEdges: [])
         .overlay(alignment: .bottom) {
             if isActive {
                 Rectangle()
