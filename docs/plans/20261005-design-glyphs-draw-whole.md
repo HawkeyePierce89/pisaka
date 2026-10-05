@@ -243,8 +243,8 @@ The reader is a private nested helper inside the suite (not a new Support file).
 **Files:**
 - Modify: `Tests/PisakaCoreTests/DesignGlyphAssetTests.swift`
 
-- [ ] **Media box.** Exactly one `/MediaBox` per file, equal to `[0 0 24 24]`.
-- [ ] **Streams.** Every content stream is located through its dictionary's `/Length`; the
+- [x] **Media box.** Exactly one `/MediaBox` per file, equal to `[0 0 24 24]`.
+- [x] **Streams.** Every content stream is located through its dictionary's `/Length`; the
   slice is taken after the `stream` keyword and its end-of-line. Each must be `/FlateDecode`.
   - Its first two bytes must be a valid zlib header: CMF `0x78`, with
     `(CMF·256 + FLG) % 31 == 0`.
@@ -252,7 +252,7 @@ The reader is a private nested helper inside the suite (not a new Support file).
     `NSData.decompressed(using: .zlib)`.
   - The inflated bytes' Adler-32 must equal the big-endian trailer, which proves the decode.
   - A file with no content stream fails.
-- [ ] **Interpreter.** The decoded text is tokenized on PDF whitespace. Numbers go on an
+- [x] **Interpreter.** The decoded text is tokenized on PDF whitespace. Numbers go on an
   operand stack; tokens starting with `/` are name operands. Operators are interpreted against
   a full affine CTM, with `q` pushing it and `Q` popping it, so the export's flip and any
   translation the previous export used are applied without being special-cased. An unbalanced
@@ -267,11 +267,11 @@ The reader is a private nested helper inside the suite (not a new Support file).
     geometry would need half a line width, and any text or image operator, which could draw
     outside without a path coordinate. A future export that changes shape fails loudly instead
     of passing unexamined.
-- [ ] **Bounding.** Each bounded point is transformed by the current CTM and must satisfy
+- [x] **Bounding.** Each bounded point is transformed by the current CTM and must satisfy
   0 ≤ x ≤ 24 and 0 ≤ y ≤ 24, with no tolerance. Each shipped file must bound at least one
   point, so the check cannot pass vacuously. The failure message names the glyph, the
   coordinate and the box, and points at `VENDORED.md`'s "export a 24×24 frame" rule.
-- [ ] **Fixture tests.** Fixtures are built in memory with Foundation's
+- [x] **Fixture tests.** Fixtures are built in memory with Foundation's
   `NSData.compressed(using: .zlib)`, wrapped in a `0x78 0x9C` header and an Adler-32 trailer,
   inside a minimal PDF-shaped `Data` carrying `/MediaBox`, `/Filter /FlateDecode`, `/Length`
   and `stream … endstream`. Cases:
@@ -284,17 +284,19 @@ The reader is a private nested helper inside the suite (not a new Support file).
 
   The reader returns its findings (box, out-of-box points, unknown operators), and the fixture
   tests assert on those findings rather than on `XCTFail` side effects.
-- [ ] **Doc comment.** The suite's doc-comment inventory gains the new bullet. It states what
+- [x] **Doc comment.** The suite's doc-comment inventory gains the new bullet. It states what
   the check bounds and why, and that the exports outline strokes to fills. It also says how to
   run the check against a candidate export folder before vendoring, as a throwaway local edit
   pointing the reader at that folder.
-- [ ] **One-time hand check, not committed.** Point the reader at
+- [x] **One-time hand check, not committed.** Point the reader at
   `~/Documents/pisaka-design-export-2026-10-02/icons/<name>.pdf` for the twenty-four shipped
   names, with a temporary test method or a temporary path edit. Confirm it reports geometry out
   of the box for all fifteen previous-export files listed in Context, including the thirteen
   the ticket names. Then revert the temporary edit; nothing from that folder is copied or
-  committed. Record the result in the task's progress note.
-- [ ] Run `swift test`; it must pass, with the geometry check green on all twenty-four shipped
+  committed. Record the result in the task's progress note. Result (2026-10-05): against
+  the 24 box every old file fails on its media box and thirteen show ink outside 24; against
+  each file's own box, exactly the fifteen listed above are out and the other nine are in.
+- [x] Run `swift test`; it must pass, with the geometry check green on all twenty-four shipped
   PDFs. Run `swiftlint --strict`; it must be clean.
 
 ### Task 4: Documentation
