@@ -134,7 +134,6 @@ struct ProjectSwitcherPopover: View {
                     ChromePopoverProjectRow(
                         name: row.name,
                         path: row.path,
-                        glyph: .folder,
                         isCurrent: row.isCurrent,
                         isSelected: context.selectedRowID == Self.rowID(row),
                         accessibilityValue: row.isCurrent ? "Current project" : nil,
