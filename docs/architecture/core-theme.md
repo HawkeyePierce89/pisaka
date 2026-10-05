@@ -296,8 +296,19 @@ two new geometry tokens) and each with its readers pinned by a gating
     the export manifest's sha256 prefix, each imageset to the template intent
     and preserved vector data, every row of the size column
     `Resources/DesignGlyphs/VENDORED.md` records to exactly 24, every shipped
-    PDF's media box to `[0 0 24 24]` with every path coordinate of its decoded
-    content stream inside that box, and `project.yml`'s asset
+    PDF's media box to `[0 0 24 24]` — any other page box too, and every box
+    and rotation written inline, an unreadable one failing, and every key read
+    with comments as whitespace and name escapes decoded, whitespace being
+    PDF's six bytes rather than Unicode's, the stream's `/Length` and
+    `/Filter` each declared exactly once among its dictionary's own outer
+    entries and no `/DecodeParms`, `/F`, `/FFilter` or `/FDecodeParms` among
+    them — a predictor or an external file would make the drawn bytes differ
+    from the inflate the check reads — read as key–value pairs so a name standing as another entry's
+    value is not a key, a nested dictionary's keys not counting, the `stream` and
+    `obj` keywords found only as whole tokens outside comments, strings and
+    names, the filter name and the closing `endstream` read as whole tokens
+    too, a literal string that never closes failing — with every path
+    coordinate of its one decoded content stream inside that box, and `project.yml`'s asset
     symbols to off, which rule forty-six relies on. The one helper that draws them
     is `DesignGlyphImage.swift`, under "The design's glyphs" below.
   - `FileGlyph.swift` — which design glyph stands for a file or a folder on the

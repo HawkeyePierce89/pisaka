@@ -31,9 +31,21 @@ import XCTest
 ///  * every shipped PDF *draws* inside its box, not merely declares one: exactly
 ///    one `/MediaBox`, equal to `[0 0 24 24]`; any `/CropBox`, `/BleedBox`,
 ///    `/TrimBox` or `/ArtBox` equal to it too, and no `/Rotate` other than 0 — a
-///    smaller crop box clips exactly as a smaller media box does; every content stream located
-///    through its `/Length`, `/FlateDecode`, with a valid zlib header and an
-///    Adler-32 trailer that proves the inflate; and every path coordinate — the
+///    smaller crop box clips exactly as a smaller media box does — each written
+///    inline as complete tokens, since an indirect or run-on box or rotation
+///    cannot be read and so fails, and every key read as PDF's tokens read it —
+///    a comment is whitespace, a string's contents name no key, a `#xx`
+///    name escape is the character it spells, and whitespace is PDF's six bytes,
+///    not Unicode's; exactly one content stream, since a page's
+///    streams share one graphics state and the reader starts each from a fresh
+///    one, located through its
+///    `/Length`, `/FlateDecode`, each declared exactly once among the stream
+///    dictionary's own entries — a nested dictionary's keys are not its — and
+///    no `/DecodeParms`, `/F`, `/FFilter` or `/FDecodeParms` among them, since a
+///    predictor or an external file makes what a renderer draws differ from
+///    the inflate the check reads, with a valid zlib header and an Adler-32
+///    trailer that proves the inflate, the filter name and the closing
+///    `endstream` each read as a complete token; and every path coordinate — the
 ///    `m`/`l`/`c`/`v`/`y` points and the corners of each `re` — transformed by
 ///    the full current matrix (`cm` concatenated, `q`/`Q` scoping it) and lying
 ///    within 0…24 on both axes, with no tolerance and at least one point per
@@ -212,7 +224,7 @@ final class DesignGlyphAssetTests: XCTestCase {
     }
 
     func testTheGeometryReaderRefusesAnyOtherMediaBox() throws {
-        let findings = GlyphGeometry.read(try Self.fixturePDF(mediaBox: "0 0 12 12", content: "1 1 m 11 11 l h f"))
+        let findings = GlyphGeometry.read(try Self.fixturePDF(mediaBox: "[0 0 12 12]", content: "1 1 m 11 11 l h f"))
         XCTAssertEqual(findings.mediaBoxes, [[0, 0, 12, 12]])
         XCTAssertEqual(findings.outOfBox, [])
         XCTAssertEqual(findings.failures.count, 1)
@@ -242,15 +254,166 @@ final class DesignGlyphAssetTests: XCTestCase {
         XCTAssertEqual(rotated.failures.count, 1)
     }
 
+    func testTheGeometryReaderRefusesAPageBoxOrRotationItCannotRead() throws {
+        let cases: [(String, String)] = [
+            (" /CropBox 8 0 R", "a `/CropBox` is not an inline array of four numbers, so the clip it sets cannot be read"),
+            (" /TrimBox [0 0 24 24 R]",
+             "a `/TrimBox` is not an inline array of four numbers, so the clip it sets cannot be read"),
+            (" /Rotate 0 0 R", "a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"),
+            (" /Rotate 0.5", "a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"),
+            (" /Rotate 0+90", "a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"),
+            (" /Rotate 0,5", "a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"),
+            // A vertical tab is a regular character in PDF, not whitespace.
+            (" /Rotate 0\u{0B}5", "a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"),
+            (" /TrimBox [0 0 24\u{0B}24]",
+             "a `/TrimBox` is not an inline array of four numbers, so the clip it sets cannot be read"),
+            (" /TrimBox [0 0 0x18 24]",
+             "a `/TrimBox` is not an inline array of four numbers, so the clip it sets cannot be read"),
+        ]
+        for (entries, expected) in cases {
+            let findings = GlyphGeometry.read(try Self.fixturePDF(pageEntries: entries, content: "1 1 m 11 11 l h f"))
+            XCTAssertEqual(findings.malformed, [expected], entries)
+            XCTAssertTrue(findings.failures.contains(expected), entries)
+        }
+
+        let indirectMedia = GlyphGeometry.read(try Self.fixturePDF(mediaBox: "8 0 R", content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(indirectMedia.mediaBoxes, [])
+        XCTAssertTrue(indirectMedia.malformed.contains(
+            "a `/MediaBox` is not an inline array of four numbers, so the clip it sets cannot be read"))
+    }
+
+    func testTheGeometryReaderReadsKeysAsPDFTokensDo() throws {
+        let rotated = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /Rot#61te 90", content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(rotated.rotations, [90])
+        XCTAssertTrue(rotated.failures.contains("it rotates its page by 90.0"))
+
+        let cropped = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /CropB#6Fx [0 0 12 12]",
+                                                             content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(cropped.otherBoxes, [[0, 0, 12, 12]])
+        XCTAssertEqual(cropped.failures.count, 1)
+
+        // A name runs to the next delimiter, so `/Rotate.foo` and
+        // `/MediaBox.foo` are other keys, not run-on declarations of these.
+        let runOn = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /Rotate.foo 90 /MediaBox.foo [0 0 12 12]",
+                                                           content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(runOn.rotations, [])
+        XCTAssertEqual(runOn.mediaBoxes, [[0, 0, 24, 24]])
+        XCTAssertEqual(runOn.failures, [])
+
+        let commented = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /Rotate 0%comment\n0 R",
+                                                               content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(commented.malformed,
+                       ["a `/Rotate` is not a direct integer, so the rotation it sets cannot be read"])
+
+        // A string's contents name no key, however much they look like one.
+        let quoted = GlyphGeometry.read(try Self.fixturePDF(pageEntries: #" /Note (a \) (/Rotate 90) b)"#,
+                                                            content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(quoted.rotations, [])
+        XCTAssertEqual(quoted.failures, [])
+
+        // A string that never closes swallows every key and keyword after it,
+        // the content stream's `stream` included.
+        let unclosed = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /Note (unterminated /Rotate 90",
+                                                              content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(unclosed.streams, 0)
+        XCTAssertEqual(unclosed.malformed,
+                       ["a literal string never closes, so the structure after it cannot be read"])
+        XCTAssertTrue(unclosed.failures.contains(
+            "a literal string never closes, so the structure after it cannot be read"))
+    }
+
+    func testTheGeometryReaderFindsStreamsAndObjectsAsPDFTokensDo() throws {
+        // `stream` in a string, a comment or a name opens no stream.
+        let pageEntries = " /Note (stream) /stream 0 %stream\n"
+        let quoted = GlyphGeometry.read(try Self.fixturePDF(pageEntries: pageEntries, content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(quoted.streams, 1)
+        XCTAssertEqual(quoted.failures, [])
+
+        // `obj` in a string does not open the stream's dictionary after its `/Length`.
+        let named = GlyphGeometry.read(try Self.fixturePDF(content: "1 1 m 11 11 l h f",
+                                                           length: { "\($0) /Note (obj)" }))
+        XCTAssertEqual(named.streams, 1)
+        XCTAssertEqual(named.failures, [])
+
+        // Keys inside a nested dictionary are that dictionary's, not the stream's.
+        let nested = GlyphGeometry.read(try Self.fixturePDF(
+            content: "1 1 m 11 11 l h f",
+            filter: "/FlateDecode /Extra << /Filter /ASCIIHexDecode /Length 1 >> /ID <2F4C> /W [1 2]"))
+        XCTAssertEqual(nested.streams, 1)
+        XCTAssertEqual(nested.failures, [])
+
+        // A name in value position is that entry's value, never a key.
+        let valued = GlyphGeometry.read(try Self.fixturePDF(content: "1 1 m 11 11 l h f",
+                                                            filter: "/FlateDecode /Alias /Filter /Other /Length"))
+        XCTAssertEqual(valued.streams, 1)
+        XCTAssertEqual(valued.failures, [])
+    }
+
+    func testTheGeometryReaderRefusesMoreThanOneContentStream() throws {
+        // Read as one page, the first stream's translation carries into the
+        // second and lands (23, 1) at (33, 1); read stream by stream, both look
+        // inside. The check reads stream by stream, so it refuses the shape.
+        let findings = GlyphGeometry.read(try Self.fixturePDF(content: "1 0 0 1 10 0 cm 1 1 m h f",
+                                                              moreContent: ["23 1 m h f"]))
+        XCTAssertEqual(findings.streams, 2)
+        XCTAssertEqual(findings.outOfBox, [])
+        XCTAssertEqual(findings.failures.count, 1)
+    }
+
     func testTheGeometryReaderNamesEachWayAStreamIsMalformed() throws {
         let content = "1 1 m 2 2 l h f"
         let cases: [(String, Data)] = [
             ("a content stream is not `/FlateDecode`",
              try Self.fixturePDF(content: content, filter: "/ASCIIHexDecode")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode.foo")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode\u{0B}.foo")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "/ASCIIHexDecode /Metadata << /Filter /FlateDecode >>")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /Filter /ASCIIHexDecode")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "[/FlateDecode]")),
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filterEntry: "/Alias /Filter /FlateDecode null")),
+            ("a content stream carries `/DecodeParms` or an external-file key, so the bytes a renderer draws are "
+                + "not the inflate alone",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >>")),
+            ("a content stream carries `/DecodeParms` or an external-file key, so the bytes a renderer draws are "
+                + "not the inflate alone",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /DecodeParms null")),
+            ("a content stream carries `/DecodeParms` or an external-file key, so the bytes a renderer draws are "
+                + "not the inflate alone",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /F (glyph.bin)")),
+            ("a content stream carries `/DecodeParms` or an external-file key, so the bytes a renderer draws are "
+                + "not the inflate alone",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /FFilter /ASCIIHexDecode")),
+            ("a content stream carries `/DecodeParms` or an external-file key, so the bytes a renderer draws are "
+                + "not the inflate alone",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /FDecodeParms << >>")),
+            ("a content stream's dictionary is not key–value pairs, so its entries cannot be read",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /Alias")),
+            ("a content stream's dictionary does not close, so its entries cannot be read",
+             try Self.fixturePDF(content: content, filter: "/FlateDecode /DecodeParms [")),
             ("a content stream has no direct `/Length` inside the file",
              try Self.fixturePDF(content: content, length: { "\($0) 0 R" })),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "\($0).0" })),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "\($0)+0" })),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "\($0)%comment\n0 R" })),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "8 0 R /DecodeParms << /Length \($0) >>" })),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "\($0) /Length \($0)" })),
             ("a content stream's `/Length` does not end at `endstream`",
              try Self.fixturePDF(content: content, length: { "\($0 + 3)" })),
+            ("a content stream's `/Length` does not end at `endstream`",
+             try Self.fixturePDF(content: content, endstream: "endstreaming")),
+            ("a content stream's `/Length` does not end at `endstream`",
+             try Self.fixturePDF(content: content, endstream: "endstreamendobj")),
             ("a content stream does not open with a valid zlib header",
              try Self.fixturePDF(content: content, zlibHeader: [0x78, 0x9D])),
             ("a content stream's Adler-32 trailer disagrees with its inflated bytes",
@@ -333,33 +496,40 @@ final class DesignGlyphAssetTests: XCTestCase {
         return Set(names)
     }
 
-    /// A minimal PDF-shaped fixture: one object carrying the media box (and
-    /// `pageEntries`, verbatim), one stream holding `content` in zlib framing —
-    /// the `zlibHeader`, the raw deflate Foundation produces, a big-endian
-    /// Adler-32 (`adler32` when given, the true one otherwise). `filter` and
-    /// `length` replace the stream dictionary's entries when given.
+    /// A minimal PDF-shaped fixture: one object carrying the media box entry's
+    /// value and `pageEntries`, both verbatim, then one stream object per element of
+    /// `content` + `moreContent`, each in zlib framing — the `zlibHeader`, the
+    /// raw deflate Foundation produces, a big-endian Adler-32 (`adler32` when
+    /// given, the true one otherwise). `filter` and `length` replace each stream
+    /// dictionary's entries when given — `filterEntry` the whole `/Filter` entry,
+    /// key included — and `endstream` the keyword closing each stream.
     private static func fixturePDF(
-        mediaBox: String = "0 0 24 24", pageEntries: String = "", content: String,
-        filter: String = "/FlateDecode", length: ((Int) -> String)? = nil,
-        zlibHeader: [UInt8] = [0x78, 0x9C], adler32: UInt32? = nil
+        mediaBox: String = "[0 0 24 24]", pageEntries: String = "", content: String, moreContent: [String] = [],
+        filter: String = "/FlateDecode", filterEntry: String? = nil, length: ((Int) -> String)? = nil,
+        zlibHeader: [UInt8] = [0x78, 0x9C], adler32: UInt32? = nil, endstream: String = "endstream"
     ) throws -> Data {
-        let body = Data(content.utf8)
-        var stream = Data(zlibHeader)
-        stream.append(try (body as NSData).compressed(using: .zlib) as Data)
-        withUnsafeBytes(of: (adler32 ?? GlyphGeometry.adler32(body)).bigEndian) { stream.append(contentsOf: $0) }
-
         var pdf = Data("""
             %PDF-1.4
             1 0 obj
-            <</Type /Page /MediaBox [\(mediaBox)]\(pageEntries)>>
+            <</Type /Page /MediaBox \(mediaBox)\(pageEntries)>>
             endobj
-            2 0 obj
-            <</Filter \(filter)
-            /Length \(length?(stream.count) ?? String(stream.count))>> stream
 
             """.utf8)
-        pdf.append(stream)
-        pdf.append(Data("\nendstream\nendobj\n%%EOF\n".utf8))
+        for (index, text) in ([content] + moreContent).enumerated() {
+            let body = Data(text.utf8)
+            var stream = Data(zlibHeader)
+            stream.append(try (body as NSData).compressed(using: .zlib) as Data)
+            withUnsafeBytes(of: (adler32 ?? GlyphGeometry.adler32(body)).bigEndian) { stream.append(contentsOf: $0) }
+            pdf.append(Data("""
+                \(index + 2) 0 obj
+                <<\(filterEntry ?? "/Filter " + filter)
+                /Length \(length?(stream.count) ?? String(stream.count))>> stream
+
+                """.utf8))
+            pdf.append(stream)
+            pdf.append(Data("\n\(endstream)\nendobj\n".utf8))
+        }
+        pdf.append(Data("%%EOF\n".utf8))
         return pdf
     }
 
@@ -398,6 +568,10 @@ final class DesignGlyphAssetTests: XCTestCase {
                 }
                 failures += rotations.filter { $0 != 0 }.map { "it rotates its page by \($0)" }
                 if streams == 0 { failures.append("it has no content stream") }
+                if streams > 1 {
+                    failures.append("it has \(streams) content streams, not exactly one: a page's streams share "
+                        + "one graphics state, and this check reads each stream from a fresh one")
+                }
                 failures += malformed
                 failures += unknownOperators.map { operatorName in
                     "its content uses the operator `\(operatorName)`, which this check does not read, so what it "
@@ -415,12 +589,26 @@ final class DesignGlyphAssetTests: XCTestCase {
 
         static let box = 24.0
 
+        /// PDF's whitespace — NUL, tab, line feed, form feed, carriage return
+        /// and space, nothing else — as a regex class. `\s` is not it: a vertical
+        /// tab is Unicode whitespace but a PDF regular character.
+        private static let space = #"[\x00\t\n\f\r ]"#
+
+        /// Where a PDF token may end: whitespace, a PDF delimiter, or the end of
+        /// the input. An integer read up to anything else — `0.5`, `0+90`, `0,5`
+        /// — is a prefix of some other token, so it is not read at all.
+        private static let tokenEnd = #"(?=[\x00\t\n\f\r ()<>\[\]{}/%]|\z)"#
+
+        /// Whether a token is a reference's tail — ` <generation> R` — so the
+        /// integer before it is an object number, not a direct value.
+        private static let referenceTail = "(?!" + space + "+[0-9]+" + space + "+R" + tokenEnd + ")"
+
         static func read(_ pdf: Data) -> Findings {
             var findings = Findings()
             let bytes = [UInt8](pdf)
             var structure: [UInt8] = []
             var cursor = 0
-            while let keyword = find("stream", in: bytes, from: cursor) {
+            while let keyword = Self.keyword("stream", in: bytes, from: cursor) {
                 structure += bytes[cursor..<keyword]
                 guard let end = readStream(bytes, keyword: keyword, from: cursor, into: &findings) else {
                     cursor = bytes.count
@@ -429,10 +617,16 @@ final class DesignGlyphAssetTests: XCTestCase {
                 cursor = end
             }
             structure += bytes[min(cursor, bytes.count)...]
-            let text = String(decoding: structure, as: Unicode.ASCII.self)
-            findings.mediaBoxes = boxes(named: "MediaBox", in: text)
-            findings.otherBoxes = ["CropBox", "BleedBox", "TrimBox", "ArtBox"].flatMap { boxes(named: $0, in: text) }
-            findings.rotations = matches(#"/Rotate\s+([-+]?\d+)"#, in: text).compactMap { Double($0) }
+            let text = lexical(structure[...], into: &findings)
+            findings.mediaBoxes = boxes(named: "MediaBox", in: text, into: &findings)
+            findings.otherBoxes = ["CropBox", "BleedBox", "TrimBox", "ArtBox"].flatMap { name in
+                boxes(named: name, in: text, into: &findings)
+            }
+            findings.rotations = matches("/Rotate" + space + "+([-+]?[0-9]+)" + tokenEnd + referenceTail, in: text)
+                .compactMap { Double($0) }
+            if declarations(of: "Rotate", in: text) != findings.rotations.count {
+                findings.malformed.append("a `/Rotate` is not a direct integer, so the rotation it sets cannot be read")
+            }
             return findings
         }
 
@@ -450,26 +644,42 @@ final class DesignGlyphAssetTests: XCTestCase {
                 findings.malformed.append("a `stream` keyword is not followed by an end-of-line")
                 return nil
             }
-            let header = find("obj", in: bytes, from: start, before: keyword, last: true) ?? start
-            let dictionary = String(decoding: bytes[header..<keyword], as: Unicode.ASCII.self)
-            guard let length = firstMatch(#"/Length\s+(\d+)\b(?!\s+\d+\s+R)"#, in: dictionary).flatMap(Int.init),
-                  dataStart + length <= bytes.count else {
+            let header = Self.keyword("obj", in: bytes, from: start, before: keyword, last: true) ?? start
+            guard let dictionary = outerDictionary(lexical(bytes[header..<keyword], into: &findings)) else {
+                findings.malformed.append("a content stream's dictionary does not close, so its entries cannot be read")
+                return nil
+            }
+            guard let entries = entries(of: dictionary) else {
+                findings.malformed.append("a content stream's dictionary is not key–value pairs, so its entries "
+                    + "cannot be read")
+                return nil
+            }
+            /// The values of every entry keyed `/<name>` — a name in value position is not a key.
+            func values(_ name: String) -> [String] { entries.filter { $0.key == "/" + name }.map(\.value) }
+            let lengths = values("Length")
+            guard lengths.count == 1, lengths[0].utf8.allSatisfy({ (48...57).contains($0) }),
+                  let length = Int(lengths[0]), dataStart + length <= bytes.count else {
                 findings.malformed.append("a content stream has no direct `/Length` inside the file")
                 return nil
             }
             var after = dataStart + length
             while after < bytes.count, [0x0A, 0x0D, 0x20].contains(bytes[after]) { after += 1 }
-            guard bytes[after...].starts(with: Array("endstream".utf8)) else {
+            let close = after + "endstream".utf8.count
+            guard bytes[after...].starts(with: Array("endstream".utf8)),
+                  close == bytes.count || !isRegular(bytes[close]) else {
                 findings.malformed.append("a content stream's `/Length` does not end at `endstream`")
                 return nil
             }
             findings.streams += 1
-            if firstMatch(#"/Filter\s*/(FlateDecode)\b"#, in: dictionary) == nil {
+            if values("Filter") != ["/FlateDecode"] {
                 findings.malformed.append("a content stream is not `/FlateDecode`")
+            } else if ["DecodeParms", "F", "FFilter", "FDecodeParms"].contains(where: { !values($0).isEmpty }) {
+                findings.malformed.append("a content stream carries `/DecodeParms` or an external-file key, so the "
+                    + "bytes a renderer draws are not the inflate alone")
             } else if let text = inflate(Array(bytes[dataStart..<(dataStart + length)]), into: &findings) {
                 interpret(text, into: &findings)
             }
-            return after + "endstream".utf8.count
+            return close
         }
 
         /// Strips the zlib framing, inflates the raw deflate between, and
@@ -603,21 +813,235 @@ final class DesignGlyphAssetTests: XCTestCase {
             return high << 16 | low
         }
 
-        private static func boxes(named name: String, in structure: String) -> [[Double]] {
-            matches(#"/\#(name)\s*\[([^\]]*)\]"#, in: structure).map { inside in
-                inside.split(whereSeparator: \.isWhitespace).compactMap { Double($0) }
+        /// Every `/<name>` box that is an inline array of four numbers. Any other
+        /// declaration — an indirect reference, or an array holding one — is
+        /// recorded as malformed, since the clip it sets cannot be read.
+        private static func boxes(named name: String, in structure: String,
+                                  into findings: inout Findings) -> [[Double]] {
+            let inline = matches("/" + name + space + #"*\[([^\]]*)\]"#, in: structure).map { inside in
+                inside.utf8.split(whereSeparator: isSpace).map { number(String(decoding: $0, as: UTF8.self)) }
             }
+            let read = inline.filter { $0.count == 4 && !$0.contains(nil) }.map { $0.compactMap { $0 } }
+            if declarations(of: name, in: structure) != read.count {
+                findings.malformed.append("a `/\(name)` is not an inline array of four numbers, so the clip it sets "
+                    + "cannot be read")
+            }
+            return read
+        }
+
+        /// The value of a PDF numeric token — an optional sign, then digits with
+        /// at most one period — or `nil` for anything else, which `Double(_:)`
+        /// would otherwise read: `0x18`, `1e1`, `inf`.
+        private static func number(_ token: String) -> Double? {
+            firstMatch(#"^([-+]?([0-9]+\.?[0-9]*|\.[0-9]+))$"#, in: token).flatMap(Double.init)
+        }
+
+        /// The entries of the first dictionary in `text`, at its own depth only:
+        /// each nested dictionary, array and hex string is replaced by an empty
+        /// one, so a key inside `/DecodeParms << … >>` or `/Metadata << … >>` is
+        /// not read as the stream's own. `nil` when the dictionary is absent or
+        /// does not close, or a container inside it closes the wrong way.
+        private static func outerDictionary(_ text: String) -> String? {
+            let bytes = Array(text.utf8)
+            var stack: [UInt8] = []
+            var entries: [UInt8] = []
+            var index = 0
+            func at(_ prefix: String) -> Bool { bytes[index...].starts(with: Array(prefix.utf8)) }
+            while index < bytes.count {
+                let atTop = stack.count == 1
+                if at("<<") {
+                    stack.append(UInt8(ascii: "<"))
+                    if stack.count == 2 { entries += Array(" <<>> ".utf8) }
+                    index += 2
+                } else if stack.isEmpty {
+                    index += 1
+                } else if at(">>") {
+                    guard stack.popLast() == UInt8(ascii: "<") else { return nil }
+                    if stack.isEmpty { return String(decoding: entries, as: Unicode.ASCII.self) }
+                    index += 2
+                } else if bytes[index] == UInt8(ascii: "[") {
+                    stack.append(UInt8(ascii: "["))
+                    if stack.count == 2 { entries += Array(" [] ".utf8) }
+                    index += 1
+                } else if bytes[index] == UInt8(ascii: "]") {
+                    guard stack.popLast() == UInt8(ascii: "[") else { return nil }
+                    index += 1
+                } else if bytes[index] == UInt8(ascii: "<") {
+                    guard let close = bytes[index...].firstIndex(of: UInt8(ascii: ">")) else { return nil }
+                    if atTop { entries += Array(" <> ".utf8) }
+                    index = close + 1
+                } else {
+                    if atTop { entries.append(bytes[index]) }
+                    index += 1
+                }
+            }
+            return nil
+        }
+
+        /// The outer dictionary's entries in order, as PDF pairs them: each key a
+        /// name, each value one token — an indirect reference's three tokens
+        /// joined as one — so a name standing as another entry's value, as in
+        /// `/Alias /Filter`, is that entry's value and never a key. `nil` when a
+        /// key is not a name or the last key has no value.
+        private static func entries(of dictionary: String) -> [(key: String, value: String)]? {
+            // `outerDictionary` leaves each nested container as `<<>>`, `[]`,
+            // `<>` or `()`; each of those is one token, as is a name, a run of
+            // regular characters, and any other lone delimiter.
+            let regular = #"[^\x00\t\n\f\r ()<>\[\]{}/%]"#
+            let tokens = matches(#"(<<>>|\[\]|<>|\(\)|/"# + regular + "*|" + regular + #"+|[^\x00\t\n\f\r ])"#,
+                                 in: dictionary)
+            let isInteger = { (token: String) in token.utf8.allSatisfy { (48...57).contains($0) } }
+            var pairs: [(key: String, value: String)] = []
+            var index = 0
+            while index < tokens.count {
+                guard tokens[index].hasPrefix("/"), index + 1 < tokens.count else { return nil }
+                let key = tokens[index]
+                var value = tokens[index + 1]
+                index += 2
+                if isInteger(value), index + 1 < tokens.count, isInteger(tokens[index]), tokens[index + 1] == "R" {
+                    value += " " + tokens[index] + " R"
+                    index += 2
+                }
+                pairs.append((key, value))
+            }
+            return pairs
+        }
+
+        /// How many times the structure names the key `/<name>`.
+        private static func declarations(of name: String, in structure: String) -> Int {
+            matches(#"/(\#(name))"# + tokenEnd, in: structure).count
         }
 
         // MARK: Byte and text search
 
-        private static func find(_ needle: String, in bytes: [UInt8], from start: Int,
-                                 before end: Int? = nil, last: Bool = false) -> Int? {
-            let pattern = Array(needle.utf8)
-            let limit = (end ?? bytes.count) - pattern.count
-            guard start <= limit else { return nil }
-            let offsets = last ? Array(stride(from: limit, through: start, by: -1)) : Array(start...limit)
-            return offsets.first { bytes[$0..<($0 + pattern.count)].elementsEqual(pattern) }
+        /// The structure as PDF's tokens read it, so a key is matched however it
+        /// is spelled: each comment becomes the one space PDF takes it for, so
+        /// `/Length 123%…⏎0 R` reads as the reference it is; each literal string
+        /// is emptied, since its contents name no key; and each `#xx` escape in a
+        /// name that spells a regular character is decoded, so `/Rot#61te` reads
+        /// as `/Rotate`. An escape spelling whitespace or a delimiter stays as
+        /// written, keeping its name one token. A literal string that never
+        /// closes is recorded as malformed, since everything after it would be
+        /// read as its contents.
+        private static func lexical(_ bytes: ArraySlice<UInt8>, into findings: inout Findings) -> String {
+            var text: [UInt8] = []
+            var index = bytes.startIndex
+            var inName = false
+            while index < bytes.endIndex {
+                let byte = bytes[index]
+                if byte == UInt8(ascii: "%") {
+                    while index < bytes.endIndex, ![0x0A, 0x0D].contains(bytes[index]) { index += 1 }
+                    text.append(0x20)
+                    inName = false
+                    continue
+                }
+                if byte == UInt8(ascii: "(") {
+                    guard let end = endOfString(bytes, from: index) else {
+                        let unclosed = "a literal string never closes, so the structure after it cannot be read"
+                        if !findings.malformed.contains(unclosed) { findings.malformed.append(unclosed) }
+                        break
+                    }
+                    index = end
+                    text += Array("()".utf8)
+                    inName = false
+                    continue
+                }
+                if inName, byte == UInt8(ascii: "#"), index + 2 < bytes.endIndex,
+                   let high = hexValue(bytes[index + 1]), let low = hexValue(bytes[index + 2]),
+                   isRegular(high << 4 | low) {
+                    text.append(high << 4 | low)
+                    index += 3
+                    continue
+                }
+                if byte == UInt8(ascii: "/") {
+                    inName = true
+                } else if !isRegular(byte) {
+                    inName = false
+                }
+                text.append(byte)
+                index += 1
+            }
+            return String(decoding: text, as: Unicode.ASCII.self)
+        }
+
+        /// The offset past the literal string opening at `start`, honouring its
+        /// balanced parentheses and backslash escapes; `nil` when it never closes.
+        private static func endOfString(_ bytes: ArraySlice<UInt8>, from start: Int) -> Int? {
+            var depth = 0
+            var index = start
+            while index < bytes.endIndex {
+                switch bytes[index] {
+                case UInt8(ascii: "\\"):
+                    index += 1
+                case UInt8(ascii: "("):
+                    depth += 1
+                case UInt8(ascii: ")"):
+                    depth -= 1
+                    if depth == 0 { return index + 1 }
+                default:
+                    break
+                }
+                index += 1
+            }
+            return nil
+        }
+
+        /// Whether `byte` is PDF whitespace: NUL, tab, line feed, form feed,
+        /// carriage return or space — not the vertical tab Unicode adds.
+        private static func isSpace(_ byte: UInt8) -> Bool {
+            Array(" \t\n\r\u{0C}\u{00}".utf8).contains(byte)
+        }
+
+        /// Whether `byte` is a PDF regular character: neither whitespace nor a delimiter.
+        private static func isRegular(_ byte: UInt8) -> Bool {
+            !isSpace(byte) && !Array("()<>[]{}/%".utf8).contains(byte)
+        }
+
+        private static func hexValue(_ byte: UInt8) -> UInt8? {
+            switch byte {
+            case UInt8(ascii: "0")...UInt8(ascii: "9"): byte - UInt8(ascii: "0")
+            case UInt8(ascii: "a")...UInt8(ascii: "f"): byte - UInt8(ascii: "a") + 10
+            case UInt8(ascii: "A")...UInt8(ascii: "F"): byte - UInt8(ascii: "A") + 10
+            default: nil
+            }
+        }
+
+        /// The offset of the first — or, with `last`, the final — `keyword`
+        /// standing as a whole PDF token in `bytes[start..<end]`: never inside a
+        /// comment, a literal string or a name, nor as part of a longer token. A
+        /// literal string that never closes ends the search, since everything
+        /// after it is its contents; `lexical` records it.
+        private static func keyword(_ keyword: String, in bytes: [UInt8], from start: Int,
+                                    before end: Int? = nil, last: Bool = false) -> Int? {
+            let pattern = Array(keyword.utf8)
+            let slice = bytes[start..<(end ?? bytes.count)]
+            var found: Int?
+            var index = slice.startIndex
+            while index < slice.endIndex {
+                let byte = slice[index]
+                if byte == UInt8(ascii: "%") {
+                    while index < slice.endIndex, ![0x0A, 0x0D].contains(slice[index]) { index += 1 }
+                    continue
+                }
+                if byte == UInt8(ascii: "(") {
+                    guard let close = endOfString(slice, from: index) else { break }
+                    index = close
+                    continue
+                }
+                guard isRegular(byte) else {
+                    index += 1
+                    continue
+                }
+                var tokenEnd = index
+                while tokenEnd < slice.endIndex, isRegular(slice[tokenEnd]) { tokenEnd += 1 }
+                let isName = index > slice.startIndex && slice[index - 1] == UInt8(ascii: "/")
+                if !isName, slice[index..<tokenEnd].elementsEqual(pattern) {
+                    guard last else { return index }
+                    found = index
+                }
+                index = tokenEnd
+            }
+            return found
         }
 
         private static func matches(_ pattern: String, in text: String) -> [String] {
