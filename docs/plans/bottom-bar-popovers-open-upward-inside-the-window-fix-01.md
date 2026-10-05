@@ -76,24 +76,24 @@ fill `bgEditor`, radius 4, focused stroke `accent` 2 — with a 13-point line th
 its gap is a parameter, so both are the caller's to state, and both are measurements, so
 both are tokens.
 
-- [ ] Add two `ChromeGeometry` tokens, each with a one-line comment and neither a font
+- [x] Add two `ChromeGeometry` tokens, each with a one-line comment and neither a font
       size: `popoverFieldHeight` (32) and `popoverFieldGlyphGap` (8). Add the gap token to
       the type's doc-comment inventory sentence of padding and gap tokens, beside the
       other popover gaps.
-- [ ] The branch popover passes `height: ChromeGeometry.popoverFieldHeight` and
+- [x] The branch popover passes `height: ChromeGeometry.popoverFieldHeight` and
       `spacing: ChromeGeometry.popoverFieldGlyphGap` to the field (unscaled in, scaled by
       the box, as the other callers do). The horizontal padding stays the shared
       `fieldPaddingX` (10).
-- [ ] `ChromeThemeTests`: both tokens in the inventory's set equality and both values
+- [x] `ChromeThemeTests`: both tokens in the inventory's set equality and both values
       asserted.
-- [ ] The test that would have caught it, off the branch bitmap the suite already
+- [x] The test that would have caught it, off the branch bitmap the suite already
       renders: `assertBranchPopover` already finds `fieldTop` and `fieldBottom` in its
       column; assert `fieldBottom - fieldTop` equals `32 × scale` within the suite's
       tolerance, at scale 1.0 and 1.8. Confirm by hand that it goes red with the height
       removed from the call, then restore.
-- [ ] `core-theme.md`'s section *The bottom bar's popover component* names the two
+- [x] `core-theme.md`'s section *The bottom bar's popover component* names the two
       tokens where it describes `ChromePopoverFieldBlock` and the filter field.
-- [ ] `swift test` and the app-layer bundle must pass before the next task.
+- [x] `swift test` and the app-layer bundle must pass before the next task.
 
 ### Task 3: The field takes the focus when the popover opens, and a test sees it
 

@@ -165,7 +165,9 @@ struct BranchSwitcherPopover: View {
                     designGlyph: .search,
                     focus: $focusedField,
                     focusedEquals: .filter,
-                    textStyle: .body
+                    textStyle: .body,
+                    spacing: ChromeGeometry.popoverFieldGlyphGap,
+                    height: ChromeGeometry.popoverFieldHeight
                 )
             }
             row(id: Self.newBranchRowID, title: "New Branch…", glyph: .gitBranch)

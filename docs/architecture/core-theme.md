@@ -2584,6 +2584,13 @@ site:
   `popoverFieldBlockPadding` 8 on every side. The branch popover's filter is
   `ChromeThemedTextField`, which gained an optional `designGlyph:` leading slot
   (`DesignGlyphImage` at 14 in `textSecondary`) beside its existing `glyph:`.
+  The branch popover passes it `height: popoverFieldHeight` 32 — a 13-point
+  line inside 8 points of vertical padding, without which the shared box hugs
+  its text line — and `spacing: popoverFieldGlyphGap` 8 between the search
+  glyph and the text; the horizontal padding stays the shared `fieldPaddingX`
+  10. Both are unscaled tokens the box and the stack scale, and
+  `ChromePopoverLayoutTests` measures the field's drawn height off the branch
+  bitmap at scale 1.0 and 1.8.
 
 The file joins the gated set (sixty-one to **sixty-two**) and is now rule
 twenty-three's one reader of `bgPopover` for the bar: the two switcher files

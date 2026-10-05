@@ -21,7 +21,8 @@ import PisakaCore
 /// **What the branch bitmap holds.** A stub git service answers a current local
 /// branch, a second local branch and one remote branch; a checkout it refuses
 /// then leaves the model's error standing beside that list, so the Foot draws.
-/// "New Branch…" — the first row — is selected.
+/// "New Branch…" — the first row — is selected. The field box's drawn height
+/// is held to `popoverFieldHeight`, so a field that hugs its text line fails.
 ///
 /// **What the project bitmap holds.** Two recent projects, the current one
 /// first and selected. Besides the selected row's height, a second column down
@@ -181,6 +182,10 @@ final class ChromePopoverLayoutTests: XCTestCase {
         XCTAssertEqual(
             selected.minY - fieldBottom, 8 * s, accuracy: tolerance,
             "the field block's bottom padding at scale \(scale)", file: file, line: line
+        )
+        XCTAssertEqual(
+            fieldBottom - fieldTop, 32 * s, accuracy: tolerance,
+            "the filter field is not 32 points tall at scale \(scale)", file: file, line: line
         )
         XCTAssertEqual(
             selected.maxY - selected.minY, 28 * s, accuracy: tolerance,

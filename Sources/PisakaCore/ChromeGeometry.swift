@@ -34,8 +34,8 @@ import Foundation
 /// `settingsTabBarPaddingX`, `settingsTabGap`, `settingsTabLabelPaddingX`,
 /// `settingsPagePadding`, `settingsRowSpacing`, `settingsLabelGap`,
 /// `popoverBarGap`, `popoverSubmenuGap`, `popoverHeadPaddingBottom`,
-/// `popoverListPaddingBottom`, `popoverFieldBlockPadding`, `popoverRowPaddingX`,
-/// `popoverRowGap`, `popoverProjectRowLineGap`, `popoverSectionHeaderPaddingTop`,
+/// `popoverListPaddingBottom`, `popoverFieldBlockPadding`, `popoverFieldGlyphGap`,
+/// `popoverRowPaddingX`, `popoverRowGap`, `popoverProjectRowLineGap`, `popoverSectionHeaderPaddingTop`,
 /// `popoverSectionHeaderPaddingX`, `popoverSectionHeaderPaddingBottom`,
 /// `popoverMessagePaddingY`, `popoverMessagePaddingX`) and they
 /// are deliberately distinct tokens for distinct measurements, even where two
@@ -220,6 +220,10 @@ public enum ChromeGeometry {
     public static let popoverListPaddingBottom: Double = 6
     /// The padding on every side of a field block in the popover.
     public static let popoverFieldBlockPadding: Double = 8
+    /// The popover filter field's height: a 13-point line inside 8 points of vertical padding.
+    public static let popoverFieldHeight: Double = 32
+    /// The gap between the popover filter field's search glyph and its text.
+    public static let popoverFieldGlyphGap: Double = 8
     /// A popover row's height.
     public static let popoverRowHeight: Double = 28
     /// A popover project row's height: a name line over a path line.

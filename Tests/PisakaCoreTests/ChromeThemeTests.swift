@@ -102,6 +102,8 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.popoverHeadPaddingBottom, 4)
         XCTAssertEqual(ChromeGeometry.popoverListPaddingBottom, 6)
         XCTAssertEqual(ChromeGeometry.popoverFieldBlockPadding, 8)
+        XCTAssertEqual(ChromeGeometry.popoverFieldHeight, 32)
+        XCTAssertEqual(ChromeGeometry.popoverFieldGlyphGap, 8)
         XCTAssertEqual(ChromeGeometry.popoverRowHeight, 28)
         XCTAssertEqual(ChromeGeometry.popoverProjectRowHeight, 36)
         XCTAssertEqual(ChromeGeometry.popoverRowPaddingX, 12)
@@ -141,7 +143,8 @@ final class ChromeThemeTests: XCTestCase {
             "settingsLabelGap", "menuFieldHeight", "spinnerSide", "spinnerLineWidth",
             "popoverWidth", "popoverMaxHeight", "popoverBarGap", "popoverSubmenuGap",
             "popoverShadowOffsetY", "popoverShadowBlur", "popoverHeadPaddingBottom",
-            "popoverListPaddingBottom", "popoverFieldBlockPadding", "popoverRowHeight",
+            "popoverListPaddingBottom", "popoverFieldBlockPadding", "popoverFieldHeight",
+            "popoverFieldGlyphGap", "popoverRowHeight",
             "popoverProjectRowHeight", "popoverRowPaddingX", "popoverRowGap", "popoverRowGlyphSlot",
             "popoverProjectRowLineGap", "popoverSectionHeaderPaddingTop",
             "popoverSectionHeaderPaddingX", "popoverSectionHeaderPaddingBottom",
