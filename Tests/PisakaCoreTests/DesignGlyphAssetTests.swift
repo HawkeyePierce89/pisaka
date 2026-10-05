@@ -29,7 +29,9 @@ import XCTest
 ///    `"template-rendering-intent": "template"` and
 ///    `"preserves-vector-representation": true`;
 ///  * every shipped PDF *draws* inside its box, not merely declares one: exactly
-///    one `/MediaBox`, equal to `[0 0 24 24]`; every content stream located
+///    one `/MediaBox`, equal to `[0 0 24 24]`; any `/CropBox`, `/BleedBox`,
+///    `/TrimBox` or `/ArtBox` equal to it too, and no `/Rotate` other than 0 — a
+///    smaller crop box clips exactly as a smaller media box does; every content stream located
 ///    through its `/Length`, `/FlateDecode`, with a valid zlib header and an
 ///    Adler-32 trailer that proves the inflate; and every path coordinate — the
 ///    `m`/`l`/`c`/`v`/`y` points and the corners of each `re` — transformed by
@@ -216,6 +218,54 @@ final class DesignGlyphAssetTests: XCTestCase {
         XCTAssertEqual(findings.failures.count, 1)
     }
 
+    func testTheGeometryReaderConcatenatesNestedTransformsInPDFOrder() throws {
+        // The scale applies first, then the translation: (30, 1) → (15, 0.5) →
+        // (25, 0.5), outside. The reverse order would land at (20, 0.5), inside.
+        let findings = GlyphGeometry.read(try Self.fixturePDF(content: """
+            1 0 0 1 10 0 cm 0.5 0 0 0.5 0 0 cm 30 1 m h f
+            """))
+        XCTAssertEqual(findings.outOfBox, [GlyphGeometry.Point(x: 25, y: 0.5)])
+    }
+
+    func testTheGeometryReaderRefusesASmallerCropBoxOrARotation() throws {
+        let cropped = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /CropBox [0 0 12 12]",
+                                                             content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(cropped.otherBoxes, [[0, 0, 12, 12]])
+        XCTAssertEqual(cropped.failures.count, 1)
+
+        let wholeCrop = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /CropBox [0 0 24 24] /Rotate 0",
+                                                               content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(wholeCrop.failures, [])
+
+        let rotated = GlyphGeometry.read(try Self.fixturePDF(pageEntries: " /Rotate 90", content: "1 1 m 11 11 l h f"))
+        XCTAssertEqual(rotated.rotations, [90])
+        XCTAssertEqual(rotated.failures.count, 1)
+    }
+
+    func testTheGeometryReaderNamesEachWayAStreamIsMalformed() throws {
+        let content = "1 1 m 2 2 l h f"
+        let cases: [(String, Data)] = [
+            ("a content stream is not `/FlateDecode`",
+             try Self.fixturePDF(content: content, filter: "/ASCIIHexDecode")),
+            ("a content stream has no direct `/Length` inside the file",
+             try Self.fixturePDF(content: content, length: { "\($0) 0 R" })),
+            ("a content stream's `/Length` does not end at `endstream`",
+             try Self.fixturePDF(content: content, length: { "\($0 + 3)" })),
+            ("a content stream does not open with a valid zlib header",
+             try Self.fixturePDF(content: content, zlibHeader: [0x78, 0x9D])),
+            ("a content stream's Adler-32 trailer disagrees with its inflated bytes",
+             try Self.fixturePDF(content: content, adler32: 1)),
+            ("`l` has 1 operands, not 2", try Self.fixturePDF(content: "1 1 m 2 l h f")),
+            ("`cm` has 4 operands, not 6", try Self.fixturePDF(content: "1 0 0 1 cm 1 1 m h f")),
+            ("`re` has 3 operands, not 4", try Self.fixturePDF(content: "1 1 m 0 0 24 re f")),
+        ]
+        for (expected, pdf) in cases {
+            let findings = GlyphGeometry.read(pdf)
+            XCTAssertEqual(findings.malformed, [expected])
+            XCTAssertTrue(findings.failures.contains(expected), expected)
+        }
+    }
+
     func testTheGeometryReaderRefusesAnUnknownOperator() throws {
         let findings = GlyphGeometry.read(try Self.fixturePDF(content: "1 1 m 2 2 l S"))
         XCTAssertEqual(findings.unknownOperators, ["S"])
@@ -283,23 +333,29 @@ final class DesignGlyphAssetTests: XCTestCase {
         return Set(names)
     }
 
-    /// A minimal PDF-shaped fixture: one object carrying the media box, one
-    /// `/FlateDecode` stream holding `content` in zlib framing — the `0x78 0x9C`
-    /// header, the raw deflate Foundation produces, a big-endian Adler-32.
-    private static func fixturePDF(mediaBox: String = "0 0 24 24", content: String) throws -> Data {
+    /// A minimal PDF-shaped fixture: one object carrying the media box (and
+    /// `pageEntries`, verbatim), one stream holding `content` in zlib framing —
+    /// the `zlibHeader`, the raw deflate Foundation produces, a big-endian
+    /// Adler-32 (`adler32` when given, the true one otherwise). `filter` and
+    /// `length` replace the stream dictionary's entries when given.
+    private static func fixturePDF(
+        mediaBox: String = "0 0 24 24", pageEntries: String = "", content: String,
+        filter: String = "/FlateDecode", length: ((Int) -> String)? = nil,
+        zlibHeader: [UInt8] = [0x78, 0x9C], adler32: UInt32? = nil
+    ) throws -> Data {
         let body = Data(content.utf8)
-        var stream = Data([0x78, 0x9C])
+        var stream = Data(zlibHeader)
         stream.append(try (body as NSData).compressed(using: .zlib) as Data)
-        withUnsafeBytes(of: GlyphGeometry.adler32(body).bigEndian) { stream.append(contentsOf: $0) }
+        withUnsafeBytes(of: (adler32 ?? GlyphGeometry.adler32(body)).bigEndian) { stream.append(contentsOf: $0) }
 
         var pdf = Data("""
             %PDF-1.4
             1 0 obj
-            <</Type /Page /MediaBox [\(mediaBox)]>>
+            <</Type /Page /MediaBox [\(mediaBox)]\(pageEntries)>>
             endobj
             2 0 obj
-            <</Filter /FlateDecode
-            /Length \(stream.count)>> stream
+            <</Filter \(filter)
+            /Length \(length?(stream.count) ?? String(stream.count))>> stream
 
             """.utf8)
         pdf.append(stream)
@@ -322,6 +378,9 @@ final class DesignGlyphAssetTests: XCTestCase {
 
         struct Findings {
             var mediaBoxes: [[Double]] = []
+            /// The crop, bleed, trim and art boxes, which default to the media box.
+            var otherBoxes: [[Double]] = []
+            var rotations: [Double] = []
             var streams = 0
             var boundedPoints = 0
             var outOfBox: [Point] = []
@@ -334,6 +393,10 @@ final class DesignGlyphAssetTests: XCTestCase {
                 if mediaBoxes != [[0, 0, box, box]] {
                     failures.append("its media boxes are \(mediaBoxes), not exactly one [0 0 24 24]")
                 }
+                failures += otherBoxes.filter { $0 != [0, 0, box, box] }.map { other in
+                    "it declares a page box \(other), which clips as a media box does, not [0 0 24 24]"
+                }
+                failures += rotations.filter { $0 != 0 }.map { "it rotates its page by \($0)" }
                 if streams == 0 { failures.append("it has no content stream") }
                 failures += malformed
                 failures += unknownOperators.map { operatorName in
@@ -366,7 +429,10 @@ final class DesignGlyphAssetTests: XCTestCase {
                 cursor = end
             }
             structure += bytes[min(cursor, bytes.count)...]
-            findings.mediaBoxes = mediaBoxes(in: String(decoding: structure, as: Unicode.ASCII.self))
+            let text = String(decoding: structure, as: Unicode.ASCII.self)
+            findings.mediaBoxes = boxes(named: "MediaBox", in: text)
+            findings.otherBoxes = ["CropBox", "BleedBox", "TrimBox", "ArtBox"].flatMap { boxes(named: $0, in: text) }
+            findings.rotations = matches(#"/Rotate\s+([-+]?\d+)"#, in: text).compactMap { Double($0) }
             return findings
         }
 
@@ -427,11 +493,8 @@ final class DesignGlyphAssetTests: XCTestCase {
             return String(decoding: inflated, as: Unicode.ASCII.self)
         }
 
-        /// How many points each path operator bounds; `re` and the state
-        /// operators are handled by name.
-        private static let pointOperators: [String: Int] = ["m": 1, "l": 1, "c": 3, "v": 2, "y": 2]
-        private static let inertOperators: Set<String> = ["h", "f", "gs", "rg", "RG"]
-
+        /// Interprets one content stream: every operator the exports use, by
+        /// name; anything else is recorded as unknown.
         private static func interpret(_ text: String, into findings: inout Findings) {
             let whitespace = CharacterSet(charactersIn: " \t\n\r\u{0C}\u{00}")
             let numeric = CharacterSet(charactersIn: "0123456789.+-")
@@ -449,54 +512,49 @@ final class DesignGlyphAssetTests: XCTestCase {
                     continue
                 }
                 defer { numbers = []; names = 0 }
-                if let count = pointOperators[token] {
-                    guard numbers.count == count * 2, names == 0 else {
-                        findings.malformed.append("`\(token)` has \(numbers.count) operands, not \(count * 2)")
-                        continue
+                /// Whether the operator took exactly `count` numbers; records it when not.
+                func takes(_ count: Int) -> Bool {
+                    guard numbers.count == count, names == 0 else {
+                        findings.malformed.append("`\(token)` has \(numbers.count) operands, not \(count)")
+                        return false
                     }
+                    return true
+                }
+                func boundPoints(_ count: Int) {
+                    guard takes(count * 2) else { return }
                     for index in stride(from: 0, to: numbers.count, by: 2) {
                         bound(numbers[index], numbers[index + 1], by: matrix, into: &findings)
                     }
-                } else if inertOperators.contains(token) {
-                    continue
-                } else if !operate(token, numbers, matrix: &matrix, saved: &saved, into: &findings) {
+                }
+                switch token {
+                case "m", "l":
+                    boundPoints(1)
+                case "c":
+                    boundPoints(3)
+                case "v", "y":
+                    boundPoints(2)
+                case "re":
+                    guard takes(4) else { continue }
+                    let (x, y, width, height) = (numbers[0], numbers[1], numbers[2], numbers[3])
+                    for (cornerX, cornerY) in [(x, y), (x + width, y), (x, y + height), (x + width, y + height)] {
+                        bound(cornerX, cornerY, by: matrix, into: &findings)
+                    }
+                case "cm":
+                    if takes(6) { matrix = Matrix(numbers).concatenated(onto: matrix) }
+                case "q":
+                    saved.append(matrix)
+                case "Q":
+                    if let restored = saved.popLast() {
+                        matrix = restored
+                    } else {
+                        findings.malformed.append("a `Q` restores a state no `q` saved")
+                    }
+                case "h", "f", "gs", "rg", "RG":
+                    break
+                default:
                     findings.unknownOperators.append(token)
                 }
             }
-        }
-
-        /// The operators that change the matrix or draw a rectangle; `false`
-        /// for any operator the check does not read.
-        private static func operate(_ token: String, _ numbers: [Double], matrix: inout Matrix,
-                                    saved: inout [Matrix], into findings: inout Findings) -> Bool {
-            switch token {
-            case "q":
-                saved.append(matrix)
-            case "Q":
-                guard let restored = saved.popLast() else {
-                    findings.malformed.append("a `Q` restores a state no `q` saved")
-                    return true
-                }
-                matrix = restored
-            case "cm":
-                guard numbers.count == 6 else {
-                    findings.malformed.append("`cm` has \(numbers.count) operands, not 6")
-                    return true
-                }
-                matrix = Matrix(numbers).concatenated(onto: matrix)
-            case "re":
-                guard numbers.count == 4 else {
-                    findings.malformed.append("`re` has \(numbers.count) operands, not 4")
-                    return true
-                }
-                let (x, y, width, height) = (numbers[0], numbers[1], numbers[2], numbers[3])
-                for (cornerX, cornerY) in [(x, y), (x + width, y), (x, y + height), (x + width, y + height)] {
-                    bound(cornerX, cornerY, by: matrix, into: &findings)
-                }
-            default:
-                return false
-            }
-            return true
         }
 
         private static func bound(_ x: Double, _ y: Double, by matrix: Matrix, into findings: inout Findings) {
@@ -545,8 +603,8 @@ final class DesignGlyphAssetTests: XCTestCase {
             return high << 16 | low
         }
 
-        private static func mediaBoxes(in structure: String) -> [[Double]] {
-            matches(#"/MediaBox\s*\[([^\]]*)\]"#, in: structure).map { inside in
+        private static func boxes(named name: String, in structure: String) -> [[Double]] {
+            matches(#"/\#(name)\s*\[([^\]]*)\]"#, in: structure).map { inside in
                 inside.split(whereSeparator: \.isWhitespace).compactMap { Double($0) }
             }
         }

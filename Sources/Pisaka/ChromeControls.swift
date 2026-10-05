@@ -388,7 +388,7 @@ struct ChromeQueryToggle: View {
 /// The query toggle's own numbers, at interface scale 1.0.
 enum ChromeQueryToggleLayout {
     /// The glyph's drawn size and its slot: the design draws the three query
-    /// glyphs at 16, above their exported 14.
+    /// glyphs at 16.
     static let glyphSize: Double = 16
     /// Between the slot and the toggle's edge, on every side.
     static let inset: Double = 3

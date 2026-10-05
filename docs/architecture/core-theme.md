@@ -1223,7 +1223,7 @@ as they are) and an inner gap defaulting to `6`, with Find in Files' three
 fields and the branch switcher's filter passing `.body`. `ChromeQueryToggle` is
 the one query-mode toggle (glyph, `isOn` binding, help text), drawing the mode's
 design glyph through `DesignGlyphImage` at 16 in a 16-point slot padded 3 — the
-design's size, above the export's 14 — `accent` on `accentTint` while on,
+design's size; the asset is the 24-unit box every glyph shares — `accent` on `accentTint` while on,
 `textPrimary` with no ground while off (it drew an `Aa`/`ab`/`.*` label at
 `subheadline` semibold monospaced until the design-match pass), with the spoken
 name, tooltip and on/off value both surfaces already had. `ChromeSecondaryButtonStyle`
