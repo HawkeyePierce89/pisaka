@@ -157,17 +157,17 @@ Replace the twenty-four shipped PDFs byte for byte from
 - Modify: `Resources/Licenses/licenses.json`
 - Modify: `Tests/PisakaCoreTests/DesignGlyphAssetTests.swift`
 
-- [ ] Each shipped PDF is copied over its imageset's PDF from the new export, after checking its
+- [x] Each shipped PDF is copied over its imageset's PDF from the new export, after checking its
   `shasum -a 256` prefix against the new `MANIFEST.txt`. No `Contents.json` changes: each keeps
   its template intent, its preserved vector representation and its one filename. The eight
   unshipped icons stay out.
-- [ ] `Resources/Licenses/design-glyphs.txt` is unchanged; confirm with `cmp` against the
+- [x] `Resources/Licenses/design-glyphs.txt` is unchanged; confirm with `cmp` against the
   export's `LICENSE.txt`. The `design-glyphs` entry's `revision` in `licenses.json` becomes
   `85aea20cfbbe52b9c6c445bb3964d0a06db9db7543e1f901ea7350b0999e3a26`. Its `version` stays
   `null`.
-- [ ] `VENDORED.md` header table: the Revision row holds the new digest, and the Source row says
+- [x] `VENDORED.md` header table: the Revision row holds the new digest, and the Source row says
   the export is dated 2026-10-05.
-- [ ] `VENDORED.md` glyph table: every Size cell is `24`, the MIT-notice column is unchanged,
+- [x] `VENDORED.md` glyph table: every Size cell is `24`, the MIT-notice column is unchanged,
   and the Prefix column is transcribed from the new manifest:
 
   | Glyph | Prefix |
@@ -197,7 +197,7 @@ Replace the twenty-four shipped PDFs byte for byte from
   | `whole-word` | `c8f3633e9f9b8492` |
   | `regex` | `0f392dda96cecce3` |
 
-- [ ] `VENDORED.md` prose, in its own words. It states:
+- [x] `VENDORED.md` prose, in its own words. It states:
   - Why the box is 24 for every glyph: it is the icon set's native viewBox (two units of
     padding each side, stroke width 2). A vector is drawn at whatever size each surface states,
     so the design's 10-, 12-, 13-, 14- and 16-point instances are all the same asset, and the
@@ -211,7 +211,7 @@ Replace the twenty-four shipped PDFs byte for byte from
     tool's "icon not found" placeholder, because the icon set renamed that glyph while the
     design file kept the old name. The new file is the real drawing; the asset name, the enum
     case and every use are unchanged.
-- [ ] `VENDORED.md` "Updating by hand" procedure:
+- [x] `VENDORED.md` "Updating by hand" procedure:
   - Gains a first rule: **export a 24×24 frame wrapping each icon, never the bare icon node**,
     with the reason (the bare node reproduces the rounded-down, clipping box).
   - Names `DesignGlyphAssetTests`' geometry check (Task 3) as the step that proves an export
@@ -219,12 +219,12 @@ Replace the twenty-four shipped PDFs byte for byte from
     throwaway local edit, is stated in Task 3's doc comment.
   - Step 3's "a changed size also changes `DesignGlyph.nativeSize`" is replaced by "the size
     column is 24 for every glyph".
-- [ ] In `DesignGlyphAssetTests`, `pinnedPrefixes` is replaced with the table above, and the
+- [x] In `DesignGlyphAssetTests`, `pinnedPrefixes` is replaced with the table above, and the
   suite's doc-comment inventory is updated to match. The record cross-check from Task 1
   additionally asserts that every record row's size is exactly 24, with a failure message
   naming the glyph. Set equality with the enum and the record-versus-pins prefix cross-check
   stay as they are.
-- [ ] Run `swift test`; it must pass, including `DesignGlyphAssetTests` and
+- [x] Run `swift test`; it must pass, including `DesignGlyphAssetTests` and
   `LicenseCoverageTests`. Run `swiftlint --strict`; it must be clean. Run the app-layer bundle
   (same command as Task 1); it must pass. Where a bitmap suite pinned a glyph's drawn extent
   rather than its slot, the pinned number moves to the new drawing; slot and column pins do

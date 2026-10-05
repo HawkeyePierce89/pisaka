@@ -13,15 +13,15 @@ the section below, and `DesignGlyphAssetTests` reads the glyph table.
 
 | | |
 |---|---|
-| Source | the design export's `icons/` folder, exported 2026-10-02 (outside the repository) |
-| Revision | `648676f7c95b82ffc54b7f49612108e0258d2e939a924dd713afa367351f2514` |
+| Source | the design export's `icons/` folder, exported 2026-10-05 (outside the repository) |
+| Revision | `85aea20cfbbe52b9c6c445bb3964d0a06db9db7543e1f901ea7350b0999e3a26` |
 | Version | `null` |
 | Origin | `Sources/Pisaka/Assets.xcassets/Glyphs` |
 | License | ISC AND MIT — `Resources/Licenses/design-glyphs.txt`, the export's `LICENSE.txt` copied verbatim |
 
 **Why the revision is a digest.** The export carries no upstream commit and no
 release version: it is a folder of PDFs, a `LICENSE.txt` and a `MANIFEST.txt`
-listing each PDF's sha256 prefix and drawn size. The one value that names this
+listing each PDF's sha256 prefix and box size. The one value that names this
 exact set of bytes is therefore the full sha256 of `MANIFEST.txt` itself, and
 that is what the acknowledgement records as its revision. There is no version to
 name, so the record and the manifest entry both say `null`.
@@ -30,38 +30,38 @@ name, so the record and the manifest entry both say `null`.
 
 Twenty-four of the export's thirty-two PDFs, each copied byte for byte into
 `<name>.imageset/<name>.pdf`. The prefix is the first sixteen hex digits of the
-PDF's sha256, as `MANIFEST.txt` lists it; the size is the drawn size in points
-the manifest states, which is `DesignGlyph.nativeSize`. The last column says
+PDF's sha256, as `MANIFEST.txt` lists it; the size is the PDF's box, as the
+manifest states it, and it is 24 for every glyph (why, below). The last column says
 whether the glyph is one the licence text's MIT notice names (the glyphs derived
 from the older set the ISC licence's second section lists); the rest are under
 the ISC licence alone.
 
 | Glyph | Prefix | Size | MIT notice |
 |---|---|---|---|
-| `package` | `9af0fd7e48d454dd` | 11 | no |
-| `git-branch` | `e97db149acea601c` | 11 | no |
-| `chevron-down` | `dcfc02712d3dc7c1` | 11 | yes |
-| `chevron-right` | `e2e0632f1546236b` | 11 | yes |
-| `git-pull-request` | `e041f1b4ade4197b` | 11 | no |
-| `check` | `19dd2cb3bd997dd5` | 11 | yes |
-| `terminal` | `eaf8334dc2314447` | 11 | yes |
-| `file-warning` | `ee8267b3b8dfdff0` | 11 | no |
-| `git-compare` | `c12e53cfccba2544` | 11 | no |
-| `list-checks` | `65983fbf38e0ecf9` | 11 | no |
-| `search` | `af5946f6cc73b081` | 11 | yes |
-| `git-pull-request-arrow` | `ce4cfcefde81e484` | 11 | no |
-| `folder` | `c910b4a14dc215bd` | 12 | no |
-| `folder-open` | `bcfb7e66403110fa` | 12 | no |
-| `file-code` | `fceaf43b42b4e8a7` | 12 | no |
-| `file-text` | `97843a4f65451c00` | 12 | no |
-| `database` | `51310c236bbf44f3` | 11 | yes |
-| `x` | `4acf054fb35ee278` | 11 | yes |
-| `user-round` | `99e687bb2776220c` | 11 | no |
-| `undo-2` | `8b51ee486f7d8d75` | 13 | no |
-| `refresh-cw` | `310ac9510740d9ec` | 13 | no |
-| `case-sensitive` | `317b3d293df0264b` | 14 | no |
-| `whole-word` | `690693f0f9dd12b9` | 14 | no |
-| `regex` | `c0fd98edaa9f0bd9` | 14 | no |
+| `package` | `4e19fc2e5b0fbd39` | 24 | no |
+| `git-branch` | `1738e285c5e53723` | 24 | no |
+| `chevron-down` | `8b7df9eda0367c90` | 24 | yes |
+| `chevron-right` | `02cd1542fb22ad90` | 24 | yes |
+| `git-pull-request` | `37a0975caf14903b` | 24 | no |
+| `check` | `496d1749c8eaf0e0` | 24 | yes |
+| `terminal` | `992c48725d6efb5d` | 24 | yes |
+| `file-warning` | `18a5d9157e3c9fa2` | 24 | no |
+| `git-compare` | `2dbb6bb38742483c` | 24 | no |
+| `list-checks` | `3456e4aed7e36adb` | 24 | no |
+| `search` | `fca0d98489622650` | 24 | yes |
+| `git-pull-request-arrow` | `d9250c717269a4c4` | 24 | no |
+| `folder` | `8751dad31dc2126f` | 24 | no |
+| `folder-open` | `b732124cc847a62f` | 24 | no |
+| `file-code` | `4f1e3ceacbac6a29` | 24 | no |
+| `file-text` | `d759e0792fcfd2ba` | 24 | no |
+| `database` | `94e48ce90170f619` | 24 | yes |
+| `x` | `9ffad35485eeffa0` | 24 | yes |
+| `user-round` | `5eac37ea03006449` | 24 | no |
+| `undo-2` | `3086adea25b52419` | 24 | no |
+| `refresh-cw` | `b1dba6c8271f47ff` | 24 | no |
+| `case-sensitive` | `7e7229ec9d8a3b64` | 24 | no |
+| `whole-word` | `c8f3633e9f9b8492` | 24 | no |
+| `regex` | `0f392dda96cecce3` | 24 | no |
 
 The eight left behind (`chevron-left`, `circle`, `circle-check`, `circle-dot`,
 `circle-x`, `info`, `minus`, `plus`) are not drawn anywhere, so they do not ship.
@@ -71,23 +71,54 @@ so the glyph is tinted by whatever colour the drawing site hands it, and
 `"preserves-vector-representation": true`, so it stays sharp at every interface
 scale rather than being rasterised at its 1x size.
 
+## Why every box is 24
+
+Every PDF's media box is 24×24 because that is the icon set's native viewBox:
+its paths keep two units of padding on every side and are stroked at width 2,
+so the ink stays about a unit clear of each edge, and the export writes them at
+exactly those coordinates. A vector is drawn at whatever size
+the surface states, so the design's 10-, 12-, 13-, 14- and 16-point instances of
+a glyph are all this one asset. The table's size column is therefore the box, not
+a drawn size; the drawn size belongs to each drawing site, which always states it.
+
+## What the previous export got wrong
+
+The export of 2026-10-02 exported each bare icon node rather than a frame around
+it. Its media box was the drawn extent rounded down to an integer, while the
+geometry inside kept its fractional size; the renderer clips to the box, so right
+and bottom edges were cut off. `folder`, for one, was a 12×12 box holding
+geometry 12.84 wide. Fifteen of the twenty-four shipped glyphs had geometry
+outside their box, thirteen of them visibly clipped.
+
+One drawing changed on purpose with this export. The previous `file-warning.pdf`
+was the design tool's "icon not found" placeholder, a question mark in a circle:
+the icon set had renamed that glyph while the design file kept the old name. The
+new file is the real drawing, a document with an exclamation mark. The asset
+name, the `DesignGlyph` case and every use are unchanged.
+
 ## Updating by hand
 
-1. Take the new export's `icons/` folder. Check every PDF you mean to ship
+1. Export a 24×24 frame wrapping each icon, **never the bare icon node**: the
+   bare node reproduces the rounded-down box that clips the drawing (above).
+2. Take the new export's `icons/` folder. Check every PDF you mean to ship
    against its line in the new `MANIFEST.txt` (`shasum -a 256 <name>.pdf`, first
    sixteen hex digits).
-2. Copy each PDF over `Sources/Pisaka/Assets.xcassets/Glyphs/<name>.imageset/<name>.pdf`.
+3. Prove the export before vendoring it: run `DesignGlyphAssetTests`' geometry
+   check against the candidate folder, which fails on any media box other than
+   24×24 and on any path coordinate outside it. How to point it at a folder
+   outside the catalog, as a throwaway local edit, is in that suite's doc
+   comment.
+4. Copy each PDF over `Sources/Pisaka/Assets.xcassets/Glyphs/<name>.imageset/<name>.pdf`.
    A new glyph gets a new imageset with the same two properties as its
    neighbours, a new `DesignGlyph` case whose raw value is its name, and a row in
    the table above; a dropped glyph loses all three.
-3. Update the table's prefix and size columns, and `DesignGlyphAssetTests`'
-   pinned prefix table, from the new manifest. A changed size also changes
-   `DesignGlyph.nativeSize`.
-4. Take `shasum -a 256 MANIFEST.txt` of the new export and write it into the
+5. Update the table's prefix column, and `DesignGlyphAssetTests`' pinned prefix
+   table, from the new manifest. The size column is 24 for every glyph.
+6. Take `shasum -a 256 MANIFEST.txt` of the new export and write it into the
    `Revision` row above and the `revision` of the `design-glyphs` entry in
    `Resources/Licenses/licenses.json`.
-5. Re-copy `LICENSE.txt` verbatim over `Resources/Licenses/design-glyphs.txt`,
+7. Re-copy `LICENSE.txt` verbatim over `Resources/Licenses/design-glyphs.txt`,
    re-check which shipped glyphs its MIT section lists, and update the last
    column above.
-6. Run `swift test`: `DesignGlyphAssetTests` and `LicenseCoverageTests` both fail
+8. Run `swift test`: `DesignGlyphAssetTests` and `LicenseCoverageTests` both fail
    until the catalog, this record, the enum and the manifest entry agree.

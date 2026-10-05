@@ -21,6 +21,10 @@ import XCTest
 ///    export's `MANIFEST.txt` transcribed — and the record's glyph table in
 ///    `Resources/DesignGlyphs/VENDORED.md` states the same prefixes, so the
 ///    record cannot drift from the bytes either;
+///  * every row of that glyph table states a size of exactly 24: each PDF is a
+///    24-unit box at the icon set's native coordinates, and the drawn size is
+///    always the drawing site's, so a row naming any other size describes an
+///    export that clips (the record says why);
 ///  * each imageset's `Contents.json` names its one PDF and carries
 ///    `"template-rendering-intent": "template"` and
 ///    `"preserves-vector-representation": true`;
@@ -33,32 +37,33 @@ import XCTest
 final class DesignGlyphAssetTests: XCTestCase {
 
     /// The export manifest's sha256 prefixes (the first sixteen hex digits) for
-    /// the twenty-four shipped glyphs, keyed by asset name.
+    /// the twenty-four shipped glyphs, keyed by asset name — the export of
+    /// 2026-10-05, every glyph in a 24×24 box.
     private static let pinnedPrefixes: [String: String] = [
-        "package": "9af0fd7e48d454dd",
-        "git-branch": "e97db149acea601c",
-        "chevron-down": "dcfc02712d3dc7c1",
-        "chevron-right": "e2e0632f1546236b",
-        "git-pull-request": "e041f1b4ade4197b",
-        "check": "19dd2cb3bd997dd5",
-        "terminal": "eaf8334dc2314447",
-        "file-warning": "ee8267b3b8dfdff0",
-        "git-compare": "c12e53cfccba2544",
-        "list-checks": "65983fbf38e0ecf9",
-        "search": "af5946f6cc73b081",
-        "git-pull-request-arrow": "ce4cfcefde81e484",
-        "folder": "c910b4a14dc215bd",
-        "folder-open": "bcfb7e66403110fa",
-        "file-code": "fceaf43b42b4e8a7",
-        "file-text": "97843a4f65451c00",
-        "database": "51310c236bbf44f3",
-        "x": "4acf054fb35ee278",
-        "user-round": "99e687bb2776220c",
-        "undo-2": "8b51ee486f7d8d75",
-        "refresh-cw": "310ac9510740d9ec",
-        "case-sensitive": "317b3d293df0264b",
-        "whole-word": "690693f0f9dd12b9",
-        "regex": "c0fd98edaa9f0bd9",
+        "package": "4e19fc2e5b0fbd39",
+        "git-branch": "1738e285c5e53723",
+        "chevron-down": "8b7df9eda0367c90",
+        "chevron-right": "02cd1542fb22ad90",
+        "git-pull-request": "37a0975caf14903b",
+        "check": "496d1749c8eaf0e0",
+        "terminal": "992c48725d6efb5d",
+        "file-warning": "18a5d9157e3c9fa2",
+        "git-compare": "2dbb6bb38742483c",
+        "list-checks": "3456e4aed7e36adb",
+        "search": "fca0d98489622650",
+        "git-pull-request-arrow": "d9250c717269a4c4",
+        "folder": "8751dad31dc2126f",
+        "folder-open": "b732124cc847a62f",
+        "file-code": "4f1e3ceacbac6a29",
+        "file-text": "d759e0792fcfd2ba",
+        "database": "94e48ce90170f619",
+        "x": "9ffad35485eeffa0",
+        "user-round": "5eac37ea03006449",
+        "undo-2": "3086adea25b52419",
+        "refresh-cw": "b1dba6c8271f47ff",
+        "case-sensitive": "7e7229ec9d8a3b64",
+        "whole-word": "c8f3633e9f9b8492",
+        "regex": "0f392dda96cecce3",
     ]
 
     func testTheImagesetsAreExactlyTheGlyphCases() throws {
@@ -106,7 +111,7 @@ final class DesignGlyphAssetTests: XCTestCase {
         }
     }
 
-    func testTheRecordListsTheCasesWithThePinnedPrefixes() throws {
+    func testTheRecordListsTheCasesWithThePinnedPrefixesAtTheTwentyFourUnitBox() throws {
         let rows = DesignGlyphRecord.rows(in: try String(contentsOf: Self.record, encoding: .utf8))
         XCTAssertEqual(Set(rows.map(\.name)), Set(DesignGlyph.allCases.map(\.assetName)),
                        "the record's glyph table must list exactly DesignGlyph's cases")
@@ -116,6 +121,10 @@ final class DesignGlyphAssetTests: XCTestCase {
             let row = try XCTUnwrap(byName[glyph.assetName])
             XCTAssertEqual(row.prefix, Self.pinnedPrefixes[glyph.assetName], """
                 the record's prefix for \(glyph.assetName) disagrees with the pinned one
+                """)
+            XCTAssertEqual(row.size, 24, """
+                the record's size for \(glyph.assetName) is \(row.size), not the 24-unit box every \
+                glyph is exported at; see "Why every box is 24" in Resources/DesignGlyphs/VENDORED.md
                 """)
         }
     }
