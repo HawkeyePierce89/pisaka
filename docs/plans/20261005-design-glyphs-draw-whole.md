@@ -334,19 +334,19 @@ The reader is a private nested helper inside the suite (not a new Support file).
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] Run `swift test`. It must be green, including `DesignGlyphAssetTests`,
+- [x] Run `swift test`. It must be green, including `DesignGlyphAssetTests`,
   `DesignGlyphTests`, `LicenseCoverageTests`, `ChromeThemeSourceGatingTests` and
   `LintConfigurationTests`.
-- [ ] Run the app-layer bundle; it must be green. Its glyph-measuring suites are
+- [x] Run the app-layer bundle; it must be green. Its glyph-measuring suites are
   `BottomBarLayoutTests`, `TreeRowGlyphLayoutTests`, `TabColumnLayoutTests`,
   `DockTabRowLayoutTests`, `ChromePopoverLayoutTests`, `LocalChangesLayoutTests`,
   `ProjectSearchLayoutTests` and `DesignGlyphImageTests`.
   ```
   xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test
   ```
-- [ ] Run `swiftlint --strict` from the repository root; it must be clean.
-- [ ] Run `grep -rn nativeSize Sources Tests docs Resources CLAUDE.md`; it must return nothing.
-- [ ] Confirm that no brand or product name was introduced in any changed file.
+- [x] Run `swiftlint --strict` from the repository root; it must be clean.
+- [x] Run `grep -rn nativeSize Sources Tests docs Resources CLAUDE.md`; it must return nothing. (Done: Sources, Tests, Resources, CLAUDE.md and docs/architecture are clean; the only hits are plan files under docs/plans, which record the change's own history.)
+- [x] Confirm that no brand or product name was introduced in any changed file.
 
 ## Post-Completion
 
