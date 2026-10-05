@@ -306,7 +306,7 @@ The reader is a private nested helper inside the suite (not a new Support file).
 - Modify: `docs/architecture/core-services.md`
 - Modify: `docs/architecture/app-editor.md`
 
-- [ ] `core-theme.md`, `DesignGlyph.swift` entry:
+- [x] `core-theme.md`, `DesignGlyph.swift` entry:
   - The enum is a name table only.
   - Every asset is a 24-unit box at the icon set's native coordinates, and its drawn size is
     always the surface's.
@@ -316,20 +316,20 @@ The reader is a private nested helper inside the suite (not a new Support file).
     prefix; template intent and preserved vector data; the record's size column at 24 for
     every row; every shipped PDF's media box at 24×24 with every path coordinate inside it;
     asset symbols off.
-- [ ] `core-theme.md`, "The design's glyphs — one helper, one name table" section: the name
+- [x] `core-theme.md`, "The design's glyphs — one helper, one name table" section: the name
   table carries no size. `DesignGlyphImage`'s `size:` is required and no longer defaults to
   `nativeSize`. The section says in one sentence what the previous export's clipping defect
   was and that the geometry check now pins it.
-- [ ] `core-services.md`, the `BottomPanel.glyph` paragraph listing the six toggle glyphs, notes
+- [x] `core-services.md`, the `BottomPanel.glyph` paragraph listing the six toggle glyphs, notes
   that the Problems toggle now draws the real `file-warning` drawing; it previously drew the
   design tool's placeholder.
-- [ ] `app-editor.md`, the Find in Files group-header description: the file glyph is at 14 in a
+- [x] `app-editor.md`, the Find in Files group-header description: the file glyph is at 14 in a
   14 slot, gap 6, so the path starts at 36. It no longer claims the path lines up with the
   34-point match indent.
-- [ ] `CLAUDE.md`'s glyph bullet is re-read. It still holds (bytes pinned to the export's
+- [x] `CLAUDE.md`'s glyph bullet is re-read. It still holds (bytes pinned to the export's
   manifest by `DesignGlyphAssetTests`; licence and provenance unchanged), so it is left
   untouched.
-- [ ] Run `swift test`; it must pass, because `LintConfigurationTests` and the doc-reading
+- [x] Run `swift test`; it must pass, because `LintConfigurationTests` and the doc-reading
   suites read these files. Run `swiftlint --strict`; it must be clean.
 
 ### Task 5: Verify acceptance criteria

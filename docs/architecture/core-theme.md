@@ -282,16 +282,22 @@ two new geometry tokens) and each with its readers pinned by a gating
   - `DesignGlyph.swift` — the design's glyphs as one name table: a `String`-raw
     `CaseIterable` enum, twenty-four cases, whose **raw value is the asset
     name** in `Sources/Pisaka/Assets.xcassets/Glyphs/` (`assetName` returns it),
-    and a `nativeSize` column holding each glyph's drawn size in points at
-    interface scale 1.0 as the design export states it — 11 for the bar and
-    status glyphs, 12 for the file and folder glyphs, 13 for `undo-2` and
-    `refresh-cw`, 14 for the three query toggles. Foundation-only, colour-free:
+    and nothing else: the enum is a **name table only**. Every asset is a
+    24-unit box at the icon set's native coordinates, so a glyph's drawn size
+    is always the drawing surface's, stated at the call site in points at
+    interface scale 1.0. The former per-glyph native-size column is gone: it
+    recorded each media box as the previous export stated it, and once every
+    glyph sits
+    in the same 24-unit box — and the design draws one glyph at several sizes —
+    a per-glyph size means nothing. Foundation-only, colour-free:
     it names a picture, and the role it is tinted with is the drawing site's.
-    `DesignGlyphTests` pins the names and sizes; `DesignGlyphAssetTests` holds
+    `DesignGlyphTests` pins the names only; `DesignGlyphAssetTests` holds
     the case set equal to the catalog's imagesets by set equality, each PDF to
     the export manifest's sha256 prefix, each imageset to the template intent
-    and preserved vector data, each `nativeSize` to the size
-    `Resources/DesignGlyphs/VENDORED.md` records, and `project.yml`'s asset
+    and preserved vector data, every row of the size column
+    `Resources/DesignGlyphs/VENDORED.md` records to exactly 24, every shipped
+    PDF's media box to `[0 0 24 24]` with every path coordinate of its decoded
+    content stream inside that box, and `project.yml`'s asset
     symbols to off, which rule forty-six relies on. The one helper that draws them
     is `DesignGlyphImage.swift`, under "The design's glyphs" below.
   - `FileGlyph.swift` — which design glyph stands for a file or a folder on the
@@ -1336,8 +1342,8 @@ mode's design glyph at 16 — `accent` on `accentTint` while on, `textPrimary`
 with no ground while off; replace row the shared field gap 8 then Replace All
 in the secondary button style at the row's trailing end; the file-mask row, then
 the scope line (`SearchScopeLine`) in `callout` `textSecondary`; results gap 8;
-group header 24 high padding 16 the file's `FileGlyph` at 12, gap 6, so the path
-starts at the 34-point match indent, the path in `callout` and `N matches` in
+group header 24 high padding 16 the file's `FileGlyph` at 14 in a 14 slot, gap 6,
+so the path starts at 36, two points past the 34-point match indent, the path in `callout` and `N matches` in
 `subheadline` all in `textSecondary` (padding 8 and a 14-point `doc` symbol
 before the design-match pass, inside a `List` whose own inset the window's
 `ScrollView` no longer has);
@@ -2487,15 +2493,22 @@ export, one imageset each under `Sources/Pisaka/Assets.xcassets/Glyphs/`, every
 one marked `template-rendering-intent: template` (so it takes the tint it is
 handed) and `preserves-vector-representation: true` (so it stays sharp at every
 interface scale). Their names live in one Foundation-only Core enum,
-`DesignGlyph` — raw value = asset name, plus `nativeSize`, the drawn size the
-export states — and that enum is the one name table every surface reads.
+`DesignGlyph` — raw value = asset name, and no size: every asset is a 24-unit
+box, and the size a glyph is drawn at is the surface's — and that enum is the
+one name table every surface reads. The previous export (2026-10-02) wrote each
+media box as the drawn extent rounded down to an integer while the geometry kept
+its fractional size, and the renderer clips to the box, so right and bottom
+edges were cut off; `DesignGlyphAssetTests`' geometry check, which decodes every
+shipped PDF and bounds each path coordinate inside its 24×24 box, now pins that
+defect class.
 
 They are drawn through **one helper**, `DesignGlyphImage.swift`, and nowhere
 else:
 
 - `DesignGlyphImage(_ glyph:, size:, slot:, role:)`, the SwiftUI half, draws the
   template `.resizable()` and fitted (never stretched) at `size × interface
-  scale` — `size` defaulting to the glyph's `nativeSize` — centred in a
+  scale` — `size` required, with no default, since only the surface knows
+  it — centred in a
   `slot × interface scale` square, tinted by the role out of the injected
   theme, and `accessibilityHidden(true)`: a glyph is a control's picture, never
   its name.
