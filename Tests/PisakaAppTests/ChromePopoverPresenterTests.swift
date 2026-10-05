@@ -11,9 +11,11 @@ import PisakaCore
 /// What each key *means* is `PopoverKeyRule`'s and is enumerated in the Core
 /// suite; this suite asserts only that the presenter maps codes to keys and
 /// executes the rule's answer against the right selection. Monitors are
-/// installed only by the cases that attach a root view in a window — the focus
-/// hand-back and the host's submenu frame — and each of those dismisses, which
-/// removes them; no case posts an event.
+/// installed only by the three cases that attach a root view in a window — the
+/// focus hand-back, the filter field's focus on open and the host's submenu
+/// frame — and each of those dismisses, which removes them; no case posts an
+/// event. The field's focus case is the one that needs a key window, so it
+/// moves its hosted root into a window that can become key.
 @MainActor
 final class ChromePopoverPresenterTests: XCTestCase {
     private func emptyContent(_ context: ChromePopoverContext) -> AnyView { AnyView(EmptyView()) }
@@ -302,6 +304,60 @@ final class ChromePopoverPresenterTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor, "a popover that took no focus moved it")
     }
 
+    /// The branch popover's filter field holds the window's first responder
+    /// once the popover is on screen, with no click, and dismissing takes it
+    /// away again.
+    ///
+    /// The limit of what this sees: the lost request this guards against was a
+    /// timing property of the real window's first layout pass, when the
+    /// overlay's content is not yet in the responder chain during its
+    /// appearance pass. The offscreen host reproduces that pass only as far as
+    /// its own run loop does, so this case passed on the code before the
+    /// deferred request as well; the fix is kept for the real window, and this
+    /// case pins that the field takes the focus at all and gives it up.
+    func testBranchPopoverFieldTakesTheFocusWhenItOpens() throws {
+        let presenter = ChromePopoverPresenter()
+        let size = CGSize(width: 800, height: 500)
+        let model = BranchSwitcherModel(gitService: ChromePopoverStubGit())
+        let root = ChromePopoverHost(presenter: presenter)
+            .frame(width: size.width, height: size.height)
+            .coordinateSpace(name: ChromePopoverPresenter.coordinateSpace)
+            .environment(\.chromePopoverPresenter, presenter)
+            .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
+            .environment(\.chromeTheme, ChromeTheme(.dark))
+        let render = try HostedRender(size: size, root: root)
+        defer { render.window.close() }
+        // A borderless window cannot become key, and SwiftUI moves the focus
+        // only in a key window: the hosted root moves into one that can.
+        let window = KeyableWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        render.window.contentView = nil
+        window.contentView = render.host
+        window.makeKeyAndOrderFront(nil)
+        render.settle()
+
+        presenter.noteBarTop(470)
+        presenter.present(id: BranchSwitcherView.popoverID, anchor: CGRect(x: 40, y: 474, width: 80, height: 22)) {
+            AnyView(BranchSwitcherPopover(model: model, context: $0))
+        }
+        render.settle()
+        let editor = try XCTUnwrap(
+            window.firstResponder as? NSTextView,
+            "the first responder is \(String(describing: window.firstResponder)), not a field editor"
+        )
+        XCTAssertTrue(editor.isFieldEditor)
+        let field = try XCTUnwrap(editor.delegate as? NSView, "the field editor has no owning control")
+        XCTAssertTrue(field.isDescendant(of: render.host), "the focused field is not the popover's")
+
+        presenter.dismiss()
+        render.settle()
+        XCTAssertFalse(window.firstResponder === editor, "the field kept the focus after dismiss")
+    }
+
     /// The host reports the submenu's frame where it draws it — beside the
     /// popover, at the anchor row's top — which is the frame the mouse monitor
     /// reads to tell a press on a submenu row from a press outside.
@@ -349,5 +405,11 @@ final class ChromePopoverPresenterTests: XCTestCase {
         XCTAssertEqual(drawn.height, expected.height, accuracy: 0.5, "the hand-computed submenu height is not the drawn one")
         presenter.dismiss()
     }
+}
+
+/// A borderless window that can become key, for the case that needs SwiftUI
+/// to move the focus.
+private final class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
 }
 #endif

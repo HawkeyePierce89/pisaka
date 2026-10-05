@@ -144,7 +144,11 @@ struct BranchSwitcherPopover: View {
         ChromePopover(maxHeight: context.maxHeight, head: { head }, list: { list }, foot: foot)
             .scrolling(to: context.selectedRowID)
             .onAppear {
+                // The overlay mounts this content during its appearance pass,
+                // before the field is in the window's responder chain, and a
+                // request made now is lost: ask again after that pass.
                 focusedField = .filter
+                Task { @MainActor in focusedField = .filter }
                 registerRows()
             }
             .onChange(of: model.filterText) { _ in registerRows() }

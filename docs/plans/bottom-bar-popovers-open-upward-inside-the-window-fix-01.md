@@ -107,13 +107,13 @@ the editor still holding the focus — the screenshot shows the `hairline` borde
 two-point `accent`. Nothing tests the gain: `testDismissGivesTheFocusBackOnlyWhenThePopoverTookIt`
 checks the hand-back against a stub window and sets the focus by hand.
 
-- [ ] Request the focus once the content is mounted in the window, not during the
+- [x] Request the focus once the content is mounted in the window, not during the
       appearance pass: the request runs on the main actor after the current layout
       pass (a `Task` on the main actor or `DispatchQueue.main.async` from `onAppear` is
       the ordinary SwiftUI remedy; a second request is harmless). The field then holds
       the window's first responder from the moment the popover is on screen, with no
       click, and typing filters at once.
-- [ ] The test that would have caught it, in `ChromePopoverPresenterTests`: host
+- [x] The test that would have caught it, in `ChromePopoverPresenterTests`: host
       `ChromePopoverHost(presenter:)` with the presenter in the environment, the named
       coordinate space, theme and metrics, in a `HostedRender` window of 800 × 500 (the
       shape `testHostReportsTheSubmenuFrameWhereItDrawsIt` already uses); note a bar top,
@@ -126,15 +126,15 @@ checks the hand-back against a stub window and sets the focus by hand.
       does, make it so inside the test (a window subclass that can become key, or
       `makeKey()` on one) rather than weakening the assertion. This is one more window in
       the suite; its header's count and the description of what it pins are updated.
-- [ ] Run the new case on the code before the fix as well. If it already passes there,
+- [x] Run the new case on the code before the fix as well. If it already passes there,
       keep the fix anyway — the lost request is a timing property of the real window's
       first layout pass that an offscreen host may not reproduce — and say so in the
       case's doc comment, so the test's limit is stated where a reader will find it.
-- [ ] `core-theme.md`'s component section states the focus rule in one sentence: the
+- [x] `core-theme.md`'s component section states the focus rule in one sentence: the
       field requests the focus after it is mounted, and holds it until dismiss hands it
       back. `app-git-views.md`'s `BranchSwitcherView` entry says "focused once mounted"
       where it says "focused on appear".
-- [ ] `swift test` and the app-layer bundle must pass before the next task.
+- [x] `swift test` and the app-layer bundle must pass before the next task.
 
 ### Task 4: Gates
 

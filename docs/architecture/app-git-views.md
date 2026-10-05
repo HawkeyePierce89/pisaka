@@ -130,7 +130,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     keyboard-selected row id and the presenter's activation, which dismisses
     first). **Head:** a
     `ChromePopoverFieldBlock` with the shared themed field ("Filter branches",
-    the `search` design glyph, `.body`, focused on appear) over a "New Branch…"
+    the `search` design glyph, `.body`, focused once mounted) over a "New Branch…"
     row with `git-branch`. **List:** "Local" and "Remote" section headers, each
     omitted when its section is empty; local rows mark the current branch in
     `accent` with `.check`; remote rows carry a trailing chevron and the submenu

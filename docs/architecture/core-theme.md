@@ -2590,7 +2590,10 @@ site:
   glyph and the text; the horizontal padding stays the shared `fieldPaddingX`
   10. Both are unscaled tokens the box and the stack scale, and
   `ChromePopoverLayoutTests` measures the field's drawn height off the branch
-  bitmap at scale 1.0 and 1.8.
+  bitmap at scale 1.0 and 1.8. The field requests the focus after it is mounted
+  in the window — a request made during the overlay's appearance pass is lost —
+  and holds it until dismiss hands it back; `ChromePopoverPresenterTests` asserts
+  the field editor holds the first responder once open and not after dismiss.
 
 The file joins the gated set (sixty-one to **sixty-two**) and is now rule
 twenty-three's one reader of `bgPopover` for the bar: the two switcher files
