@@ -100,8 +100,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the design's `git-branch` at 12 since the design pass, drawn through
     `DesignGlyphImage`; it was the `arrow.triangle.branch` symbol), the current
     branch label and — since the chrome theme's part three — a trailing caret
-    (the design's `chevron-down` at 10 since the design pass), clicked to a
-    popover with the Local/Remote branch list (the current one
+    (the design's `chevron-down` at 10 since the design pass), clicked to the
+    window's in-window popover with the Local/Remote branch list (the current one
     marked), a filter field, and a "New Branch…" item (name only, created from
     `HEAD`). That part is what restyled it: the three elements are drawn in
     `textSecondary` at `.callout` and the popover's failure line in `statusRed`,
@@ -109,23 +109,50 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the bar's gaps and height are the measurements actually drawn; and both
     decorative symbols carry `.accessibilityHidden(true)`, since a `Button`
     combines its children and would otherwise name itself after its glyphs
-    (`core-theme.md`'s rule ten). The popover's **local** row hides a glyph that
-    was not decoration — the `checkmark` marking the checked-out branch — so it
-    speaks that state instead, as `.accessibilityValue("Current branch")` on the
-    row; the row's name stays its label. A remote row needs none and says so in a
-    comment: its glyph does not vary with `isCurrent`, so it carries no state to
-    speak. Hiding every symbol satisfied the counting rule while making the two
+    (`core-theme.md`'s rule ten). The popover's **local** current row hides a
+    glyph that is not decoration — `.check` marking the checked-out branch — so it
+    speaks that state instead, as the accessibility value "Current branch" on the
+    row; the row's name stays its label. A remote row's state needs none: its
+    trailing chevron does not vary with `isCurrent`, and its accessibility hint
+    says it opens a submenu. Hiding every symbol satisfied the counting rule while making the two
     lists unreadable without sight, which is why that rule gained a second half
     (`core-theme.md`). `app-window.md`'s part-three paragraph is the
-    record for the bar as a whole; the behaviour below is unchanged by it. The
-    popover's content since part five (a) is drawn on `bgPopover` with no
-    `presentationBackground` and no `#available` branch (one line saying the arrow
-    keeps the system material), each `Divider()` is a one-point `hairline` rule,
-    and the filter field is the shared themed field (`core-theme.md`). A remote-branch row is a two-item `Menu` — "Checkout" (git DWIM via
+    record for the bar as a whole; the behaviour below is unchanged by it.
+
+    **The popover is the window's in-window component** (`core-theme.md`, *The
+    bottom bar's popover component*): the button records its frame in the
+    root's named coordinate space and calls `presenter.present(...)` (a toggle;
+    no `.popover(`, no `@State isPresented`, nothing presented where no
+    presenter is in the environment), and the popover opens upward, left-aligned
+    to the widget, 4 points above the bar, clamped inside the window, with no
+    arrow. Its content is `BranchSwitcherPopover`, holding the model, the four
+    closures and the context the host hands it (the available height, the
+    keyboard-selected row id and the presenter's activation, which dismisses
+    first). **Head:** a
+    `ChromePopoverFieldBlock` with the shared themed field ("Filter branches",
+    the `search` design glyph, `.body`, focused once mounted) over a "New Branch…"
+    row with `git-branch`. **List:** "Local" and "Remote" section headers, each
+    omitted when its section is empty; local rows mark the current branch in
+    `accent` with `.check`; remote rows carry a trailing chevron and the submenu
+    hint; "No branches" as a `textSecondary` message when both are empty.
+    **Foot:** `model.errorMessage` in `statusRed`, and no Foot (and no rule)
+    otherwise. The rows are registered with the presenter in display order, the
+    action row first, on appear, on every `filterText` change, whenever the
+    filtered lists change and whenever the current branch changes (a local
+    row's action reads `isCurrent` at registration, and the ids alone do not
+    move with HEAD), and the
+    selection returns to the first row each time; the field keeps the text
+    focus, so typing keeps filtering while ↑/↓ move the selection — the List
+    scrolling to keep it in view — Return activates and Esc dismisses, the
+    focus going back to what held it when the popover opened. The slots are separated by `hairline` rules the
+    component draws and the file draws on no `bgPopover` of its own. A
+    remote-branch row opens the component's **submenu** beside the popover
+    (click, → or Return; ← or Esc close it alone) — "Checkout" (git DWIM via
     `onCheckoutRemote`) and "New Branch from '\(shortName)'…" (the create dialog
     pre-filled with the default name, `origin/master` → `master`, via
-    `onCreateFromRemote`), each dismissing the popover on selection; local-branch rows
-    are unchanged. On a dirty tree a checkout warns it may be blocked (git decides — a
+    `onCreateFromRemote`) — rather than a `Menu`; every row activation dismisses
+    everything before its closure runs, and the current branch's row only
+    dismisses. On a dirty tree a checkout warns it may be blocked (git decides — a
     real refusal shows git's `errorMessage` naming the conflicting files). Thin
     `@ObservedObject BranchSwitcherModel` view
     (untested; all logic in Core), calling `onSwitchBranch`/`onCreateBranch`/

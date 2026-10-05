@@ -1054,7 +1054,7 @@ user sees it.
   (the current one marked) with a filter field: pick a local branch to check it
   out, or choose "New Branch…" to create and switch to a new branch off any
   starting ref (default `HEAD`). Clicking a remote branch (e.g. `origin/master`)
-  opens a small menu with two actions: "Checkout" does git's DWIM — switch to a
+  opens a small submenu beside it with two actions: "Checkout" does git's DWIM — switch to a
   same-named local branch if one exists, otherwise create one from the remote ref
   (no fetch, so it's immediate) — and "New Branch from 'origin/…'…" opens the
   create dialog pre-filled with its name and fetches from the remote first (using
@@ -1067,6 +1067,7 @@ user sees it.
   files. After a successful switch or create, open tabs are resynced from disk (an
   edited buffer is preserved, not overwritten) and the tree, Local Changes, and Git
   Log refresh to reflect the new branch.
+- Bottom-bar popovers (macOS): the project and branch popovers open upward inside the window and support ↑/↓ to move the selection (typing still filters), Return to activate and Esc to close; → (or Return) on a remote branch opens its actions, and ← or Esc closes them.
 - **GitHub pull requests (macOS only).** A **Pull Requests** panel in the same
   bottom dock (View ▸ Show/Hide Pull Requests, the Pull Requests button on the
   bottom bar, or Cmd+Shift+R), listing every open pull request of the repository

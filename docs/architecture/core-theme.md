@@ -305,6 +305,59 @@ two new geometry tokens) and each with its readers pinned by a gating
     third extension table, and `FileIcon` is untouched for iOS.
     `FileGlyphTests` walks every `SyntaxLanguage` through a sample table held
     equal to `allCases`, plus the database extensions, unknown names and folders.
+  - `PopoverPlacement.swift` — where the bottom bar's popover and its submenu
+    go, as pure static functions over `CGRect` in the **window root's
+    top-left, y-down space** (the space a SwiftUI named coordinate space at the
+    root reports; no screen coordinate is involved, because the popover is
+    drawn inside the window). `popover(widget:barTop:window:width:maxHeight:gap:)`
+    answers a `PopoverAnchoring` — leading x, bottom y, available height. The
+    popover opens **upward**, left-aligned to its widget: x is the widget's
+    `minX`, shifted left to `window.maxX - width` when the widget sits nearer
+    the right edge than `width`, and never below `window.minX` (a window
+    narrower than the popover pins it there); the bottom is `gap` above the
+    bar's top; the available height is `min(maxHeight, bottom - window.minY)`,
+    never negative, so a short window caps the container and the List shrinks
+    instead of anything drawing outside the window.
+    `submenu(popover:anchorRowTop:size:window:gap:)` answers the submenu's
+    frame: `gap` right of the popover with its top at the anchor row's top,
+    **flipped** to `gap` on the popover's left when it does not fit on the right,
+    then clamped inside the window on both axes — shifted up when its bottom
+    would pass the window's bottom, never above the top. `PopoverPlacementTests`
+    pins the ordinary case, the right-edge shift, the narrow window, the short
+    window, and the submenu's fit, flip and upward clamp, on literal frames.
+  - `PopoverSelection.swift` — the keyboard selection over a popover's rows: a
+    row count and an optional selected index. `init(count:)` selects the first
+    row, or nothing at zero; `movedDown()`/`movedUp()` clamp at both ends with
+    **no wrap**; `reset(count:)` returns to the first row and is what every
+    filter change does. The submenu uses the same type over its own rows.
+    `PopoverSelectionTests` pins the init, the empty count, both clamps and the
+    reset, including a reset to a smaller count.
+  - `PopoverKeyRule.swift` — **every** decision about which key does what in
+    the popover, as one pure `action(for:state:)` over three closed types:
+    `PopoverKey` (`up`, `down`, `return`, `escape`, `left`, `right`, `other`),
+    `PopoverKeyState` (`submenuOpen`, `hasSelection`, `selectedHasSubmenu`) and
+    `PopoverKeyAction` (`moveUp`, `moveDown`, `activate`, `openSubmenu`,
+    `closeSubmenu`, `dismiss`, `passThrough`). The full table:
+
+    | key | submenu open | submenu closed |
+    |---|---|---|
+    | ↑ / ↓ | `moveUp` / `moveDown` with a selection, else `passThrough` | the same |
+    | Return | `activate` with a selection, else `passThrough` | `openSubmenu` on a row with a submenu, `activate` on any other selected row, `passThrough` with none |
+    | → | `passThrough` | `openSubmenu` on a row with a submenu, else `passThrough` |
+    | ← | `closeSubmenu` | `passThrough` |
+    | Esc | `closeSubmenu` (the submenu alone) | `dismiss` |
+    | `other` | `passThrough` | `passThrough` |
+
+    `selectedHasSubmenu` is ignored with the submenu open, and
+    `selectedHasSubmenu` without `hasSelection` is impossible and read as no
+    selection. **`other` always passes through**, which is what keeps typing
+    reaching the filter field: the field holds the text focus throughout, and
+    the keys the popover owns are taken off the event stream before it, not
+    routed through it. `PopoverKeyRuleTests` enumerates all 7 × 8 = 56 (key,
+    state) pairs against one literal table held equal to that product by set
+    equality, plus named assertions for `other` in every state, the
+    meaningless ← and →, Esc's two answers, Return opening rather than
+    activating, and the impossible combination.
 
 ## App
 
@@ -841,10 +894,15 @@ state is the `accent` on the row's text, which is no more readable without sight
 than the glyph that was hidden. So both rows now **speak** it, as an
 accessibility *value* ("Current project" / "Current branch") on the combined
 element the `Button` makes — the row's name stays its label, only the state is
-added — and the comment beside each hidden symbol says it is hidden *because the
-state it showed is now spoken*, not because it is decoration. The remote-branch
-row needs nothing and says so in a comment: its glyph does not vary with
-`isCurrent`, so it carries no state to owe back. The rule the sweep reads is the
+added — and the comment beside each hidden symbol said it was hidden *because the
+state it showed is now spoken*, not because it was decoration. The remote-branch
+row needed nothing and said so in a comment: its glyph did not vary with
+`isCurrent`, so it carried no state to owe back. (Those symbols and comments are
+gone with the in-window component: the current row's state is handed as an
+accessibility value to the shared row piece, whose `.check` hides itself through
+`DesignGlyphImage` and needs no comment, and the remote row's trailing chevron
+never varies with `isCurrent`, its accessibility hint being its only
+annotation.) The rule the sweep reads is the
 construct, not these two sites: **a symbol in these files whose name or colour is
 chosen by a condition is state**, and every such state needs a spoken carrier; a
 symbol that is the same in every state is decoration and stays hidden and
@@ -1206,10 +1264,12 @@ the shape is shared. Tokens are in `ChromeGeometry`: `fieldCornerRadius` 4,
 `secondaryButtonPaddingX` 14, each distinct and none derived.
 
 **The three SwiftUI popovers get one answer, with no branch.** The Log
-calendar, the branch switcher and the project switcher each carry `bgPopover` on
-their content as a background, with no `presentationBackground` and no
-`#available` branch. Each file says in one line that the popover's arrow keeps
-the system material because the content background cannot reach it.
+calendar, the branch switcher and the project switcher each carried `bgPopover`
+on their content as a background, with no `presentationBackground` and no
+`#available` branch. The two switchers have since left the system popover
+altogether for the in-window component (*The bottom bar's popover component*,
+below), which draws no arrow; the Log calendar keeps this answer, and its file
+says in one line why its arrow is not on `bgPopover`.
 `presentationBackground` is an open question for the part that sweeps sheets and
 dialogs: the modifier is documented to apply there and a sheet is big enough for
 the difference to matter, so it was not shipped here as an unverified branch.
@@ -1301,10 +1361,11 @@ and Replace All are named, and decorative symbols are hidden.
 
 **The two bottom-bar popovers get their ground and lose their dividers —
 `BranchSwitcherView.swift` and `ProjectSwitcherView.swift` (environment).** Both
-popovers' content is drawn on `bgPopover` with a content background, no
-`presentationBackground` and no `#available` branch, each file saying in one line
-that the arrow keeps the system material. Each `Divider()` becomes a one-point
-`hairline` rule the content draws. The branch switcher's filter field uses the
+popovers' content was drawn on `bgPopover` with a content background, no
+`presentationBackground` and no `#available` branch. Each `Divider()` became a
+one-point `hairline` rule the content draws. (Superseded: both now draw on
+`ChromePopover`, an in-window surface with no arrow — *The bottom bar's popover
+component*, below.) The branch switcher's filter field uses the
 shared themed field; doc comments on `theme` and `popoverContent` that explained
 why the dividers had to stay are rewritten to say what is true now, with no
 sentence describing the old material ground or the kept dividers.
@@ -1329,9 +1390,10 @@ system colour a gated file may not spell.
 bookkeeping.** The suite's header lists twenty-seven, `spelled` is 27, the
 canonical list opens with "The twenty-seven rules, each invisible to the
 compiler:" and `CLAUDE.md` mirrors it. Rule twenty-three pins the popover
-surface: the gated files naming `bgPopover` equal `{CompletionPanel.swift,
+surface: the gated files naming `bgPopover` equalled `{CompletionPanel.swift,
 HoverPanel.swift, BranchSwitcherView.swift, ProjectSwitcherView.swift,
-LogFilterBar.swift}` and every gated file presenting a popover (`.popover(`) or
+LogFilterBar.swift}` at this part (today the two switchers' place is taken by
+`ChromePopover.swift`; the canonical list carries the current set) and every gated file presenting a popover (`.popover(`) or
 declaring an `NSPanel` is in that set, with no `NSVisualEffectView`, `.material`
 or `presentationBackground` in any gated file. Rule twenty-four pins that no
 gated file spells `Divider()` at all — a menu's separator is a `Section`
@@ -1374,8 +1436,9 @@ known, beside the sizing, with the border width staying unscaled as the hairline
 exception and the radius outside the appearance block. `SearchHistoryMenu` groups
 its rows into two `Section`s and `Divider()` is gone everywhere — rule
 twenty-four becomes exception-free with a non-vacuity clause over `Section`, and
-the duplicated "the popover's arrow keeps the system material" sentence in
-`BranchSwitcherView.swift`/`ProjectSwitcherView.swift` loses its second copy.
+the duplicated sentence about the popover's arrow in
+`BranchSwitcherView.swift`/`ProjectSwitcherView.swift` loses its second copy (both
+copies are gone since the switchers moved onto the in-window component).
 Rule twenty-seven is the zone rule that would have caught the first and fourth
 of these.
 
@@ -2458,6 +2521,161 @@ the compiled catalog as a template, the AppKit half fills its square with the
 tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
 1.8 and draws the glyph centred, at its size, in its role.
 
+#### The bottom bar's popover component — `ChromePopover.swift` + `ChromePopoverPresenter.swift`
+
+The project switcher and the branch switcher are **one design component**, so
+they are one view: both popovers, and the remote row's submenu, are a
+`ChromePopover`. It opens **upward** from its widget, left-aligned to it,
+`popoverBarGap` (4) above the bar, clamped inside the window, with **no arrow
+and no material** — a flat `bgPopover` fill at `cornerRadiusMax`, a `hairline`
+stroke at `hairlineWidth` (both reused, neither a token of its own) and a
+`bgCanvas` shadow at y `popoverShadowOffsetY` (8) whose SwiftUI radius is
+`popoverShadowBlur / 2` — the design states a blur of 24, and a blur of `b` is
+drawn by a Gaussian radius of `b / 2`, a unit change spelled once in
+`shadowRadius(forBlur:)`.
+
+**`ChromePopover.swift` — the container and its pieces.** Three slots: a
+**Head** (fixed, `popoverHeadPaddingBottom` 4 under it and a `hairline` rule
+along its bottom), a **List** (`popoverListPaddingBottom` 6 under it, clipped,
+the only part that scrolls) and a **Foot** (fixed, a `hairline` rule along its
+top). **The Foot and its rule are drawn only when the caller passes one** — an
+optional Foot, `nil` drawing neither — and the Head is optional the same way,
+because the submenu has none; the branch list's Foot is its error line and
+nothing otherwise, and the Head and List keep their identity across the Foot
+coming and going, so the focused field stays focused. The width is
+`popoverWidth` (300) scaled; the height hugs the content up to a `maxHeight`
+the host hands in — the placement's available height, already capped at
+`popoverMaxHeight` (360). A plain `VStack` under a `frame(maxHeight:)` cannot
+hug (the frame takes the proposal and a `ScrollView` is greedy), so a small
+layout reports the hugging height and gives the List alone whatever the fixed
+slots leave, the List being a `ViewThatFits` over its plain rows and the same
+rows in a `ScrollView`. **The summed height never exceeds `maxHeight`**, even
+when the fixed slots alone would: they take their ideal in display order, each
+capped by what the slots before it left (a long wrapping error in the Foot, or
+a window too short for the Head and Foot together, is cut by the container's
+clip rather than drawn outside the window), and the List takes what remains.
+While it scrolls, the List keeps the keyboard
+selection in view: the caller hands the selected row's id to
+`scrolling(to:)`, and every registered row carries its id through
+`chromePopoverRowAnchor`. The pieces, every literal a token scaled at the use
+site:
+
+- `ChromePopoverRow` — `popoverRowHeight` 28, `popoverRowPaddingX` 12,
+  `popoverRowGap` 6, a `popoverRowGlyphSlot` 16 leading slot holding an
+  optional design glyph at 14 or nothing; the title in `.body` and
+  `textPrimary`, one line, truncated in the middle; `isCurrent` draws the title
+  in `accent` and `.check` in the slot; an optional trailing `chevronRight` (12)
+  in `textSecondary`, `textPrimary` while hovered or selected. The ground is
+  `accentTintStrong` selected, `hoverTint` hovered, clear otherwise —
+  **selection wins**. One accessibility element named by its title, with an
+  optional value (a current row's state) and an optional hint (the remote row's
+  submenu).
+- `ChromePopoverProjectRow` — `popoverProjectRowHeight` 36, the same slot,
+  padding and ground rules; the name in `.body` (`accent` when current) over the
+  path in `.subheadline` and `textSecondary`, one line, truncated in the middle,
+  `popoverProjectRowLineGap` 1 between them.
+- `ChromePopoverSectionHeader` — `.subheadline` semibold in `textSecondary`,
+  padded `popoverSectionHeaderPaddingTop` 12, `popoverSectionHeaderPaddingX` 12
+  and `popoverSectionHeaderPaddingBottom` 4.
+- `ChromePopoverMessage` — `.subheadline`, padded `popoverMessagePaddingY` 8 and
+  `popoverMessagePaddingX` 12, in a role the caller names (`textSecondary` for
+  an empty state, `statusRed` for the error).
+- `ChromePopoverFieldBlock` — any field stretched to the inner width with
+  `popoverFieldBlockPadding` 8 on every side. The branch popover's filter is
+  `ChromeThemedTextField`, which gained an optional `designGlyph:` leading slot
+  (`DesignGlyphImage` at 14 in `textSecondary`) beside its existing `glyph:`.
+  The branch popover passes it `height: popoverFieldHeight` 32 — a 13-point
+  line inside 8 points of vertical padding, without which the shared box hugs
+  its text line — and `spacing: popoverFieldGlyphGap` 8 between the search
+  glyph and the text; the horizontal padding stays the shared `fieldPaddingX`
+  10. Both are unscaled tokens the box and the stack scale, and
+  `ChromePopoverLayoutTests` measures the field's drawn height off the branch
+  bitmap at scale 1.0 and 1.8. The field requests the focus after it is mounted
+  in the window — a request made during the overlay's appearance pass is lost —
+  and holds it until dismiss hands it back; `ChromePopoverPresenterTests` asserts
+  the field editor holds the first responder once open and not after dismiss.
+
+The file joins the gated set (sixty-one to **sixty-two**) and is now rule
+twenty-three's one reader of `bgPopover` for the bar: the two switcher files
+name none and present nothing themselves.
+
+**`ChromePopoverPresenter.swift` — open state, host overlay, monitors.** The
+popover is an **in-window SwiftUI overlay**, `ChromePopoverHost`, mounted once
+in `ContentView.body` inside the root's `chromeTheme`/`interfaceMetrics`
+injections (so it adds no injection root) and above the bar's `.zIndex(1)` —
+**not a child panel**, because an overlay is inside the window by construction
+and moves with it, re-places itself on a resize through the root's
+`GeometryReader`, needs no screen-coordinate conversion, and never takes key
+status from the main window, so the field inside it keeps the text focus and
+"closes when the window resigns key" stays one notification. The root declares
+a named coordinate space; the widgets, the bar's top edge and the rows report
+their frames in it, and the host asks `PopoverPlacement.popover(...)` with
+`popoverWidth`, `popoverMaxHeight` and `popoverBarGap` scaled, drawing the
+content bottom-leading at the answer with the available height as its
+`maxHeight`. An open submenu is a Head-less `ChromePopover` of two rows, its
+height known from the row tokens and the List padding, placed by
+`PopoverPlacement.submenu(...)` with `popoverSubmenuGap` scaled. Its anchor
+row's top is **live**: a row-top report for the row the open submenu hangs from
+updates the submenu, so a resize or a popover height change that moves the row
+moves the submenu with it. Only the
+drawn surfaces hit-test; the root's AppKit stand-in (flipped, `hitTest` →
+`nil`) only supplies the window and converts an event's point.
+
+`ChromePopoverPresenter` (`@MainActor` `ObservableObject`, carried by an
+optional environment value — absent where `BottomBar` is hosted alone, where a
+widget's button then presents nothing) holds the open id, the anchor frame, the
+content, the bar's top, the rows the content registers in display order (an
+action row is an ordinary entry; a remote row carries its submenu's rows), the
+main `PopoverSelection`, the optional submenu with its own selection, and the
+drawn frames. `present(id:anchor:content:)` toggles when the same id is open;
+`setRows(_:)` resets the selection to the first row and closes a submenu, and
+each content re-registers on appear and on every filter change. **Every
+activation dismisses everything before its closure runs**; the current
+branch's and current project's rows only dismiss.
+
+Two local `NSEvent` monitors and one observer are installed on present and
+removed on dismiss, scoped to the root's window. The **mouse** monitor
+(left, right, other mouse-down) dismisses on a press outside the popover, the
+submenu and the anchor widget — a press on the widget is left to the widget's
+toggle — and always returns the event, so the click that dismisses still lands
+and nothing is dimmed or blocked. The **key** monitor holds **no key logic**:
+it maps the key code (126 `up`, 125 `down`, 36/76 `return`, 53 `escape`, 123
+`left`, 124 `right`; anything else, and any of these with ⌘, ⌃ or ⌥, `other`),
+builds `PopoverKeyState`, asks `PopoverKeyRule`, and executes the answer
+against the submenu's selection while one is open, the main one otherwise, or
+the presenter's API; `passThrough` returns the event unconsumed and every other
+action consumes it — except while the focused field holds marked text, when
+an input method composing in it owns Return and the arrows until it commits.
+`NSWindow.didResignKeyNotification` for that window dismisses.
+
+**The focus goes back on dismiss.** The overlay lives in the main window, so
+the filter field focused on appear takes the window's first responder from the
+editor, and removing the field gives nothing back on its own. `present` records
+what held the focus (a field editor's owning control, never the field editor),
+and `dismiss` restores it only while a field editor the popover took still holds
+the focus — the project popover takes none and changes nothing, and a click
+outside still lands after the restore and moves the focus where it was aimed.
+The presenter is not in the gated set: it names no colour role.
+
+Tests: the Core rules are `PopoverPlacementTests`, `PopoverSelectionTests` and
+`PopoverKeyRuleTests` (`swift test`); `ChromeThemeTests` holds every new token
+in the inventory's set equality and values. In the app bundle,
+`ChromePopoverPresenterTests` pins the key-code mapping, the toggle, a
+replacement leaving no old rows, selection or submenu, the selection and
+submenu wiring, activation dismissing first, both popovers' row registration
+and every row's callback, the branch rows registering again when branches
+arrive and when HEAD alone moves, the focus hand-back, and the host reporting
+the submenu's frame where it draws it (the frame the mouse monitor reads) and
+following its anchor row when the row moves;
+`ChromePopoverLayoutTests` renders the branch popover (with its Foot) and the
+project popover at scale 1.0 and 1.8, plus the branch popover once under a cap
+shorter than its content — five renders, five windows — and measures the
+capped container's height with both rules still drawn, and the 300-point width between the stroke columns, the
+field block's 8-point padding above and below, the 28- and 36-point selected
+grounds, the 1-point Head and Foot rules, and the section header's height. One
+unwindowed fitting-size check, outside the five, holds the container at its cap
+when the Head and Foot alone are taller than it.
+
 #### The bottom bar's caret readout
 
 `BottomBar` draws `CaretReadout`'s `Ln <line>, Col <column> · <encoding> ·
@@ -2622,7 +2840,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — and the design glyphs' helper, `DesignGlyphImage.swift`, one more: **sixty-one** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — and the bottom bar's popover component, `ChromePopover.swift`, one more: **sixty-two** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -2775,13 +2993,17 @@ The forty-seven rules, each invisible to the compiler:
    `BranchSwitcherView.swift` must therefore hide every decorative symbol they
    draw, asserted by counting `Image(systemName:` against
    `.accessibilityHidden(true)` in each file — a `DesignGlyphImage(`, which every
-   bar widget's own glyph now is, hides itself and so counts on both sides — with
+   bar widget's own glyph and, since the in-window component, every popover row's
+   glyph now is, hides itself and so counts on both sides — with
    `PullRequestIndicatorView.swift` the stated exception because it names itself
    outright with an explicit `.accessibilityLabel(`. That count has a **second
    half**, because it went green on the change that broke the thing it exists
    for: two of the hidden symbols were the row's *state* (the current project's
-   and the checked-out branch's checkmark), and hiding those satisfies the count
-   while leaving every row announcing the same words. So each of the two files
+   and the checked-out branch's checkmark — today `.check` in a
+   `ChromePopoverRow`'s or `ChromePopoverProjectRow`'s slot), and hiding those
+   satisfies the count while leaving every row announcing the same words. The
+   "Current project" / "Current branch" value each popover hands its current
+   row is what the files now spell. So each of the two files
    must additionally spell an `.accessibilityValue(` — the carrier a hidden glyph
    owes back. What the rule does **not** see is stated with it: it cannot tell
    which symbol encoded state, so a value on some other row would satisfy it; it
@@ -3062,22 +3284,25 @@ The forty-seven rules, each invisible to the compiler:
    call, not that the handler clears the hover and drag state before it — a
    handler calling the sync with both still set pops nothing.
 23. **A popover surface names `bgPopover`.** The gated files naming `bgPopover`
-   equal `{CompletionPanel.swift, HoverPanel.swift, BranchSwitcherView.swift,
-   ProjectSwitcherView.swift, LogFilterBar.swift}`; every gated file presenting a
-   popover (`.popover(`) or declaring an `NSPanel` is in that set, which is what
-   lets the rule see a sixth popover appearing on a system material; and no gated
-   file spells `NSVisualEffectView`, a `.material` assignment or
-   `presentationBackground`. The five popovers' content is drawn on `bgPopover`
-   as a background, with no availability branch, and each file says in one line
-   that the arrow keeps the system material because the content background cannot
-   reach it.
+   equal `{CompletionPanel.swift, HoverPanel.swift, LogFilterBar.swift,
+   ChromePopover.swift}`; every gated file presenting a popover (`.popover(`) or
+   declaring an `NSPanel` is in that set, which is what lets the rule see a new
+   popover appearing on a system material; and no gated file spells
+   `NSVisualEffectView`, a `.material` assignment or `presentationBackground`.
+   The two switcher files left the set when both bar popovers moved onto the
+   in-window component: they present nothing themselves and name no
+   `bgPopover`, so `ChromePopover.swift` is their surface's one reader. The
+   Log calendar is the one remaining SwiftUI `.popover(`; its content is drawn
+   on `bgPopover` as a background, with no availability branch, and
+   `LogFilterBar.swift` says in one line why its arrow is not.
 24. **No gated file spells `Divider()`; a menu separates with `Section`.** No
     gated file spells `Divider(`, and every gated file that builds a `Menu`
     spells `Section` at least once. Two sets are pinned by equality: the gated
-    files building a `Menu` (`menuFiles`: `BranchSwitcherView.swift`,
-    `ChromeControls.swift`, `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
+    files building a `Menu` (`menuFiles`: `ChromeControls.swift`,
+    `SearchHistoryMenu.swift`, `ProjectTreeView.swift`,
     `LocalChangesView.swift`, `DatabaseViewerView.swift`,
-    `LeetCodeBrowserView.swift`) and the subset that also separates with
+    `LeetCodeBrowserView.swift`; `BranchSwitcherView.swift` left it when a
+    remote row's `Menu` became the component's own submenu) and the subset that also separates with
     `Section` (`menuSectionFiles`: `SearchHistoryMenu.swift`,
     `ProjectTreeView.swift`, `LocalChangesView.swift`,
     `DatabaseViewerView.swift`), so a new `Menu` is added deliberately, with or
@@ -3308,10 +3533,11 @@ The forty-seven rules, each invisible to the compiler:
     exemption that only counted its glyphs would stay green through the very
     regression — a removed container font — that the rule was written for. The
     shared checkbox's glyph needs no entry; it is resizable and sizes itself by
-    frame. The switcher popovers' three row glyphs (`branchRow`,
-    `remoteBranchRow`, `projectRow`) carry a metrics `.frame(width:)` that is a
-    16-point icon column for alignment, not a size, so they are pinned as
-    container-font glyphs and the row `HStack`'s body font is re-checked.
+    frame. The switcher popovers' rows carry no exemption: since both moved
+    onto `ChromePopover`'s pieces they draw design glyphs through
+    `DesignGlyphImage`, sized by construction, and the three container-font
+    entries that pinned their old SF Symbol icon column (`branchRow`,
+    `remoteBranchRow`, `projectRow`) are gone.
     `LSPConsentBanner.swift` carries no exemption either: the consent bar's
     one glyph takes its own scaled font on its own chain.
     Part five (d)'s seven files add no exemption: every glyph they draw — the

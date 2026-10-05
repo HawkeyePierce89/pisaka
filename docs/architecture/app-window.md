@@ -274,7 +274,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the `BranchSwitcherView` (the status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
-    for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted). Beside the branch widget sits
+    for previews). Beside it sits the new project switcher (`ProjectSwitcherView`), threaded through as the `recentProjects: () -> [RecentProject]` / `onOpenRecentProject: (URL) -> Void` parameters (owned by `PisakaApp`, defaulted). The two switchers' popovers are drawn by one per-window `ChromePopoverPresenter` (`@StateObject`) through `ChromePopoverHost`, an overlay `body` mounts once inside the theme and scale injections, above the bar's `.zIndex(1)`, with the named coordinate space the widgets, the bar and the rows report their frames in; `bottomBar` reports its own top edge to the presenter, and `BottomBar`'s initializer and stored properties are unchanged, so its two suites host it alone (`core-theme.md`, *The bottom bar's popover component*). Beside the branch widget sits
     `PullRequestIndicatorView`, reading the same model the panel does and drawing
     nothing at all unless the checked-out branch has an open pull request; its
     click **opens** rather than toggles (a toggle would collapse the panel when it
@@ -738,7 +738,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the very container the app renders, with stub panes, rather than a copy that
     could drift from it.
 
-  - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (dismisses and calls, wired to the same open panel) and `onOpenRecent` (dismisses and calls with the URL). Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is a short list with only the "Open Folder…" item. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
+  - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (wired to the same open panel) and `onOpenRecent` (called with the URL); the presenter dismisses before either runs. Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is the "Open Folder…" row over one "No recent projects" message. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
+
+    **The popover is the window's in-window component** (`core-theme.md`, *The
+    bottom bar's popover component*). The button records its frame in the
+    root's named coordinate space and calls `presenter.present(...)` — a toggle
+    for the same widget — with no `.popover(` and no `@State isPresented`; the
+    presenter comes from the environment and is absent where `BottomBar` is
+    hosted alone, where the button presents nothing. The popover opens upward,
+    left-aligned to the widget, 4 points above the bar, clamped inside the
+    window, with no arrow. Its content is `ProjectSwitcherPopover`: the Head is
+    an "Open Folder…" `ChromePopoverRow` with the `folder-open` design glyph;
+    the List is a "Recent" `ChromePopoverSectionHeader` over one
+    `ChromePopoverProjectRow` per project (name over path, the current row in
+    `accent` with `.check` in its slot and the accessibility value "Current
+    project"), or a `textSecondary` `ChromePopoverMessage` when there are none.
+    It registers its rows with the presenter in display order, the action row
+    first, on appear, so ↑/↓ select, Return activates and Esc dismisses while
+    the pointer still works as before. The widget's button label, tooltip,
+    accessibility label and value, and disabled rule are unchanged.
 
     **On the chrome roles** since part three (`core-theme.md`): it reads
     `\.chromeTheme` beside `\.interfaceMetrics` and spends `textPrimary` on the
@@ -749,22 +767,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the 14-point gaps between its three widgets and its own height, so a padding
     here would make the bar's stated measurements not the ones drawn; the label
     keeps `.contentShape(Rectangle())` so the whole of it stays the click target.
-    The popover's colours are roles too — `accent` for the current row's glyph
-    and name, `textSecondary` for the section header, the path line and the empty
-    state, `textPrimary` for a non-current row's name — because gating rule one
-    is per *file* and this file obeys it whole. Every symbol the file draws is
-    `.accessibilityHidden(true)` (a `Button` combines its children), and the
-     popover row's is hidden with a **debt paid**: its glyph is
-     `row.isCurrent ? "checkmark" : "folder"`, so the row states
-     `.accessibilityValue("Current project")` for the project that is open —
-     hiding the glyph without that left the current row announcing exactly what
-     every other row announced, since the `accent` beside it is no more readable
-     without sight (`core-theme.md`, rule ten's second half). On the chrome roles
-     since part five (a): the popover's content is drawn on `bgPopover` with no
-     `presentationBackground` and no `#available` branch, the arrow keeps the
-     system material (one line says so), each `Divider()` is a one-point `hairline`
-     rule the content draws, and the popover's filter field is the shared themed
-     field.
+    The popover's colours are the component's roles — `accent` for the current
+    row's glyph and name, `textSecondary` for the section header, the path line
+    and the empty state, `textPrimary` for a non-current row's name, all on
+    `bgPopover` drawn by `ChromePopover.swift`, which this file no longer names.
+    Every glyph the file draws is a design glyph, hidden from accessibility by
+    the helper (a `Button` combines its children), and the current row's `.check`
+    is hidden with a **debt paid**: the row states the accessibility value
+    "Current project" for the project that is open — hiding the glyph without
+    that left the current row announcing exactly what every other row
+    announced, since the `accent` beside it is no more readable without sight
+    (`core-theme.md`, rule ten's second half). The slots are separated by
+    `hairline` rules the component draws; the file spells no `Divider()`.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)

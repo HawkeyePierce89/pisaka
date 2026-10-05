@@ -6,7 +6,9 @@ import PisakaCore
 ///
 /// A thin SwiftUI view over `RecentProject` rows provided by the Core projection.
 /// The widget shows the current project's name as a bottom-bar button that opens
-/// a popover with an "Open Folder…" action and the MRU list of recent projects.
+/// the window's in-window popover (`ProjectSwitcherPopover`, presented by
+/// `ChromePopoverPresenter`) with an "Open Folder…" action and the MRU list of
+/// recent projects.
 ///
 /// The orchestration — the existence guard and the switch funnel — lives in
 /// `PisakaApp`. This view only reads the rows at popover-open time and forwards
@@ -20,25 +22,35 @@ struct ProjectSwitcherView: View {
     /// Invoked when a recent project is chosen.
     var onOpenRecent: (URL) -> Void = { _ in }
 
-    @State private var isPresented = false
-    @State private var rows: [RecentProject] = []
+    /// The presenter's id for this widget's popover.
+    static let popoverID = "projectSwitcher"
 
-    /// The interface zone's metrics, inherited from the window root. The popover
-    /// inherits the environment from this view, so its rows scale with the widget
-    /// that opened them.
+    /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The chrome theme, read from the environment the window root injects. The
-    /// popover inherits it from this view, so its content is drawn on `bgPopover`
-    /// too.
+    /// The chrome theme, read from the environment the window root injects.
     @Environment(\.chromeTheme) private var theme
+
+    /// The window's popover presenter; absent outside a window root, where the
+    /// button presents nothing.
+    @Environment(\.chromePopoverPresenter) private var presenter
+
+    /// This widget's frame in the root's coordinate space — the popover's anchor.
+    @State private var frame: CGRect = .zero
 
     var body: some View {
         Button {
-            if !isPresented {
-                rows = recentProjects()
+            // The rows are read once, at open time; a toggle that closes reads
+            // them too and discards them, which costs one projection.
+            let rows = recentProjects()
+            presenter?.present(id: Self.popoverID, anchor: frame) { [onOpenFolder, onOpenRecent] context in
+                AnyView(ProjectSwitcherPopover(
+                    rows: rows,
+                    context: context,
+                    onOpenFolder: onOpenFolder,
+                    onOpenRecent: onOpenRecent
+                ))
             }
-            isPresented.toggle()
         } label: {
             // A `Button`'s children are *combined* into one accessibility
             // element; the two glyphs here are decoration beside a name that
@@ -74,8 +86,9 @@ struct ProjectSwitcherView: View {
         // — the text the combined label announced before the name was stated.
         .accessibilityLabel("Current project")
         .accessibilityValue(currentLabel)
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            popoverContent
+        .chromePopoverFrame { [presenter] in
+            frame = $0
+            presenter?.noteAnchor($0, for: Self.popoverID)
         }
     }
 
@@ -86,96 +99,66 @@ struct ProjectSwitcherView: View {
         return "No Folder"
     }
 
-    /// The popover's content, drawn on `bgPopover`. The popover's arrow keeps the
-    /// system material, because the content background cannot reach it.
-    private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-            Button {
-                isPresented = false
-                onOpenFolder()
-            } label: {
-                Label("Open Folder…", systemImage: "folder.badge.plus")
-                    .font(metrics.scaledFont(.body))
-            }
-            .buttonStyle(.plain)
+}
 
-            if !rows.isEmpty {
-                Rectangle()
-                    .fill(theme.color(.hairline))
-                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+/// The project popover's content: "Open Folder…" in the Head, and a "Recent"
+/// section of project rows — or one message when there are none — in the List.
+///
+/// The rows are the ones the widget read at open time. They are registered with
+/// the presenter in display order, the action row first, on appear.
+struct ProjectSwitcherPopover: View {
+    let rows: [RecentProject]
+    let context: ChromePopoverContext
+    var onOpenFolder: () -> Void = {}
+    var onOpenRecent: (URL) -> Void = { _ in }
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                        sectionHeader("Recent")
-                        ForEach(rows) { row in
-                            projectRow(row)
-                        }
-                    }
-                }
-                .frame(maxHeight: metrics.scaled(300))
+    static let openFolderRowID = "openFolder"
+
+    @Environment(\.chromePopoverPresenter) private var presenter
+
+    var body: some View {
+        ChromePopover(maxHeight: context.maxHeight) {
+            ChromePopoverRow(
+                title: "Open Folder…",
+                glyph: .folderOpen,
+                isSelected: context.selectedRowID == Self.openFolderRowID,
+                action: { context.activateRow(Self.openFolderRowID) }
+            )
+            .chromePopoverRowAnchor(id: Self.openFolderRowID)
+        } list: {
+            if rows.isEmpty {
+                ChromePopoverMessage(text: "No recent projects", role: .textSecondary)
             } else {
-                Rectangle()
-                    .fill(theme.color(.hairline))
-                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
-                Text("No recent projects")
-                    .font(metrics.scaledFont(.callout))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    .padding(.vertical, metrics.scaled(4))
-            }
-        }
-        .padding(metrics.scaled(10))
-        .frame(width: metrics.scaled(300))
-        .background(theme.color(.bgPopover))
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(theme.color(.textSecondary))
-            .padding(.top, metrics.scaled(4))
-    }
-
-    /// A recent-project row.
-    ///
-    /// This row's glyph is the one symbol in this file whose *name and colour
-    /// are both chosen by a value* — `checkmark`/accent for the project that is
-    /// open, `folder`/secondary for every other. That is the row's **state**,
-    /// not decoration, and the accent on the name beside it carries the same
-    /// state in the same unreadable currency: colour. So the glyph stays hidden
-    /// — a spoken value says it better than a folded-in symbol name would — and
-    /// the state it showed is spoken by the row itself, as an accessibility
-    /// *value* on the combined element the `Button` makes of its children. A
-    /// non-current row has no state to report and says nothing.
-    private func projectRow(_ row: RecentProject) -> some View {
-        Button {
-            isPresented = false
-            if !row.isCurrent { onOpenRecent(row.url) }
-        } label: {
-            HStack(spacing: metrics.scaled(6)) {
-                Image(systemName: row.isCurrent ? "checkmark" : "folder")
-                    .frame(width: metrics.scaled(16))
-                    .foregroundStyle(theme.color(row.isCurrent ? .accent : .textSecondary))
-                    // Hidden because the state it showed is now spoken: the
-                    // value below is the carrier, and an unhidden symbol would
-                    // fold its own name into the row's instead.
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(row.name)
-                        .foregroundStyle(theme.color(row.isCurrent ? .accent : .textPrimary))
-                    Text(row.path)
-                        .font(metrics.scaledFont(.caption))
-                        .foregroundStyle(theme.color(.textSecondary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                ChromePopoverSectionHeader(title: "Recent")
+                ForEach(rows) { row in
+                    ChromePopoverProjectRow(
+                        name: row.name,
+                        path: row.path,
+                        isCurrent: row.isCurrent,
+                        isSelected: context.selectedRowID == Self.rowID(row),
+                        accessibilityValue: row.isCurrent ? "Current project" : nil,
+                        action: { context.activateRow(Self.rowID(row)) }
+                    )
+                    .chromePopoverRowAnchor(id: Self.rowID(row))
                 }
-                Spacer()
             }
-            .font(metrics.scaledFont(.body))
-            .padding(.vertical, metrics.scaled(2))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityValue(row.isCurrent ? "Current project" : "")
+        .scrolling(to: context.selectedRowID)
+        .onAppear(perform: registerRows)
+    }
+
+    private static func rowID(_ row: RecentProject) -> String { "project:\(row.id)" }
+
+    /// The row actions in display order. The current project's row only
+    /// dismisses — the presenter dismisses before every row's closure.
+    private func registerRows() {
+        var actions = [ChromePopoverRowAction(id: Self.openFolderRowID, activate: onOpenFolder)]
+        for row in rows {
+            actions.append(ChromePopoverRowAction(id: Self.rowID(row), activate: { [onOpenRecent] in
+                if !row.isCurrent { onOpenRecent(row.url) }
+            }))
+        }
+        presenter?.setRows(actions)
     }
 }
 #endif

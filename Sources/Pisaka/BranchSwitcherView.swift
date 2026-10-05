@@ -7,10 +7,11 @@ import PisakaCore
 /// A thin SwiftUI view over `BranchSwitcherModel` — all branching logic
 /// (grouping/sorting/marking, filter, the default create-from-remote name) lives
 /// in Core. The widget shows the current branch as a bottom-bar button that opens
-/// a popover with the Local/Remote branch list (the current one marked), a live
-/// filter field, and a "New Branch…" action. Clicking a local branch requests a
-/// checkout; clicking a remote branch requests a create-from-that-remote (with a
-/// pre-filled name); "New Branch…" requests a create from `HEAD`.
+/// the window's in-window popover (`BranchSwitcherPopover`, presented by
+/// `ChromePopoverPresenter`) with a live filter field, a "New Branch…" action and
+/// the Local/Remote branch list, the current one marked. Clicking a local branch
+/// requests a checkout; a remote branch opens a two-row submenu (Checkout, New
+/// Branch from it); "New Branch…" requests a create from `HEAD`.
 ///
 /// The orchestration — the gates (autosave suspend / tree lock), the dirty-tree
 /// warning, the create dialogs, tab resync, and refreshing Changes/Log/tree — lives
@@ -32,27 +33,36 @@ struct BranchSwitcherView: View {
     /// `PisakaApp`; default no-op for previews/tests.
     var onNewBranch: () -> Void = {}
 
-    @State private var isPresented = false
+    /// The presenter's id for this widget's popover.
+    static let popoverID = "branchSwitcher"
 
-    /// The interface zone's metrics, inherited from the window root. The popover
-    /// inherits the environment from this view, so its rows scale with the widget
-    /// that opened them.
+    /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
-    /// The chrome theme, read from the environment the window root injects. The
-    /// popover inherits it from this view, so its content is drawn on `bgPopover`
-    /// too.
+    /// The chrome theme, read from the environment the window root injects.
     @Environment(\.chromeTheme) private var theme
 
-    @FocusState private var focusedField: Field?
+    /// The window's popover presenter; absent outside a window root, where the
+    /// button presents nothing.
+    @Environment(\.chromePopoverPresenter) private var presenter
 
-    private enum Field: Hashable {
-        case filter
-    }
+    /// This widget's frame in the root's coordinate space — the popover's anchor.
+    @State private var frame: CGRect = .zero
 
     var body: some View {
         Button {
-            isPresented = true
+            let (model, onSwitch, onCreateFromRemote, onCheckoutRemote, onNewBranch) =
+                (model, onSwitch, onCreateFromRemote, onCheckoutRemote, onNewBranch)
+            presenter?.present(id: Self.popoverID, anchor: frame) { context in
+                AnyView(BranchSwitcherPopover(
+                    model: model,
+                    context: context,
+                    onSwitch: onSwitch,
+                    onCreateFromRemote: onCreateFromRemote,
+                    onCheckoutRemote: onCheckoutRemote,
+                    onNewBranch: onNewBranch
+                ))
+            }
         } label: {
             // A `Button`'s children are *combined* into one accessibility
             // element; the two glyphs here are decoration beside a name that
@@ -89,8 +99,9 @@ struct BranchSwitcherView: View {
         // — the text the combined label announced before the name was stated.
         .accessibilityLabel("Current branch")
         .accessibilityValue(currentLabel)
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            popoverContent
+        .chromePopoverFrame { [presenter] in
+            frame = $0
+            presenter?.noteAnchor($0, for: Self.popoverID)
         }
     }
 
@@ -100,161 +111,171 @@ struct BranchSwitcherView: View {
         if let current = model.current { return current.shortName }
         return model.root == nil ? "No branch" : "Detached"
     }
+}
 
-    /// The popover's content, drawn on `bgPopover`. The popover's arrow keeps the
-    /// system material, because the content background cannot reach it.
-    private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
-            ChromeThemedTextField(
-                title: "Filter branches",
-                text: $model.filterText,
-                focus: $focusedField,
-                focusedEquals: .filter,
-                textStyle: .body
-            )
+/// The branch popover's content: a filter field and "New Branch…" in the Head,
+/// the Local/Remote sections in the List, and the model's error in a Foot drawn
+/// only while there is one.
+///
+/// Its rows are registered with the presenter in display order — the action row
+/// first — on appear, on every filter change and whenever the filtered lists
+/// change, and each registration returns the keyboard selection to the first
+/// row, and again when the current branch changes. A remote row registers a
+/// two-row submenu instead of acting itself.
+struct BranchSwitcherPopover: View {
+    @ObservedObject var model: BranchSwitcherModel
+    let context: ChromePopoverContext
+    var onSwitch: (BranchRef) -> Void = { _ in }
+    var onCreateFromRemote: (BranchRef) -> Void = { _ in }
+    var onCheckoutRemote: (BranchRef) -> Void = { _ in }
+    var onNewBranch: () -> Void = {}
 
-            Button {
-                isPresented = false
-                onNewBranch()
-            } label: {
-                Label("New Branch…", systemImage: "plus")
-                    .font(metrics.scaledFont(.body))
+    static let newBranchRowID = "newBranch"
+
+    @Environment(\.chromePopoverPresenter) private var presenter
+
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case filter
+    }
+
+    var body: some View {
+        ChromePopover(maxHeight: context.maxHeight, head: { head }, list: { list }, foot: foot)
+            .scrolling(to: context.selectedRowID)
+            .onAppear {
+                // The overlay mounts this content during its appearance pass,
+                // before the field is in the window's responder chain, and a
+                // request made now is lost: ask again after that pass.
+                focusedField = .filter
+                Task { @MainActor in focusedField = .filter }
+                registerRows()
             }
-            .buttonStyle(.plain)
+            .onChange(of: model.filterText) { _ in registerRows() }
+            .onChange(of: rowIDs) { _ in registerRows() }
+            // A local row's action reads `isCurrent` at registration, and the
+            // ids alone do not change when HEAD moves.
+            .onChange(of: model.current?.name) { _ in registerRows() }
+    }
 
-            Rectangle()
-                .fill(theme.color(.hairline))
-                .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-                    let locals = model.filteredLocalBranches
-                    if !locals.isEmpty {
-                        sectionHeader("Local")
-                        ForEach(locals) { branch in
-                            branchRow(branch) {
-                                isPresented = false
-                                if !branch.isCurrent { onSwitch(branch) }
-                            }
-                        }
-                    }
-                    let remotes = model.filteredRemoteBranches
-                    if !remotes.isEmpty {
-                        sectionHeader("Remote")
-                        ForEach(remotes) { branch in
-                            remoteBranchRow(branch)
-                        }
-                    }
-                    if locals.isEmpty && remotes.isEmpty {
-                        Text("No branches")
-                            .font(metrics.scaledFont(.callout))
-                            .foregroundStyle(theme.color(.textSecondary))
-                            .padding(.vertical, metrics.scaled(4))
-                    }
-                }
+    /// The Head: the filter field, then the "New Branch…" action row — one
+    /// stack, so the container's padding and rule wrap the slot, not each row.
+    private var head: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ChromePopoverFieldBlock {
+                ChromeThemedTextField(
+                    title: "Filter branches",
+                    text: $model.filterText,
+                    designGlyph: .search,
+                    focus: $focusedField,
+                    focusedEquals: .filter,
+                    textStyle: .body,
+                    spacing: ChromeGeometry.popoverFieldGlyphGap,
+                    height: ChromeGeometry.popoverFieldHeight
+                )
             }
-            .frame(maxHeight: metrics.scaled(300))
+            row(id: Self.newBranchRowID, title: "New Branch…", glyph: .gitBranch)
+        }
+    }
 
-            if let error = model.errorMessage {
-                Rectangle()
-                    .fill(theme.color(.hairline))
-                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
-                Text(error)
-                    .font(metrics.scaledFont(.caption))
-                    .foregroundStyle(theme.color(.statusRed))
-                    .fixedSize(horizontal: false, vertical: true)
+    /// The List: the Local and Remote sections, each omitted when empty, or one
+    /// message when both are.
+    @ViewBuilder private var list: some View {
+        let locals = model.filteredLocalBranches
+        let remotes = model.filteredRemoteBranches
+        if !locals.isEmpty {
+            ChromePopoverSectionHeader(title: "Local")
+            ForEach(locals) { branch in
+                row(
+                    id: Self.localRowID(branch),
+                    title: branch.shortName,
+                    isCurrent: branch.isCurrent,
+                    accessibilityValue: branch.isCurrent ? "Current branch" : nil
+                )
             }
         }
-        .padding(metrics.scaled(10))
-        .frame(width: metrics.scaled(300))
-        .background(theme.color(.bgPopover))
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(metrics.scaledFont(.caption, weight: .semibold))
-            .foregroundStyle(theme.color(.textSecondary))
-            .padding(.top, metrics.scaled(4))
-    }
-
-    /// A local-branch row.
-    ///
-    /// This row's glyph is the one symbol in this file whose *name and colour
-    /// are both chosen by a value* — `checkmark`/accent for the branch that is
-    /// checked out, the branch symbol/secondary for every other. That is the
-    /// row's **state**, not decoration, and the accent on the name beside it
-    /// carries the same state in the same unreadable currency: colour. So the
-    /// glyph stays hidden — a spoken value says it better than a folded-in
-    /// symbol name would — and the state it showed is spoken by the row itself,
-    /// as an accessibility *value* on the combined element the `Button` makes
-    /// of its children. A non-current row has no state to report and says
-    /// nothing.
-    private func branchRow(_ branch: BranchRef, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: metrics.scaled(6)) {
-                Image(systemName: rowIcon(for: branch))
-                    .frame(width: metrics.scaled(16))
-                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textSecondary))
-                    // Hidden because the state it showed is now spoken: the
-                    // value below is the carrier, and an unhidden symbol would
-                    // fold its own name into the row's instead.
-                    .accessibilityHidden(true)
-                Text(branch.shortName)
-                    .foregroundStyle(theme.color(branch.isCurrent ? .accent : .textPrimary))
-                Spacer()
+        if !remotes.isEmpty {
+            ChromePopoverSectionHeader(title: "Remote")
+            ForEach(remotes) { branch in
+                row(
+                    id: Self.remoteRowID(branch),
+                    title: branch.shortName,
+                    hasChevron: true,
+                    accessibilityHint: "Opens Checkout and New Branch from this branch"
+                )
             }
-            .font(metrics.scaledFont(.body))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityValue(branch.isCurrent ? "Current branch" : "")
-    }
-
-    /// A remote-branch row: a two-item menu — Checkout (git DWIM: switch to the
-    /// same-named local or create it from the remote ref, no fetch) and "New Branch
-    /// from '…'…" (the create-with-a-pre-filled-name flow). Selecting either
-    /// dismisses the popover before the handler runs.
-    ///
-    /// Unlike `branchRow(_:action:)` this row carries **no state**, and so owes
-    /// no spoken value: `BranchRef.parse` builds every remote ref with
-    /// `isCurrent: false` — HEAD is a local branch — so `rowIcon(for:)` answers
-    /// `cloud` here for every row and the colour is the same secondary on every
-    /// row. A glyph that is identical in every state is decoration, which is
-    /// what hiding it silently means; that is worth saying once, because the
-    /// shared `rowIcon(for:)` reads as though it varied.
-    private func remoteBranchRow(_ branch: BranchRef) -> some View {
-        Menu {
-            Button("Checkout") {
-                isPresented = false
-                onCheckoutRemote(branch)
-            }
-            Button("New Branch from '\(branch.shortName)'…") {
-                isPresented = false
-                onCreateFromRemote(branch)
-            }
-        } label: {
-            HStack(spacing: metrics.scaled(6)) {
-                Image(systemName: rowIcon(for: branch))
-                    .frame(width: metrics.scaled(16))
-                    .foregroundStyle(theme.color(.textSecondary))
-                    // Decoration: the same glyph in the same colour on every
-                    // remote row, so hiding it removes nothing — see the note
-                    // on this declaration.
-                    .accessibilityHidden(true)
-                Text(branch.shortName)
-                    .foregroundStyle(theme.color(.textPrimary))
-                Spacer()
-            }
-            .font(metrics.scaledFont(.body))
-            .contentShape(Rectangle())
+        if locals.isEmpty && remotes.isEmpty {
+            ChromePopoverMessage(text: "No branches", role: .textSecondary)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
     }
 
-    private func rowIcon(for branch: BranchRef) -> String {
-        if branch.isCurrent { return "checkmark" }
-        return branch.isRemote ? "cloud" : "arrow.triangle.branch"
+    /// The Foot: the model's error, and no Foot at all without one.
+    private var foot: ChromePopoverMessage? {
+        model.errorMessage.map { ChromePopoverMessage(text: $0, role: .statusRed) }
+    }
+
+    /// One registered row, drawn selected when the keyboard has selected it and
+    /// activated through the presenter, which dismisses or opens the submenu.
+    private func row(
+        id: String,
+        title: String,
+        glyph: DesignGlyph? = nil,
+        isCurrent: Bool = false,
+        hasChevron: Bool = false,
+        accessibilityValue: String? = nil,
+        accessibilityHint: String? = nil
+    ) -> some View {
+        ChromePopoverRow(
+            title: title,
+            glyph: glyph,
+            isCurrent: isCurrent,
+            isSelected: context.selectedRowID == id,
+            hasChevron: hasChevron,
+            accessibilityValue: accessibilityValue,
+            accessibilityHint: accessibilityHint,
+            action: { context.activateRow(id) }
+        )
+        .chromePopoverRowAnchor(id: id)
+    }
+
+    private static func localRowID(_ branch: BranchRef) -> String { "local:\(branch.name)" }
+    private static func remoteRowID(_ branch: BranchRef) -> String { "remote:\(branch.name)" }
+
+    /// The registered rows' ids, in display order.
+    private var rowIDs: [String] {
+        [Self.newBranchRowID]
+            + model.filteredLocalBranches.map(Self.localRowID)
+            + model.filteredRemoteBranches.map(Self.remoteRowID)
+    }
+
+    /// The row actions in display order. The current branch's row only
+    /// dismisses — the presenter dismisses before every row's closure.
+    private func registerRows() {
+        var rows = [ChromePopoverRowAction(id: Self.newBranchRowID, activate: onNewBranch)]
+        for branch in model.filteredLocalBranches {
+            rows.append(ChromePopoverRowAction(id: Self.localRowID(branch), activate: { [onSwitch] in
+                if !branch.isCurrent { onSwitch(branch) }
+            }))
+        }
+        for branch in model.filteredRemoteBranches {
+            rows.append(ChromePopoverRowAction(
+                id: Self.remoteRowID(branch),
+                activate: {},
+                submenu: [
+                    ChromePopoverSubmenuRow(id: "checkout", title: "Checkout") { [onCheckoutRemote] in
+                        onCheckoutRemote(branch)
+                    },
+                    ChromePopoverSubmenuRow(
+                        id: "newBranchFromRemote",
+                        title: "New Branch from '\(branch.shortName)'…"
+                    ) { [onCreateFromRemote] in
+                        onCreateFromRemote(branch)
+                    },
+                ]
+            ))
+        }
+        presenter?.setRows(rows)
     }
 }
 

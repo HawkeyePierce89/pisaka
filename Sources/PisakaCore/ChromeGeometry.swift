@@ -32,7 +32,12 @@ import Foundation
 /// `secondaryButtonPaddingX`, `segmentedControlInset`, `segmentGap`,
 /// `segmentPaddingX`, `stepperPaddingX`, `stepperPartGap`, `switchInset`,
 /// `settingsTabBarPaddingX`, `settingsTabGap`, `settingsTabLabelPaddingX`,
-/// `settingsPagePadding`, `settingsRowSpacing`, `settingsLabelGap`) and they
+/// `settingsPagePadding`, `settingsRowSpacing`, `settingsLabelGap`,
+/// `popoverBarGap`, `popoverSubmenuGap`, `popoverHeadPaddingBottom`,
+/// `popoverListPaddingBottom`, `popoverFieldBlockPadding`, `popoverFieldGlyphGap`,
+/// `popoverRowPaddingX`, `popoverRowGap`, `popoverProjectRowLineGap`, `popoverSectionHeaderPaddingTop`,
+/// `popoverSectionHeaderPaddingX`, `popoverSectionHeaderPaddingBottom`,
+/// `popoverMessagePaddingY`, `popoverMessagePaddingX`) and they
 /// are deliberately distinct tokens for distinct measurements, even where two
 /// values coincide; see `barPaddingX`'s own comment. The list carries no count:
 /// a stated count fell behind the table twice, and the test's set is the count.
@@ -46,6 +51,8 @@ import Foundation
 /// is retuned. The shared shapes' radii are reused rather than duplicated: the
 /// segmented control's outer corner is `cornerRadiusMax` and its segments'
 /// `fieldCornerRadius`, and the stepper's box is `fieldCornerRadius` too.
+/// The bottom-bar popover is the same: its corners are `cornerRadiusMax` and
+/// its stroke `hairlineWidth`, neither a token of its own.
 public enum ChromeGeometry {
     /// A tree or list row's total height, hover highlight included.
     public static let rowHeight: Double = 24
@@ -194,4 +201,49 @@ public enum ChromeGeometry {
     public static let spinnerSide: Double = 16
     /// The width of the stroke the shared spinner's arc is drawn with.
     public static let spinnerLineWidth: Double = 2
+    /// The bottom-bar popover's width.
+    public static let popoverWidth: Double = 300
+    /// The tallest the bottom-bar popover grows before its List scrolls.
+    public static let popoverMaxHeight: Double = 360
+    /// The gap between the popover's bottom edge and the bar's top edge.
+    public static let popoverBarGap: Double = 4
+    /// The gap between the popover and its submenu, beside it. Equal to
+    /// `popoverBarGap`, but a horizontal gap, not the vertical one above the bar.
+    public static let popoverSubmenuGap: Double = 4
+    /// The popover shadow's vertical offset.
+    public static let popoverShadowOffsetY: Double = 8
+    /// The popover shadow's blur, in the design's terms (twice a SwiftUI radius).
+    public static let popoverShadowBlur: Double = 24
+    /// The padding under the popover's Head, above its rule.
+    public static let popoverHeadPaddingBottom: Double = 4
+    /// The padding under the popover's List.
+    public static let popoverListPaddingBottom: Double = 6
+    /// The padding on every side of a field block in the popover.
+    public static let popoverFieldBlockPadding: Double = 8
+    /// The popover filter field's height: a 13-point line inside 8 points of vertical padding.
+    public static let popoverFieldHeight: Double = 32
+    /// The gap between the popover filter field's search glyph and its text.
+    public static let popoverFieldGlyphGap: Double = 8
+    /// A popover row's height.
+    public static let popoverRowHeight: Double = 28
+    /// A popover project row's height: a name line over a path line.
+    public static let popoverProjectRowHeight: Double = 36
+    /// A popover row's horizontal padding inside its ground.
+    public static let popoverRowPaddingX: Double = 12
+    /// The gap between a popover row's glyph slot, title and trailing chevron.
+    public static let popoverRowGap: Double = 6
+    /// The width of a popover row's leading glyph slot.
+    public static let popoverRowGlyphSlot: Double = 16
+    /// The gap between a project row's name line and its path line.
+    public static let popoverProjectRowLineGap: Double = 1
+    /// A popover section header's top padding.
+    public static let popoverSectionHeaderPaddingTop: Double = 12
+    /// A popover section header's horizontal padding.
+    public static let popoverSectionHeaderPaddingX: Double = 12
+    /// A popover section header's bottom padding.
+    public static let popoverSectionHeaderPaddingBottom: Double = 4
+    /// A popover message line's vertical padding.
+    public static let popoverMessagePaddingY: Double = 8
+    /// A popover message line's horizontal padding.
+    public static let popoverMessagePaddingX: Double = 12
 }

@@ -134,7 +134,7 @@ import XCTest
 ///   leaving the tree gets neither `onHover(false)` nor `onEnded`, and
 ///   `NSCursor`'s stack is global, so the cursor stays pushed after the flag
 ///   that would have balanced it is gone.
-/// - **A popover surface names `bgPopover`.** The five gated popover surfaces
+/// - **A popover surface names `bgPopover`.** The four gated popover surfaces
 ///   name `bgPopover` and no other gated file does; every gated file presenting
 ///   a popover (`.popover(`) or declaring an `NSPanel` is in that set; no gated
 ///   file spells `NSVisualEffectView`, a `.material` assignment or
@@ -401,6 +401,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The design's glyphs: the one helper every surface draws them through,
         // tinting each with the role its caller names (rule forty-six).
         "DesignGlyphImage.swift",
+        // The bottom bar's popover component: the container and its pieces,
+        // drawn on `bgPopover` with no arrow and no material.
+        "ChromePopover.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -1092,14 +1095,16 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// widget draws and owes no modifier of its own.
     ///
     /// Counting alone was not enough, and the way it failed is the reason for
-    /// the second half. A widget's symbol is usually decoration, but two of
-    /// these are the row's **state** — `row.isCurrent ? "checkmark" : "folder"`
-    /// and the branch list's checkmark — and hiding *those* satisfies the count
-    /// while deleting the only thing that distinguished the current project, or
-    /// the checked-out branch, from every other row. The count went green on a
-    /// change that made the two lists unreadable without sight. So each of these
-    /// files must also spell an accessibility **value**: the state carrier a
-    /// hidden glyph owes back.
+    /// the second half. A widget's symbol is usually decoration, but the
+    /// popover rows' check is the row's **state** — `.check` in the slot of the
+    /// current project and of the checked-out branch — and a hidden glyph (every
+    /// design glyph hides itself) deletes the only thing that distinguished
+    /// that row from every other. The count went green on a change that made
+    /// the two lists unreadable without sight. So each of these files must also
+    /// spell an accessibility **value**: the state carrier a hidden glyph owes
+    /// back — the widget's own value and, since the rows moved onto
+    /// `ChromePopover`'s pieces, the "Current project" / "Current branch" value
+    /// each popover hands its current row.
     ///
     /// What this rule does **not** see, said plainly because the honest limit is
     /// part of it: it cannot tell which symbol encoded state and does not try.
@@ -2656,9 +2661,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let bgPopoverReaders: Set<String> = [
         "CompletionPanel.swift",
         "HoverPanel.swift",
-        "BranchSwitcherView.swift",
-        "ProjectSwitcherView.swift",
         "LogFilterBar.swift",
+        "ChromePopover.swift",
     ]
 
     func testPopoverSurfaceNamesBgPopover() throws {
@@ -2673,7 +2677,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             readers, Self.bgPopoverReaders,
-            "the gated files naming bgPopover must be exactly its five popover surfaces"
+            "the gated files naming bgPopover must be exactly its four popover surfaces"
         )
 
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
@@ -2734,8 +2738,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// `LogFilterBar.swift` left the set in part five (c): its branch menu is now
     /// the shared `ChromeMenuField`, so the one `Menu` it drew lives in
     /// `ChromeControls.swift`, which joined in its place.
+    ///
+    /// `BranchSwitcherView.swift` left the set when both bar popovers moved onto
+    /// `ChromePopover`: a remote row now opens the component's own submenu, a
+    /// Head-less `ChromePopover` the presenter draws, rather than a `Menu`.
     private static let menuFiles: Set<String> = [
-        "BranchSwitcherView.swift",
         "ChromeControls.swift",
         "SearchHistoryMenu.swift",
         "ProjectTreeView.swift",
@@ -4084,10 +4091,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// **A frame alone is not a size.** A symbol that is not `.resizable()`
     /// draws at its font's size whatever frame it is given; the frame reserves
     /// layout space and nothing more. The rule's first shape accepted a metrics
-    /// frame on its own, which took the switcher rows' three icon-column glyphs
-    /// out of the unsized set — and with them out of the container-font
+    /// frame on its own, which took the old switcher rows' three icon-column
+    /// glyphs out of the unsized set — and with them out of the container-font
     /// re-check, so deleting the row's font left the gate green while the three
-    /// fell to the system default. They are pinned below as what they are.
+    /// fell to the system default. Those rows now draw design glyphs through
+    /// `ChromePopover`'s pieces, sized by construction, and need no exemption.
     ///
     /// The glyphs are found through `callRanges(_:in:)`, so an
     /// `Image(\n    systemName: …)` is the same glyph: the rule's first shape
@@ -4122,15 +4130,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // the glyph matching the text beside it is the point.
         ("ChromeControls.swift", "struct ChromeThemedTextField", 1, .containerFont),
         // Container fonts, one per row or label (the bottom-bar widgets' own
-        // glyphs are design glyphs, sized by the helper, and the indicator's
-        // fallback checks symbol carries its own metrics font): the switcher
-        // popovers' three rows, whose glyph sits in a 16-point icon
-        // column — a `.frame(width:)` that aligns the names and sizes nothing,
-        // the symbol not being resizable — under the row `HStack`'s body font,
-        ("BranchSwitcherView.swift", "private func branchRow(", 1, .containerFont),
-        ("BranchSwitcherView.swift", "private func remoteBranchRow(", 1, .containerFont),
-        ("ProjectSwitcherView.swift", "private func projectRow(", 1, .containerFont),
-        // the dock panels' group headers, badges and rows,
+        // glyphs and both switcher popovers' rows are design glyphs, sized by
+        // the helper, and the indicator's fallback checks symbol carries its
+        // own metrics font): the dock panels' group headers, badges and rows,
         ("ProblemsPanelView.swift", "private func fileGroup(", 1, .containerFont),
         ("ProblemsPanelView.swift", "private func severityBadge(", 1, .containerFont),
         ("ProblemsPanelView.swift", "struct ProblemRow", 1, .containerFont),
