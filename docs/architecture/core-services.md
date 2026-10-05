@@ -126,7 +126,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pass. The six are distinct because two toggles drawn with one glyph are
     indistinguishable at a glance, and with the labels gone the glyph is all
     there is (that reason sits beside the value in the source too, and
-    `BottomPanelTests` pins the six glyphs distinct).
+    `BottomPanelTests` pins the six glyphs distinct). The Problems toggle's
+    `file-warning` is the real document-with-exclamation-mark drawing since the
+    2026-10-05 export; before it, the asset was the design tool's "icon not
+    found" placeholder, a question mark in a circle, because the icon set had
+    renamed that glyph while the design file kept the old name.
     `public var title: String` is **the one name per panel** — "Terminal",
     "Log", "Local Changes", "Problems", "Usages", "Pull Requests" — read by the
     bar's tooltip and accessibility label and by the tab row's tab, so the two

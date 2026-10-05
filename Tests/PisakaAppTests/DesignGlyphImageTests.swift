@@ -62,7 +62,7 @@ final class DesignGlyphImageTests: XCTestCase {
     func testTheSwiftUIHalfOccupiesItsSlotAtTheInterfaceScale() throws {
         for scale in [1.0, 1.8] {
             let metrics = InterfaceMetrics(scale: scale)
-            let view = DesignGlyphImage(.folder, slot: 16, role: .accent)
+            let view = DesignGlyphImage(.folder, size: 12, slot: 16, role: .accent)
                 .environment(\.interfaceMetrics, metrics)
                 .environment(\.chromeTheme, ChromeTheme(.dark))
             let host = NSHostingView(rootView: view)

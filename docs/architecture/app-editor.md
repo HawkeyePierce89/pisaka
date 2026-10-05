@@ -2079,8 +2079,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       file *and* index (`MatchRowID`; a bare index repeated in every group and the
       list reused one group's row for another's, the second file drawing the
       first file's preview line); group header 24 high padding 16 on a `bgPanel`
-      ground (it is pinned over the rows), the file's `FileGlyph` at its own 12 in
-      a 12 slot, gap 6 — so the path starts at 34, the match indent — the path in
+      ground (it is pinned over the rows), the file's `FileGlyph` at 14 in
+      a 14 slot, the size the design draws it there, gap 6 — so the path starts
+      at 36, two points past the 34-point match indent, not lined up with it —
+      the path in
       `callout` and `FileSearchResult.matchCountText` (`1 match` / `N matches`)
       in `subheadline` at the trailing edge, all in `textSecondary`;
      match row padding 8 right 34 left, the line number drawn leading in its

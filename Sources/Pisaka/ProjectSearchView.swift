@@ -360,6 +360,7 @@ struct ProjectSearchView: View {
         HStack(spacing: metrics.scaled(6)) {
             DesignGlyphImage(
                 FileGlyph.forFile(named: result.relativePath),
+                size: SearchLayout.headerGlyphSlot,
                 slot: SearchLayout.headerGlyphSlot,
                 role: .textSecondary
             )
@@ -711,11 +712,12 @@ enum SearchLayout {
     /// Group header height — interface-scaled, because the header draws at callout, not the code font.
     static let headerHeight: Double = 24
     /// Group header horizontal padding: the content padding, so the glyph
-    /// lines up under the fields and the path — padding, the 12-point glyph
-    /// slot and the 6-point gap — starts at the match indent, 34.
+    /// lines up under the fields. The path — padding, the 14-point glyph slot
+    /// and the 6-point gap — starts at 36, two points past the 34-point match
+    /// indent.
     static let headerPadding: Double = 16
-    /// The group header glyph's slot: the file glyph's own 12.
-    static let headerGlyphSlot: Double = 12
+    /// The group header glyph's slot: the design draws the file glyph there at 14.
+    static let headerGlyphSlot: Double = 14
     /// Match row trailing padding.
     static let rowPaddingTrailing: Double = 8
     /// Match row leading padding: the design's 34-point match indent.

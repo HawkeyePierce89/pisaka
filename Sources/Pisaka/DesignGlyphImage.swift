@@ -17,8 +17,8 @@ import PisakaCore
 /// a tint it has resolved inside its own drawing appearance (rule 25's footing).
 struct DesignGlyphImage: View {
     let glyph: DesignGlyph
-    /// The drawn size in points at interface scale 1.0; the glyph's own
-    /// `nativeSize` unless the surface names another.
+    /// The drawn size in points at interface scale 1.0 — always the drawing
+    /// surface's own statement, since every glyph is the same 24-unit box.
     let size: Double
     /// The square the glyph is centred in, at interface scale 1.0.
     let slot: Double
@@ -27,9 +27,9 @@ struct DesignGlyphImage: View {
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
 
-    init(_ glyph: DesignGlyph, size: Double? = nil, slot: Double, role: ChromeColorRole) {
+    init(_ glyph: DesignGlyph, size: Double, slot: Double, role: ChromeColorRole) {
         self.glyph = glyph
-        self.size = size ?? glyph.nativeSize
+        self.size = size
         self.slot = slot
         self.role = role
     }
