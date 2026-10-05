@@ -138,10 +138,10 @@ checks the hand-back against a stub window and sets the focus by hand.
 
 ### Task 4: Gates
 
-- [ ] `swift test`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] `swiftlint --strict` from the repository root.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
-- [ ] Confirm by grep that `ProjectSwitcherView.swift` spells no `.folder` glyph on a
+- [x] `swift test`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
+- [x] `swiftlint --strict` from the repository root.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
+- [x] Confirm by grep that `ProjectSwitcherView.swift` spells no `.folder` glyph on a
       project row, that `BranchSwitcherView.swift` passes `popoverFieldHeight` and
       `popoverFieldGlyphGap`, and that no product or brand name entered the diff.
