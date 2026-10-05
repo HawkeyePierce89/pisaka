@@ -179,7 +179,7 @@ final class ProjectSearchLayoutTests: XCTestCase {
 
         // The results. A match row is told from a header by the hit's highlight
         // — the only warm, saturated pixels in the window — so a header whose
-        // path starts at the same 34 cannot stand in for a match line.
+        // path starts at 36, just past the 34, cannot stand in for a match line.
         let resultsTop = padding + 3 * fieldHeight + 3 * gap + metrics.scaled(24)
         let indent = metrics.scaled(34)
         let panel = ChromeTheme(.dark).color(.bgPanel)

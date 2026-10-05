@@ -9,9 +9,10 @@
 /// so this stays Foundation-only and colour-free.
 ///
 /// `DesignGlyphAssetTests` holds the case set equal to the catalog's imagesets
-/// by set equality, each PDF's bytes to the export's manifest digest, and each
-/// `nativeSize` to the size the export's record states — so adding a case
-/// without its asset, or an asset without its case, fails the Core gate.
+/// by set equality and each PDF's bytes to the export's manifest digest — so
+/// adding a case without its asset, or an asset without its case, fails the
+/// Core gate. The table carries no size: a glyph is drawn at whatever size the
+/// surface drawing it states.
 /// Provenance and the update procedure are in `Resources/DesignGlyphs/VENDORED.md`.
 public enum DesignGlyph: String, CaseIterable, Sendable {
     case package
@@ -41,22 +42,4 @@ public enum DesignGlyph: String, CaseIterable, Sendable {
 
     /// The asset catalog name the app loads this glyph by.
     public var assetName: String { rawValue }
-
-    /// The glyph's drawn size in points at interface scale 1.0, as the design
-    /// export states it — the size a surface draws it at unless its own task
-    /// names another. The drawing helper multiplies it by the interface scale.
-    public var nativeSize: Double {
-        switch self {
-        case .package, .gitBranch, .chevronDown, .chevronRight, .gitPullRequest,
-             .check, .terminal, .fileWarning, .gitCompare, .listChecks, .search,
-             .gitPullRequestArrow, .database, .x, .userRound:
-            11
-        case .folder, .folderOpen, .fileCode, .fileText:
-            12
-        case .undo2, .refreshCw:
-            13
-        case .caseSensitive, .wholeWord, .regex:
-            14
-        }
-    }
 }

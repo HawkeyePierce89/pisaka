@@ -116,30 +116,30 @@ surface, and keeps it.
 - Modify: `Tests/PisakaAppTests/DesignGlyphImageTests.swift`
 - Modify: `Tests/PisakaAppTests/ProjectSearchLayoutTests.swift`
 
-- [ ] `DesignGlyph.nativeSize` is deleted. The enum's doc comment no longer says the suite pins
+- [x] `DesignGlyph.nativeSize` is deleted. The enum's doc comment no longer says the suite pins
   a native size.
-- [ ] `DesignGlyphImage.init` takes `size: Double` with no default, and the
+- [x] `DesignGlyphImage.init` takes `size: Double` with no default, and the
   `size ?? glyph.nativeSize` fallback is gone. The `size` property's doc comment says the size
   is always the drawing surface's, in points at interface scale 1.0.
-- [ ] The Find in Files group header passes `size: 14`. `SearchLayout.headerGlyphSlot` becomes
+- [x] The Find in Files group header passes `size: 14`. `SearchLayout.headerGlyphSlot` becomes
   14, and its doc comment says the design draws the file glyph there at 14. `headerPadding`
   stays 16 and the HStack gap stays 6. `headerPadding`'s comment stops claiming the path
   starts at the match indent: it now says the path starts at 36, two points past the 34-point
   match indent.
-- [ ] No other `DesignGlyphImage(` call site changes its size. Re-read every call site once to
+- [x] No other `DesignGlyphImage(` call site changes its size. Re-read every call site once to
   confirm each one already passes `size:` explicitly.
-- [ ] `DesignGlyphTests.testNativeSizesAreTheExportedOnes` is deleted.
-- [ ] In `DesignGlyphAssetTests`, the `nativeSize` assertion is removed from the record
+- [x] `DesignGlyphTests.testNativeSizesAreTheExportedOnes` is deleted.
+- [x] In `DesignGlyphAssetTests`, the `nativeSize` assertion is removed from the record
   cross-check, and the test is renamed for what it still checks: the record's glyph set equals
   the cases, and the record's prefixes equal `pinnedPrefixes`. The suite's doc-comment
   inventory drops the `nativeSize` bullet. `DesignGlyphRecord`'s doc comment stops naming
   `nativeSize`.
-- [ ] `DesignGlyphImageTests.testTheSwiftUIHalfOccupiesItsSlotAtTheInterfaceScale` passes an
+- [x] `DesignGlyphImageTests.testTheSwiftUIHalfOccupiesItsSlotAtTheInterfaceScale` passes an
   explicit size (for example 12), since the initializer now requires one.
-- [ ] `ProjectSearchLayoutTests`' comment saying a header path "starts at the same 34" is
+- [x] `ProjectSearchLayoutTests`' comment saying a header path "starts at the same 34" is
   corrected to 36. Its assertions need no change: the glyph is still inside its slot at the
   content padding.
-- [ ] Run `swift test`; it must pass. Run `swiftlint --strict`; it must be clean. Run the
+- [x] Run `swift test`; it must pass. Run `swiftlint --strict`; it must be clean. Run the
   app-layer bundle; it must pass:
   ```
   xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test

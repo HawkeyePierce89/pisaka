@@ -3,7 +3,8 @@ import Foundation
 /// The reader for the glyph table of `Resources/DesignGlyphs/VENDORED.md`,
 /// shared by the two suites that check the design glyphs against it —
 /// `LicenseCoverageTests` (every imageset is acknowledged) and
-/// `DesignGlyphAssetTests` (every `nativeSize` is the recorded size).
+/// `DesignGlyphAssetTests` (the record lists exactly the cases, with the pinned
+/// prefixes).
 ///
 /// One reader, two suites, so the record cannot satisfy one of them and drift
 /// from the other. The record's two-column `## design-glyphs` section is read by

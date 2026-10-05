@@ -24,7 +24,6 @@ import XCTest
 ///  * each imageset's `Contents.json` names its one PDF and carries
 ///    `"template-rendering-intent": "template"` and
 ///    `"preserves-vector-representation": true`;
-///  * each `nativeSize` equals the size that record states for it;
 ///  * `project.yml` keeps asset symbols off: exactly one active line reads
 ///    `ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO`, and no active line sets
 ///    that key or `ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS`
@@ -107,7 +106,7 @@ final class DesignGlyphAssetTests: XCTestCase {
         }
     }
 
-    func testEveryNativeSizeIsTheRecordedSize() throws {
+    func testTheRecordListsTheCasesWithThePinnedPrefixes() throws {
         let rows = DesignGlyphRecord.rows(in: try String(contentsOf: Self.record, encoding: .utf8))
         XCTAssertEqual(Set(rows.map(\.name)), Set(DesignGlyph.allCases.map(\.assetName)),
                        "the record's glyph table must list exactly DesignGlyph's cases")
@@ -115,9 +114,6 @@ final class DesignGlyphAssetTests: XCTestCase {
         let byName = Dictionary(uniqueKeysWithValues: rows.map { ($0.name, $0) })
         for glyph in DesignGlyph.allCases {
             let row = try XCTUnwrap(byName[glyph.assetName])
-            XCTAssertEqual(glyph.nativeSize, row.size, """
-                \(glyph.assetName)'s nativeSize disagrees with the size the export states for it
-                """)
             XCTAssertEqual(row.prefix, Self.pinnedPrefixes[glyph.assetName], """
                 the record's prefix for \(glyph.assetName) disagrees with the pinned one
                 """)
