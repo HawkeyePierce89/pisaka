@@ -192,14 +192,14 @@ The Welcome state no longer reaches either caption, because the whole split is r
 - Create: `Sources/Pisaka/Assets.xcassets/Glyphs/plus.imageset/` (`plus.pdf` + `Contents.json` matching its neighbours)
 - Modify: `Sources/PisakaCore/DesignGlyph.swift`, `Resources/DesignGlyphs/VENDORED.md`, `Tests/PisakaCoreTests/DesignGlyphAssetTests.swift`
 
-- [ ] Copy `plus.pdf` from the export byte for byte, after checking its sha256 prefix against the export's `MANIFEST.txt`.
-- [ ] Add `case plus` to `DesignGlyph`.
-- [ ] Update `VENDORED.md`:
+- [x] Copy `plus.pdf` from the export byte for byte, after checking its sha256 prefix against the export's `MANIFEST.txt`.
+- [x] Add `case plus` to `DesignGlyph`.
+- [x] Update `VENDORED.md`:
   - Add the glyph's row.
   - Change "Twenty-four" to "Twenty-five".
   - Drop `plus` from the left-behind glyphs, so eight becomes seven.
-- [ ] Update the pinned prefix table. The manifest digest and the licence revision are unchanged, because this is the same export.
-- [ ] Run the geometry check (a 24×24 box, no coordinate outside it), then `swift test`; it must pass.
+- [x] Update the pinned prefix table. The manifest digest and the licence revision are unchanged, because this is the same export.
+- [x] Run the geometry check (a 24×24 box, no coordinate outside it), then `swift test`; it must pass. (6129 tests green, geometry check included; swiftlint --strict clean. WelcomeAction.newFile now draws `plus`; DesignGlyphTests count and core-theme.md case count bumped to twenty-five.)
 
 ### Task 6: Welcome view and window wiring
 

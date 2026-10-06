@@ -71,7 +71,7 @@ import XCTest
 final class DesignGlyphAssetTests: XCTestCase {
 
     /// The export manifest's sha256 prefixes (the first sixteen hex digits) for
-    /// the twenty-four shipped glyphs, keyed by asset name — the export of
+    /// the twenty-five shipped glyphs, keyed by asset name — the export of
     /// 2026-10-05, every glyph in a 24×24 box.
     private static let pinnedPrefixes: [String: String] = [
         "package": "4e19fc2e5b0fbd39",
@@ -98,6 +98,7 @@ final class DesignGlyphAssetTests: XCTestCase {
         "case-sensitive": "7e7229ec9d8a3b64",
         "whole-word": "c8f3633e9f9b8492",
         "regex": "0f392dda96cecce3",
+        "plus": "0618ebae927daa7d",
     ]
 
     func testTheImagesetsAreExactlyTheGlyphCases() throws {

@@ -39,6 +39,7 @@ public enum DesignGlyph: String, CaseIterable, Sendable {
     case caseSensitive = "case-sensitive"
     case wholeWord = "whole-word"
     case regex
+    case plus
 
     /// The asset catalog name the app loads this glyph by.
     public var assetName: String { rawValue }

@@ -51,6 +51,7 @@ final class WelcomeScreenTests: XCTestCase {
         XCTAssertEqual(WelcomeAction.allCases.map(\.chord.display), ["⇧⌘O", "⌘O", "⌘N", "⌥⌘P"])
         XCTAssertEqual(WelcomeAction.openFolder.glyph, .folderOpen)
         XCTAssertEqual(WelcomeAction.openFile.glyph, .fileText)
+        XCTAssertEqual(WelcomeAction.newFile.glyph, .plus)
         XCTAssertEqual(WelcomeAction.openLeetCodeProblem.glyph, .fileCode)
     }
 

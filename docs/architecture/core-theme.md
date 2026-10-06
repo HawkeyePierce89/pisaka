@@ -280,7 +280,7 @@ two new geometry tokens) and each with its readers pinned by a gating
     the tree, and a folder is never selected), and **"focused" means the window
     is key**.
   - `DesignGlyph.swift` — the design's glyphs as one name table: a `String`-raw
-    `CaseIterable` enum, twenty-four cases, whose **raw value is the asset
+    `CaseIterable` enum, twenty-five cases, whose **raw value is the asset
     name** in `Sources/Pisaka/Assets.xcassets/Glyphs/` (`assetName` returns it),
     and nothing else: the enum is a **name table only**. Every asset is a
     24-unit box at the icon set's native coordinates, so a glyph's drawn size

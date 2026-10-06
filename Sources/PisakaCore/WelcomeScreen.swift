@@ -115,8 +115,7 @@ public enum WelcomeAction: CaseIterable, Sendable {
         switch self {
         case .openFolder: return .folderOpen
         case .openFile: return .fileText
-        // Placeholder until the design's `plus` glyph is vendored.
-        case .newFile: return .fileText
+        case .newFile: return .plus
         case .openLeetCodeProblem: return .fileCode
         }
     }
