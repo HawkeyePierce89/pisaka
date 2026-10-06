@@ -33,6 +33,12 @@ public struct PopoverSelection: Equatable {
         return PopoverSelection(count: count, selectedIndex: max(index - 1, 0))
     }
 
+    /// Row `index`, clamped to the rows; nothing when there are no rows.
+    public func selecting(_ index: Int) -> PopoverSelection {
+        guard count > 0 else { return self }
+        return PopoverSelection(count: count, selectedIndex: min(max(index, 0), count - 1))
+    }
+
     /// Back to the first row of `count` rows — the answer after any filter
     /// change, wherever the selection was.
     public func reset(count: Int) -> PopoverSelection {

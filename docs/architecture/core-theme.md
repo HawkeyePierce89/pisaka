@@ -346,9 +346,10 @@ two new geometry tokens) and each with its readers pinned by a gating
     row count and an optional selected index. `init(count:)` selects the first
     row, or nothing at zero; `movedDown()`/`movedUp()` clamp at both ends with
     **no wrap**; `reset(count:)` returns to the first row and is what every
-    filter change does. The submenu uses the same type over its own rows.
-    `PopoverSelectionTests` pins the init, the empty count, both clamps and the
-    reset, including a reset to a smaller count.
+    filter change does; `selecting(_:)` jumps to a row, clamped, and is what
+    the Welcome screen's column switch uses. The submenu uses the same type over
+    its own rows. `PopoverSelectionTests` pins the init, the empty count, both
+    clamps, the clamped jump and the reset, including a reset to a smaller count.
   - `PopoverKeyRule.swift` — **every** decision about which key does what in
     the popover, as one pure `action(for:state:)` over three closed types:
     `PopoverKey` (`up`, `down`, `return`, `escape`, `left`, `right`, `other`),
@@ -781,7 +782,9 @@ gated set.
     title bar is the topmost of the window's panel *strips*, sitting directly on
     the tab strip and the sidebar header, and painting it the canvas value would
     draw a band one step off the two surfaces it touches. **Where `bgCanvas` is
-    actually seen is the no-file-open placeholder, and nowhere else**: the
+    actually seen is the no-file-open placeholder and the Welcome screen, which
+    replaces the whole split and paints it itself (*The Welcome screen*, below),
+    and nowhere else**: the
     dock's two empty-state sentences — "No problems" and the usages invitation —
     read as canvas but are drawn inside `panelContent(_:)`, which this part
     paints `bgPanel` directly under, each sentence filling that slot through
@@ -934,7 +937,7 @@ by `ProjectTreeView` inside the sidebar's split slot, bounded by the same
 divider as the tree it replaces — and a pane whose ground changed with whether a
 folder happened to be open would read as a hole in the sidebar rather than as
 the window behind it. `bgCanvas` is spent regardless: the window root paints it,
-and it is seen at the no-file-open placeholder (the part-three window-ground
+and it is seen at the no-file-open placeholder and the Welcome screen (the part-three window-ground
 entry above carries where it is, and is not, seen).
 
 **Inherited work, deliberately left for the popovers' part.** The two switchers'

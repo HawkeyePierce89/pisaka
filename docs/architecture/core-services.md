@@ -379,7 +379,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     API** (the whole layer's entry is `core-zoom.md`). `terminalFontSize`
     (`Keys.terminalFontSize = "settings.terminalFontSize"`, default 13) and
     `interfaceScale` (`Keys.interfaceScale = "settings.interfaceScale"`, default
-    1.0) each follow `fontSize`'s write discipline *verbatim*: clamped inside
+    1.5; 1.0 is unscaled, and a stored value, 1.0 included, is never rewritten —
+    `core-zoom.md`) each follow `fontSize`'s write discipline *verbatim*: clamped inside
     `didSet` against their `ZoomScaleRule` — the re-entrant assignment reaching a
     fixed point on the second pass — and read in `init` through
     `object(forKey:)` so an absent key is told from a stored 0, a wrong-typed
@@ -413,7 +414,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     same write twice over). A plain equality guard suffices because nothing
     out-of-range can reach it or be held: `stepped(_:by:)` clamps, `defaultValue`
     is in range, and both the `didSet`s and `init`'s reads clamp.
-    `SettingsStoreTests` covers the two defaults, the round trip across
+    `SettingsStoreTests` covers the two defaults (a missing interface key
+    reading 1.5, a stored 1.0 surviving it, each zone's reset landing on its own
+    default and five steps down from 1.5 landing exactly on 1.0), the round trip across
     a rebuilt store, clamping on write and on load at both bounds, non-finite and
     wrong-typed stored values, the two key strings, the zone-keyed API's
     stepping/clamping/resetting for all three zones (including that stepping one

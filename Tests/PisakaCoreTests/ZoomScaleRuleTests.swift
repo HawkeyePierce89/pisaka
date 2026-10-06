@@ -124,7 +124,7 @@ final class ZoomScaleRuleTests: XCTestCase {
         // (the interface zone rests at 1.5, five steps below its 2.0 ceiling).
         for (name, rule) in allRules {
             let room = Int(((rule.maximum - rule.defaultValue) / rule.step).rounded())
-            for count in 1...min(6, room) {
+            for count in stride(from: 1, through: min(6, room), by: 1) {
                 var value = rule.defaultValue
                 for _ in 0..<count { value = rule.stepped(value, by: 1) }
                 for _ in 0..<count { value = rule.stepped(value, by: -1) }

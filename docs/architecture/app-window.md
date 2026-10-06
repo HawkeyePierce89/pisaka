@@ -781,7 +781,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     *The Welcome screen*), and every glyph through `DesignGlyph`.
     **Keyboard.** The view is focusable, with its focus ring suppressed, and
     takes focus on appear. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
-    other column's first row, and Return activates the selected target: an
+    other column's first row — or, when that column is empty, is ignored so
+    ordinary focus navigation takes it — and Return activates the selected target: an
     action, or a recent folder's URL. Every row is also a real `Button` with an
     accessibility label (the title or folder name) and value (the chord or
     path). It declares no zoom surface and sits under ContentView's existing

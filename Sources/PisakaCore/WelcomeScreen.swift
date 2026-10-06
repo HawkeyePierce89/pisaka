@@ -248,10 +248,7 @@ public struct WelcomeSelection: Equatable {
 
     /// The selection moved to flattened `index`, clamped to the rows.
     public func selecting(_ index: Int) -> WelcomeSelection {
-        var moved = selection.reset(count: selection.count)
-        let clamped = min(max(index, 0), max(selection.count - 1, 0))
-        for _ in 0..<clamped { moved = moved.movedDown() }
-        return with(moved)
+        with(selection.selecting(index))
     }
 
     /// The column flattened `index` sits in.

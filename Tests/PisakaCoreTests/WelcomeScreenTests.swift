@@ -107,6 +107,13 @@ final class WelcomeScreenTests: XCTestCase {
         XCTAssertEqual(noRecents.switchedColumn().selectedIndex, 1)
         XCTAssertEqual(noRecents.selecting(99).selectedIndex, 3)
 
+        XCTAssertEqual(noRecents.selecting(-3).selectedIndex, 0)
+
+        let recentsOnly = WelcomeSelection(actions: [], recents: urls)
+        XCTAssertEqual(recentsOnly.column(of: 0), .recents)
+        XCTAssertEqual(recentsOnly.selecting(1).switchedColumn().selectedIndex, 1)
+        XCTAssertEqual(selection.column(of: 99), .recents)
+
         let empty = WelcomeSelection(actions: [], recents: [])
         XCTAssertNil(empty.selectedIndex)
         XCTAssertNil(empty.selectedTarget)

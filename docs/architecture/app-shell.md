@@ -1620,7 +1620,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     persistence contract with its own gating suite and its own long explanation
     of why the framework's machinery is bypassed. It is attached in the scene by
     **chaining** onto the frame marker's existing line
-    (`.background(MainWindowFrameAutosave()).background(MainWindowChrome(model: model))`)
+    (`.background(MainWindowFrameAutosave(settings: settings)).background(MainWindowChrome(model: model))`)
     rather than on a line of its own, because `PisakaApp.swift` sits exactly at
     its `file_length` ceiling — the precedent that file already documents for
     its chained `.environmentObject` pair. `ChromeThemeSourceGatingTests`' ninth

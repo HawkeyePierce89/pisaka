@@ -88,7 +88,11 @@ struct WelcomeView: View {
             return .handled
         }
         .onKeyPress(.tab) {
-            selection = selection.switchedColumn()
+            // A switch that changes nothing (the other column is empty) lets
+            // Tab through to ordinary focus navigation instead of trapping it.
+            let switched = selection.switchedColumn()
+            guard switched != selection else { return .ignored }
+            selection = switched
             return .handled
         }
         .onKeyPress(.return) {
