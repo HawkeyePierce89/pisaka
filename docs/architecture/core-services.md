@@ -721,6 +721,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     only on the missing-key path of `MainWindowFrameAutosave` (`app-shell.md`).
     On a 1440×875 visible frame the answer is 1080×656 at (180, 109). Covered by
     `MainWindowInitialFrameRuleTests`.
+  - `WelcomeScreen.swift` — every decision behind the macOS Welcome screen,
+    pure. `WelcomeScreen.shows(projectRoot:openFileCount:)` is true exactly
+    when there is no project root and no open tab. `recents(_:cap:)` keeps
+    `RecentProject.rows`' MRU order, drops an `isCurrent` row defensively (none
+    should exist with no folder open) and truncates to `recentsCap` (10); an
+    empty answer means the column shows its hint. `WelcomeAction` (closed: Open
+    Folder…, Open File…, New File, Open LeetCode Problem…) carries each row's
+    display title, the `menuTitle` it stands for (spelled as the menu
+    `Button`'s literal — "Open…", "Open Problem…"), its `DesignGlyph` and its
+    chord. `WelcomeFooterEntry` (closed: Show Terminal ⇧⌘T, Browse Problems…
+    ⇧⌘B, Zoom ⌘+ ⌘− ⌘0) carries a label and one or more chords, each with its
+    own `menuTitle`; the zoom entry is drawn as one line. `WelcomeChord` is a
+    key plus a modifier set whose `display` follows the macOS canonical order
+    ⌃⌥⇧⌘ and draws the minus key as "−". `WelcomeSelection` is the keyboard
+    selection over the flattened rows (actions, then recents) over a
+    `PopoverSelection`: ↑/↓ clamp, switching columns lands on the other
+    column's first row (and does nothing when it is empty), and
+    `target(at:)` resolves an index to an action or a recent url.
+    **The footer rule**: every advertised entry is a command that is *enabled
+    with no folder open*, because that is the only state the screen draws in.
+    `WelcomeShortcutPinTests` enforces it against `Sources/Pisaka`, read with
+    comments stripped and literals kept (the titles and keys *are* literals).
+    Its matching rule: a menu Button is a `Button(` call whose argument, up to
+    its balanced closing parenthesis, contains the title as a string literal (a
+    ternary title counts); its shortcut is the first character-form
+    `.keyboardShortcut` in its chain (optional trailing closure, then each
+    `.modifier(…)`). Each advertised (title, chord) must be carried by exactly
+    one Button containing the title and by no Button that does not — so Zoom
+    In's ⌘+ matches the second "Zoom In" item and the ⌘= item is ignored. The
+    **folder-required table** is closed: the suite states, as a literal set,
+    every menu title whose chain carries `.disabled(model.projectRoot == nil)`
+    (today Find in Files… and Commit…), holds the scan equal to it, and asserts
+    no advertised title is in it. Covered by `WelcomeScreenTests` and
+    `WelcomeShortcutPinTests`.
   - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds
     in `ContentView.editorSplit`'s `HSplitView`, pure:
     `bounds(metrics:windowWidth:) -> Bounds` scales the three tokens (minimum

@@ -142,13 +142,13 @@ The Welcome state no longer reaches either caption, because the whole split is r
 **Files:**
 - Create: `Sources/PisakaCore/WelcomeScreen.swift`, `Tests/PisakaCoreTests/WelcomeScreenTests.swift`, `Tests/PisakaCoreTests/WelcomeShortcutPinTests.swift`
 
-- [ ] `WelcomeScreen.shows(projectRoot: URL?, openFileCount: Int) -> Bool` is true exactly when both are empty.
-- [ ] `WelcomeScreen.recents(_ rows: [RecentProject], cap: Int = 10) -> [RecentProject]`:
+- [x] `WelcomeScreen.shows(projectRoot: URL?, openFileCount: Int) -> Bool` is true exactly when both are empty.
+- [x] `WelcomeScreen.recents(_ rows: [RecentProject], cap: Int = 10) -> [RecentProject]`:
   - Keeps the MRU order.
   - Drops an `isCurrent` row defensively.
   - Truncates to the cap.
   - An empty result means "show the hint".
-- [ ] A closed `WelcomeAction` enum. Each case has a display title, a `menuTitle` (the literal the pin looks for), a `DesignGlyph` and a chord:
+- [x] A closed `WelcomeAction` enum. Each case has a display title, a `menuTitle` (the literal the pin looks for), a `DesignGlyph` and a chord:
 
   | Case | Display title | `menuTitle` | Glyph | Chord |
   |---|---|---|---|---|
@@ -157,7 +157,7 @@ The Welcome state no longer reaches either caption, because the whole split is r
   | newFile | New File | New File | `plus` (Task 5) | ⌘N |
   | openLeetCodeProblem | Open LeetCode Problem… | Open Problem… | `fileCode` | ⌥⌘P |
 
-- [ ] A closed `WelcomeFooterEntry` enum. Every entry names a command that is enabled with no folder open. Each case has a label and one or more chords, and each chord carries its own `menuTitle`:
+- [x] A closed `WelcomeFooterEntry` enum. Every entry names a command that is enabled with no folder open. Each case has a label and one or more chords, and each chord carries its own `menuTitle`:
 
   | Case | Label | Chord → `menuTitle` |
   |---|---|---|
@@ -166,16 +166,16 @@ The Welcome state no longer reaches either caption, because the whole split is r
   | zoom | Zoom | ⌘+ → "Zoom In"; ⌘− → "Zoom Out"; ⌘0 → "Reset Zoom" |
 
   The zoom entry is drawn as one entry, "Zoom ⌘+ ⌘− ⌘0".
-- [ ] A small `WelcomeChord` value: a key character plus a modifier set. Its display string uses the macOS canonical modifier order ⌃⌥⇧⌘, and the minus key displays as "−".
-- [ ] Keyboard selection runs over the flattened list (actions, then recents) and reuses `PopoverSelection`. Activating index `i` resolves to an action or a recent URL.
-- [ ] Tests in `WelcomeScreenTests`:
+- [x] A small `WelcomeChord` value: a key character plus a modifier set. Its display string uses the macOS canonical modifier order ⌃⌥⇧⌘, and the minus key displays as "−".
+- [x] Keyboard selection runs over the flattened list (actions, then recents) and reuses `PopoverSelection`. Activating index `i` resolves to an action or a recent URL.
+- [x] Tests in `WelcomeScreenTests`:
   - The rule's four combinations.
   - The cap and its order.
   - The `isCurrent` drop.
   - The empty-hint case.
   - The chord display strings, including "Zoom ⌘+ ⌘− ⌘0".
   - The index → target mapping.
-- [ ] `WelcomeShortcutPinTests` is a repository-file suite that scans `Sources/Pisaka` with comments stripped and literals kept. Its doc comment states that literal-keeping exception and the matching rule below.
+- [x] `WelcomeShortcutPinTests` is a repository-file suite that scans `Sources/Pisaka` with comments stripped and literals kept. Its doc comment states that literal-keeping exception and the matching rule below.
   - Matching rule: a "menu Button" is a `Button(` call whose argument text, up to its balanced closing parenthesis, contains the title as a string literal (`"Show Terminal"` inside a ternary counts). Its shortcut is the first `.keyboardShortcut("<key>", modifiers: <set>)` in that Button's modifier chain, before the next `Button(`.
   - For every (title, chord) pinned by `WelcomeAction` and `WelcomeFooterEntry`: exactly one menu Button whose argument contains the title carries that chord. The chord also occurs on no Button whose argument does not contain the title.
     - Example: Zoom In's ⌘+ matches the second "Zoom In" item only. The ⌘= item is ignored, and neither is mistaken for the other.
@@ -184,7 +184,7 @@ The Welcome state no longer reaches either caption, because the whole split is r
     - A scan of the sources must produce exactly that set, by set equality.
     - Assert that no footer entry's titles and no action's `menuTitle` are in it.
     - So a footer that advertises a dead command fails, and so does a newly folder-gated command that is not recorded in the table.
-- [ ] Run `swift test`; it must pass.
+- [x] Run `swift test`; it must pass. (6129 tests green; swiftlint --strict clean. `newFile` draws `fileText` as a placeholder until Task 5 vendors `plus`.)
 
 ### Task 5: Vendor the `plus` design glyph
 
