@@ -78,20 +78,20 @@ The Welcome state no longer reaches either caption, because the whole split is r
 - Modify: `Sources/PisakaCore/ZoomScaleRule.swift`, `Sources/PisakaCore/SettingsStore.swift` (doc comments), `Sources/Pisaka/SettingsView.swift` (comment wording), `docs/architecture/core-zoom.md`
 - Modify: `Tests/PisakaCoreTests/InterfaceMetricsTests.swift`, `Tests/PisakaCoreTests/SettingsStoreTests.swift`, and any other test pinning the 1.0 default (grep `interfaceScale.defaultValue`)
 
-- [ ] Set `ZoomScaleRule.interfaceScale` to `defaultValue: 1.5`. Range 0.8–2.0 and step 0.1 stay. Rewrite the doc comment to say three things:
+- [x] Set `ZoomScaleRule.interfaceScale` to `defaultValue: 1.5`. Range 0.8–2.0 and step 0.1 stay. Rewrite the doc comment to say three things:
   - 1.5 is the resting value.
   - 1.0 is "unscaled", and `InterfaceMetrics.unscaled` still returns every base size identically.
   - The step grid still contains 1.0.
-- [ ] Keep `InterfaceMetrics.unscaled` and the environment default at 1.0. Only the store's missing-key fallback and the reset resolve to 1.5.
-- [ ] In `core-zoom.md`, reword the "unchanged at 100%" guarantees as "at scale 1.0", and record why the default was reversed deliberately.
-- [ ] Tests:
+- [x] Keep `InterfaceMetrics.unscaled` and the environment default at 1.0. Only the store's missing-key fallback and the reset resolve to 1.5.
+- [x] In `core-zoom.md`, reword the "unchanged at 100%" guarantees as "at scale 1.0", and record why the default was reversed deliberately.
+- [x] Tests:
   - The default is 1.5.
   - `InterfaceMetrics(scale: 1.0) == .unscaled`, and every base size at 1.0 is identical.
   - A missing key reads 1.5.
   - A stored 1.0 (or any other stored value) is preserved.
   - The interface reset returns 1.5; the code and terminal resets still return 13.
   - From 1.5, five steps down land exactly on 1.0, and five steps back up land exactly on 1.5.
-- [ ] Run `swift test`; it must pass.
+- [x] Run `swift test`; it must pass.
 
 ### Task 2: Surfaces that overflow at 1.5 fit the screen
 

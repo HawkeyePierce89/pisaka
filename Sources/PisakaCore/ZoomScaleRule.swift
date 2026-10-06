@@ -46,7 +46,7 @@ public struct ZoomScaleRule: Equatable, Hashable, Sendable {
     /// value. That is what makes the round trip exact: with `step` 0.1, adding
     /// and subtracting in sequence drifts (1.0 + 0.1 - 0.1 is not 1.0 in binary
     /// floating point) and the interface scale would never return to exactly
-    /// 100%, while an index is recomputed from scratch every time and the small
+    /// its resting value, while an index is recomputed from scratch every time and the small
     /// final rounding erases the representation error. So N steps up followed by
     /// N steps down returns *exactly* the starting value, for any starting value
     /// already on the grid and within range.
@@ -94,8 +94,14 @@ public struct ZoomScaleRule: Equatable, Hashable, Sendable {
         step: 1
     )
 
-    /// The interface scale, as a multiplier. `1.0` is "unchanged", which is what
-    /// makes every metric derived from it identical to today's constant at rest.
+    /// The interface scale, as a multiplier. `1.5` is the resting value — what a
+    /// fresh install, a missing preference and ⌘0 over the chrome all land on —
+    /// because the chrome at its unscaled constants read too small on the
+    /// displays this app is used on. `1.0` stays "unscaled":
+    /// `InterfaceMetrics.unscaled` still returns every base size identically, so
+    /// a user who chooses 100% sees exactly the chrome the constants describe.
+    /// The step grid is anchored at the default, and 1.0 sits five whole steps
+    /// below it, so 1.0 is still on the grid and stepping reaches it exactly.
     /// The range stops at 0.8 below (further down and the chrome stops being
     /// hittable) and 2.0 above (beyond it the smallest usable window no longer
     /// fits an ordinary screen), and the 0.1 step gives ten notches across the
@@ -103,7 +109,7 @@ public struct ZoomScaleRule: Equatable, Hashable, Sendable {
     public static let interfaceScale = ZoomScaleRule(
         minimum: 0.8,
         maximum: 2.0,
-        defaultValue: 1.0,
+        defaultValue: 1.5,
         step: 0.1
     )
 

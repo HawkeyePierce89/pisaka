@@ -71,8 +71,11 @@ public struct InterfaceMetrics: Equatable, Hashable, Sendable {
         self.scale = ZoomScaleRule.interfaceScale.clamp(scale)
     }
 
-    /// The resting metrics: every value is its unscaled base. Exactly what a
-    /// view that has not been reached by the sweep still draws.
+    /// The unscaled metrics: every value is its base. Exactly what a view that
+    /// has not been reached by the sweep still draws, and the environment's
+    /// fallback — deliberately 1.0 and not the interface zone's 1.5 resting
+    /// value, which only the settings store's missing-key fallback and the
+    /// zone's reset resolve to.
     public static let unscaled = InterfaceMetrics(scale: 1)
 
     /// The point size to draw `style` at.
