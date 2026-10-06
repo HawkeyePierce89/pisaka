@@ -99,19 +99,19 @@ The Welcome state no longer reaches either caption, because the whole split is r
 - Create: `Sources/PisakaCore/ScaledFrameFitRule.swift`, `Tests/PisakaCoreTests/ScaledFrameFitRuleTests.swift`
 - Modify: `Sources/Pisaka/CommitDialogView.swift`, `Sources/Pisaka/LeetCodeLoginView.swift`, and the app-layer commit dialog layout test if it pins the ideal size
 
-- [ ] Re-audit every `metrics.scaled(N)` min, ideal and fixed frame (macOS) at 1.5 against a 1440×900 screen (visible area ≈ 1440×875). Record the audit table in `core-zoom.md`.
-- [ ] Add a pure rule. It takes a scaled min, a scaled ideal and the available size, and returns a min/ideal pair:
+- [x] Re-audit every `metrics.scaled(N)` min, ideal and fixed frame (macOS) at 1.5 against a 1440×900 screen (visible area ≈ 1440×875). Record the audit table in `core-zoom.md`.
+- [x] Add a pure rule. It takes a scaled min, a scaled ideal and the available size, and returns a min/ideal pair:
   - Both values are capped to the available size.
   - The min never exceeds the ideal.
   - At 1.0 on an ordinary screen, the input comes back unchanged.
-- [ ] Apply the rule in the two sheets, using the visible frame of the main window's screen and falling back to `NSScreen.main`.
-- [ ] Tests:
+- [x] Apply the rule in the two sheets, using the visible frame of the main window's screen and falling back to `NSScreen.main`.
+- [x] Tests:
   - A size that fits comes back unchanged.
   - Each axis is capped separately.
   - The min never exceeds the ideal.
   - At 1.0, a 1440×900 screen gives back the input.
   - Both offenders at 1.5 come back inside 1440×875.
-- [ ] Run `swift test` and the app test bundle; both must pass.
+- [x] Run `swift test` and the app test bundle; both must pass. (`swift test` green, 6100 tests. App bundle: 236/244 pass. The 8 failures are scale-1.8 bitmap assertions in BottomBarLayout, BottomBarToolTip, ChromePopoverLayout and CommitDialogLayout. They fail identically at 0367c7f, before any of this branch's work, so they come from the host and not from this change.)
 
 ### Task 3: First-launch window frame rule
 

@@ -234,6 +234,47 @@ items, and applies the three scales to views.
     behind while the text grows is the same island the sweep exists to remove,
     just a quieter one.
 
+  - `ScaledFrameFitRule.swift` — a sheet's scaled minimum and ideal, fitted to
+    the screen it opens on. Scaling a sheet's frame with the interface is what
+    keeps its panes usable at 200%, and at the 1.5 resting value two of them no
+    longer fit a 1440×900 display. `fit(minimum:ideal:available:)` caps the ideal
+    to the available size and the minimum to that capped ideal, **one axis at a
+    time**, so a size that fits comes back unchanged — at scale 1.0 on an
+    ordinary screen nothing moves — and the answer never carries a minimum above
+    its ideal, even when the input did. An available extent that is zero,
+    negative or non-finite, or no screen at all (`nil`), leaves that axis
+    uncapped rather than collapsing the sheet to nothing. The app asks it with
+    the visible frame of the main window's screen, falling back to
+    `NSScreen.main`; the two callers are `CommitDialogView` and
+    `LeetCodeLoginView`. `ScaledFrameFitRuleTests` pins the unchanged fit, the
+    per-axis cap, minimum ≤ ideal, the unknown-screen cases, both sheets coming
+    back unchanged at 1.0 on a 1440×875 visible area, and both coming back
+    inside it at 1.5.
+
+    **The 1.5 audit.** Every macOS `metrics.scaled(N)` minimum, ideal and fixed
+    frame, at 1.5, against a 1440×900 display (visible area ≈ 1440×875). Rows,
+    paddings and widths inside a pane are omitted: they lay out inside one of
+    these.
+
+    | Surface | Frame at 1.0 | At 1.5 | Fits? |
+    |---|---|---|---|
+    | Commit dialog (`CommitDialogView`) | min 900×560, ideal 1000×640 | min 1350×840, ideal 1500×960 | **no** — fitted |
+    | LeetCode login sheet (`LeetCodeLoginView`) | min 520×520, ideal 760×780 | min 780×780, ideal 1140×1170 | **no** — fitted |
+    | Main window floor (`ContentView`) | min 640×400 | 960×600 | yes |
+    | Merge window (`MergeView`) | min 720×420 | 1080×630 | yes |
+    | Local History (`LocalHistoryView`) | min 640×380 | 960×570 | yes |
+    | LeetCode browser (`LeetCodeBrowserView`) | min 620×380 | 930×570 | yes |
+    | Find in Files (`ProjectSearchView`) | min 520×320 | 780×480 | yes |
+    | Preferences page (`SettingsView`) | 640×420 | 960×630 | yes |
+    | New pull request / merge sheets | width 560 | 840 | yes |
+    | LeetCode Open Problem sheet | width 440 | 660 | yes |
+    | Commit author editor | width 360 (min 400) | 540 (600) | yes |
+    | Database viewer column / console | width 160, max height 200 | 240, 300 | yes |
+
+    At 2.0 the window floor (1280×800) and the merge window (1440×840) are at
+    the edge of that screen; the fit rule is applied where 1.5 — the value a
+    fresh install opens at — already overflows, and nowhere else.
+
 ## The macOS app half
 
   - `ZoomSurface.swift` — who the pointer can be *over*, and the walk that finds

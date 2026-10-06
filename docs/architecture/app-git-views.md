@@ -407,7 +407,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     read by the app-layer `CommitDialogLayoutTests`.
     **The files.** A **fixed 260-point list** (scaled; no longer a draggable
     `HSplitView` — the diff takes every point beyond it, and the sheet's minimum
-    width still scales so a 200% dialog holds both) with a `hairline` column
+    width still scales so a 200% dialog holds both; the scaled minimum and ideal are then fitted to the main window's
+    screen by Core's `ScaledFrameFitRule`, since at 1.5 they overflow a
+    1440×900 display — `core-zoom.md`) with a `hairline` column
     between it and the diff. Each `CommitFileRow` reads **checkbox, status
     letter, then the name over its folder** — no file glyph, as the Local
     Changes rows draw none (it therefore left chrome rule eight's `FileIcon(`
