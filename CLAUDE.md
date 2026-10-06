@@ -117,7 +117,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
 
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
-  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `LicenseNotice.swift`, `PisakaCore.swift`
+  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `LicenseNotice.swift`, `MainWindowInitialFrameRule.swift`, `WelcomeScreen.swift`, `PisakaCore.swift`
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
   `LocalHistorySnapshot.swift`, `LocalHistoryLayout.swift`, `LocalHistoryPolicy.swift`, `LocalHistoryStore.swift`, `LocalHistoryModel.swift`, `LocalHistoryBrowserModel.swift`
@@ -129,7 +129,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `MarkdownDocument.swift`, `MarkdownListTightness.swift`, `MarkdownPreviewTheme.swift`, `MarkdownHighlightClasses.swift`, `MarkdownHeadingSlug.swift`, `MarkdownRenderer.swift`, `MarkdownPreviewPage.swift`, `MarkdownPreviewAsset.swift`, `MarkdownLinkRule.swift`, `MarkdownScrollRule.swift`, `MarkdownPreviewWidthRule.swift`, `MarkdownPreviewModel.swift`, `MarkdownParser.swift` (app, macOS), `MarkdownPreviewSchemeHandler.swift` (app, macOS), `MarkdownPreviewWebView.swift` (app, macOS), `MarkdownPreviewController.swift` (app, macOS), `MarkdownPreviewPane.swift` (app, macOS), `EditorCommandTarget.swift` (app, macOS)
 
 `docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
-  `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`
+  `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`, `ScaledFrameFitRule.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
   `ChromeColorRole.swift`, `ChromeGeometry.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`, `PopoverPlacement.swift`, `PopoverSelection.swift`, `PopoverKeyRule.swift`
@@ -178,7 +178,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ExecutableLocator.swift`, `GitHubCLIProcessTransport.swift`, `PullRequestCoordinator.swift`, `PullRequestsPanelView.swift`, `NewPullRequestSheet.swift`, `PullRequestMergeSheet.swift`, `PullRequestIndicatorView.swift`
 
 `docs/architecture/app-window.md` — window chrome (macOS):
-  `ContentView.swift`, `BottomDockColumn.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
+  `ContentView.swift`, `BottomDockColumn.swift`, `WelcomeView.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
@@ -425,7 +425,7 @@ silently, which is what keeps `swift test` dependency-free.
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `FoldingSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
-`DesignGlyphAssetTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+`DesignGlyphAssetTests`, `WelcomeShortcutPinTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for
 anything that ships in the bundle with no Swift code behind it, and for any architectural
 rule `swift test` cannot otherwise see.

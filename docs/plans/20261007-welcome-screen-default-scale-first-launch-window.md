@@ -263,20 +263,20 @@ The Welcome state no longer reaches either caption, because the whole split is r
 
 ### Task 9: Update documentation
 
-- [ ] CLAUDE.md:
+- [x] CLAUDE.md:
   - Index `WelcomeScreen.swift` and `MainWindowInitialFrameRule.swift` under `core-services.md`.
   - Index `ScaledFrameFitRule.swift` under `core-zoom.md`.
   - Index `WelcomeView.swift` under `app-window.md`.
   - Add `WelcomeShortcutPinTests` to the repository-file suite list.
   - Change "sixty-two" to "sixty-three".
   - Stay under 60,000 characters.
-- [ ] Write full entries:
+- [x] Write full entries:
   - `app-window.md`: `WelcomeView`, the Welcome/workspace switch, and the caption states that remain.
   - `core-services.md`: `WelcomeScreen`, including the footer rule ("enabled with no folder open", the closed folder-required table and the pin's matching rule), and the initial frame rule.
   - `core-zoom.md`: the new default, the fit rule and the 1.5 audit.
   - `core-theme.md`: the gated list.
   - `app-shell.md`: the frame autosave fallback.
-- [ ] Update README.md and `docs/FEATURES.md`: the Welcome screen and the 150% default.
+- [x] Update README.md and `docs/FEATURES.md`: the Welcome screen and the 150% default. (CLAUDE.md is 51,566 characters. The `core-services.md`, `core-zoom.md` and `app-shell.md` entries had already landed with Tasks 1–4; this task adds the `app-window.md` WelcomeView entry, the caption-state notes and a core-theme.md Welcome section. swift test is green (6129 tests) and swiftlint --strict is clean.)
 
 ## Post-Completion (manual)
 

@@ -57,6 +57,14 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Zoom in three independent zones** — code, terminal and interface each
   keep their own scale, and the zone under the pointer is the one that
   responds: Cmd+= / Cmd+− / Cmd+0, Ctrl- or Cmd-scroll, and trackpad pinch.
+  The interface starts at 150% on a fresh install (Cmd+0 over the chrome
+  returns there); a scale you already chose is kept.
+- **Welcome screen** — with no folder and no file open, the window shows the
+  app's name and version, Open Folder / Open File / New File / Open LeetCode
+  Problem with their shortcuts, your recent projects (one click, or the arrow
+  keys and Return, reopens one), and a footer of shortcuts that work before a
+  folder is open. On first launch the window opens centred at about 75% of the
+  screen.
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.

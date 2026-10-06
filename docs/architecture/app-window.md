@@ -10,7 +10,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     gets `DatabaseViewerHost(file:)` (`core-database-viewer.md`), **every** `.text`
     tab gets `markdownSplit(for:)` — the editor, and beside it the preview when
     that tab is previewed (`core-markdown-preview.md`) — and no tab at all a
-    "No file open" placeholder (no
+    "No file open" placeholder, reached only with a folder open, because with
+    no folder and no tab `workspace` draws the Welcome screen instead of the
+    whole split (`WelcomeView.swift` below) (no
     inline diff — the old
     Changes-mode right-zone `DiffPane` branch and the `DiffPane` struct itself were
     removed; diffs open in a separate window on double-click). The `if let file`
@@ -738,6 +740,59 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the very container the app renders, with stub panes, rather than a copy that
     could drift from it.
 
+  - `WelcomeView.swift` (macOS) — the Welcome screen, drawn **instead of the
+    tree + editor split** when nothing is open: no folder and no tab.
+    **The switch.** `ContentView.workspace` asks
+    `WelcomeScreen.shows(projectRoot:openFileCount:)` (`core-services.md`) and
+    renders either `WelcomeView` or `editorSplit`. Both `mainArea` branches route
+    through `workspace`, the one inside `BottomDockColumn` and the one without a
+    panel, so the dock, its divider and the bottom bar are the same around
+    either. The two empty-state captions survive only in the states the Welcome
+    screen does not own. The tree's "Click to open a folder" is reached only with
+    tabs open and no folder. The editor's "No file open" is reached only with a
+    folder open and no tab. Each site carries a comment saying so.
+    **Four parts.**
+    - Header: the app icon, "Pisaka", and `CFBundleShortVersionString`.
+    - The "Start" column: one row per `WelcomeAction`, each a glyph, the display
+      title, and the chord's display string right-aligned.
+    - The "Recent" column: `WelcomeScreen.recents(recentProjects())`, read once
+      in `onAppear` and never per body evaluation, because the fetch reads the
+      session catalog and checks each folder on disk. A row shows the folder name
+      over its middle-truncated path. When the list is empty, the column shows
+      the hint "Open a folder to get started — it will appear here next time".
+    - Footer: the three `WelcomeFooterEntry` labels with Core's chord strings
+      ("Zoom ⌘+ ⌘− ⌘0"). It is **informational only**: it runs nothing, so each
+      menu item stays the single implementation of its command. Core's pin
+      guarantees every advertised chord is a command that is enabled with no
+      folder open.
+    **Every action is a closure the scene already owns.** `ContentView` maps
+    `WelcomeAction` onto `onOpenFolder`, `onOpenFileDialog` (the Open… command's
+    panel), `onNewUntitledFile` (`model.newFile()`) and `onOpenLeetCodeProblem`
+    (raises the Open Problem… sheet). A recent row calls `onOpenRecentProject`,
+    the bottom-bar switcher's own path. The `…Dialog` and `…Untitled` names keep
+    these apart from the tree's existing `onOpenFile(url)` and `onNewFile`, which
+    mean different things.
+    **Layout.** The content is centred, capped at `contentMaxWidth` (760 at 1.0),
+    inside a `ScrollView` whose minimum height is the viewport's, so the content
+    stays centred while it fits and scrolls once it does not. A
+    `ViewThatFits(in: .horizontal)` puts the columns side by side at their own
+    widths and falls back to a stacked layout; the footer does the same. Every
+    size goes through `metrics`, every colour through a role (`core-theme.md`,
+    *The Welcome screen*), and every glyph through `DesignGlyph`.
+    **Keyboard.** The view is focusable, with its focus ring suppressed, and
+    takes focus on appear. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
+    other column's first row, and Return activates the selected target: an
+    action, or a recent folder's URL. Every row is also a real `Button` with an
+    accessibility label (the title or folder name) and value (the chord or
+    path). It declares no zoom surface and sits under ContentView's existing
+    interface root, so `ZoomSourceGatingTests` is unchanged.
+    **Tests.** The decisions are Core's, in `WelcomeScreenTests` and
+    `WelcomeShortcutPinTests`. `WelcomeLayoutTests` (app bundle) renders the
+    view through `HostedRender` at 0.8, 1.5 and 2.0, at the window's content
+    minimum and at a large size. It asserts that nothing draws outside the frame,
+    that the minimum's columns stack rather than overlap (scrolling to the end to
+    reach the recents card), and that the empty-recents hint is present.
+
   - `ProjectSwitcherView.swift` (macOS) — the bottom-bar project switcher. Reads `recentProjects` inside the button's action before presenting, so the catalog is queried exactly at popover-open time. Takes two closures: `onOpenFolder` (wired to the same open panel) and `onOpenRecent` (called with the URL); the presenter dismisses before either runs. Includes a current-row short-circuit: clicking the already-current project just dismisses the popover. The empty state is the "Open Folder…" row over one "No recent projects" message. Everything sizes through the interface zone (`\.interfaceMetrics`), and it deliberately declares no zoom surface.
 
     **The popover is the window's in-window component** (`core-theme.md`, *The
@@ -1040,7 +1095,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     definition its four callers share, replacing the three assignments it used to
     make itself. A root that paints no SwiftUI colour.
   - `ProjectTreeView.swift` — the project file tree: when `projectRoot == nil`
-    it shows a centered "Click to open a folder" hint whose whole pane is the
+    (reached only with tabs open, since with no tab either the Welcome screen
+    replaces the whole split) it shows a centered "Click to open a folder" hint whose whole pane is the
     click target (`contentShape(Rectangle())` + `onTapGesture`) and calls an
     `onOpenFolder()` callback (wired `PisakaApp → ContentView → ProjectTreeView`,
     same shape as `onOpenFile`). Otherwise recursive rows from the root.

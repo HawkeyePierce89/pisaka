@@ -2700,6 +2700,24 @@ grounds, the 1-point Head and Foot rules, and the section header's height. One
 unwindowed fitting-size check, outside the five, holds the container at its cap
 when the Head and Foot alone are taller than it.
 
+#### The Welcome screen
+
+`WelcomeView.swift` (`app-window.md`) joins the gated set, taking it from
+sixty-two to **sixty-three**, and spends no new role and no new token. The
+screen paints `bgCanvas` itself — it replaces the whole split, so it is now the
+second place the window ground is seen, beside the no-file-open placeholder
+(reached only with a folder open and no tab). Its two column cards are `bgPanel`
+inside a `hairline` outline of `hairlineWidth`, scaled. A row's ground is
+`accentTint` when the keyboard selection is on it, otherwise `hoverTint` under
+the pointer, otherwise clear, so selection wins. Names, titles and footer
+chords are `textPrimary`; paths, captions, glyphs, footer labels and the
+empty-recents hint are `textSecondary`. Glyphs come only from `DesignGlyph`
+through `DesignGlyphImage`, with `plus` vendored for New File. There is no
+`Divider()`, no system semantic colour and no SF Symbol. Its sizes are the
+file's own `WelcomeLayout` constants plus `ChromeGeometry`'s row tokens, every
+one scaled at the use site. `WelcomeLayoutTests` (app bundle) renders it at 0.8,
+1.5 and 2.0.
+
 #### The bottom bar's caret readout
 
 `BottomBar` draws `CaretReadout`'s `Ln <line>, Col <column> · <encoding> ·
