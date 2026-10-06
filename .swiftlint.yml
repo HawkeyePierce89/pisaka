@@ -144,11 +144,16 @@ line_length:
 # `SearchQueryHistory`. The measured value moved 1889 → 1893 while the ceiling
 # moved 1890 → 1893: the Markdown preview's number was one line above what it
 # measured, which is the slack this change spent rather than a fourth line it
-# did not cost. The number tracks the one file that approaches it — measured,
+# did not cost. And 1896 with the Welcome screen, for the **three** lines that
+# are this file's whole share in it: the three `ContentView` arguments handing
+# the Open…, New File and Open Problem… commands' own actions to the screen's
+# rows. Everything else — the view, the switch and every title, glyph and chord
+# — lives in `WelcomeView.swift`, `ContentView.swift` and Core's
+# `WelcomeScreen`. The number tracks the one file that approaches it — measured,
 # never rounded up for room — and is not a licence to grow the others.
 file_length:
-  warning: 1893
-  error: 1893
+  warning: 1896
+  error: 1896
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -175,10 +180,12 @@ file_length:
 # hook and one in `init()` for the ⌘F bar's, all four inside the struct body like
 # every line before them, so it moves by exactly what `file_length` did one more
 # time (from a measured 1873, the previous 1874 having carried the same one line
-# of slack).
+# of slack) — and to 1880 with the Welcome screen's three `ContentView`
+# arguments, inside the scene's `body` and so inside the struct body, moving it
+# by exactly what `file_length` did.
 type_body_length:
-  warning: 1877
-  error: 1877
+  warning: 1880
+  error: 1880
 
 function_body_length:
   warning: 140

@@ -207,24 +207,24 @@ The Welcome state no longer reaches either caption, because the whole split is r
 - Create: `Sources/Pisaka/WelcomeView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`, `Sources/Pisaka/PisakaApp.swift`, `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (and its per-file tables if they apply)
 
-- [ ] `WelcomeView` (macOS) has four parts:
+- [x] `WelcomeView` (macOS) has four parts:
   - Header: the app icon, "Pisaka", and `CFBundleShortVersionString`.
   - Actions column: each row has a `DesignGlyphImage`, the display title, and the chord display string right-aligned.
   - Recents column: the folder name in `textPrimary`, with the path below it in `textSecondary`, middle-truncated. When the list is empty, the column shows the hint "Open a folder to get started — it will appear here next time".
   - Footer: the three `WelcomeFooterEntry` entries, labels and chord strings rendered from Core, so the zoom entry reads "Zoom ⌘+ ⌘− ⌘0". The footer is informational only, with no second command implementation.
-- [ ] Layout:
+- [x] Layout:
   - Centred, with a capped content width.
   - A two-column `ViewThatFits` that falls back to a stacked layout, all inside a `ScrollView`.
   - Sizes only through `metrics`.
   - Colours only through roles: `bgCanvas`/`bgPanel`, `hoverTint`, `accentTint`, `hairline`, `textPrimary`/`textSecondary`.
   - Glyphs only through `DesignGlyph`.
   - No `Divider()`, no system semantic colours, no SF Symbols.
-- [ ] Keyboard:
+- [x] Keyboard:
   - The view takes focus when it appears.
   - ↑/↓ move the Core selection, and Tab moves between the columns.
   - Return activates the selected row, so Return on a recent row opens it.
   - Every row is a real button with an accessibility label.
-- [ ] Wiring: ContentView receives the closures PisakaApp already owns:
+- [x] Wiring: ContentView receives the closures PisakaApp already owns:
 
   | ContentView input | PisakaApp code |
   |---|---|
@@ -235,10 +235,10 @@ The Welcome state no longer reaches either caption, because the whole split is r
   | `recentProjects` | `recentProjectRows()` |
   | `onOpenRecentProject` | `openFolder(url:)` |
 
-- [ ] When `WelcomeScreen.shows` holds, `WelcomeView` replaces `editorSplit`, both inside and outside `BottomDockColumn`. The bottom bar stays.
-- [ ] Correct the comments on `bgCanvas` and on the tree and editor captions to say which state still reaches each.
-- [ ] Add `WelcomeView.swift` to `gatedFiles`, and change "sixty-two" to "sixty-three" in the suite header, `core-theme.md` and CLAUDE.md. Add it to any per-file tables the rules require. Confirm `ZoomSourceGatingTests` stays green.
-- [ ] Run `swift test` and `swiftlint --strict`; both must pass.
+- [x] When `WelcomeScreen.shows` holds, `WelcomeView` replaces `editorSplit`, both inside and outside `BottomDockColumn`. The bottom bar stays.
+- [x] Correct the comments on `bgCanvas` and on the tree and editor captions to say which state still reaches each.
+- [x] Add `WelcomeView.swift` to `gatedFiles`, and change "sixty-two" to "sixty-three" in the suite header, `core-theme.md` and CLAUDE.md. Add it to any per-file tables the rules require. Confirm `ZoomSourceGatingTests` stays green.
+- [x] Run `swift test` and `swiftlint --strict`; both must pass. (6129 tests green; swiftlint --strict clean; macOS Debug build succeeds. ContentView's tree/LeetCode-free names are `onOpenFileDialog` and `onNewUntitledFile`, because `onOpenFile`/`onNewFile` already name the tree's URL open and named create. PisakaApp's three new argument lines raise `file_length` to 1896 and `type_body_length` to 1880, with the reason recorded in `.swiftlint.yml`, `style-lint.md` and `LintConfigurationTests`. The suite header never spelled the count, so "sixty-three" lands in `core-theme.md` and CLAUDE.md.)
 
 ### Task 7: App-layer layout test for the Welcome screen
 

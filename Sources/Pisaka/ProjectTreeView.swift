@@ -96,6 +96,8 @@ struct ProjectTreeView: View {
                     tree(root: root)
                 }
             } else {
+                // Reached only with tabs open and no folder: with neither, the
+                // Welcome screen replaces the whole split, this pane included.
                 VStack {
                     Spacer()
                     Text("Click to open a folder")

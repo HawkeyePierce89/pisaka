@@ -193,9 +193,20 @@ struct ContentView: View {
     /// Invoked by the bottom-bar project switcher to fetch the MRU project list.
     /// Default no-op returning empty for previews/tests.
     var recentProjects: () -> [RecentProject] = { [] }
-    /// Invoked when a recent project is chosen from the bottom-bar switcher.
-    /// Default no-op for previews/tests.
+    /// Invoked when a recent project is chosen from the bottom-bar switcher or
+    /// from the Welcome screen's recents. Default no-op for previews/tests.
     var onOpenRecentProject: (URL) -> Void = { _ in }
+    /// The Welcome screen's Open File… row: the Open… command's own action,
+    /// the panel included. Named apart from `onOpenFile`, which opens a URL the
+    /// tree already has. Default no-op for previews/tests.
+    var onOpenFileDialog: () -> Void = {}
+    /// The Welcome screen's New File row: the New File command's own action, an
+    /// untitled buffer. Named apart from `onNewFile`, the tree's named create on
+    /// disk. Default no-op for previews/tests.
+    var onNewUntitledFile: () -> Void = {}
+    /// The Welcome screen's Open LeetCode Problem… row: raises the sheet the
+    /// Open Problem… command raises. Default no-op for previews/tests.
+    var onOpenLeetCodeProblem: () -> Void = {}
     /// Invoked when a changed-file row requests a revert. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onRevert: (ChangedFile) -> Void = { _ in }
@@ -451,9 +462,11 @@ struct ContentView: View {
         }
         // The window's ground: the one value in the window that is *not* a
         // panel strip, which is what `bgCanvas` means. Where it is actually
-        // *seen* is the no-file-open placeholder alone — the dock's two empty
-        // states read as canvas but are drawn inside `panelContent(_:)`, which
-        // paints `bgPanel` directly under them. The title bar above it is
+        // *seen* is the no-file-open placeholder — reached only with a folder
+        // open and no tab, since with neither the Welcome screen replaces the
+        // whole split and paints the same `bgCanvas` itself — and nowhere else:
+        // the dock's two empty states read as canvas but are drawn inside
+        // `panelContent(_:)`, which paints `bgPanel` directly under them. The title bar above it is
         // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
         // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
@@ -591,7 +604,7 @@ struct ContentView: View {
             // reads `projectRoot` — so a folder switch never moves a running
             // shell.
             BottomDockColumn(coordinateSpaceName: Self.panelColumnSpace) {
-                editorSplit
+                workspace
             } divider: { available in
                 panelDivider(available: available)
             } panel: { available in
@@ -623,7 +636,35 @@ struct ContentView: View {
                     .background(chromeColor(.bgPanel))
             }
         } else {
+            workspace
+        }
+    }
+
+    /// What sits above the dock: the Welcome screen while nothing is open — no
+    /// folder and no tab, `WelcomeScreen.shows` — and the tree + editor split
+    /// otherwise. Both `mainArea` branches route through here, so the dock and
+    /// the bottom bar stay the same around either.
+    @ViewBuilder
+    private var workspace: some View {
+        if WelcomeScreen.shows(projectRoot: model.projectRoot, openFileCount: model.openFiles.count) {
+            WelcomeView(
+                recentProjects: recentProjects,
+                onAction: performWelcomeAction,
+                onOpenRecent: onOpenRecentProject
+            )
+        } else {
             editorSplit
+        }
+    }
+
+    /// One Welcome row, routed to the closure the scene wired for the menu item
+    /// it stands for.
+    private func performWelcomeAction(_ action: WelcomeAction) {
+        switch action {
+        case .openFolder: onOpenFolder()
+        case .openFile: onOpenFileDialog()
+        case .newFile: onNewUntitledFile()
+        case .openLeetCodeProblem: onOpenLeetCodeProblem()
         }
     }
 
@@ -1048,6 +1089,9 @@ struct ContentView: View {
                 }
             }
         } else {
+            // Reached only with a folder open and no tab: with no folder either
+            // the Welcome screen replaces the split (`workspace`), and with no
+            // folder but a tab there is a selected file.
             Text("No file open")
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(chromeColor(.textSecondary))

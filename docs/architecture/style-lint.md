@@ -86,7 +86,14 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is code folding, and it is a single line: `file_length`
+The most recent bump is the Welcome screen, three lines: `file_length`
+1893 → **1896**, `type_body_length` 1877 → **1880**, for the three `ContentView`
+arguments that hand the Open…, New File and Open Problem… commands' own actions
+to the screen's rows. The view, the Welcome/workspace switch and every title,
+glyph and chord live in `WelcomeView.swift`, `ContentView.swift` and Core's
+`WelcomeScreen` (`app-window.md`, `core-services.md`).
+
+An earlier single-line bump is code folding: `file_length`
 … → 1885 → **1886**, `type_body_length` … → 1869 → **1870**, for the
 `FoldCommands()` the `.commands` builder gained inside the `PisakaApp` struct
 body. Everything else the feature needed — the two menu items, their shortcuts,
