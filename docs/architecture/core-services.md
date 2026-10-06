@@ -708,6 +708,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     project name is the root's `lastPathComponent` as the user spelled it,
     never resolved. Applied by `MainWindowChrome` (`app-shell.md`). Covered by
     `MainWindowTitleTests`.
+  - `MainWindowInitialFrameRule.swift` — where the macOS main window opens
+    when no frame was ever saved, pure: `frame(visible:minimumWidth:minimumHeight:)`
+    takes the screen's visible frame and the window's minimum *frame* size and
+    answers `screenFraction` (0.75) of the visible frame on each axis, rounded
+    down to whole points, raised to the minimum (rounded up), then capped to the
+    visible frame — each axis decided separately — and centred in the visible
+    frame, keeping its coordinate space (a non-zero or negative origin is
+    respected; the centring offset is rounded down too). A visible frame that is
+    empty, negative or non-finite answers `nil` — the window keeps the scene's
+    frame rather than collapsing — and a non-finite minimum is ignored. Applied
+    only on the missing-key path of `MainWindowFrameAutosave` (`app-shell.md`).
+    On a 1440×875 visible frame the answer is 1080×656 at (180, 109). Covered by
+    `MainWindowInitialFrameRuleTests`.
   - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds
     in `ContentView.editorSplit`'s `HSplitView`, pure:
     `bounds(metrics:windowWidth:) -> Bounds` scales the three tokens (minimum

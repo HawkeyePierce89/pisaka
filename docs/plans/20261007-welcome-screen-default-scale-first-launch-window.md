@@ -119,23 +119,23 @@ The Welcome state no longer reaches either caption, because the whole split is r
 - Create: `Sources/PisakaCore/MainWindowInitialFrameRule.swift`, `Tests/PisakaCoreTests/MainWindowInitialFrameRuleTests.swift`
 - Modify: `Sources/Pisaka/MainWindowFrameAutosave.swift`, `Sources/Pisaka/ContentView.swift` (pass the scaled content minimum to the marker), `Tests/PisakaCoreTests/MainWindowFrameSourceGatingTests.swift`, `docs/architecture/app-shell.md`
 
-- [ ] Add a pure rule: visible frame + minimum frame size → frame.
+- [x] Add a pure rule: visible frame + minimum frame size → frame.
   - The size is 75% of the visible frame on each axis.
   - It is raised to the minimum, then capped to the visible frame.
   - The frame is centred in the visible frame and keeps the visible frame's origin.
-- [ ] Apply it in `restore` only when the key is missing:
+- [x] Apply it in `restore` only when the key is missing:
   - Convert the content minimum to a frame size with `frameRect(forContentRect:)`.
   - Ask the rule, passing `(window.screen ?? NSScreen.main).visibleFrame`.
   - Call `setFrame` with the result.
   - A saved descriptor always wins. Both restore calls apply the same answer, and observation still starts after the second one.
-- [ ] Tests:
+- [x] Tests:
   - A 1440×875 visible frame gives 1080×656, centred.
   - A large minimum is raised to, then capped by the visible frame.
   - A non-zero origin is respected.
   - A zero-size visible frame is handled.
-- [ ] Extend `MainWindowFrameSourceGatingTests`: the rule is called only on the missing-key path, and the stored descriptor is applied first. Update its inventory.
-- [ ] Update the `app-shell.md` entry.
-- [ ] Run `swift test`; it must pass.
+- [x] Extend `MainWindowFrameSourceGatingTests`: the rule is called only on the missing-key path, and the stored descriptor is applied first. Update its inventory.
+- [x] Update the `app-shell.md` entry.
+- [x] Run `swift test`; it must pass. (6115 tests green; swiftlint --strict clean; macOS Debug build succeeds. The content minimum reaches the marker through `MainWindowFrameAutosave(settings:)` and `ContentView.windowFloor`, on PisakaApp's existing chained line, because that file is at its `file_length` ceiling.)
 
 ### Task 4: Core Welcome screen model and shortcut pins
 

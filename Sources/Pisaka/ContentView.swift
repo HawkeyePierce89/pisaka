@@ -388,6 +388,13 @@ struct ContentView: View {
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    /// The window's content floor (640 × 400, scaled), stated once: this
+    /// view's own `.frame` applies it, and `MainWindowFrameAutosave` asks for
+    /// the same answer, since its first-launch frame must not undercut it.
+    static func windowFloor(_ metrics: InterfaceMetrics) -> CGSize {
+        CGSize(width: metrics.scaled(640), height: metrics.scaled(400))
+    }
+
     /// The system's appearance, read for the one case that needs it:
     /// `ThemePreference.system` carries none of its own. Under the two forced
     /// preferences the answer is resolved without consulting this at all, so
@@ -480,7 +487,7 @@ struct ContentView: View {
         // orientation and with the panes' own floors. That is why
         // the column is pinned `.topLeading` — a column wider than a narrow area
         // is a live case, not a hypothetical one.
-        .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
+        .frame(minWidth: Self.windowFloor(metrics).width, minHeight: Self.windowFloor(metrics).height)
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
         // inherits both and adds no root. The named space is the one the

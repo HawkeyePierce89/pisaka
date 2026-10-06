@@ -1497,6 +1497,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     arrangement is constrained by the same call that applies it, and the
     content's minimum-size floor still clamps from below. The auxiliary windows
     deliberately persist nothing and center per use instead.
+
+    **The first-launch fallback.** When the `MainWindowFrame` key is missing —
+    a fresh install, or the key deleted — `restore` no longer leaves the scene's
+    small corner default: it applies the frame Core's
+    `MainWindowInitialFrameRule` (`core-services.md`) computes, 75% of the
+    screen's visible frame on each axis, raised to the window's minimum, capped
+    to the visible frame, centred in it and keeping its origin, in whole points.
+    The minimum is the content floor `ContentView.windowFloor` states once
+    (640 × 400 at the current interface scale — 960 × 600 at the 1.5 default),
+    converted to a frame size with `frameRect(forContentRect:)` so the title bar
+    is counted; the marker reaches it through the shared `SettingsStore` it now
+    takes (`MainWindowFrameAutosave(settings:)`), which is why `PisakaApp`
+    passes `settings` on the same chained line and adds no line of its own
+    (that file sits at its `file_length` ceiling). The screen is
+    `window.screen ?? NSScreen.main`; a missing screen or a degenerate visible
+    frame has no answer and the window keeps the scene's frame. The frame is
+    computed **once, at adoption**, and both restores apply that same answer,
+    so the second pass cannot drift from the first and observation still
+    starts only after the second. **A saved descriptor always wins**: the rule
+    is asked only past a guard that the key is absent, and `restore` applies
+    the computed frame only in the `else` of the guard that reads the stored
+    descriptor. `MainWindowFrameSourceGatingTests` pins all three — the rule
+    named in this file alone, asked only past the missing-key guard, applied
+    only in that `else` — and that both restores pass the one precomputed
+    frame.
   - `MainWindowChrome.swift` — the main window's own chrome, and the third part
     of the chrome-theme sweep's one new file (`core-theme.md`). A non-drawing,
     hit-test-transparent `NSViewRepresentable` marker in
