@@ -254,12 +254,12 @@ The Welcome state no longer reaches either caption, because the whole split is r
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Build macOS Release: `xcodebuild … -destination 'platform=macOS' -configuration Release build`.
-- [ ] Build iOS: `-destination 'generic/platform=iOS'`.
-- [ ] Check that the new Core rules are fully covered by their tests (80%+ on the new files).
+- [x] Run `swift test`. (6129 tests, 0 failures.)
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (239/247 pass. The 8 failures are the same scale-1.8 bitmap assertions in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests recorded under Tasks 1 and 7. They also fail on the commit before this branch's work, on this host.)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations.)
+- [x] Build macOS Release: `xcodebuild … -destination 'platform=macOS' -configuration Release build`.
+- [x] Build iOS: `-destination 'generic/platform=iOS'`. (Built with CODE_SIGNING_ALLOWED=NO; succeeded.)
+- [x] Check that the new Core rules are fully covered by their tests (80%+ on the new files). (100% lines and functions on ScaledFrameFitRule, MainWindowInitialFrameRule, WelcomeScreen, ZoomScaleRule and DesignGlyph.)
 
 ### Task 9: Update documentation
 
