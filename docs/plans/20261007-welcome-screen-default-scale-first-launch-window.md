@@ -245,12 +245,12 @@ The Welcome state no longer reaches either caption, because the whole split is r
 **Files:**
 - Create: `Tests/PisakaAppTests/WelcomeLayoutTests.swift`
 
-- [ ] Render `WelcomeView` through `HostedRender` at scales 0.8, 1.5 and 2.0, both at the window's content minimum and at a large size.
-- [ ] Assert:
+- [x] Render `WelcomeView` through `HostedRender` at scales 0.8, 1.5 and 2.0, both at the window's content minimum and at a large size.
+- [x] Assert:
   - Nothing is drawn outside the frame.
   - At the minimum, the columns stack or scroll rather than overlap.
   - With empty recents, the hint is present.
-- [ ] Run the app test bundle; it must pass.
+- [x] Run the app test bundle; it must pass. (WelcomeLayoutTests: 3 tests, 6 renders, green. A mutation that blanks the hint fails all six renders. The stacked minimum renders scroll the view's NSScrollView to its end to reach the recents card. App bundle: 239/247 pass. The 8 failures are the same scale-1.8 bitmap assertions recorded under Task 1, and they fail identically with this file removed. swift test green; swiftlint --strict clean.)
 
 ### Task 8: Verify acceptance criteria
 
