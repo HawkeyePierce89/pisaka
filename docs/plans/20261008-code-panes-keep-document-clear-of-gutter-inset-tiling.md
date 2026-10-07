@@ -57,23 +57,23 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
 **Files:**
 - Create: `Tests/PisakaAppTests/CodeScrollViewHomeTests.swift`
 
-- [ ] Write one private helper that builds the test pane:
+- [x] Write one private helper that builds the test pane:
   - a `CodeScrollView` with a frame (for example 600×400) and no window
   - a wide, tall document view (`NSView` or `NSTextView`) so a horizontal scroll has room
   - a plain `NSRulerView(scrollView:orientation: .verticalRuler)` with a set `ruleThickness`
   - `hasVerticalRuler = true` and `rulersVisible = true`, then a call to `tile()`
-- [ ] Test: after the first tile, `contentView.bounds.origin.x == -contentView.contentInsets.left`.
-- [ ] Test: widening the ruler (raise `ruleThickness`, then tile) leaves a pane that was at home at the new home, by the same equation.
-- [ ] Test: narrowing the ruler leaves a pane that was at home at the new home, by the same equation.
-- [ ] Test: a pane scrolled right is not sent home by a ruler change.
+- [x] Test: after the first tile, `contentView.bounds.origin.x == -contentView.contentInsets.left`.
+- [x] Test: widening the ruler (raise `ruleThickness`, then tile) leaves a pane that was at home at the new home, by the same equation.
+- [x] Test: narrowing the ruler leaves a pane that was at home at the new home, by the same equation.
+- [x] Test: a pane scrolled right is not sent home by a ruler change.
   - Scroll the clip view to `-oldInset + d` (for example d = 200) and reflect.
   - Widen the ruler and tile, then narrow it and tile.
   - After each change, assert `contentView.bounds.origin.x - (-newInset) >= d - abs(newInset - oldInset)`.
   - Do not assert that `bounds.origin.x` is preserved exactly.
   - The test's doc comment says why the weaker assertion is the honest one. What the framework does to a scrolled view's origin when its inset changes belongs to the framework, not to us, and it can differ between frame tiling on the CI runner and inset tiling on macOS 26+. The property this change owns is narrower: a scrolled pane is never re-homed.
-- [ ] Test: a `CodeScrollView` with no vertical ruler (the completion panel's shape) keeps origin x 0 after tile.
-- [ ] The suite's doc comment states that it pins the invariant rather than the mechanism. Under frame tiling the inset is 0 and home is 0, so it passes on the older CI runner. On macOS 26+ it exercises the correction.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. It must pass before Task 3.
+- [x] Test: a `CodeScrollView` with no vertical ruler (the completion panel's shape) keeps origin x 0 after tile.
+- [x] The suite's doc comment states that it pins the invariant rather than the mechanism. Under frame tiling the inset is 0 and home is 0, so it passes on the older CI runner. On macOS 26+ it exercises the correction.
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. It must pass before Task 3. (The new suite's 5 tests pass, and with the correction disabled its 3 at-home tests fail on this macOS 27 machine, so it does exercise the fix. The full bundle passes apart from the same 8 failures recorded in Task 1, which predate this branch.)
 
 ### Task 3: Record the behaviour in core-zoom.md
 
