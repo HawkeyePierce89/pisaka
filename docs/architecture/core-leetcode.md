@@ -1570,7 +1570,9 @@ the limits the design carries.
     sign-in surfaces: a sheet on macOS, a **full-screen cover** on iOS (a login
     page, especially an SSO provider's mid-redirect, is a full web page with its own
     scrolling and keyboard, and a half-height sheet on a phone leaves almost nothing
-    visible once the keyboard is up). Both are four lines of representable around
+    visible once the keyboard is up). The macOS sheet's scaled minimum and ideal
+    are fitted to the main window's screen by Core's `ScaledFrameFitRule`, since
+    at 1.5 its ideal height overflows a 1440×900 display (`core-zoom.md`). Both are four lines of representable around
     `LeetCodeLoginObserver` plus chrome. Each takes the model for one reason
     besides its chrome: `makeCoordinator()` builds the observer with
     `model.makeLoginGate()`, once per surface and never in `body`, which is exactly

@@ -29,7 +29,7 @@ final class ZoomScaleRuleTests: XCTestCase {
 
         XCTAssertEqual(ZoomScaleRule.interfaceScale.minimum, 0.8)
         XCTAssertEqual(ZoomScaleRule.interfaceScale.maximum, 2.0)
-        XCTAssertEqual(ZoomScaleRule.interfaceScale.defaultValue, 1.0)
+        XCTAssertEqual(ZoomScaleRule.interfaceScale.defaultValue, 1.5)
         XCTAssertEqual(ZoomScaleRule.interfaceScale.step, 0.1)
     }
 
@@ -118,14 +118,26 @@ final class ZoomScaleRuleTests: XCTestCase {
     func testNStepsUpAndNDownReturnExactlyTheStartingValue() {
         // The property the whole index-based arithmetic exists for: repeated
         // `+ 0.1` / `- 0.1` drifts in binary floating point and the interface
-        // scale would never return to exactly 100%.
+        // scale would never return to exactly its resting value. Bounded by the
+        // room above the start: a walk that hits the ceiling clamps there, and
+        // the property is only claimed for a walk that stays inside the range
+        // (the interface zone rests at 1.5, five steps below its 2.0 ceiling).
         for (name, rule) in allRules {
-            for count in 1...6 {
+            let room = Int(((rule.maximum - rule.defaultValue) / rule.step).rounded())
+            for count in stride(from: 1, through: min(6, room), by: 1) {
                 var value = rule.defaultValue
                 for _ in 0..<count { value = rule.stepped(value, by: 1) }
                 for _ in 0..<count { value = rule.stepped(value, by: -1) }
                 XCTAssertEqual(value, rule.defaultValue, "\(name) after \(count) steps each way")
             }
+        }
+        // And from "unscaled", which now sits off the default but on its grid.
+        let interface = ZoomScaleRule.interfaceScale
+        for count in 1...6 {
+            var value = 1.0
+            for _ in 0..<count { value = interface.stepped(value, by: 1) }
+            for _ in 0..<count { value = interface.stepped(value, by: -1) }
+            XCTAssertEqual(value, 1.0, "interfaceScale from 1.0 after \(count) steps each way")
         }
     }
 

@@ -74,9 +74,20 @@ final class InterfaceMetricsTests: XCTestCase {
         }
     }
 
-    func testTheDefaultScaleIsTheRestingOne() {
-        XCTAssertEqual(ZoomScaleRule.interfaceScale.defaultValue, 1)
-        XCTAssertEqual(InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.defaultValue), .unscaled)
+    func testTheRestingScaleIsOneAndAHalfAndUnscaledStaysOne() {
+        // The resting value moved to 1.5 deliberately; "unscaled" did not move
+        // with it, so a user who picks 100% still gets every base size exactly.
+        XCTAssertEqual(ZoomScaleRule.interfaceScale.defaultValue, 1.5)
+        XCTAssertEqual(InterfaceMetrics.unscaled.scale, 1.0)
+        XCTAssertEqual(InterfaceMetrics(scale: 1.0), .unscaled)
+        XCTAssertNotEqual(InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.defaultValue), .unscaled)
+        let atOne = InterfaceMetrics(scale: 1.0)
+        for style in InterfaceTextStyle.allCases {
+            XCTAssertEqual(atOne.font(style), style.basePointSize, "\(style)")
+        }
+        for value in metrics {
+            XCTAssertEqual(atOne.pt(value), value, "\(value)")
+        }
     }
 
     // MARK: - The scale itself
@@ -89,9 +100,10 @@ final class InterfaceMetricsTests: XCTestCase {
         XCTAssertEqual(InterfaceMetrics(scale: -1).scale, ZoomScaleRule.interfaceScale.minimum)
         // Non-finite collapses to the default rather than to a bound, which is
         // `ZoomScaleRule.clamp`'s rule — inherited here rather than restated.
-        XCTAssertEqual(InterfaceMetrics(scale: .nan).scale, 1)
-        XCTAssertEqual(InterfaceMetrics(scale: .infinity).scale, 1)
-        XCTAssertEqual(InterfaceMetrics(scale: -.infinity).scale, 1)
+        let restingScale = ZoomScaleRule.interfaceScale.defaultValue
+        XCTAssertEqual(InterfaceMetrics(scale: .nan).scale, restingScale)
+        XCTAssertEqual(InterfaceMetrics(scale: .infinity).scale, restingScale)
+        XCTAssertEqual(InterfaceMetrics(scale: -.infinity).scale, restingScale)
     }
 
     // MARK: - Rounding

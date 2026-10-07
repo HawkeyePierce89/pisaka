@@ -31,23 +31,45 @@
 //  and the content's `minWidth`/`minHeight` floor still clamps from below —
 //  the two compose rather than fight.
 //
+//  With no saved frame at all (a first launch, or the key deleted), the window
+//  opens where Core's `MainWindowInitialFrameRule` says — about 75% of the
+//  screen's visible frame, centred, never below the content floor — instead of
+//  the scene's small default. That is the missing-key path *only*: a saved
+//  descriptor always wins, and `MainWindowFrameSourceGatingTests` pins that the
+//  descriptor is applied first and the rule reached only past its `guard`.
+//
 
 #if os(macOS)
 import AppKit
+import PisakaCore
 import SwiftUI
 
 /// A non-drawing, hit-test-transparent marker attached to the main scene's
 /// content purely to reach the hosting window and wire up the frame
 /// persistence above.
+///
+/// Holds the shared store only to read the window's content floor at the
+/// current interface scale (`ContentView.windowFloor`), which the first-launch
+/// frame must not undercut.
 struct MainWindowFrameAutosave: NSViewRepresentable {
+    let settings: SettingsStore
+
     func makeNSView(context: Context) -> MainWindowFrameAutosaveView {
-        MainWindowFrameAutosaveView()
+        let view = MainWindowFrameAutosaveView()
+        view.contentMinimum = ContentView.windowFloor(settings.interfaceMetrics)
+        return view
     }
 
-    func updateNSView(_ nsView: MainWindowFrameAutosaveView, context: Context) {}
+    func updateNSView(_ nsView: MainWindowFrameAutosaveView, context: Context) {
+        nsView.contentMinimum = ContentView.windowFloor(settings.interfaceMetrics)
+    }
 }
 
 final class MainWindowFrameAutosaveView: NSView {
+    /// The content floor the first-launch frame is raised to. Read once, at
+    /// adoption; a later change only matters to a window that is already sized.
+    var contentMinimum: CGSize = .zero
+
     init() {
         super.init(frame: .zero)
         setAccessibilityElement(false)
@@ -65,7 +87,7 @@ final class MainWindowFrameAutosaveView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window = self.window, !window.isSheet else { return }
-        MainWindowFramePersistence.adopt(window)
+        MainWindowFramePersistence.adopt(window, contentMinimum: contentMinimum)
     }
 }
 
@@ -89,13 +111,16 @@ private enum MainWindowFramePersistence {
     /// so there is nothing to unregister early.
     private static var observers: [NSObjectProtocol] = []
 
-    static func adopt(_ window: NSWindow) {
+    static func adopt(_ window: NSWindow, contentMinimum: CGSize) {
         guard !adopted.contains(window) else { return }
         adopted.add(window)
 
         // Restore before first paint: `viewDidMoveToWindow` fires before the
-        // window is ordered front, so the saved frame lands invisibly.
-        restore(window)
+        // window is ordered front, so the saved frame lands invisibly. With no
+        // saved frame the first-launch frame is computed once, here, so both
+        // restores below apply the same answer.
+        let initialFrame = firstLaunchFrame(for: window, contentMinimum: contentMinimum)
+        restore(window, initialFrame: initialFrame)
 
         // The scene's own window setup continues after this callback and can
         // size the window once more. Re-apply on the next main-runloop turn
@@ -104,14 +129,44 @@ private enum MainWindowFramePersistence {
         // overwrite the saved frame with the default one.
         DispatchQueue.main.async { [weak window] in
             guard let window else { return }
-            restore(window)
+            restore(window, initialFrame: initialFrame)
             observe(window)
         }
     }
 
-    private static func restore(_ window: NSWindow) {
-        guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey) else { return }
+    /// A saved descriptor always wins; only when there is none — the key
+    /// missing, or holding a malformed value — is the precomputed first-launch
+    /// frame applied (and only if Core had an answer).
+    private static func restore(_ window: NSWindow, initialFrame: NSRect?) {
+        guard let descriptor = savedDescriptor() else {
+            if let initialFrame { window.setFrame(initialFrame, display: false) }
+            return
+        }
         window.setFrame(from: descriptor)
+    }
+
+    /// The saved descriptor, or `nil` when the key is missing or its value is
+    /// one Core does not consider restorable. `setFrame(from:)` reports
+    /// nothing, so a corrupted value is refused here rather than left to
+    /// silently keep the scene's small default.
+    private static func savedDescriptor() -> String? {
+        guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey),
+              MainWindowInitialFrameRule.isRestorable(descriptor) else { return nil }
+        return descriptor
+    }
+
+    /// Core's first-launch frame for `window` on its screen, or `nil` when a
+    /// frame is saved (the rule is not asked at all) or no screen is known.
+    private static func firstLaunchFrame(for window: NSWindow, contentMinimum: CGSize) -> NSRect? {
+        guard savedDescriptor() == nil else { return nil }
+        guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return nil }
+        let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentMinimum)).size
+        let frame = MainWindowInitialFrameRule.frame(
+            visible: .init(x: visible.minX, y: visible.minY, width: visible.width, height: visible.height),
+            minimumWidth: minimum.width,
+            minimumHeight: minimum.height
+        )
+        return frame.map { NSRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
     }
 
     private static func observe(_ window: NSWindow) {

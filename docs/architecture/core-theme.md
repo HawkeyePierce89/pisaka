@@ -280,7 +280,7 @@ two new geometry tokens) and each with its readers pinned by a gating
     the tree, and a folder is never selected), and **"focused" means the window
     is key**.
   - `DesignGlyph.swift` — the design's glyphs as one name table: a `String`-raw
-    `CaseIterable` enum, twenty-four cases, whose **raw value is the asset
+    `CaseIterable` enum, twenty-five cases, whose **raw value is the asset
     name** in `Sources/Pisaka/Assets.xcassets/Glyphs/` (`assetName` returns it),
     and nothing else: the enum is a **name table only**. Every asset is a
     24-unit box at the icon set's native coordinates, so a glyph's drawn size
@@ -346,9 +346,10 @@ two new geometry tokens) and each with its readers pinned by a gating
     row count and an optional selected index. `init(count:)` selects the first
     row, or nothing at zero; `movedDown()`/`movedUp()` clamp at both ends with
     **no wrap**; `reset(count:)` returns to the first row and is what every
-    filter change does. The submenu uses the same type over its own rows.
-    `PopoverSelectionTests` pins the init, the empty count, both clamps and the
-    reset, including a reset to a smaller count.
+    filter change does; `selecting(_:)` jumps to a row, clamped, and is what
+    the Welcome screen's column switch uses. The submenu uses the same type over
+    its own rows. `PopoverSelectionTests` pins the init, the empty count, both
+    clamps, the clamped jump and the reset, including a reset to a smaller count.
   - `PopoverKeyRule.swift` — **every** decision about which key does what in
     the popover, as one pure `action(for:state:)` over three closed types:
     `PopoverKey` (`up`, `down`, `return`, `escape`, `left`, `right`, `other`),
@@ -781,7 +782,9 @@ gated set.
     title bar is the topmost of the window's panel *strips*, sitting directly on
     the tab strip and the sidebar header, and painting it the canvas value would
     draw a band one step off the two surfaces it touches. **Where `bgCanvas` is
-    actually seen is the no-file-open placeholder, and nowhere else**: the
+    actually seen is the no-file-open placeholder and the Welcome screen, which
+    replaces the whole split and paints it itself (*The Welcome screen*, below),
+    and nowhere else**: the
     dock's two empty-state sentences — "No problems" and the usages invitation —
     read as canvas but are drawn inside `panelContent(_:)`, which this part
     paints `bgPanel` directly under, each sentence filling that slot through
@@ -934,7 +937,7 @@ by `ProjectTreeView` inside the sidebar's split slot, bounded by the same
 divider as the tree it replaces — and a pane whose ground changed with whether a
 folder happened to be open would read as a hole in the sidebar rather than as
 the window behind it. `bgCanvas` is spent regardless: the window root paints it,
-and it is seen at the no-file-open placeholder (the part-three window-ground
+and it is seen at the no-file-open placeholder and the Welcome screen (the part-three window-ground
 entry above carries where it is, and is not, seen).
 
 **Inherited work, deliberately left for the popovers' part.** The two switchers'
@@ -2700,6 +2703,24 @@ grounds, the 1-point Head and Foot rules, and the section header's height. One
 unwindowed fitting-size check, outside the five, holds the container at its cap
 when the Head and Foot alone are taller than it.
 
+#### The Welcome screen
+
+`WelcomeView.swift` (`app-window.md`) joins the gated set, taking it from
+sixty-two to **sixty-three**, and spends no new role and no new token. The
+screen paints `bgCanvas` itself — it replaces the whole split, so it is now the
+second place the window ground is seen, beside the no-file-open placeholder
+(reached only with a folder open and no tab). Its two column cards are `bgPanel`
+inside a `hairline` outline of `hairlineWidth`, scaled. A row's ground is
+`accentTint` when the keyboard selection is on it, otherwise `hoverTint` under
+the pointer, otherwise clear, so selection wins. Names, titles and footer
+chords are `textPrimary`; paths, captions, glyphs, footer labels and the
+empty-recents hint are `textSecondary`. Glyphs come only from `DesignGlyph`
+through `DesignGlyphImage`, with `plus` vendored for New File. There is no
+`Divider()`, no system semantic colour and no SF Symbol. Its sizes are the
+file's own `WelcomeLayout` constants plus `ChromeGeometry`'s row tokens, every
+one scaled at the use site. `WelcomeLayoutTests` (app bundle) renders it at 0.8,
+1.5 and 2.0.
+
 #### The bottom bar's caret readout
 
 `BottomBar` draws `CaretReadout`'s `Ln <line>, Col <column> · <encoding> ·
@@ -2864,7 +2885,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — and the bottom bar's popover component, `ChromePopover.swift`, one more: **sixty-two** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — and the Welcome screen, `WelcomeView.swift`, one more: **sixty-three** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft

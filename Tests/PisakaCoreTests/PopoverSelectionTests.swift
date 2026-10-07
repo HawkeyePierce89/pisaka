@@ -30,6 +30,15 @@ final class PopoverSelectionTests: XCTestCase {
         XCTAssertEqual(moved.reset(count: 5).selectedIndex, 0)
     }
 
+    func testSelectingClampsToTheRows() {
+        let selection = PopoverSelection(count: 4)
+        XCTAssertEqual(selection.selecting(2).selectedIndex, 2)
+        XCTAssertEqual(selection.selecting(-3).selectedIndex, 0)
+        XCTAssertEqual(selection.selecting(99).selectedIndex, 3)
+        XCTAssertEqual(selection.selecting(99).count, 4)
+        XCTAssertNil(PopoverSelection(count: 0).selecting(2).selectedIndex)
+    }
+
     func testResetToASmallerCountStaysInRange() {
         let reset = PopoverSelection(count: 5).movedDown().movedDown().movedDown().reset(count: 2)
         XCTAssertEqual(reset.count, 2)

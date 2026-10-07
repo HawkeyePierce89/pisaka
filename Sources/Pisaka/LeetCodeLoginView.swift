@@ -83,11 +83,25 @@ struct LeetCodeLoginView: View {
         // Scaled with its own header and footer: the web view in the middle is
         // LeetCode's page at LeetCode's own size, so the sheet has to be at least
         // as tall as the chrome around it however far the interface is zoomed.
+        // Fitted to the screen (`ScaledFrameFitRule`): at 1.5 the scaled ideal
+        // height overflows a 1440×900 display.
         .frame(
-            minWidth: metrics.scaled(520),
-            idealWidth: metrics.scaled(760),
-            minHeight: metrics.scaled(520),
-            idealHeight: metrics.scaled(780)
+            minWidth: CGFloat(fittedFrame.minimum.width),
+            idealWidth: CGFloat(fittedFrame.ideal.width),
+            minHeight: CGFloat(fittedFrame.minimum.height),
+            idealHeight: CGFloat(fittedFrame.ideal.height)
+        )
+    }
+
+    /// The sheet's scaled minimum and ideal, capped to the visible frame of the
+    /// main window's screen (falling back to `NSScreen.main`) by
+    /// `ScaledFrameFitRule`.
+    private var fittedFrame: ScaledFrameFitRule.Frame {
+        let visible = (NSApp.mainWindow?.screen ?? NSScreen.main)?.visibleFrame.size
+        return ScaledFrameFitRule.fit(
+            minimum: .init(width: metrics.pt(520), height: metrics.pt(520)),
+            ideal: .init(width: metrics.pt(760), height: metrics.pt(780)),
+            available: visible.map { .init(width: Double($0.width), height: Double($0.height)) }
         )
     }
 

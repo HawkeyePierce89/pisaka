@@ -28,7 +28,7 @@ name, so the record and the manifest entry both say `null`.
 
 ## Glyphs taken
 
-Twenty-four of the export's thirty-two PDFs, each copied byte for byte into
+Twenty-five of the export's thirty-two PDFs, each copied byte for byte into
 `<name>.imageset/<name>.pdf`. The prefix is the first sixteen hex digits of the
 PDF's sha256, as `MANIFEST.txt` lists it; the size is the PDF's box, as the
 manifest states it, and it is 24 for every glyph (why, below). The last column says
@@ -62,9 +62,10 @@ the ISC licence alone.
 | `case-sensitive` | `7e7229ec9d8a3b64` | 24 | no |
 | `whole-word` | `c8f3633e9f9b8492` | 24 | no |
 | `regex` | `0f392dda96cecce3` | 24 | no |
+| `plus` | `0618ebae927daa7d` | 24 | yes |
 
-The eight left behind (`chevron-left`, `circle`, `circle-check`, `circle-dot`,
-`circle-x`, `info`, `minus`, `plus`) are not drawn anywhere, so they do not ship.
+The seven left behind (`chevron-left`, `circle`, `circle-check`, `circle-dot`,
+`circle-x`, `info`, `minus`) are not drawn anywhere, so they do not ship.
 
 Every imageset's `Contents.json` sets `"template-rendering-intent": "template"`,
 so the glyph is tinted by whatever colour the drawing site hands it, and

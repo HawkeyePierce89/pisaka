@@ -15,7 +15,7 @@ final class DesignGlyphTests: XCTestCase {
     func testAssetNamesAreUnique() {
         let names = DesignGlyph.allCases.map(\.assetName)
         XCTAssertEqual(Set(names).count, names.count)
-        XCTAssertEqual(names.count, 24)
+        XCTAssertEqual(names.count, 25)
     }
 
     func testAGlyphRoundTripsThroughItsAssetName() {

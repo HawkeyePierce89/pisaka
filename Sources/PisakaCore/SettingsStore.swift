@@ -100,7 +100,9 @@ public final class SettingsStore: ObservableObject {
         /// default — which is why an existing install sees no change until it
         /// zooms the terminal.
         public static let terminalFontSize = "settings.terminalFontSize"
-        /// The interface zoom zone's scale, as a multiplier (1.0 = unchanged).
+        /// The interface zoom zone's scale, as a multiplier (1.0 = unscaled; a
+        /// missing key reads as the 1.5 default, while a stored value — 1.0
+        /// included — is kept as the user left it).
         ///
         /// A multiplier and not a point size, because the zone covers fonts,
         /// paddings, frames, icon sizes and row heights at once; there is no one
@@ -216,9 +218,10 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// The interface zone's scale, as a multiplier. Default 1.0 — every metric
-    /// derived from it then equals the constant it replaced, which is what makes
-    /// the interface sweep invisible at rest.
+    /// The interface zone's scale, as a multiplier. Default 1.5
+    /// (`ZoomScaleRule.interfaceScale`); at 1.0 every metric derived from it
+    /// equals the constant it replaced, which is what keeps a user who chose
+    /// 100% on exactly the unscaled chrome.
     @Published public var interfaceScale: Double {
         didSet {
             let clamped = ZoomScaleRule.interfaceScale.clamp(interfaceScale)
@@ -604,7 +607,7 @@ public final class SettingsStore: ObservableObject {
         setScale(ZoomScaleRule.rule(for: zone).stepped(scale(for: zone), by: steps), for: zone)
     }
 
-    /// Return `zone` to its resting value — 13 pt for the two fonts, 100% for
+    /// Return `zone` to its resting value — 13 pt for the two fonts, 150% for
     /// the interface. Only the zone under the pointer resets; the other two are
     /// untouched, which is what makes the zones independent in both directions.
     public func resetZoom(_ zone: ZoomZone) {

@@ -205,10 +205,10 @@ final class SettingsStoreTests: XCTestCase {
     func testFreshStoreRestsAtEveryZonesDefault() {
         let store = SettingsStore(defaults: makeDefaults())
 
-        // "Nothing changes at 100%": a fresh install draws its terminal at
-        // SwiftTerm's own 13 pt and its chrome at exactly today's constants.
+        // A fresh install draws its terminal at SwiftTerm's own 13 pt and its
+        // chrome at the interface zone's 1.5 resting scale.
         XCTAssertEqual(store.terminalFontSize, 13)
-        XCTAssertEqual(store.interfaceScale, 1.0)
+        XCTAssertEqual(store.interfaceScale, 1.5)
         for zone in ZoomZone.allCases {
             XCTAssertEqual(store.scale(for: zone), ZoomScaleRule.rule(for: zone).defaultValue, "\(zone)")
         }
@@ -218,11 +218,11 @@ final class SettingsStoreTests: XCTestCase {
         let store = SettingsStore(defaults: makeDefaults())
         store.fontSize = 17
         store.terminalFontSize = 21
-        store.interfaceScale = 1.5
+        store.interfaceScale = 1.2
 
         XCTAssertEqual(store.scale(for: .code), 17)
         XCTAssertEqual(store.scale(for: .terminal), 21)
-        XCTAssertEqual(store.scale(for: .interface), 1.5)
+        XCTAssertEqual(store.scale(for: .interface), 1.2)
     }
 
     func testSteppingAZoneLeavesTheOtherTwoAlone() {
@@ -254,11 +254,44 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.interfaceScale, 1.6)
 
         store.resetZoom(.interface)
-        XCTAssertEqual(store.interfaceScale, 1.0)
+        XCTAssertEqual(store.interfaceScale, 1.5)
         XCTAssertEqual(store.fontSize, 20)
 
         store.resetZoom(.code)
         XCTAssertEqual(store.fontSize, SettingsStore.defaultFontSize)
+    }
+
+    func testAStoredInterfaceScaleSurvivesTheDefaultMovingToOneAndAHalf() {
+        // An upgrade from a build that rested at 1.0: whatever the user had
+        // stored — 100% included — is kept, and only a missing key reads 1.5.
+        for stored in [1.0, 0.8, 1.2, 2.0] {
+            let defaults = makeDefaults("\(#function).\(stored)")
+            defaults.set(stored, forKey: SettingsStore.Keys.interfaceScale)
+            XCTAssertEqual(SettingsStore(defaults: defaults).interfaceScale, stored)
+        }
+    }
+
+    func testResettingEachZoneLandsOnItsOwnDefault() {
+        let store = SettingsStore(defaults: makeDefaults())
+        store.fontSize = 20
+        store.terminalFontSize = 20
+        store.interfaceScale = 1.0
+        for zone in ZoomZone.allCases { store.resetZoom(zone) }
+        XCTAssertEqual(store.interfaceScale, 1.5)
+        XCTAssertEqual(store.fontSize, 13)
+        XCTAssertEqual(store.terminalFontSize, 13)
+    }
+
+    func testFiveStepsDownFromTheDefaultLandExactlyOnUnscaled() {
+        // 1.0 is still on the grid the 1.5 default anchors: ⌘− five times
+        // reaches 100% exactly, and five ⌘+ return to exactly 150%.
+        let store = SettingsStore(defaults: makeDefaults())
+        XCTAssertEqual(store.interfaceScale, 1.5)
+        for _ in 0..<5 { store.stepZoom(.interface, by: -1) }
+        XCTAssertEqual(store.interfaceScale, 1.0)
+        XCTAssertEqual(InterfaceMetrics(scale: store.interfaceScale), .unscaled)
+        for _ in 0..<5 { store.stepZoom(.interface, by: 1) }
+        XCTAssertEqual(store.interfaceScale, 1.5)
     }
 
     func testTheCodeZoneIsTheEditorFontSizeAndNotASecondSetting() {
@@ -467,21 +500,21 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertNil(empty.object(forKey: SettingsStore.Keys.interfaceScale))
         let fresh = SettingsStore(defaults: empty)
         XCTAssertEqual(fresh.terminalFontSize, 13)
-        XCTAssertEqual(fresh.interfaceScale, 1.0)
+        XCTAssertEqual(fresh.interfaceScale, 1.5)
 
         let wrongType = makeDefaults("\(#function).wrongType")
         wrongType.set("huge", forKey: SettingsStore.Keys.terminalFontSize)
         wrongType.set(["scale": 2], forKey: SettingsStore.Keys.interfaceScale)
         let coerced = SettingsStore(defaults: wrongType)
         XCTAssertEqual(coerced.terminalFontSize, 13)
-        XCTAssertEqual(coerced.interfaceScale, 1.0)
+        XCTAssertEqual(coerced.interfaceScale, 1.5)
 
         let nonFinite = makeDefaults("\(#function).nonFinite")
         nonFinite.set(Double.nan, forKey: SettingsStore.Keys.terminalFontSize)
         nonFinite.set(Double.infinity, forKey: SettingsStore.Keys.interfaceScale)
         let collapsed = SettingsStore(defaults: nonFinite)
         XCTAssertEqual(collapsed.terminalFontSize, 13)
-        XCTAssertEqual(collapsed.interfaceScale, 1.0)
+        XCTAssertEqual(collapsed.interfaceScale, 1.5)
     }
 
     func testZoomKeysAreStable() {

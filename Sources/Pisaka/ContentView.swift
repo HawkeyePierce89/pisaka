@@ -193,9 +193,20 @@ struct ContentView: View {
     /// Invoked by the bottom-bar project switcher to fetch the MRU project list.
     /// Default no-op returning empty for previews/tests.
     var recentProjects: () -> [RecentProject] = { [] }
-    /// Invoked when a recent project is chosen from the bottom-bar switcher.
-    /// Default no-op for previews/tests.
+    /// Invoked when a recent project is chosen from the bottom-bar switcher or
+    /// from the Welcome screen's recents. Default no-op for previews/tests.
     var onOpenRecentProject: (URL) -> Void = { _ in }
+    /// The Welcome screen's Open File… row: the Open… command's own action,
+    /// the panel included. Named apart from `onOpenFile`, which opens a URL the
+    /// tree already has. Default no-op for previews/tests.
+    var onOpenFileDialog: () -> Void = {}
+    /// The Welcome screen's New File row: the New File command's own action, an
+    /// untitled buffer. Named apart from `onNewFile`, the tree's named create on
+    /// disk. Default no-op for previews/tests.
+    var onNewUntitledFile: () -> Void = {}
+    /// The Welcome screen's Open LeetCode Problem… row: raises the sheet the
+    /// Open Problem… command raises. Default no-op for previews/tests.
+    var onOpenLeetCodeProblem: () -> Void = {}
     /// Invoked when a changed-file row requests a revert. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onRevert: (ChangedFile) -> Void = { _ in }
@@ -280,6 +291,11 @@ struct ContentView: View {
     /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
     /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
+    /// The Welcome screen's recents and selection, held here because
+    /// `WelcomeView` is recreated whenever a dock panel opens or closes (the
+    /// workspace moves between `mainArea`'s branches). Reset when the Welcome
+    /// screen stops showing, so its next showing reads the recents afresh.
+    @StateObject private var welcomeState = WelcomeViewState()
     /// Where the focused editor's caret is, for the bottom bar's readout.
     /// Held as `@State` rather than `@StateObject` on purpose: this view never
     /// reads it, so a caret move must not re-evaluate the whole window root —
@@ -388,6 +404,13 @@ struct ContentView: View {
     /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
     private var metrics: InterfaceMetrics { settings.interfaceMetrics }
 
+    /// The window's content floor (640 × 400, scaled), stated once: this
+    /// view's own `.frame` applies it, and `MainWindowFrameAutosave` asks for
+    /// the same answer, since its first-launch frame must not undercut it.
+    static func windowFloor(_ metrics: InterfaceMetrics) -> CGSize {
+        CGSize(width: metrics.scaled(640), height: metrics.scaled(400))
+    }
+
     /// The system's appearance, read for the one case that needs it:
     /// `ThemePreference.system` carries none of its own. Under the two forced
     /// preferences the answer is resolved without consulting this at all, so
@@ -417,6 +440,9 @@ struct ContentView: View {
         // `mainArea`, and nothing inside `mainArea` may paint over it.
         VStack(spacing: 0) {
             mainArea
+                .onChange(of: showsWelcome) { _, shows in
+                    if !shows { welcomeState.reset() }
+                }
             // No `Divider()` here: the bar draws its own one-point `hairline`
             // along its top edge, so the rule is in the palette's value rather
             // than the platform's (part two's precedent). Keeping a rule at all
@@ -444,9 +470,11 @@ struct ContentView: View {
         }
         // The window's ground: the one value in the window that is *not* a
         // panel strip, which is what `bgCanvas` means. Where it is actually
-        // *seen* is the no-file-open placeholder alone — the dock's two empty
-        // states read as canvas but are drawn inside `panelContent(_:)`, which
-        // paints `bgPanel` directly under them. The title bar above it is
+        // *seen* is the no-file-open placeholder — reached only with a folder
+        // open and no tab, since with neither the Welcome screen replaces the
+        // whole split and paints the same `bgCanvas` itself — and nowhere else:
+        // the dock's two empty states read as canvas but are drawn inside
+        // `panelContent(_:)`, which paints `bgPanel` directly under them. The title bar above it is
         // `bgPanel` for the opposite reason (`MainWindowChrome`); the whole
         // accounting is in `core-theme.md`'s part-three window-ground entry.
         .background(chromeColor(.bgCanvas))
@@ -480,7 +508,7 @@ struct ContentView: View {
         // orientation and with the panes' own floors. That is why
         // the column is pinned `.topLeading` — a column wider than a narrow area
         // is a live case, not a hypothetical one.
-        .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
+        .frame(minWidth: Self.windowFloor(metrics).width, minHeight: Self.windowFloor(metrics).height)
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
         // inherits both and adds no root. The named space is the one the
@@ -584,7 +612,7 @@ struct ContentView: View {
             // reads `projectRoot` — so a folder switch never moves a running
             // shell.
             BottomDockColumn(coordinateSpaceName: Self.panelColumnSpace) {
-                editorSplit
+                workspace
             } divider: { available in
                 panelDivider(available: available)
             } panel: { available in
@@ -616,7 +644,41 @@ struct ContentView: View {
                     .background(chromeColor(.bgPanel))
             }
         } else {
+            workspace
+        }
+    }
+
+    /// What sits above the dock: the Welcome screen while nothing is open — no
+    /// folder and no tab, `WelcomeScreen.shows` — and the tree + editor split
+    /// otherwise. Both `mainArea` branches route through here, so the dock and
+    /// the bottom bar stay the same around either.
+    @ViewBuilder
+    private var workspace: some View {
+        if showsWelcome {
+            WelcomeView(
+                recentProjects: recentProjects,
+                onAction: performWelcomeAction,
+                onOpenRecent: onOpenRecentProject,
+                state: welcomeState,
+                isDockOpen: visiblePanel != nil
+            )
+        } else {
             editorSplit
+        }
+    }
+
+    private var showsWelcome: Bool {
+        WelcomeScreen.shows(projectRoot: model.projectRoot, openFileCount: model.openFiles.count)
+    }
+
+    /// One Welcome row, routed to the closure the scene wired for the menu item
+    /// it stands for.
+    private func performWelcomeAction(_ action: WelcomeAction) {
+        switch action {
+        case .openFolder: onOpenFolder()
+        case .openFile: onOpenFileDialog()
+        case .newFile: onNewUntitledFile()
+        case .openLeetCodeProblem: onOpenLeetCodeProblem()
         }
     }
 
@@ -1041,6 +1103,9 @@ struct ContentView: View {
                 }
             }
         } else {
+            // Reached only with a folder open and no tab: with no folder either
+            // the Welcome screen replaces the split (`workspace`), and with no
+            // folder but a tab there is a selected file.
             Text("No file open")
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(chromeColor(.textSecondary))

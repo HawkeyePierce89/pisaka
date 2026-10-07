@@ -404,6 +404,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The bottom bar's popover component: the container and its pieces,
         // drawn on `bgPopover` with no arrow and no material.
         "ChromePopover.swift",
+        // The Welcome screen: its header, the two column cards, their rows
+        // and the shortcut footer.
+        "WelcomeView.swift",
     ]
 
     func testEveryGatedFileExists() throws {

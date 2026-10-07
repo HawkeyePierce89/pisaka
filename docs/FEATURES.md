@@ -834,6 +834,31 @@ user sees it.
   move included), and switching the project folder are refused with a
   "Git operation in progress" notice rather than racing git over the same files.
   Autosave pauses for the same window and resumes on its own afterwards.
+- Welcome screen (macOS): with no folder open and no tab open, the window
+  shows a Welcome screen in place of the tree and the editor. The bottom bar
+  stays. The screen has four parts:
+  - a header with the app icon, its name and its version;
+  - a **Start** column: Open Folder… (Cmd+Shift+O), Open File… (Cmd+O), New
+    File (Cmd+N) and Open LeetCode Problem… (Option+Cmd+P), each doing exactly
+    what its menu item does;
+  - a **Recent** column with up to ten recent projects, newest first, each
+    showing the folder name over its path. One click reopens a project. With no
+    recents yet, the column says "Open a folder to get started — it will appear
+    here next time";
+  - a footer listing shortcuts that work before any folder is open: Show
+    Terminal (Cmd+Shift+T), Browse Problems… (Cmd+Shift+B) and Zoom (Cmd+ +,
+    Cmd+ −, Cmd+0).
+
+  The arrow keys move through the rows, Tab jumps between the two columns, and
+  Return opens the selected row. In a narrow window the two columns stack, and
+  the screen scrolls. Opening a folder or any file replaces the Welcome screen
+  with the workspace. The "Click to open a folder" hint still appears in the
+  tree when files are open without a folder, and "No file open" still appears
+  in the editor when a folder is open with no tab.
+- First launch (macOS): with no saved window frame, the main window opens
+  centred at about 75% of the screen, never smaller than the window's minimum
+  size and never larger than the screen. After that, the window comes back
+  where you left it.
 - Switching to another folder (macOS) swaps the tabs along with the tree: the
   project you leave keeps its tabs and selection, and the one you open comes back
   exactly as you left it — empty the first time you open it, rather than showing
@@ -1244,6 +1269,11 @@ user sees it.
     browser → the
     **interface** scale, which grows the chrome proportionally: fonts, paddings,
     row heights, icon sizes and pane widths together, from 80% up to 200%.
+    It rests at **150%**: a fresh install starts there and Cmd+0 over the
+    chrome returns there, while a scale you already chose — 100% included — is
+    kept as it was. At 100% the chrome draws exactly as it did before the
+    default moved. The commit dialog and the LeetCode sign-in sheet shrink to
+    fit a smaller screen instead of spilling past its edge.
   The three are stored separately and never affect one another, so Cmd+0 resets
   only the zone under the pointer. With the pointer outside every Pisaka window,
   the shortcut falls back to whatever the focused surface is (the editor or the

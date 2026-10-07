@@ -89,18 +89,32 @@ struct CommitDialogView: View {
         .background(theme.color(.bgPanel))
         // The sheet's own size scales with the panes inside it, so a 200% dialog
         // still holds the list and a usable diff instead of squeezing the diff
-        // out — `InterfaceMetricsTests` pins that composition.
+        // out — `InterfaceMetricsTests` pins that composition. Fitted to the
+        // screen (`ScaledFrameFitRule`): at 1.5 the scaled sizes overflow a
+        // 1440×900 display, and at 1.0 the fit gives them back unchanged.
         .frame(
-            minWidth: metrics.scaled(900),
-            idealWidth: metrics.scaled(1000),
-            minHeight: metrics.scaled(560),
-            idealHeight: metrics.scaled(640)
+            minWidth: CGFloat(fittedFrame.minimum.width),
+            idealWidth: CGFloat(fittedFrame.ideal.width),
+            minHeight: CGFloat(fittedFrame.minimum.height),
+            idealHeight: CGFloat(fittedFrame.ideal.height)
         )
         .sheet(isPresented: $isEditingAuthor) {
             AuthorEditorView(identity: model.identity) { name, email in
                 Task { await model.setLocalIdentity(name: name, email: email) }
             }
         }
+    }
+
+    /// The sheet's scaled minimum and ideal, capped to the visible frame of the
+    /// main window's screen (falling back to `NSScreen.main`) by
+    /// `ScaledFrameFitRule`.
+    private var fittedFrame: ScaledFrameFitRule.Frame {
+        let visible = (NSApp.mainWindow?.screen ?? NSScreen.main)?.visibleFrame.size
+        return ScaledFrameFitRule.fit(
+            minimum: .init(width: metrics.pt(900), height: metrics.pt(560)),
+            ideal: .init(width: metrics.pt(1000), height: metrics.pt(640)),
+            available: visible.map { .init(width: Double($0.width), height: Double($0.height)) }
+        )
     }
 
     /// The dialog's title strip. "Commit Changes" is set at `.headline` — the

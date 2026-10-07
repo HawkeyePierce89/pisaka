@@ -341,7 +341,9 @@ struct GeneralSettingsView: View {
             }
 
             // The interface zone's scale, on its own rule's grid for the editor
-            // row's reason, shown as the percentage the zoom readout uses.
+            // row's reason, shown as the percentage the zoom readout uses. A
+            // fresh install reads 150% here (the rule's default); 100% is the
+            // unscaled chrome, still one stop on the same grid.
             SettingsRow(label: "Interface zoom") {
                 ChromeStepper(
                     label: "Interface zoom",

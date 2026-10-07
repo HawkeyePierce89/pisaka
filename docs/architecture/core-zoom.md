@@ -16,8 +16,8 @@ the pointer is at that moment**, in any of the app's windows. The code zone
 "code zoom" setting beside it, so the Preferences font-size row and a ⌘= over
 the editor are two spellings of one value. The terminal zone is
 `terminalFontSize` (default 13 — SwiftTerm's own — so nothing changes until the
-user zooms it) and the interface zone is `interfaceScale` (default 1.0, a
-multiplier), applied through the `\.interfaceMetrics` SwiftUI environment value
+user zooms it) and the interface zone is `interfaceScale` (default 1.5, a
+multiplier; 1.0 is "unscaled"), applied through the `\.interfaceMetrics` SwiftUI environment value
 that every macOS chrome view reads for its fonts, paddings, frames, icon sizes
 and row heights. Every *decision* is Core's and unit-tested; the app layer only
 collects candidates under the pointer, runs one event monitor, offers three menu
@@ -77,7 +77,7 @@ items, and applies the three scales to views.
     step *index* rather than by repeatedly adding `step` to the running value —
     which is what makes the round trip exact: with `step` 0.1, adding and
     subtracting in sequence drifts (1.0 + 0.1 − 0.1 is not 1.0 in binary floating
-    point) and the interface scale would never return to exactly 100%, while an
+    point) and the interface scale would never return to exactly its resting value, while an
     index is recomputed from scratch every time and a final six-decimal `tidy`
     erases the representation error (so a scale reads back as 1.2 rather than
     1.2000000000000002 — in Preferences, in `UserDefaults`, and in the equality
@@ -89,10 +89,23 @@ items, and applies the three scales to views.
     stated once), `.terminalFont` (the same range and step, default 13 because
     that is `NSFont.systemFontSize`, what SwiftTerm already draws at, so a fresh
     install at 100% looks exactly as it does today) and `.interfaceScale`
-    (0.8…2.0, default 1.0, step 0.1 — 0.8 because further down the chrome stops
+    (0.8…2.0, default 1.5, step 0.1 — 0.8 because further down the chrome stops
     being hittable, 2.0 because beyond it the smallest usable window no longer
     fits an ordinary screen, and ten notches across the useful part of the
-    range). `rule(for:)` is the single place the zone → rule mapping lives, so
+    range; the grid is anchored at 1.5 and 1.0 sits five whole steps below it,
+    so "unscaled" stays a stop the stepper and ⌘− land on exactly).
+
+    **The 1.5 default is a deliberate reversal.** The interface zone shipped
+    resting at 1.0 so that adopting the metrics restyled nothing for a user who
+    never zoomed. That guarantee did its job during the sweep; in use, the
+    chrome at its unscaled constants read too small on the displays the app is
+    run on, and every fresh install's first act was to zoom it. So the *resting*
+    value moved to 1.5 while the *unscaled* value stayed 1.0: the guarantee is
+    now stated "at scale 1.0" rather than "at rest", `InterfaceMetrics.unscaled`
+    and the environment's fallback are still 1.0, and only the store's
+    missing-key fallback and the zone's reset (⌘0 over the chrome) resolve to
+    1.5. A stored value — 1.0 included — is never rewritten, so a user who had
+    chosen 100% keeps it across the upgrade. `rule(for:)` is the single place the zone → rule mapping lives, so
     the app layer can step a zone without knowing which property backs it.
     `ZoomScaleRuleTests` pins the three rules' numbers, the mapping, clamping
     (incl. non-finite and not-snapping), stepping at both bounds, stepping by
@@ -171,11 +184,13 @@ items, and applies the three scales to views.
     17 there — which is why the type is documented as the macOS table even though
     it compiles everywhere); a scaled style is no longer `Font.caption`, it is
     "caption's size × the scale", so the sweep needs a number and stating them
-    here keeps the 100% guarantee checkable in `swift test`. Adding a view that
+    here keeps the scale-1.0 guarantee checkable in `swift test`. Adding a view that
     wants another style adds a case with its documented base size.
     `InterfaceMetrics(scale:)` clamps through `ZoomScaleRule.interfaceScale`, so
-    a corrupt or non-finite value can never reach a layout, and `.unscaled` is
-    the resting value the environment defaults to. `font(_:)` rounds to a **whole
+    a corrupt or non-finite value can never reach a layout (a non-finite one
+    collapses to the rule's 1.5 default, inherited from `clamp`), and
+    `.unscaled` — scale 1.0, *not* the zone's 1.5 resting value — is what the
+    environment defaults to. `font(_:)` rounds to a **whole
     point** — rasterization is crispest on integral sizes, fractional sizes buy
     nothing at these magnitudes, and a whole number is what makes `scale == 1`
     return the base size *identically* rather than within a tolerance. `pt(_:)`
@@ -185,7 +200,7 @@ items, and applies the three scales to views.
     app draws on. Zero stays zero, a non-zero metric never rounds away to nothing
     (a hairline separator must survive the bottom of the range), negatives scale
     symmetrically, and at scale 1 the value is returned untouched rather than
-    round-tripped through the grid — so "nothing changes at 100%" holds for *any*
+    round-tripped through the grid — so "nothing changes at scale 1.0" holds for *any*
     metric, not only one already on the grid. Monotonicity rests on the input
     being on the half-point grid, which every layout constant in this app is; an
     off-grid metric can round up on its way down, which is a half point of noise
@@ -194,7 +209,7 @@ items, and applies the three scales to views.
     directly, and multiplying them by the interface scale would make two
     independent zones interact.
     `InterfaceMetricsTests` pins the base table (values *and* their ordering),
-    the two "unchanged at 100%" guarantees — including every style at scale 1
+    the two "unchanged at scale 1.0" guarantees — including every style at scale 1
     returning `basePointSize` *identically*, asserted against the table itself
     rather than against a restated copy of it — clamping, whole-point fonts
     (with the half-point cases that pin the rounding as **nearest**: without
@@ -218,6 +233,47 @@ items, and applies the three scales to views.
     and both must be strictly larger at the top of the range. A margin left
     behind while the text grows is the same island the sweep exists to remove,
     just a quieter one.
+
+  - `ScaledFrameFitRule.swift` — a sheet's scaled minimum and ideal, fitted to
+    the screen it opens on. Scaling a sheet's frame with the interface is what
+    keeps its panes usable at 200%, and at the 1.5 resting value two of them no
+    longer fit a 1440×900 display. `fit(minimum:ideal:available:)` caps the ideal
+    to the available size and the minimum to that capped ideal, **one axis at a
+    time**, so a size that fits comes back unchanged — at scale 1.0 on an
+    ordinary screen nothing moves — and the answer never carries a minimum above
+    its ideal, even when the input did. An available extent that is zero,
+    negative or non-finite, or no screen at all (`nil`), leaves that axis
+    uncapped rather than collapsing the sheet to nothing. The app asks it with
+    the visible frame of the main window's screen, falling back to
+    `NSScreen.main`; the two callers are `CommitDialogView` and
+    `LeetCodeLoginView`. `ScaledFrameFitRuleTests` pins the unchanged fit, the
+    per-axis cap, minimum ≤ ideal, the unknown-screen cases, both sheets coming
+    back unchanged at 1.0 on a 1440×875 visible area, and both coming back
+    inside it at 1.5.
+
+    **The 1.5 audit.** Every macOS `metrics.scaled(N)` minimum, ideal and fixed
+    frame, at 1.5, against a 1440×900 display (visible area ≈ 1440×875). Rows,
+    paddings and widths inside a pane are omitted: they lay out inside one of
+    these.
+
+    | Surface | Frame at 1.0 | At 1.5 | Fits? |
+    |---|---|---|---|
+    | Commit dialog (`CommitDialogView`) | min 900×560, ideal 1000×640 | min 1350×840, ideal 1500×960 | **no** — fitted |
+    | LeetCode login sheet (`LeetCodeLoginView`) | min 520×520, ideal 760×780 | min 780×780, ideal 1140×1170 | **no** — fitted |
+    | Main window floor (`ContentView`) | min 640×400 | 960×600 | yes |
+    | Merge window (`MergeView`) | min 720×420 | 1080×630 | yes |
+    | Local History (`LocalHistoryView`) | min 640×380 | 960×570 | yes |
+    | LeetCode browser (`LeetCodeBrowserView`) | min 620×380 | 930×570 | yes |
+    | Find in Files (`ProjectSearchView`) | min 520×320 | 780×480 | yes |
+    | Preferences page (`SettingsView`) | 640×420 | 960×630 | yes |
+    | New pull request / merge sheets | width 560 | 840 | yes |
+    | LeetCode Open Problem sheet | width 440 | 660 | yes |
+    | Commit author editor | width 360 (min 400) | 540 (600) | yes |
+    | Database viewer column / console | width 160, max height 200 | 240, 300 | yes |
+
+    At 2.0 the window floor (1280×800) and the merge window (1440×840) are at
+    the edge of that screen; the fit rule is applied where 1.5 — the value a
+    fresh install opens at — already overflows, and nowhere else.
 
 ## The macOS app half
 
@@ -413,7 +469,7 @@ items, and applies the three scales to views.
     platform-neutral `Double`s, and `scaledFont` is deliberately a *different
     name* from Core's `font(_:)` rather than an overload, because two functions
     differing only in return type resolve by context and a sweep this wide will
-    eventually find an ambiguous one); **the default is the resting one** (a view
+    eventually find an ambiguous one); **the default is the unscaled one** (a view
     the sweep has not reached, or a preview with no root modifier, reads
     `.unscaled` and draws exactly what it drew before this existed); and
     **code-font sites never come through here** — anything drawn at
@@ -447,8 +503,8 @@ which already declares one.
 **A sheet inherits the environment of the view its `.sheet(…)` is attached to —
 which is not the environment that view's *body* publishes.** Get that backwards
 and the sheet renders at 100% over a window at 200%, which is exactly the
-"island" the sweep exists to prevent, and it looks correct at the resting scale
-where it would be reviewed. Three cases, and only the first needs nothing:
+"island" the sweep exists to prevent, and it looks correct at scale 1.0, where
+it was historically reviewed. Three cases, and only the first needs nothing:
 
 - **Inherits.** The commit dialog: `ContentView` attaches `.sheet` from its own
   body *before* `.interfaceScaled(settings)`, so the injection is genuinely its
@@ -486,10 +542,10 @@ pass while the code it describes was deleted) and asserts:
     nothing by it (the stepper rule below pins its grid) — so the invariant CLAUDE.md
     states ("reaches views only as `InterfaceMetrics`, never multiplied inline")
     has a gate. A view writing `settings.interfaceScale * 8` compiles and looks
-    right at 100%, which is when it would be reviewed.
+    right at scale 1.0, the case it is easiest to review at.
   - **The set of files applying `.interfaceScaled(...)` equals the roots listed
     above**, by set equality in both directions. A new `NSHostingController`
-    root that forgets it silently draws its whole window at the resting size —
+    root that forgets it silently draws its whole window unscaled —
     no error, no warning.
   - **The set of files injecting it a second time, on a presentation's own
     content, equals `{PisakaApp, LeetCodeBrowserView}`** — the two sheets the
