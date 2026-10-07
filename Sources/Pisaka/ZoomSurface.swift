@@ -64,9 +64,30 @@ protocol ZoomSurfaceProviding: AnyObject {
 /// zone anyway. Nothing but a code pane uses this subclass — an
 /// `extension NSScrollView` would have made the project tree and every settings
 /// list a code surface too.
+///
+/// It carries one behaviour beyond the marker: keeping the document clear of the
+/// gutter. On macOS 26+ AppKit tiles a vertical ruler as a leading
+/// `contentInsets.left` on the clip view rather than by narrowing its frame, so
+/// the document's home is `x == -contentInsets.left` — but the framework leaves
+/// the origin at 0, one gutter right of home. `tile()` therefore reads whether
+/// the pane was at home — at or left of the old home, read before `super.tile()`
+/// — and, if the inset changed, moves only that pane to the new home; a pane the
+/// user scrolled right is never re-homed. Where the framework tiles by frame the
+/// inset stays 0, and the ruler-less completion panel has none, so there the
+/// correction is inert. The reasoning is in `core-zoom.md`.
 @MainActor
 final class CodeScrollView: NSScrollView, ZoomSurfaceProviding {
     let zoomSurfaceKind: ZoomSurfaceKind = .code
+
+    override func tile() {
+        let oldInset = contentView.contentInsets.left
+        let wasAtHome = contentView.bounds.origin.x <= -oldInset
+        super.tile()
+        let newInset = contentView.contentInsets.left
+        guard newInset != oldInset, wasAtHome else { return }
+        contentView.scroll(to: NSPoint(x: -newInset, y: contentView.bounds.origin.y))
+        reflectScrolledClipView(contentView)
+    }
 }
 
 /// Marks a region of SwiftUI-drawn content as a zoom surface.

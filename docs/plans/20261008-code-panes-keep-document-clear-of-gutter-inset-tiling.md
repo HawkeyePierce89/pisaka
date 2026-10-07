@@ -37,20 +37,20 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
 **Files:**
 - Modify: `Sources/Pisaka/ZoomSurface.swift`
 
-- [ ] Add `override func tile()` to `CodeScrollView`:
+- [x] Add `override func tile()` to `CodeScrollView`:
   - before `super.tile()`, read `oldInset = contentView.contentInsets.left` and `wasAtHome = contentView.bounds.origin.x <= -oldInset`
   - call `super.tile()`, then read `newInset = contentView.contentInsets.left`
   - if `newInset != oldInset && wasAtHome`, call `contentView.scroll(to: NSPoint(x: -newInset, y: contentView.bounds.origin.y))` and then `reflectScrolledClipView(contentView)`
   - otherwise do nothing
-- [ ] Keep the declaration exactly `@MainActor final class CodeScrollView: NSScrollView, ZoomSurfaceProviding` with `let zoomSurfaceKind: ZoomSurfaceKind = .code`.
-- [ ] Extend the type's doc comment with one short paragraph naming this second behaviour:
+- [x] Keep the declaration exactly `@MainActor final class CodeScrollView: NSScrollView, ZoomSurfaceProviding` with `let zoomSurfaceKind: ZoomSurfaceKind = .code`.
+- [x] Extend the type's doc comment with one short paragraph naming this second behaviour:
   - under inset tiling, home is `-contentInsets.left`
   - "at home" means at or left of the old home, read before `super.tile()`
   - only the at-home case is corrected
   - the correction is inert where the framework tiles by frame and on the ruler-less completion panel
   - point to `core-zoom.md` for the reasoning
-- [ ] Tests for this task: the behavioural suite is in Task 2. Here, run the gates that read this file's shape: `ZoomSourceGatingTests` through `swift test`, and `SyntaxBaseForegroundGatingTests` through the app bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`).
-- [ ] Run `swift test`, the app bundle via `xcodebuild … test`, and `swiftlint --strict`. All must pass before Task 2.
+- [x] Tests for this task: the behavioural suite is in Task 2. Here, run the gates that read this file's shape: `ZoomSourceGatingTests` through `swift test`, and `SyntaxBaseForegroundGatingTests` through the app bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`).
+- [x] Run `swift test`, the app bundle via `xcodebuild … test`, and `swiftlint --strict`. All must pass before Task 2. (swift test and swiftlint clean; the app bundle passes apart from 8 layout failures in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests, which fail identically without this change on this machine.)
 
 ### Task 2: Headless suite pinning the at-home invariant
 
