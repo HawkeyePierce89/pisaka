@@ -43,16 +43,28 @@ enum WelcomeLayout {
 /// The keyboard selection is Core's `WelcomeSelection`: ↑/↓ move through the
 /// flattened rows, Tab jumps to the other column's first row and Return
 /// activates the selected one. The view takes focus when it appears. Every row
-/// is also a real button with its own accessibility label.
+/// is also a real button with its own accessibility label. Moving the
+/// selection scrolls its row into view, so a stacked layout taller than the
+/// window never highlights a row the user cannot see.
+///
+/// The recents and the selection live in a `WelcomeViewState` the window owns,
+/// not in this view: opening or closing a dock panel moves the workspace to a
+/// different branch of `ContentView.mainArea`, which recreates this view, and
+/// that must not reset the selection, reload the recents or take focus from
+/// the panel. The state is loaded once per showing; focus is taken on its first
+/// appear and again whenever the view reappears with the dock closed, since
+/// closing the dock removed whatever held focus.
 struct WelcomeView: View {
     /// Fetches the MRU project list. Read when the view appears, never per
     /// body evaluation: it reads the session catalog and checks each folder.
     var recentProjects: () -> [RecentProject] = { [] }
     var onAction: (WelcomeAction) -> Void = { _ in }
     var onOpenRecent: (URL) -> Void = { _ in }
+    @ObservedObject var state = WelcomeViewState()
+    /// Whether a dock panel is open below this view — read on appear, to tell
+    /// a dock closing (take focus back) from one opening (leave it there).
+    var isDockOpen = false
 
-    @State private var recents: [RecentProject] = []
-    @State private var selection = WelcomeSelection(recents: [])
     @FocusState private var isFocused: Bool
 
     @Environment(\.interfaceMetrics) private var metrics
@@ -60,14 +72,20 @@ struct WelcomeView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView {
-                content
-                    .frame(maxWidth: metrics.scaled(WelcomeLayout.contentMaxWidth))
-                    .padding(metrics.scaled(WelcomeLayout.contentPadding))
-                    // Centred both ways while the content fits; once it does
-                    // not, the minimum height is the viewport's and the scroll
-                    // view takes over.
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            ScrollViewReader { scroller in
+                ScrollView {
+                    content
+                        .frame(maxWidth: metrics.scaled(WelcomeLayout.contentMaxWidth))
+                        .padding(metrics.scaled(WelcomeLayout.contentPadding))
+                        // Centred both ways while the content fits; once it
+                        // does not, the minimum height is the viewport's and
+                        // the scroll view takes over.
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                }
+                .onChange(of: selection.selectedIndex) { _, index in
+                    guard let index else { return }
+                    scroller.scrollTo(index)
+                }
             }
         }
         .background(theme.color(.bgCanvas))
@@ -75,9 +93,12 @@ struct WelcomeView: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onAppear {
-            recents = WelcomeScreen.recents(recentProjects())
-            selection = WelcomeSelection(recents: recents.map(\.url))
-            isFocused = true
+            let isFirstAppear = !state.isLoaded
+            if isFirstAppear { state.load(WelcomeScreen.recents(recentProjects())) }
+            // A later appear is a dock panel opening or closing. Closing one
+            // takes the focused panel away with it, so focus comes back here;
+            // opening one leaves focus with the panel.
+            if isFirstAppear || !isDockOpen { isFocused = true }
         }
         .onKeyPress(.downArrow) {
             selection = selection.movedDown()
@@ -100,6 +121,13 @@ struct WelcomeView: View {
             activate(target)
             return .handled
         }
+    }
+
+    private var recents: [RecentProject] { state.recents }
+
+    private var selection: WelcomeSelection {
+        get { state.selection }
+        nonmutating set { state.selection = newValue }
     }
 
     private var content: some View {
@@ -158,6 +186,7 @@ struct WelcomeView: View {
                     selection = selection.selecting(index)
                     activate(.action(action))
                 }
+                .id(index)
             }
         }
     }
@@ -179,6 +208,7 @@ struct WelcomeView: View {
                         selection = selection.selecting(index)
                         activate(.recent(project.url))
                     }
+                    .id(index)
                 }
             }
         }
@@ -239,6 +269,29 @@ struct WelcomeView: View {
         case .action(let action): onAction(action)
         case .recent(let url): onOpenRecent(url)
         }
+    }
+}
+
+/// The Welcome screen's state across recreations of `WelcomeView`: the
+/// recents read when it was first shown and the keyboard selection over them.
+/// `ContentView` owns one and resets it whenever the Welcome screen stops
+/// showing, so the next showing reads the recents afresh.
+final class WelcomeViewState: ObservableObject {
+    @Published private(set) var recents: [RecentProject] = []
+    @Published var selection = WelcomeSelection(recents: [])
+    /// Whether this showing has read its recents (and taken focus) yet.
+    private(set) var isLoaded = false
+
+    func load(_ recents: [RecentProject]) {
+        self.recents = recents
+        selection = WelcomeSelection(recents: recents.map(\.url))
+        isLoaded = true
+    }
+
+    func reset() {
+        recents = []
+        selection = WelcomeSelection(recents: [])
+        isLoaded = false
     }
 }
 

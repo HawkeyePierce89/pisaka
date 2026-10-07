@@ -722,6 +722,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     empty, negative or non-finite answers `nil` — the window keeps the scene's
     frame rather than collapsing — and a non-finite minimum is ignored. Applied
     only on the missing-key path of `MainWindowFrameAutosave` (`app-shell.md`).
+    `isRestorable(_:)` decides what counts as missing: a saved descriptor is
+    restorable only when it is all whitespace-separated finite numbers,
+    exactly four (the frame) or exactly eight (the frame and its screen, what
+    `frameDescriptor` writes), with a positive width and height for the frame
+    and — with eight — for the screen too. Those are the shapes
+    `setFrame(from:)` applies (probed: five to seven fields, or a screen with
+    no area, leave the window untouched; nine or more are refused because no
+    writer produces them). Anything else is treated by the app exactly as an
+    absent key, because `setFrame(from:)` reports nothing.
     On a 1440×875 visible frame the answer is 1080×656 at (180, 109). Covered by
     `MainWindowInitialFrameRuleTests`.
   - `WelcomeScreen.swift` — every decision behind the macOS Welcome screen,

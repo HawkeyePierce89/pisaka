@@ -134,20 +134,31 @@ private enum MainWindowFramePersistence {
         }
     }
 
-    /// A saved descriptor always wins; only when the key is missing is the
-    /// precomputed first-launch frame applied (and only if Core had an answer).
+    /// A saved descriptor always wins; only when there is none — the key
+    /// missing, or holding a malformed value — is the precomputed first-launch
+    /// frame applied (and only if Core had an answer).
     private static func restore(_ window: NSWindow, initialFrame: NSRect?) {
-        guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey) else {
+        guard let descriptor = savedDescriptor() else {
             if let initialFrame { window.setFrame(initialFrame, display: false) }
             return
         }
         window.setFrame(from: descriptor)
     }
 
+    /// The saved descriptor, or `nil` when the key is missing or its value is
+    /// one Core does not consider restorable. `setFrame(from:)` reports
+    /// nothing, so a corrupted value is refused here rather than left to
+    /// silently keep the scene's small default.
+    private static func savedDescriptor() -> String? {
+        guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey),
+              MainWindowInitialFrameRule.isRestorable(descriptor) else { return nil }
+        return descriptor
+    }
+
     /// Core's first-launch frame for `window` on its screen, or `nil` when a
     /// frame is saved (the rule is not asked at all) or no screen is known.
     private static func firstLaunchFrame(for window: NSWindow, contentMinimum: CGSize) -> NSRect? {
-        guard UserDefaults.standard.string(forKey: defaultsKey) == nil else { return nil }
+        guard savedDescriptor() == nil else { return nil }
         guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return nil }
         let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentMinimum)).size
         let frame = MainWindowInitialFrameRule.frame(

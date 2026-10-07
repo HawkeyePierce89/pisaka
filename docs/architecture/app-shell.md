@@ -1499,7 +1499,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     deliberately persist nothing and center per use instead.
 
     **The first-launch fallback.** When the `MainWindowFrame` key is missing —
-    a fresh install, or the key deleted — `restore` no longer leaves the scene's
+    a fresh install, or the key deleted — or holds a descriptor
+    Core's `MainWindowInitialFrameRule.isRestorable` refuses (empty, not all
+    numbers, a field count other than four or eight, or a non-positive frame
+    or screen size — checked before the
+    call, because `setFrame(from:)` returns nothing and would otherwise fail
+    silently) — `restore` no longer leaves the scene's
     small corner default: it applies the frame Core's
     `MainWindowInitialFrameRule` (`core-services.md`) computes, 75% of the
     screen's visible frame on each axis, raised to the window's minimum, capped

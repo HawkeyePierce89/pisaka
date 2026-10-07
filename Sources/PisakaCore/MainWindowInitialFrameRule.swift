@@ -11,8 +11,9 @@ import Foundation
 /// secondary display) is respected. Extents are whole points, rounded down, so
 /// the frame never spills a fraction of a point past the visible frame.
 ///
-/// A saved descriptor always wins; the app asks this rule only on the
-/// missing-key path (`MainWindowFrameAutosave.swift`, pinned by
+/// A saved descriptor always wins — provided it is well formed
+/// (`isRestorable(_:)`); a malformed one counts as missing. The app asks this
+/// rule only on the missing-key path (`MainWindowFrameAutosave.swift`, pinned by
 /// `MainWindowFrameSourceGatingTests`). A visible frame that is empty, negative
 /// or non-finite has no answer (`nil`): the window keeps whatever frame the
 /// scene gave it rather than collapsing to nothing.
@@ -49,6 +50,25 @@ public enum MainWindowInitialFrameRule {
             width: width,
             height: height
         )
+    }
+
+    /// Whether a saved frame descriptor has a shape `setFrame(from:)` applies:
+    /// whitespace-separated finite numbers, **exactly four** (the frame alone)
+    /// or **exactly eight** (the frame and the screen's, which is what
+    /// `NSWindow.frameDescriptor` writes), the frame's width and height
+    /// positive and — with eight — the screen's too. AppKit leaves the window
+    /// untouched for any other count (five, six, seven) and for a screen with
+    /// no area, and `setFrame(from:)` reports nothing, so such a value would
+    /// otherwise silently keep the scene's small default; the app treats one
+    /// this refuses exactly as a missing key. Nine or more fields, which
+    /// AppKit would read past, are refused too: no writer produces them.
+    public static func isRestorable(_ descriptor: String) -> Bool {
+        let fields = descriptor.split(whereSeparator: \.isWhitespace)
+        let numbers = fields.compactMap { Double($0) }
+        guard numbers.count == fields.count, numbers.count == 4 || numbers.count == 8,
+              numbers.allSatisfy(\.isFinite) else { return false }
+        let sizes = numbers.count == 8 ? [numbers[2], numbers[3], numbers[6], numbers[7]] : [numbers[2], numbers[3]]
+        return sizes.allSatisfy { $0 > 0 }
     }
 
     private static func extent(of available: Double, minimum: Double) -> Double {

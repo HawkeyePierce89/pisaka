@@ -756,7 +756,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     - The "Start" column: one row per `WelcomeAction`, each a glyph, the display
       title, and the chord's display string right-aligned.
     - The "Recent" column: `WelcomeScreen.recents(recentProjects())`, read once
-      in `onAppear` and never per body evaluation, because the fetch reads the
+      per showing in `onAppear` and never per body evaluation, because the fetch reads the
       session catalog and checks each folder on disk. A row shows the folder name
       over its middle-truncated path. When the list is empty, the column shows
       the hint "Open a folder to get started — it will appear here next time".
@@ -779,11 +779,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     widths and falls back to a stacked layout; the footer does the same. Every
     size goes through `metrics`, every colour through a role (`core-theme.md`,
     *The Welcome screen*), and every glyph through `DesignGlyph`.
+    **State outlives the view.** The recents and the selection live in a
+    `WelcomeViewState` that `ContentView` owns as a `@StateObject`, not in the
+    view: opening or closing a dock panel moves `workspace` between
+    `mainArea`'s two branches, which recreates `WelcomeView`, and that must not
+    reset the selection, re-read the recents or take focus from the panel just
+    opened. `onAppear` loads the state only when it is not loaded yet;
+    `ContentView` resets it when `WelcomeScreen.shows` turns false, so the next
+    showing reads the recents afresh. Focus is taken on the showing's first
+    appear and on any later one with the dock closed (`isDockOpen`, passed by
+    `ContentView` as `visiblePanel != nil`): closing a panel removes the view
+    that held focus, so without it ↑/↓/Return would be dead until a click,
+    while opening one leaves focus with the panel.
     **Keyboard.** The view is focusable, with its focus ring suppressed, and
-    takes focus on appear. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
+    takes focus on its showing's first appear and whenever it reappears with
+    the dock closed. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
     other column's first row — or, when that column is empty, is ignored so
     ordinary focus navigation takes it — and Return activates the selected target: an
-    action, or a recent folder's URL. Every row is also a real `Button` with an
+    action, or a recent folder's URL. Every row carries its flattened index as
+    its `id`, and a selection change scrolls that row into view through a
+    `ScrollViewReader`, so the stacked layout at the minimum window never
+    highlights — or lets Return open — a row below the viewport. Every row is also a real `Button` with an
     accessibility label (the title or folder name) and value (the chord or
     path). It declares no zoom surface and sits under ContentView's existing
     interface root, so `ZoomSourceGatingTests` is unchanged.

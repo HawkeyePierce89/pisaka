@@ -19,10 +19,13 @@ import XCTest
 /// 5. The compiler cannot enforce that the five auxiliary windows do *not* persist a frame and instead
 ///    continue to use `.center()`.
 /// 6. The compiler cannot enforce that Core's `MainWindowInitialFrameRule` is reached **only on the
-///    missing-key path**: asked only past a guard that the saved key is absent, named in exactly one
-///    app file, and applied by `restore` only in the `else` of the guard that reads the stored
+///    missing-key path**: asked only past a guard that no saved descriptor exists, named in exactly
+///    one app file, and applied by `restore` only in the `else` of the guard that reads the stored
 ///    descriptor — so the stored descriptor is tried first and always wins. Applying the rule
 ///    unconditionally compiles fine and resizes every returning user's window on every launch.
+///    Both guards read one `savedDescriptor()`, which reads the key and refuses a value Core's
+///    `isRestorable` rejects — so a malformed descriptor counts as missing on both paths alike,
+///    rather than suppressing the fallback while `setFrame(from:)` silently does nothing.
 ///
 /// Every rule reads comment- and literal-stripped text; none of them has a literal as its subject.
 final class MainWindowFrameSourceGatingTests: XCTestCase {
@@ -186,7 +189,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     func testTheInitialFrameRuleIsAskedOnlyPastTheMissingKeyGuard() throws {
         let body = try functionBody(named: "firstLaunchFrame")
         let guardLine = try XCTUnwrap(
-            body.firstIndex { $0 == "guard UserDefaults.standard.string(forKey: defaultsKey) == nil else { return nil }" },
+            body.firstIndex { $0 == "guard savedDescriptor() == nil else { return nil }" },
             "firstLaunchFrame must open by refusing when the saved key is present"
         )
         let ruleCall = try XCTUnwrap(
@@ -203,7 +206,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     func testTheStoredDescriptorIsAppliedFirstAndAlwaysWins() throws {
         let body = try functionBody(named: "restore")
         let descriptorGuard = try XCTUnwrap(
-            body.firstIndex { $0 == "guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey) else {" },
+            body.firstIndex { $0 == "guard let descriptor = savedDescriptor() else {" },
             "restore must open by reading the stored descriptor"
         )
         let initialApply = try XCTUnwrap(
@@ -225,6 +228,21 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         // branch is that one statement, so the frame cannot be applied on the
         // saved-key path by a statement slipped in front of it.
         XCTAssertEqual(initialApply, descriptorGuard + 1)
+    }
+
+    func testTheSavedDescriptorIsReadOnceAndRefusedWhenCoreRejectsIt() throws {
+        let body = try functionBody(named: "savedDescriptor")
+        let read = try XCTUnwrap(
+            body.firstIndex { $0 == "guard let descriptor = UserDefaults.standard.string(forKey: defaultsKey)," },
+            "savedDescriptor must open by reading the saved key"
+        )
+        XCTAssertEqual(
+            body[read + 1], "MainWindowInitialFrameRule.isRestorable(descriptor) else { return nil }",
+            "the same guard must refuse a descriptor Core does not consider restorable"
+        )
+        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
+        let reads = try significantLines(of: url).filter { $0.contains("UserDefaults.standard.string(forKey:") }
+        XCTAssertEqual(reads.count, 1, "the saved key is read only through savedDescriptor()")
     }
 
     func testBothRestoresApplyTheOneComputedAnswer() throws {

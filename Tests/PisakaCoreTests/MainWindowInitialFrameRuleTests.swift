@@ -101,4 +101,43 @@ final class MainWindowInitialFrameRuleTests: XCTestCase {
             XCTAssertEqual(value, value.rounded(.down))
         }
     }
+
+    // MARK: - A saved descriptor is restorable only when well formed
+
+    func testADescriptorFrameDescriptorWritesIsRestorable() {
+        XCTAssertTrue(Rule.isRestorable("180 109 1080 656 0 0 1440 875 "))
+        XCTAssertTrue(Rule.isRestorable("-1200.5 30 960 600 -1440 0 1440 900"))
+        XCTAssertTrue(Rule.isRestorable("0 0 960 600"))
+    }
+
+    func testAnEmptyOrCorruptedDescriptorIsNotRestorable() {
+        XCTAssertFalse(Rule.isRestorable(""))
+        XCTAssertFalse(Rule.isRestorable("   "))
+        XCTAssertFalse(Rule.isRestorable("garbage"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080"))
+        XCTAssertFalse(Rule.isRestorable("180 109 wide 656 0 0 1440 875"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 nan 0 0 1440 875"))
+        XCTAssertFalse(Rule.isRestorable("180 109 inf 656"))
+    }
+
+    func testADescriptorWithoutAPositiveSizeIsNotRestorable() {
+        XCTAssertFalse(Rule.isRestorable("180 109 0 656 0 0 1440 875"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 -656 0 0 1440 875"))
+    }
+
+    /// AppKit applies four fields or eight and leaves the window untouched for
+    /// any count between (probed against `setFrame(from:)`), so those are
+    /// refused rather than passed through to a silent no-op.
+    func testADescriptorWithAFieldCountAppKitRefusesIsNotRestorable() {
+        XCTAssertFalse(Rule.isRestorable("1 2 3 4 5"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0 1440"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0 1440 875 7"))
+    }
+
+    func testADescriptorWhoseScreenHasNoAreaIsNotRestorable() {
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0 0 0"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0 -5 875"))
+        XCTAssertFalse(Rule.isRestorable("180 109 1080 656 0 0 1440 0"))
+    }
 }

@@ -291,6 +291,11 @@ struct ContentView: View {
     /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
     /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
+    /// The Welcome screen's recents and selection, held here because
+    /// `WelcomeView` is recreated whenever a dock panel opens or closes (the
+    /// workspace moves between `mainArea`'s branches). Reset when the Welcome
+    /// screen stops showing, so its next showing reads the recents afresh.
+    @StateObject private var welcomeState = WelcomeViewState()
     /// Where the focused editor's caret is, for the bottom bar's readout.
     /// Held as `@State` rather than `@StateObject` on purpose: this view never
     /// reads it, so a caret move must not re-evaluate the whole window root —
@@ -435,6 +440,9 @@ struct ContentView: View {
         // `mainArea`, and nothing inside `mainArea` may paint over it.
         VStack(spacing: 0) {
             mainArea
+                .onChange(of: showsWelcome) { _, shows in
+                    if !shows { welcomeState.reset() }
+                }
             // No `Divider()` here: the bar draws its own one-point `hairline`
             // along its top edge, so the rule is in the palette's value rather
             // than the platform's (part two's precedent). Keeping a rule at all
@@ -646,15 +654,21 @@ struct ContentView: View {
     /// the bottom bar stay the same around either.
     @ViewBuilder
     private var workspace: some View {
-        if WelcomeScreen.shows(projectRoot: model.projectRoot, openFileCount: model.openFiles.count) {
+        if showsWelcome {
             WelcomeView(
                 recentProjects: recentProjects,
                 onAction: performWelcomeAction,
-                onOpenRecent: onOpenRecentProject
+                onOpenRecent: onOpenRecentProject,
+                state: welcomeState,
+                isDockOpen: visiblePanel != nil
             )
         } else {
             editorSplit
         }
+    }
+
+    private var showsWelcome: Bool {
+        WelcomeScreen.shows(projectRoot: model.projectRoot, openFileCount: model.openFiles.count)
     }
 
     /// One Welcome row, routed to the closure the scene wired for the menu item
