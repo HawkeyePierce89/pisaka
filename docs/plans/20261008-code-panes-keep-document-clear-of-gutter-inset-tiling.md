@@ -80,7 +80,7 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
 **Files:**
 - Modify: `docs/architecture/core-zoom.md`
 
-- [ ] In the `ZoomSurface.swift` entry, add a paragraph saying that `CodeScrollView` now carries one behaviour beyond its marker. Cover:
+- [x] In the `ZoomSurface.swift` entry, add a paragraph saying that `CodeScrollView` now carries one behaviour beyond its marker. Cover:
   - the macOS 26+ inset tiling and its home position of `-contentInsets.left`
   - why the fix lives in `tile()` rather than in a scroll path: the framework applies the inset there and leaves the origin at 0, and no app scroll runs first
   - what was ruled out:
@@ -93,8 +93,8 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
   - that the correction is inert under frame tiling and on the completion panel
   - the cross-cutting invariant: after every tile, a pane at home sits at `x == -contentInsets.left`
   - that `CodeScrollViewHomeTests` pins it, including why its scrolled-right assertion is deliberately weaker than exact preservation
-- [ ] Confirm CLAUDE.md needs no new index name. The suite is app-bundle only and is not in the `swift test` source-gating list.
-- [ ] Run `swift test` (including `LintConfigurationTests`). It must pass before Task 4.
+- [x] Confirm CLAUDE.md needs no new index name. The suite is app-bundle only and is not in the `swift test` source-gating list.
+- [x] Run `swift test` (including `LintConfigurationTests`). It must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
 
