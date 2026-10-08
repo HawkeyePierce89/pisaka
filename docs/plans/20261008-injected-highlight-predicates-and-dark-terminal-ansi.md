@@ -112,15 +112,15 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 - Create: `Tests/PisakaAppTests/Fixtures/injected-shell.md`
 - Create: `Tests/PisakaAppTests/Fixtures/injected-shell.sh` (the same lines, standalone)
 
-- [ ] Write the fixtures. Each carries `@command -v swiftlint …`, an `echo "…"` with a quoted string, and a `-flag` argument. The Markdown fixture wraps these lines in a ```` ```sh ```` fence, and the `.sh` file holds them bare.
-- [ ] Obtain highlights the way the editor does: through the editor's own entry point, built from `SyntaxLanguageConfiguration.configuration(for:)` and `configuration(forInjectionName:)`, and along the highlight path Task 1 identified. That way the test fails for the real cause, not for a reimplementation of it.
-- [ ] For both the Makefile and the Markdown fence, assert that:
+- [x] Write the fixtures. Each carries `@command -v swiftlint …`, an `echo "…"` with a quoted string, and a `-flag` argument. The Markdown fixture wraps these lines in a ```` ```sh ```` fence, and the `.sh` file holds them bare.
+- [x] Obtain highlights the way the editor does: through the editor's own entry point, built from `SyntaxLanguageConfiguration.configuration(for:)` and `configuration(forInjectionName:)`, and along the highlight path Task 1 identified. That way the test fails for the real cause, not for a reimplementation of it.
+- [x] For both the Makefile and the Markdown fence, assert that:
   - the quoted string's range carries no `constant` capture (it is `string`);
   - `command` is not `constant`;
   - `-v` is `constant`.
-- [ ] Assert that the injected capture set over the shell lines equals the standalone `.sh` capture set, once ranges are offset to the block.
-- [ ] Run the app bundle and confirm the new test fails on master for the reason Task 1 pinned.
-- [ ] Add a doc comment saying why only the app bundle can see this: Core does not link tree-sitter.
+- [x] Assert that the injected capture set over the shell lines equals the standalone `.sh` capture set, once ranges are offset to the block.
+- [x] Run the app bundle and confirm the new test fails on master for the reason Task 1 pinned.
+- [x] Add a doc comment saying why only the app bundle can see this: Core does not link tree-sitter.
 
 ### Task 3: Fix the injection highlight path so predicates are always resolved
 
