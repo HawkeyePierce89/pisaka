@@ -96,6 +96,25 @@ final class SplitPaneRuleTests: XCTestCase {
         XCTAssertEqual(rule.extent(base: 240, dragTranslation: .nan, available: 1000), 240)
     }
 
+    // MARK: - Assistive adjustment
+
+    func testAnAdjustmentMovesOneStepThroughTheSameClamp() {
+        XCTAssertEqual(rule.extent(base: 240, adjusting: .increment, step: 10, available: 1000), 250)
+        XCTAssertEqual(rule.extent(base: 240, adjusting: .decrement, step: 10, available: 1000), 230)
+        XCTAssertEqual(rule.extent(base: 355, adjusting: .increment, step: 10, available: 1000), 360)
+        XCTAssertEqual(rule.extent(base: 185, adjusting: .decrement, step: 10, available: 1000), 180)
+        // The trailing minimum wins over an increment exactly as over a drag.
+        let ceiling = rule.upperBound(available: 500)
+        XCTAssertEqual(rule.extent(base: ceiling, adjusting: .increment, step: 10, available: 500), ceiling)
+    }
+
+    func testAnUnusableStepLeavesTheBase() {
+        for step in [0.0, -10, .nan, .infinity] {
+            XCTAssertEqual(rule.extent(base: 240, adjusting: .increment, step: step, available: 1000), 240)
+            XCTAssertEqual(rule.extent(base: 240, adjusting: .decrement, step: step, available: 1000), 240)
+        }
+    }
+
     // MARK: - Degenerate inputs
 
     func testAnUnusableAvailableExtentCollapsesToZero() {

@@ -80,6 +80,24 @@ public struct SplitPaneRule: Equatable, Hashable, Sendable {
         return extent(proposed: base + dragTranslation, available: available)
     }
 
+    /// Which way an assistive adjustment moves the divider: an increment grows
+    /// the leading pane, a decrement shrinks it, the drag's sign convention.
+    public enum Adjustment: Equatable, Hashable, Sendable {
+        case increment
+        case decrement
+    }
+
+    /// The extent an assistive adjustment — VoiceOver's increment/decrement,
+    /// switch control — reaches from `base`: one `step` along the drag's
+    /// convention, through the same clamp, so the divider moved without a
+    /// pointer can reach exactly the extents a drag can and no others. A step
+    /// that is non-finite or not positive leaves the base where it is.
+    public func extent(base: Double, adjusting adjustment: Adjustment, step: Double, available: Double) -> Double {
+        guard step.isFinite, step > 0 else { return extent(proposed: base, available: available) }
+        let translation = adjustment == .increment ? step : -step
+        return extent(base: base, dragTranslation: translation, available: available)
+    }
+
     /// A bound that arrived non-finite or negative contributes nothing rather
     /// than poisoning every comparison below it.
     private func sanitized(_ value: Double) -> Double {

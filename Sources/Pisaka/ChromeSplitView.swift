@@ -8,6 +8,8 @@ import SwiftUI
 enum ChromeSplitStrip {
     /// The drag strip's thickness, unscaled.
     static let thickness: Double = 5
+    /// How far one assistive increment or decrement moves the divider, unscaled.
+    static let adjustmentStep: Double = 10
 }
 
 /// Width a view inside a horizontal split's trailing pane needs **beyond** the
@@ -49,6 +51,12 @@ struct ChromeSplitTrailingDemand: PreferenceKey {
 /// only by `syncDividerCursor()`, and `.onDisappear` releases it (rule
 /// twenty-two): a split leaving the tree with the pointer on the strip, or
 /// mid-drag, gets neither a hover exit nor a drag end.
+///
+/// **Accessibility.** The strip is one adjustable element — what the platform
+/// split's divider was, an `AXSplitter` — so VoiceOver and switch control can
+/// find it and move it without a pointer. Its value is the leading pane's
+/// share of the panes' extent, and each increment or decrement moves the
+/// divider one scaled `adjustmentStep` through `SplitPaneRule`, the drag's clamp.
 struct ChromeSplitView<Leading: View, Trailing: View>: View {
     @Environment(\.interfaceMetrics) private var metrics
     @Environment(\.chromeTheme) private var theme
@@ -192,6 +200,30 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
                         syncDividerCursor()
                     }
             )
+            .accessibilityElement()
+            .accessibilityLabel(axis == .horizontal ? "Vertical split divider" : "Horizontal split divider")
+            .accessibilityValue(accessibilityShare(available: available))
+            .accessibilityAdjustableAction { direction in
+                let adjustment: SplitPaneRule.Adjustment
+                switch direction {
+                case .increment: adjustment = .increment
+                case .decrement: adjustment = .decrement
+                @unknown default: return
+                }
+                proposedExtent = CGFloat(rule.extent(
+                    base: Double(renderedExtent(available: available)),
+                    adjusting: adjustment,
+                    step: Double(metrics.scaled(ChromeSplitStrip.adjustmentStep)),
+                    available: Double(available)
+                ))
+            }
+    }
+
+    /// The leading pane's share of the panes' extent, as VoiceOver reads it.
+    private func accessibilityShare(available: CGFloat) -> String {
+        guard available > 0 else { return "0%" }
+        let share = Double(renderedExtent(available: available) / available)
+        return share.formatted(.percent.precision(.fractionLength(0)))
     }
 
     /// Pushes or pops the resize cursor so that exactly one push of ours is on

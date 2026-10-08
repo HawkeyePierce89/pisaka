@@ -234,8 +234,12 @@ two new geometry tokens) and each with its readers pinned by a gating
     as that rule's: an unusable `available` collapses to zero, an unusable
     translation leaves the base, a non-finite proposal falls back to the ideal,
     and a non-finite or negative bound contributes nothing. Every value arrives
-    interface-scaled, so Core stays scale-agnostic. `SplitPaneRuleTests` pin the
-    one-to-one drag, the zero translation, both ends of the clamp, the
+    interface-scaled, so Core stays scale-agnostic.
+    `extent(base:adjusting:step:available:)` is the assistive path — VoiceOver's
+    increment/decrement moves one step along the drag's sign convention through
+    the same clamp, so a divider moved without a pointer reaches exactly the
+    extents a drag can, and an unusable step leaves the base. `SplitPaneRuleTests` pin the
+    one-to-one drag, the one-step adjustment, the zero translation, both ends of the clamp, the
     shortfall, the `0...available` bound over a sweep, and the degenerate
     inputs.
   - `ChromeAppearance.swift` — `dark` / `light`, and no third value: the palette
@@ -2903,7 +2907,13 @@ the resize cursor's push and pop through `syncDividerCursor()`, and
 `.onDisappear` clears hover and drag state and calls it, so the file is the
 seventh entry in rule twenty-two's pinned set. The host applies no
 `.clipped()`, `.clipShape` or `.mask`: a clip is what cost the platform split's
-panes the window's top safe-area inset (`BottomDockColumn`). A three-pane
+panes the window's top safe-area inset (`BottomDockColumn`). The strip is
+one adjustable accessibility element — the platform split's divider was an
+`AXSplitter`, so a hand-drawn strip that stayed a bare gesture would have cost
+VoiceOver and switch-control users every resize — labelled by axis, valued as
+the leading pane's share of the panes' extent, and each increment or decrement
+moves it one scaled 10-pt `ChromeSplitStrip.adjustmentStep` through
+`SplitPaneRule`. A three-pane
 layout nests a second split as the trailing pane — the main window's tree,
 tab column and editor do. A pane inside the trailing side whose width the
 caller cannot see reports it through `ChromeSplitTrailingDemand`, and every
