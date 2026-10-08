@@ -383,12 +383,12 @@ All six colours stay at or above 3:1 in both appearances.
 
 ### Task 14: Update documentation
 
-- [ ] Update `CLAUDE.md`:
+- [x] Update `CLAUDE.md`: (index lines and theme counts were already current; added the Make parser note; 51.9k characters)
   - add the new Core and app files (`CodeZoneCheckboxRule.swift`, `SplitPaneRule.swift`, `ChromeSplitView.swift`) to the `core-theme.md` index lines;
   - in the theme invariant, update the counts and drop "the unspent roles";
   - in the conventions, note that the Make grammar's parser is now generated here;
   - keep the file under 60,000 characters.
-- [ ] Update `README.md` and `docs/FEATURES.md` only if their user-facing descriptions mention the dividers or the bracket-pair colour.
+- [x] (no change needed: both only say "draggable divider" and "a background", still accurate) Update `README.md` and `docs/FEATURES.md` only if their user-facing descriptions mention the dividers or the bracket-pair colour.
 
 ## Post-Completion (manual)
 

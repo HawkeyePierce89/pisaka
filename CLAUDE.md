@@ -588,7 +588,8 @@ owed are documented in `docs/RELEASING.md`.
 - **Five tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
   directory content is the pin), for five different reasons, each recorded in full in its
   package's `VENDORED.md` — Make's because upstream ships no SwiftPM manifest and the pin is a
-  commit past the newest tag. Two of them carry a **mandatory verification recipe re-run on
+  commit past the newest tag; its parser is **generated here** from an edited `grammar.js`,
+  never hand-edited, with the pinned generator recorded there. Two of them carry a **mandatory verification recipe re-run on
   every grammar update**, because both failure modes of a hand-written query are silent. The
   *static* half of that verification is automated; the *runtime* half needs a dependency Core
   deliberately does not link, so the recipe stays manual.
