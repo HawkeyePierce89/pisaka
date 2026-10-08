@@ -1107,13 +1107,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     otherwise a superseded request in flight at a tab switch would start a
     full-document request through the old grammar, whose stale-generation
     attributes would wipe the live colouring.
-    **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
-    of one language as **one combined layer**, and a Make recipe line's
-    `shell_text` ends before its newline, so bash reads the end of one recipe
-    line and the start of the next as one word (`exit 1` + `echo` → `1echo`): the
-    first word of each continuation line loses its `function` capture. Fixing it
-    would need a query or remote-package change; the test pins the loss exactly
-    (`makeCombinedLayerLosses`) so it cannot change unnoticed.
+    **Combined layers and line ends.** SwiftTreeSitterLayer parses every
+    injection of one language as **one combined layer**, so the included ranges
+    must carry each line's newline or bash reads the end of one range and the
+    start of the next as one word. A Make recipe line's `shell_text` used to end
+    before its newline, which joined `exit 1` and the next line's `echo` into
+    `1echo` and cost every continuation line's first word its `function`
+    capture. The vendored Make grammar now aliases a hidden `_shell_line`
+    (line text + newline) to `shell_text` and `shell_command`
+    (`Vendor/TreeSitterMake/VENDORED.md` records the edit and its regeneration),
+    so the ranges include the newline and `testAMakeRecipePaintsLikeTheStandaloneScript`
+    asserts the recipe paints exactly what the standalone script paints. A
+    query-only fix was not available (the newline is an unnamed token inside a
+    hidden rule) and neither was an app-side one (the layer exposes no hook to
+    transform ranges). Markdown needs nothing: `code_fence_content` already
+    includes its line endings, which
+    `testTwoAdjacentShellFencesPaintLikeTheStandaloneScript` confirms over two
+    `sh` fences splitting the same three lines with prose between them.
     **Injection reach (enumerated 2026-10-08).** Every injection Pisaka resolves
     goes through `configuration(forInjectionName:)` — `markdown_inline` by name,
     anything else by `SyntaxLanguage` raw value, extension or file name — and an
@@ -1129,7 +1139,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       none.
     - **Markdown inline** → `html` (none); `latex` → `nil`.
     - **Make** → `bash` for recipe lines and `$(shell …)` bodies → Shell
-      (`#match?`), the suite's original subject.
+      (`#match?`), the suite's original subject, compared capture for capture
+      against the standalone script — as are one Markdown `sh` fence and two
+      adjacent ones splitting the same lines.
     - **HTML** → `javascript` in `<script>` (`#match?`, `#eq?`, `#is-not?`) and
       `css` in `<style>` (`#match?`).
     - **JavaScript** → a tagged template's tag names its language (`css`…``

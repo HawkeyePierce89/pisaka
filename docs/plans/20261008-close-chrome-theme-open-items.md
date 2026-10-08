@@ -362,14 +362,14 @@ All six colours stay at or above 3:1 in both appearances.
 - Create: `Tests/PisakaAppTests/Fixtures/injected-shell-two-fences.md`
 - Modify: `docs/architecture/app-editor-overlays.md`
 - [x] Delete `makeCombinedLayerLosses`. (done in Task 11: the grammar fix made the exactly-pinned loss fail the app gate) The Make case now asserts that the injected captures equal the standalone `.sh` captures exactly, over the same fixture, so every recipe line's first word carries `function`.
-- [ ] Add a Markdown fixture with two adjacent `sh` fences that split the same three lines between them, with prose in between.
-- [ ] Assert that every first word matches the standalone captures. The expected result is no loss, because `code_fence_content` includes its line endings.
-- [ ] If the fence case does show a loss, stop and report it as an open item. The Markdown grammars are out of scope, so this plan cannot fix it.
-- [ ] Update the docs:
+- [x] Add a Markdown fixture with two adjacent `sh` fences that split the same three lines between them, with prose in between.
+- [x] Assert that every first word matches the standalone captures. The expected result is no loss, because `code_fence_content` includes its line endings.
+- [x] If the fence case does show a loss, stop and report it as an open item. The Markdown grammars are out of scope, so this plan cannot fix it. (no loss: the two-fence case paints exactly like the standalone script)
+- [x] Update the docs: (core-theme.md's What is still waiting never listed the limit, so it is unchanged)
   - in `app-editor-overlays.md`, replace the "Stated limit" paragraph with the fix and its mechanism;
   - in `app-editor-overlays.md`, update the injection enumeration (Make, plus the two-fence Markdown case);
   - in `core-theme.md`, update *What is still waiting* if it listed the limit.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test 6186 green; swiftlint clean; app bundle green apart from the same 8 pre-existing scale-1.8 layout failures recorded in Task 11)
 
 ### Task 13: Verify acceptance criteria
 

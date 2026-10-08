@@ -41,7 +41,11 @@ import PisakaCore
 /// The fixtures are read through `#filePath`: they are source data about the
 /// queries, not resources the product ships. `injected-shell.sh` holds the shell
 /// lines bare; the `.mk` and `.md` fixtures carry the same lines as a recipe and
-/// as a fence.
+/// as a fence, and `injected-shell-two-fences.md` splits them across two fences
+/// with prose between. A recipe and two fences each paint exactly what the
+/// standalone script paints: the injected ranges include every line's newline,
+/// so bash never reads the end of one line and the start of the next as one
+/// word.
 @MainActor
 final class InjectedHighlightPredicateTests: XCTestCase {
     /// The temporary attribute the recording attribute provider writes: the
@@ -85,6 +89,17 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         let text = try fixture("injected-shell.md")
         let painted = try await paint(text, as: .markdown)
         try await assertMatchesStandalone(painted, text: text, label: "Markdown fence")
+    }
+
+    /// Two `sh` fences splitting the same three lines, prose between them. Both
+    /// land in one combined bash layer, so the first fence's last word would
+    /// join the second fence's first word were the ranges to stop short of
+    /// their newlines; `code_fence_content` includes its line endings, so
+    /// every first word keeps its standalone capture.
+    func testTwoAdjacentShellFencesPaintLikeTheStandaloneScript() async throws {
+        let text = try fixture("injected-shell-two-fences.md")
+        let painted = try await paint(text, as: .markdown)
+        try await assertMatchesStandalone(painted, text: text, label: "two Markdown fences")
     }
 
     // MARK: - Standalone script
