@@ -12,7 +12,8 @@ import PisakaCore
 /// `hairlineWidth`, centred in a clear drag strip, in both appearances; the
 /// panes are sized by `SplitPaneRule`, so in a narrow window each keeps its
 /// minimum while both fit, and the trailing pane's minimum wins when they do
-/// not.
+/// not — raised by whatever the trailing content reports through
+/// `ChromeSplitTrailingDemand`.
 ///
 /// **How it is measured.** The leading pane is filled with `accent` and the
 /// trailing one with `statusGreen` over a black ground, so each pane's extent
@@ -87,6 +88,20 @@ final class ChromeSplitLayoutTests: XCTestCase {
         XCTAssertEqual(CGFloat(leading.count), 45 * render.pixelScale, accuracy: 1)
     }
 
+    func testATrailingDemandRaisesTheTrailingMinimum() throws {
+        // 600 wide: the panes share 595. The trailing pane's content demands
+        // 300 beyond its stated 150, so the leading pane stops at 145 — under
+        // its 240 ideal — and the trailing pane keeps 450.
+        let render = try SplitRender(
+            axis: .horizontal, size: CGSize(width: 600, height: 80), appearance: .dark, trailingDemand: 300
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let leading = try XCTUnwrap(render.run(of: .accent), "the leading pane is not drawn")
+        let trailing = try XCTUnwrap(render.run(of: .statusGreen), "the trailing pane is not drawn")
+        XCTAssertEqual(CGFloat(leading.count), 145 * render.pixelScale, accuracy: 1)
+        XCTAssertEqual(CGFloat(trailing.count), 450 * render.pixelScale, accuracy: 1)
+    }
+
     /// A `ChromeSplitView` of two filled panes on a black ground.
     @MainActor
     private final class SplitRender {
@@ -96,7 +111,7 @@ final class ChromeSplitLayoutTests: XCTestCase {
         var window: NSWindow { render.window }
         var pixelScale: CGFloat { render.pixelScale }
 
-        init(axis: Axis, size: CGSize, appearance: ChromeAppearance) throws {
+        init(axis: Axis, size: CGSize, appearance: ChromeAppearance, trailingDemand: CGFloat = 0) throws {
             self.axis = axis
             self.appearance = appearance
             let theme = ChromeTheme(appearance)
@@ -110,6 +125,7 @@ final class ChromeSplitLayoutTests: XCTestCase {
                 Rectangle().fill(theme.color(.accent))
             } trailing: {
                 Rectangle().fill(theme.color(.statusGreen))
+                    .preference(key: ChromeSplitTrailingDemand.self, value: trailingDemand)
             }
             .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
             .environment(\.chromeTheme, theme)

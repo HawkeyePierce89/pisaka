@@ -7,7 +7,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     *The shared split*): the tree at 180/240/360 scaled against a trailing
     minimum of everything right of it at its floor; with vertical tabs a second
     split, `TabColumnSplit` (`TabListView.swift`), holding the tab column within
-    `TabColumnWidthRule`'s bounds against the editor's 320. Left zone is
+    `TabColumnWidthRule`'s bounds against the editor's 320. The LeetCode
+    statement pane beside the editor adds its rendered width to both splits'
+    trailing minimums through `ChromeSplitTrailingDemand`, so opening a
+    statement squeezes the tree and the tab column instead of pushing the
+    editor row past the window's edge. Left zone is
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which

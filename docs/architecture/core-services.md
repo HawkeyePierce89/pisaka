@@ -967,6 +967,9 @@ run in `swift test` rather than needing an Xcode build.
     while `_tree_sitter_make` is defined (`T`), confirming the scanned object is
     the grammar rather than an empty stub. Being a local path package, it ships
     no `.xcprivacy` of its own. `PrivacyInfo.xcprivacy` is unchanged.
+    Re-checked 2026-10-09 after the Make parser was regenerated here from the
+    edited `grammar.js` (`Vendor/TreeSitterMake/VENDORED.md`): still zero
+    undefined symbols; `PrivacyInfo.xcprivacy` unchanged.
     **Previous re-run: 2026-09-21**, after linking the remote `tree-sitter-bash`
     grammar for the shell language. A newly linked dependency compiled from C
     into the app, so the convention above obliges the re-run; the answer is that

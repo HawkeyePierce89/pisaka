@@ -498,17 +498,15 @@ struct ContentView: View {
         // own height, and the surplus landing on the bottom bar. At the body root
         // both apply in both branches, and the editor inside the column is free
         // to shrink to what `panelHeightRule` reserved for it. The *height* is
-        // then the same floor either way; the width is not always, and
-        // deliberately is not unified here: without a panel and with *vertical*
-        // tabs the split's own panes (tree 180 + tab list 180 + editor 320,
-        // scaled) compose a larger floor than this 640 and raise the window's,
-        // while with a panel the `GeometryReader` erases them — and with
-        // horizontal tabs there is no tab-list column at all, so the split's
-        // 180 + 320 sits below 640 and this floor is the window's in both
-        // branches. Unifying would mean hard-coding a number that moves with the
-        // orientation and with the panes' own floors. That is why
-        // the column is pinned `.topLeading` — a column wider than a narrow area
-        // is a live case, not a hypothetical one.
+        // then the same floor either way, and so is the width: the chrome split
+        // is a `GeometryReader` host that states no minimum of its own, so this
+        // 640 is the window's floor in both branches and both orientations.
+        // Below the panes' combined floors (tree 180 + tab list 180 + editor
+        // 320, scaled, with vertical tabs) the split squeezes the tree — its
+        // `SplitPaneRule` lets the trailing minimum win — rather than raising
+        // the window's floor as the platform split did. The column is still
+        // pinned `.topLeading`: a column wider than a narrow area is a live case
+        // inside the dock's `GeometryReader`, not a hypothetical one.
         .frame(minWidth: Self.windowFloor(metrics).width, minHeight: Self.windowFloor(metrics).height)
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
@@ -1023,8 +1021,10 @@ struct ContentView: View {
                         // The 320pt floor stays on the *editor*, not on the zone: put
                         // it on the `HStack` and the pane's width comes out of the
                         // editor's minimum, so a wide statement can squeeze the text
-                        // view to a sliver. The zone's own minimum then composes as
-                        // editor + pane, which is what it should be.
+                        // view to a sliver. The pane reports its own width to both
+                        // splits above (`ChromeSplitTrailingDemand`), so their
+                        // trailing minimums are editor + pane, which is what they
+                        // should be.
                         editorZone
                             .frame(minWidth: editorZoneMinimumWidth, maxWidth: .infinity, maxHeight: .infinity)
                         descriptionPane

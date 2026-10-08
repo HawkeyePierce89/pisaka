@@ -149,6 +149,50 @@ final class MakeSymbolQueryTests: XCTestCase {
         }
     }
 
+    /// Every form the vendored grammar's newline edit rewrote parses with no
+    /// `ERROR` or missing node, and each injected range ends after its newline:
+    /// a recipe attached after `;`, an attached `;` with nothing after it, an
+    /// empty tab-only recipe line, the `-` and `+` prefixes beside `@`, and a
+    /// `!=` shell assignment. Compared by set equality over the injected text,
+    /// so a lost injection fails as surely as a range stopping short.
+    func testEveryEditedRecipeFormParsesAndInjectsThroughItsNewline() throws {
+        let configuration = try XCTUnwrap(SyntaxLanguageConfiguration.configuration(for: .make))
+        let query = try XCTUnwrap(configuration.queries[.injections], "the vendored injections.scm must load")
+        let text = "attached: ; echo attached\n"
+            + "bare: ;\n"
+            + "\techo after-bare\n"
+            + "prefixed:\n"
+            + "\t-rm -f out\n"
+            + "\t\n"
+            + "\t+make sub\n"
+            + "\t@echo done\n"
+            + "SHA != git rev-parse HEAD\n"
+        let parser = Parser()
+        try parser.setLanguage(configuration.language)
+        let tree = try XCTUnwrap(parser.parse(text))
+        let root = try XCTUnwrap(tree.rootNode)
+        XCTAssertFalse(root.hasError, "the edited forms must parse without an ERROR or missing node")
+
+        let content = text as NSString
+        var injected: [String] = []
+        for match in query.execute(node: root, in: tree) {
+            for capture in match.captures where capture.name == "injection.content" {
+                injected.append(content.substring(with: capture.range))
+            }
+        }
+        // The attached line's text keeps the space after `;`, as upstream's did:
+        // only the newline moved into the range.
+        XCTAssertEqual(Set(injected), [
+            " echo attached\n",
+            "echo after-bare\n",
+            "rm -f out\n",
+            "make sub\n",
+            "echo done\n",
+            "git rev-parse HEAD\n",
+        ])
+        XCTAssertEqual(injected.count, 6, "an injected range was captured twice")
+    }
+
     /// A Markdown fence tagged with any of the names a Makefile goes by —
     /// the raw value, an extension, or the bare file name `makefile`, the most
     /// common fence tag — highlights as Make.

@@ -2905,7 +2905,13 @@ seventh entry in rule twenty-two's pinned set. The host applies no
 `.clipped()`, `.clipShape` or `.mask`: a clip is what cost the platform split's
 panes the window's top safe-area inset (`BottomDockColumn`). A three-pane
 layout nests a second split as the trailing pane — the main window's tree,
-tab column and editor do. It replaced all four platform splits the gated files
+tab column and editor do. A pane inside the trailing side whose width the
+caller cannot see reports it through `ChromeSplitTrailingDemand`, and every
+horizontal split it sits under adds it to its trailing minimum: the LeetCode
+statement beside the editor does, so the tree and the tab column are squeezed
+rather than the editor row running past the window's edge — what the platform
+split did by reading the pane's minimum off its content, which a
+`GeometryReader` host cannot. It replaced all four platform splits the gated files
 held: `ContentView.editorSplit` (the tree at 180/240/360, then — vertical tabs
 — `TabColumnSplit` within `TabColumnWidthRule`'s bounds, the editor floored at
 320 in both), Local History (220/260/380 against 360), Acknowledgements

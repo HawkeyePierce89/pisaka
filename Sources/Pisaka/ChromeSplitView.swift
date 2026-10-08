@@ -10,6 +10,21 @@ enum ChromeSplitStrip {
     static let thickness: Double = 5
 }
 
+/// Width a view inside a horizontal split's trailing pane needs **beyond** the
+/// trailing minimum its caller stated, already interface-scaled, for a pane
+/// whose width the caller cannot see: the LeetCode statement sits beside the
+/// editor at a width it holds itself. Every horizontal `ChromeSplitView` it
+/// sits under adds it to its trailing minimum, so the leading pane is the one
+/// squeezed and the row never runs past the window's edge — what the platform
+/// split did by reading the pane's minimum off its content, which a
+/// `GeometryReader` host cannot.
+struct ChromeSplitTrailingDemand: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
 /// The chrome's one two-pane split: a leading (or top) pane, a divider, and a
 /// trailing (or bottom) pane that takes what is left.
 ///
@@ -38,7 +53,10 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
     @Environment(\.chromeTheme) private var theme
 
     private let axis: Axis
-    private let rule: SplitPaneRule
+    private let minimum: CGFloat
+    private let ideal: CGFloat
+    private let maximum: CGFloat
+    private let trailingMinimum: CGFloat
     private let leading: Leading
     private let trailing: Trailing
 
@@ -53,6 +71,9 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
     /// Whether *this view* holds a pushed cursor. `NSCursor`'s stack is global,
     /// so a pop with nothing of ours on it would discard somebody else's.
     @State private var cursorPushed = false
+    /// What the trailing pane's content reports through
+    /// `ChromeSplitTrailingDemand`; read on the horizontal axis only.
+    @State private var trailingDemand: CGFloat = 0
 
     init(
         _ axis: Axis,
@@ -61,10 +82,10 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.axis = axis
-        rule = SplitPaneRule(
-            minimum: Double(minimum), ideal: Double(ideal),
-            maximum: Double(maximum), trailingMinimum: Double(trailingMinimum)
-        )
+        self.minimum = minimum
+        self.ideal = ideal
+        self.maximum = maximum
+        self.trailingMinimum = trailingMinimum
         self.leading = leading()
         self.trailing = trailing()
         _proposedExtent = State(initialValue: ideal)
@@ -90,8 +111,19 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
                 dragStrip(available: available)
                 trailing
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onPreferenceChange(ChromeSplitTrailingDemand.self) { trailingDemand = $0 }
             }
         }
+    }
+
+    /// The sizing rule: the caller's bounds, the trailing minimum raised by
+    /// whatever the trailing pane's content demands on the horizontal axis.
+    private var rule: SplitPaneRule {
+        let demand = axis == .horizontal ? trailingDemand : 0
+        return SplitPaneRule(
+            minimum: Double(minimum), ideal: Double(ideal),
+            maximum: Double(maximum), trailingMinimum: Double(trailingMinimum + demand)
+        )
     }
 
     /// What the two panes share along the axis: the whole extent less the strip.
