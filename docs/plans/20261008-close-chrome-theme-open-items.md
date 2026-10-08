@@ -84,19 +84,19 @@ All six colours stay at or above 3:1 in both appearances.
 
 - Create: `Tests/PisakaAppTests/ContrastArithmetic.swift` (a test-support file beside `HostedRender.swift` and `EditorLayoutHarness.swift`)
 - Create: `Tests/PisakaAppTests/ContrastArithmeticTests.swift`
-- [ ] Write the helper's own arithmetic over 8-bit sRGB `0xRRGGBB` values:
+- [x] Write the helper's own arithmetic over 8-bit sRGB `0xRRGGBB` values:
   - WCAG relative luminance, using the standard linearisation;
   - the contrast ratio between two colours;
   - the hue angle in degrees;
   - the circular separation between two hues.
-- [ ] State in the header why this is test arithmetic and not Core code: no production code reads it, and the pin must not rely on a converter it is checking.
-- [ ] Leave `TerminalThemeTests` as it is. Its arithmetic works on 16-bit components, and switching it gains nothing.
-- [ ] Test the helper:
+- [x] State in the header why this is test arithmetic and not Core code: no production code reads it, and the pin must not rely on a converter it is checking.
+- [x] Leave `TerminalThemeTests` as it is. Its arithmetic works on 16-bit components, and switching it gains nothing.
+- [x] Test the helper:
   - black on white is 21:1, and the ratio is symmetric;
   - a known mid-grey gives its known value;
   - pure red, green and blue have hues 0°, 120° and 240°;
   - the circular separation wraps, so 350° and 10° are 20° apart.
-- [ ] Run the app bundle and `swiftlint --strict`; both must pass.
+- [x] Run the app bundle and `swiftlint --strict`; both must pass. (swiftlint clean; the new suite passes. Eight scale-1.8 layout assertions in BottomBar/ChromePopover/CommitDialog layout suites fail identically on the untouched tree on this host, so they are pre-existing and environmental.)
 
 ### Task 2: Part A — choose the lane hues and pin them
 
