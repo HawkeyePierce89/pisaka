@@ -373,13 +373,13 @@ All six colours stay at or above 3:1 in both appearances.
 
 ### Task 13: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -configuration Release -destination 'platform=macOS' build`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
-- [ ] Check that `ChromeThemeSourceGatingTests`' header inventory, the rule count (49), the gated-file count (64) and `CLAUDE.md`'s invariant paragraph all agree.
-- [ ] Check that `core-theme.md`'s *What is still waiting* names nothing from parts five (b)–(h).
+- [x] Run `swift test`. (6186 tests, 0 failures)
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (green apart from the same 8 pre-existing scale-1.8 layout failures recorded in Task 11; nothing new)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 676 files)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -configuration Release -destination 'platform=macOS' build`. (BUILD SUCCEEDED)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`. (BUILD SUCCEEDED)
+- [x] Check that `ChromeThemeSourceGatingTests`' header inventory, the rule count (49), the gated-file count (64) and `CLAUDE.md`'s invariant paragraph all agree.
+- [x] Check that `core-theme.md`'s *What is still waiting* names nothing from parts five (b)–(h).
 
 ### Task 14: Update documentation
 
