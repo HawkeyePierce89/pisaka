@@ -120,15 +120,17 @@ final class PredicateResolvingHighlighter {
                 // A detached highlighter's late answer must not touch the
                 // reused text view, which may already hold the next file.
                 guard isAttached() else { return .noChange }
-                // An edit moved Neon's content version, so Neon discards this
-                // answer itself and leaves the range pending for its own retry.
-                guard generation.edits == requestedEdits else { return .noChange }
-                guard generation.invalidations == requestedInvalidations else {
-                    // An invalidation landed while this request was in flight.
-                    // Neon runs overlapping requests concurrently and marks
-                    // whichever finishes `success`, so a request issued before
-                    // an injected layer finished parsing could land after the
-                    // repaint that parse caused and leave the block plain.
+                guard generation.edits == requestedEdits,
+                      generation.invalidations == requestedInvalidations else {
+                    // An edit or an invalidation landed while this request was
+                    // in flight. Neon runs overlapping requests concurrently and
+                    // marks whichever finishes `success`, so a request issued
+                    // before an injected layer finished parsing could land after
+                    // the repaint that parse caused and leave the block plain.
+                    // An edit cannot be left to Neon's own version check either:
+                    // that version is the storage's `hashValue`, which samples
+                    // only parts of the string, so a same-length edit can leave
+                    // it unchanged and Neon would record the range as valid.
                     // Paint nothing, and once the styler has recorded this
                     // range as valid, ask for it again — unless it was detached.
                     // The re-queue is no new information, so it must not

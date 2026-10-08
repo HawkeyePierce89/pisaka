@@ -1076,12 +1076,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and leave the fence plain (reproduced as a 1-in-8 flake of the fence test).
     So two counters — character edits and styler invalidations, kept apart —
     are read on both sides of the await, and a request that saw either change
-    returns `.noChange`. After an edit nothing more is owed: Neon's content
-    version moved, so the validator discards the answer and retries the range
-    itself. After an invalidation the request, one main-queue turn later —
+    returns `.noChange`. Either way the request, one main-queue turn later —
     after the validator has recorded the range valid — re-invalidates its range
-    through the buffer (the whole document instead, if an edit landed in that
-    turn and shifted the range). **The re-queue's own invalidation is not
+    through the buffer (the whole document instead, if an edit landed and
+    shifted the range). An edit cannot be left to Neon's own retry: its content
+    version is the storage's `hashValue`, and `NSString`'s hash samples only the
+    length and three 32-character windows, so a same-length edit outside them
+    (overtyping a selected character, a same-length Replace All) leaves the
+    version unchanged and the validator would record the unpainted range valid. **The re-queue's own invalidation is not
     counted**: it carries no new information, and counting it would let two
     overlapping superseded requests cancel each other's re-queues indefinitely.
     **A detached highlighter starts nothing and paints nothing.** Detaching
