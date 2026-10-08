@@ -58,7 +58,7 @@ import XCTest
 /// `Resources/DesignGlyphs/VENDORED.md`, and nothing else in the folder — and
 /// its `revision` and `version` must equal that record's, the revision being the
 /// export manifest's sha256 because the export carries no upstream commit. The
-/// `Vendor/` tests are untouched by it: they still select only the four grammars.
+/// `Vendor/` tests are untouched by it: they still select only the five grammars.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
     /// `project.yml`, so it ships and must be acknowledged even though no

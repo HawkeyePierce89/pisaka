@@ -379,29 +379,30 @@ variable definitions. There is no LSP server and no provisioning entry.
 
 ### Task 6: Update documentation
 
-- [ ] `README.md`: add Makefiles to the syntax-highlighting language list (line ~121).
-- [ ] `docs/FEATURES.md`: add Make to each enumeration:
+- [x] `README.md`: add Makefiles to the syntax-highlighting language list (line ~121).
+- [x] `docs/FEATURES.md`: add Make to each enumeration:
   - comment toggle
   - highlighting (~809)
   - the file-name resolution list (~813: `Makefile`, `GNUmakefile`, `*.mk`)
   - keyword completion (~289)
   - indexed symbols (~470: "Makefile targets and variables")
   - Dockerfile-style definition lines (~427)
-- [ ] `docs/architecture/core-editor.md`:
+- [x] `docs/architecture/core-editor.md`:
   - `SyntaxLanguage.swift`: the new names and extensions, and why there is no prefix rule
   - `FileIcon.swift` and `FileGlyph.swift`
   - `CommentStyle.swift`
-  - `SyntaxContextVocabulary`: the `#` anchor and its non-models
-- [ ] `docs/architecture/core-intelligence.md`:
+  - `SyntaxContextVocabulary`: the `#` anchor and its non-models (written in
+    `core-intelligence.md`, where that file's entry lives; FileGlyph's in `core-theme.md`)
+- [x] `docs/architecture/core-intelligence.md`:
   - the Make keyword list, its sourcing and its identifier-shape exclusions
   - the symbols query: targets as `.target`, the special/pattern-target predicate (now
     the second predicate-bearing query), and unanchored variables
   - the new `SymbolKind.target` and its badge
-- [ ] `docs/architecture/app-editor-overlays.md`: the `SyntaxLanguageConfiguration` entry
+- [x] `docs/architecture/app-editor-overlays.md`: the `SyntaxLanguageConfiguration` entry
   gains the fifth vendored grammar and the bash recipe injection.
-- [ ] `docs/architecture/core-services.md`: the required-reason audit record gains the
-  Make grammar's result.
-- [ ] `CLAUDE.md`:
+- [x] `docs/architecture/core-services.md`: the required-reason audit record gains the
+  Make grammar's result. (`nm -u` on the standalone `parser.o`: zero undefined symbols.)
+- [x] `CLAUDE.md`:
   - "four tree-sitter grammars" → five in the `project.yml` and `Vendor/` bullets
   - add `TreeSitterMake` to the package list
   - the Vendor-only and "Four … are vendored … for four different reasons" convention
@@ -409,7 +410,7 @@ variable definitions. There is no LSP server and no provisioning entry.
   - the Tests paragraph's "the one that executes a shipped tree-sitter query" becomes
     plural
   - stay under the 60,000-character cap
-- [ ] Run `swift test`; `LintConfigurationTests` holds the CLAUDE.md size.
+- [x] Run `swift test`; `LintConfigurationTests` holds the CLAUDE.md size.
 
 ## Post-Completion (manual: load-bearing, cannot be automated)
 

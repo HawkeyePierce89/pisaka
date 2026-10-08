@@ -5,8 +5,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `Symbol.swift` — the two value types the whole feature stands on.
     `SymbolKind` is a closed, color-free enum of what the shipped queries can
     actually distinguish (`type`, `function`, `method`, `property`, `constant`,
-    `variable`, `heading`, `selector`, `key`, `stage`, `anchor`) plus the
-    capture-name mapping `init?(captureName:)`. It mirrors
+    `variable`, `heading`, `selector`, `key`, `stage`, `anchor`, `target`) plus the
+    capture-name mapping `init?(captureName:)`. `target` is a Makefile rule
+    target, added on `stage`'s precedent: filing `build:` under `.function` would
+    claim a call shape make does not have. It is an ordinary completion candidate
+    (a name that is not identifier-shaped — `foo.o`, `build-all` — is dropped by
+    the same `IdentifierScanner` rule every other kind passes), and its badge is
+    `CompletionPopup.symbolBadges`' `target` symbol. It mirrors
     `SyntaxTokenKind(captureName:)`'s role with **one deliberate inversion**: that
     initializer *degrades* an unknown capture to `.plain`, because mis-coloring a
     token is harmless, whereas this one is **failable and strict** — a symbol
@@ -718,7 +723,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     insert anyway. The two least obvious members are stated as such:
     `mapfile`/`readarray` stay **in** for the reason `read` does — they bind a
     name, which no external program can do — while `jobs`, `fg`, `bg` and `wait`
-    stay **out**, manipulating the job table being none of the three clauses. The list is deliberately not
+    stay **out**, manipulating the job table being none of the three clauses.
+    **Make's list is the GNU make directives plus the built-in functions, minus
+    every word that is not identifier-shaped** — 54 entries. The directives
+    (`define`, `else`, `endef`, `endif`, `export`, `ifdef`, `ifeq`, `ifndef`,
+    `ifneq`, `include`, `override`, `private`, `sinclude`, `undefine`,
+    `unexport`, `vpath`) are declared in no makefile, and neither are the
+    built-in functions, which are **reconciled against the vendored grammar's
+    `grammar.js` at its pin** rather than against a manual — so `intcmp`, `let`
+    and `guile`, the three the pinned commit added over the `v1.1.1` tag, are on
+    it, and a grammar bump owes the same reconciliation. The exclusion is
+    EditorConfig's charset rule applied again: `.PHONY` and every other special
+    target (a leading dot), `filter-out` and `-include` (a hyphen) stop the
+    identifier scanner, so offering them would insert text the completion engine
+    can never finish; the list's own comment states it and
+    `LanguageKeywordsTests` asserts those spellings absent. The list is deliberately not
     context-aware and offers keys and values alike. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
     go-to-definition path does not consult these lists, because a keyword has no
     declaration site to jump to — the two features sharing a provider is exactly
@@ -1157,7 +1176,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     remains a jump target even when it is not worth inserting.
   - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
     gating policy — **two questions, one scan**. This file declares *what* each of
-    the 17 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    the 18 `SyntaxLanguage` cases considers a string or a comment and *whether*
     being inside that string should suppress completion, while
     `SyntaxContextScanner` only walks the buffer and answers honestly
     (`.code`/`.string`/`.comment`). The split is what lets a language recognize
@@ -1185,6 +1204,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     | shell | `'…'` multi-line, escape **`.none`**; `"…"` multi-line `\` | **no** (see below) | `#` after whitespace |
     | gitignore | none | — | `#` at **true line start** (column zero) |
     | editorconfig | none | — | `#` and `;` after indent |
+    | make | none | — | `#` anywhere |
     | markdown | none | none | **completely ungated** |
 
     Reasons, carried in the source doc comments and restated here so the table is
@@ -1259,7 +1279,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     purpose**: a single `lineStart` name hid the question of whether leading
     whitespace is tolerated, and the languages that answer it differently were
     silently sharing one answer. `.anywhere` is every language whose comment token
-    is unambiguous (swift, javascript, typescript, python, go, rust, sql);
+    is unambiguous (swift, javascript, typescript, python, go, rust, sql) and
+    **make**, because GNU make strips a `#` comment wherever it appears outside a
+    recipe. Make's arm records **two non-models, both wrong in the conservative
+    direction**: a `#` inside a recipe line belongs to the shell (whose own rule
+    is the word-start one below), and a backslash-escaped `\#` is a literal hash —
+    the scanner calls both a comment, so completion is suppressed there and never
+    offered where it should not be. Make has no string literal at all (a quote
+    only means something to the shell running a recipe), so it has no string
+    forms and `stringsSuppressCompletion` is `false`;
     `.trueLineStart` is column zero exactly — offset 0 or immediately after a line
     separator, with no whitespace tolerated — and is held by **gitignore** alone,
     because gitignore(5) makes a line a comment only when it *begins* with `#`, so
@@ -1287,7 +1315,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.lineStart` rather than redefining it was the point: every use site became a
     compile error and had to be re-decided instead of inheriting a silently changed
     meaning. `Vocabulary` is those two arrays plus `stringsSuppressCompletion`.
-    `languagesWithoutStringVocabulary` (`markdown`, `gitignore`, `editorconfig`) and
+    `languagesWithoutStringVocabulary` (`markdown`, `gitignore`, `editorconfig`, `make`) and
     the per-language `stringsSuppressCompletion` flag (false for `json`, `yaml`,
     `html`, `dotenv`) make the "ungated but lexed" vs. "no vocabulary" distinction
     explicit and testable. `canSuppressCompletion(_:)` short-circuits before any
@@ -1927,6 +1955,36 @@ a duplicate table symbol at the wrong site.
 ### `Resources/Queries/editorconfig/symbols.scm` — the section headers
 
 EditorConfig's query follows the shared convention and captures the section header's glob pattern as `@definition.heading`. `.heading` is chosen deliberately: `SymbolIntelligenceProvider.kindsExcludedFromCompletion` is exactly `[.heading]`, so a section header stays a ⌃⌘J jump target but is never offered as a completion. If it were `.selector` (like CSS), an identifier-shaped header like `[Makefile]` would start appearing in the completion list, which is incorrect.
+
+### `Resources/Queries/make/symbols.scm` — targets, the predicate and the unanchored variables
+
+Make's query (grammar `Vendor/TreeSitterMake`, the fifth vendored grammar, pinned
+at `70613f3d…`) follows the shared convention and makes two decisions.
+
+**Rule targets are `.target`, minus special and pattern targets.** A `word` inside
+a `rule`'s `targets` is captured as `@definition.target`, filtered by
+`(#not-match? @definition.target "^[.]|%")`. `.PHONY`, `.SUFFIXES`,
+`.DEFAULT_GOAL` and every other dot-led target is a directive to make rather
+than a name the user declared, and a pattern rule's `%.o` declares no name at
+all; without the predicate both would fill ⌃⌘J. This makes Make the **second
+predicate-bearing symbols query** after HTML's `id` filter, so
+`SymbolQueryTests` pins the exact map `{html: [match?], make: [not-match?]}`
+rather than "HTML alone", and `SymbolExtractor`'s doc comment names both. A
+`$(VAR):` target is a reference node, not a `word`, and is not captured.
+
+**Variables are unanchored.** Names from `variable_assignment`,
+`shell_assignment` and `define_directive` (each a `name: (word)` field) are
+captured as `@definition.variable` at any depth — the opposite of shell's
+anchoring, for the opposite reason: make has no local scope, and an assignment
+nested under an `ifeq`/`ifdef` block (a `conditional` node) is as global as one
+at the top, so anchoring at the root would silently drop every conditionally
+defined variable. A target-specific assignment (`test: CFLAGS += -g`) is a
+top-level `variable_assignment` too and is indexed: it is a real definition
+site, and ⌃⌘J already lists several definitions of one name.
+
+The static half is `SymbolQueryTests`' node/field tables; the runtime half is
+`MakeSymbolQueryTests` (below), which executes the query and so proves the
+predicate is evaluated rather than merely present.
 
 ### `Resources/Queries/shell/symbols.scm` — the two anchoring decisions and the runtime gate
 
