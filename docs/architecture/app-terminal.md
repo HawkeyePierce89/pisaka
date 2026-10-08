@@ -65,19 +65,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     lighter, the only direction legible on a light background; ANSI 8, 11 and 14
     were darkened in part five (h) to hold that floor on `0xF5F5F7`, and ANSI 8,
     11, 13 and 14 again — to `0x6A6A6A`, `0x8A6400`, `0xA63AB3` and `0x007583`
-    — when the ground moved to `bgPanel`), and `darkANSIColors` is SwiftTerm's own
-    `Color.defaultInstalledColors` verbatim — the terminal's own vocabulary and
-    the one thing this file still spells for itself — so the install is
-    unconditional in both directions and dark → light → dark restores exactly what
-    the view started with. Both arrays are internal so the app bundle's
+    — when the ground moved to `bgPanel`), and `darkANSIColors` is SwiftTerm's
+    `Color.defaultInstalledColors` hues with nine entries brightened so every
+    entry but ANSI 0's exact black clears 4.5:1 against the terminal's ground,
+    `bgPanel` dark `0x2B2D30` — ANSI 1 `0xFF6B6B` (4.98:1), 2 `0x00B803` (5.17),
+    3 `0xA0A000` (4.95), 4 `0x9393FF` (5.17), 5 `0xE070E0` (4.97), 8 `0x9E9D9E`
+    (5.11), 9 `0xFF8C8C` (6.17), 12 `0xAAAAFF` (6.51) and 13 `0xFF8CFF` (6.87);
+    the other seven are SwiftTerm's values verbatim and already clear. Both sets
+    are fixed, so the install is unconditional in both directions and dark →
+    light → dark restores exactly the same sixteen. Both arrays are internal so the app bundle's
     `TerminalThemeTests` can read them. **The chrome suite's exemption covers
     those two arrays and nothing else**: rule forty-four refuses any `0x` literal,
     `NSColor(` construction, colour construction beyond the two converters or
     system colour name outside them (the `.…Color` members pinned by set
     equality), and requires the four role tokens and exactly sixteen `rgb8(`
-    entries in each array. The dark set's contrast on the new `0x1E1F22` ground
-    (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) is worse than on black
-    (1.6:1, 2.3:1, 2.4:1); tuning it is an open item in `core-theme.md`. What remains out of scope is a
+    entries in each array. `TerminalThemeTests` pins the dark floor (reading the
+    ground from the palette, never a literal) and the exact sixteen dark values;
+    the tuning is recorded in `core-theme.md`. What remains out of scope is a
     *user-configurable* palette. A private `NSColor → SwiftTerm.Color` converter
     does the sRGB×65535 mapping (SwiftTerm's own `getTerminalColor()` is
     module-internal); its per-component helper *rounds* rather than truncates —

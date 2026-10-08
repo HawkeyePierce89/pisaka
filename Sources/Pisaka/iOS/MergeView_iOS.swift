@@ -360,7 +360,7 @@ struct MergePaneView_iOS: UIViewRepresentable {
         var appliedFontSize: CGFloat?
 
         private weak var textView: MergePaneTextView_iOS?
-        private var highlighter: TextViewHighlighter?
+        private var highlighter: PredicateResolvingHighlighter?
         private var resultSpans: [MergePaneContent.ResultSpan] = []
         /// True while we set the text programmatically, so the edit observer ignores
         /// our own change.
@@ -417,7 +417,7 @@ struct MergePaneView_iOS: UIViewRepresentable {
             highlighter = makeHighlighter(for: textView, language: language)
         }
 
-        private func makeHighlighter(for textView: UITextView, language: SyntaxLanguage?) -> TextViewHighlighter? {
+        private func makeHighlighter(for textView: UITextView, language: SyntaxLanguage?) -> PredicateResolvingHighlighter? {
             guard
                 let language,
                 let languageConfiguration = SyntaxLanguageConfiguration.configuration(for: language)
@@ -426,15 +426,11 @@ struct MergePaneView_iOS: UIViewRepresentable {
             let attributeProvider: TokenAttributeProvider = { token in
                 [.foregroundColor: theme.color(for: SyntaxTokenKind(captureName: token.name))]
             }
-            let configuration = TextViewHighlighter.Configuration(
+            return try? PredicateResolvingHighlighter(
+                textView: textView,
                 languageConfiguration: languageConfiguration,
-                attributeProvider: attributeProvider,
-                languageProvider: { name in
-                    SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-                },
-                locationTransformer: { _ in nil }
+                attributeProvider: attributeProvider
             )
-            return try? TextViewHighlighter(textView: textView, configuration: configuration)
         }
 
         // MARK: Editing feedback (result pane only)

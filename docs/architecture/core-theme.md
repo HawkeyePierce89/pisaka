@@ -2373,10 +2373,10 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the terminal's own palette (its four
-chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph. (The caret readout and the
-changed-line text tint were waiting here too; both are now drawn — see the
-bottom bar's caret readout below, and part five (b)'s departure seven.)
+stay named under *What is still waiting*: the lane hues, the unified diff's per-line checkbox glyph. (The caret readout, the
+changed-line text tint and the terminal's own palette were waiting here too;
+all are now settled — see the bottom bar's caret readout below, part five
+(b)'s departure seven, and *The dark terminal palette on its ground*.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2447,7 +2447,8 @@ light ground is not white: ANSI 8 `0x757575` → `0x707070` (it measured 4.2:1 o
 against `0xF5F5F7`**, the ground it was measured on. The dark array stays
 SwiftTerm's sixteen defaults verbatim — no longer "so the dark theme looks
 exactly as before", but because it is the terminal's own vocabulary and the one
-thing the file still spells for itself.
+thing the file still spells for itself. (It has since been re-tuned for its
+ground; see *The dark terminal palette on its ground*, below.)
 
 **The stated exception: a host that stores concrete colours is handed concrete
 colours.** Everywhere else in the AppKit chrome the rule is that a view asks
@@ -2471,12 +2472,13 @@ caret and selection without altering the appearance; with neither following
 the accent, the subscription, its `init`, its `deinit` removal and their doc
 comments went with it.
 
-**An open item, named rather than tuned.** The dark ANSI-16 set was tuned for
-black, and on `0x1E1F22` its weakest entries measure ANSI 4 at 1.3:1, ANSI 1 at
-1.8:1 and ANSI 12 at 1.9:1 — each *worse* than on the black it was tuned for
-(1.6:1, 2.3:1 and 2.4:1 there), so the new ground costs these entries
-contrast and nothing is fixed. Tuning the set is listed under *What is still
-waiting*.
+**An open item, named rather than tuned — since closed.** The dark ANSI-16 set
+was tuned for black, and on `0x1E1F22` its weakest entries measured ANSI 4 at
+1.3:1, ANSI 1 at 1.8:1 and ANSI 12 at 1.9:1 — each *worse* than on the black it
+was tuned for (1.6:1, 2.3:1 and 2.4:1 there), so the new ground cost these
+entries contrast and nothing was fixed then. The ground has since moved to
+`bgPanel` dark `0x2B2D30`, and the set was re-tuned against that ground; see
+*The dark terminal palette on its ground*, below.
 
 **Pinned twice.** Rule forty-four (below) narrows the exemption in `swift
 test`: outside the two arrays the file spells no `0x` literal, constructs no
@@ -2778,6 +2780,46 @@ on a live view in both appearances and the floor on the new ground;
 `TerminalPanelInsetTests` measures the margin at scale 1.0 and 1.8 and samples
 it as `bgPanel`.
 
+#### The dark terminal palette on its ground
+
+`darkANSIColors` was still SwiftTerm's `Color.defaultInstalledColors`, tuned
+for black, and on the terminal's actual ground — `bgPanel` dark `0x2B2D30`, not
+part five (h)'s `0x1E1F22` — eight entries fell below 4.5:1 and ANSI 3 sat on
+it at 4.54. Those nine were brightened, each keeping SwiftTerm's own hue angle
+and only gaining lightness, with every bright entry kept brighter than its
+normal partner (1/9, 2/10, 3/11, 4/12, 5/13, 0/8 against 7). Contrasts are WCAG
+relative luminance against `0x2B2D30`:
+
+| Entry | Old | New | Contrast | Hue |
+|---|---|---|---|---|
+| ANSI 1 | `0x990001` (1.55) | `0xFF6B6B` | 4.98 | 0° |
+| ANSI 2 | `0x00A603` (4.25) | `0x00B803` | 5.17 | 121° |
+| ANSI 3 | `0x999900` (4.54) | `0xA0A000` | 4.95 | 60° |
+| ANSI 4 | `0x0300B2` (1.08) | `0x9393FF` | 5.17 | 240° |
+| ANSI 5 | `0xB200B2` (2.33) | `0xE070E0` | 4.97 | 300° |
+| ANSI 8 | `0x8A898A` (3.96) | `0x9E9D9E` | 5.11 | 300° (grey) |
+| ANSI 9 | `0xE50001` (2.85) | `0xFF8C8C` | 6.17 | 0° |
+| ANSI 12 | `0x0700FE` (1.60) | `0xAAAAFF` | 6.51 | 240° |
+| ANSI 13 | `0xE500E5` (3.59) | `0xFF8CFF` | 6.87 | 300° |
+
+ANSI 3 was nudged although it cleared, because the test reads the palette's
+resolved ground rather than a literal, so a margin of 0.04 is within rounding of
+failing. The other seven stay SwiftTerm's values verbatim, each already clear:
+ANSI 6 at 4.62, 7 at 7.51, 10 at 7.12, 11 at 10.22, 14 at 8.77 and 15 at 10.96,
+plus ANSI 0, whose exact black is **the one stated exception**. No per-entry
+exception is needed beyond it, so the dark floor is **uniformly 4.5:1**, WCAG AA
+for normal text, the same floor as the light set. The install stays
+unconditional; what that needs is a *fixed* set, not SwiftTerm's. Rule
+forty-four is unchanged and still green: the entries are spelled through
+`rgb8(…)`, sixteen per array, with every `0x` literal inside the arrays.
+
+`TerminalThemeTests.testEveryDarkANSIEntryButBlackClearsTheFloorOnTheDarkGround`
+pins the floor, reading the ground from `ChromePalette.nsColor(.bgPanel, in:
+.dark)` and asserting ANSI 0 is exactly `0x000000`;
+`testTheDarkANSISetIsExactlyTheTunedSixteen` pins the sixteen values, which with
+`testEachAppearanceInstallsItsOwnANSISet` proves dark → light → dark restores
+them. No role is added; `ChromeColorRole` stays at twenty-two.
+
 #### The design pass's departures
 
 The design pass matched every surface it found off, and drew six things other
@@ -2835,11 +2877,12 @@ bottom bar's caret readout*, below). The unified diff's **changed-line text tint
 departure seven). What stays deferred: the **lane hues**, and the unified
 diff's **per-line checkbox glyph** (part five (b)'s departure six), both open
 design questions. The terminal's own palette is **no longer
-deferred** — part five (h) moved its four chrome colours onto the roles — but
-one item takes its place: **tuning the dark ANSI-16 set**, whose weakest
-entries (ANSI 4 at 1.3:1, ANSI 1 at 1.8:1, ANSI 12 at 1.9:1) are worse on
-`0x1E1F22` than on the black they were tuned for. Each follows the six-step guide at the end of
-this document, on its own. One role remains unspent — `bracketMatch`, code
+deferred** — part five (h) moved its four chrome colours onto the roles — and
+the item that took its place, **tuning the dark ANSI-16 set**, is closed too:
+on the terminal's ground, `bgPanel` dark `0x2B2D30`, nine entries were
+brightened along SwiftTerm's own hues so every entry but black clears 4.5:1
+(see *The dark terminal palette on its ground*). Each deferred item follows the
+six-step guide at the end of this document, on its own. One role remains unspent — `bracketMatch`, code
 zone — after the current-line highlight spent `currentLine`, the same one role
 `ChromeColorRole.swift`'s own doc comment names.
 

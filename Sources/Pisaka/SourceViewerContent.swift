@@ -188,7 +188,7 @@ struct SourceViewerPane: NSViewRepresentable {
 
         /// The highlighter installs itself as the text storage's delegate; held
         /// strongly so it lives as long as the window does.
-        private var highlighter: TextViewHighlighter?
+        private var highlighter: PredicateResolvingHighlighter?
 
         /// The last reveal token applied, so a view update triggered by anything
         /// else (a font change, a theme switch) does not yank the selection back.
@@ -253,7 +253,7 @@ struct SourceViewerPane: NSViewRepresentable {
         private static func makeHighlighter(
             for textView: NSTextView,
             language: SyntaxLanguage?
-        ) -> TextViewHighlighter? {
+        ) -> PredicateResolvingHighlighter? {
             guard
                 let language,
                 let languageConfiguration = SyntaxLanguageConfiguration.configuration(for: language)
@@ -263,15 +263,11 @@ struct SourceViewerPane: NSViewRepresentable {
             let attributeProvider: TokenAttributeProvider = { token in
                 [.foregroundColor: theme.nsColor(for: SyntaxTokenKind(captureName: token.name))]
             }
-            let configuration = TextViewHighlighter.Configuration(
+            return try? PredicateResolvingHighlighter(
+                textView: textView,
                 languageConfiguration: languageConfiguration,
-                attributeProvider: attributeProvider,
-                languageProvider: { name in
-                    SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-                },
-                locationTransformer: { _ in nil }
+                attributeProvider: attributeProvider
             )
-            return try? TextViewHighlighter(textView: textView, configuration: configuration)
         }
     }
 }

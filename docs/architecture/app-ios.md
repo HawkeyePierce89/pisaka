@@ -403,7 +403,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     origin/foo` → detached HEAD). Thin `@ObservedObject
     BranchSwitcherModel` view (untested, logic in Core).
   - `iOS/CodeEditorView_iOS.swift` / `iOS/CodeEditorCoordinator_iOS.swift` — the
-    `UITextView`-backed editor mirroring `CodeEditorView`: Neon highlighting,
+    `UITextView`-backed editor mirroring `CodeEditorView`: highlighting through
+    the shared `PredicateResolvingHighlighter` (`app-editor-overlays.md`, which
+    restyles on scroll through `contentOffset` KVO here; `DiffView_iOS` and
+    `MergeView_iOS` attach the same one),
     `IndentEngine`/`AutoPairEngine` wired through `UITextViewDelegate` with the
     same programmatic-edit re-entry guard and single-undo discipline; pinch-to-
     zoom font stepping (the iOS analog of macOS Cmd+scroll). No gutter/minimap on

@@ -67,7 +67,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
 
     /// The active Neon highlighter. It installs itself as the text storage's
     /// delegate; replacing it (or setting it to `nil`) detaches the old one.
-    private var highlighter: TextViewHighlighter?
+    private var highlighter: PredicateResolvingHighlighter?
 
     /// Identifies the current highlighter so a superseded one (built before a
     /// later rebuild) can't restyle the reused text view. Mirrors the macOS
@@ -959,18 +959,13 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             return [.foregroundColor: theme.color(for: kind)]
         }
 
-        let configuration = TextViewHighlighter.Configuration(
-            languageConfiguration: languageConfiguration,
-            attributeProvider: attributeProvider,
-            languageProvider: { name in
-                SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-            },
-            locationTransformer: { _ in nil }
-        )
-
         // A grammar that fails to start the parser degrades to plain text rather
         // than crashing the editor.
-        highlighter = try? TextViewHighlighter(textView: textView, configuration: configuration)
+        highlighter = try? PredicateResolvingHighlighter(
+            textView: textView,
+            languageConfiguration: languageConfiguration,
+            attributeProvider: attributeProvider
+        )
     }
 }
 

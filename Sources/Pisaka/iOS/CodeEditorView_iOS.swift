@@ -4,7 +4,7 @@ import UIKit
 import PisakaCore
 
 /// A monospaced code editor backed by `UITextView`, with tree-sitter syntax
-/// highlighting via Neon's `TextViewHighlighter` — the UIKit peer of the macOS
+/// highlighting via `PredicateResolvingHighlighter` — the UIKit peer of the macOS
 /// `CodeEditorView`. The two share the same pure Core engines
 /// (`IndentEngine`/`AutoPairEngine`), `SyntaxLanguageConfiguration`, and
 /// `SyntaxTheme`; only the text-view API differs.

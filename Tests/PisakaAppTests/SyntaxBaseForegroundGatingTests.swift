@@ -163,7 +163,7 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
 
     // MARK: - The highlighter, which is now the iOS half
 
-    /// The views that attach a `TextViewHighlighter` over `SyntaxTheme`.
+    /// The views that attach a `PredicateResolvingHighlighter` over `SyntaxTheme`.
     ///
     /// Still pinned, for the platform the zone declaration cannot reach: the iOS
     /// layer has no zoom surfaces, so the highlighter attachment is what names a
@@ -192,7 +192,7 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
 
     func testEveryHighlighterAttachmentIsPinned() throws {
         XCTAssertEqual(
-            try fileNames(containing: "TextViewHighlighter("),
+            try fileNames(containing: "PredicateResolvingHighlighter("),
             Self.attachingFiles,
             "a view started (or stopped) attaching the syntax highlighter; it owes a base foreground too"
         )

@@ -116,8 +116,8 @@ struct DiffView_iOS: UIViewRepresentable {
 
         // Highlighters install themselves as their text storage's delegate; held
         // strongly so they live as long as the diff is shown.
-        private var leftHighlighter: TextViewHighlighter?
-        private var rightHighlighter: TextViewHighlighter?
+        private var leftHighlighter: PredicateResolvingHighlighter?
+        private var rightHighlighter: PredicateResolvingHighlighter?
 
         /// Guards against the scroll-sync feedback loop (mirroring A→B must not
         /// bounce B→A).
@@ -180,7 +180,7 @@ struct DiffView_iOS: UIViewRepresentable {
         /// Build a Neon highlighter mapping each tree-sitter capture through
         /// `SyntaxTokenKind` to a `SyntaxTheme` color, exactly like the editor.
         /// Returns `nil` for plain text / a grammar that fails to load.
-        private func makeHighlighter(for textView: UITextView, language: SyntaxLanguage?) -> TextViewHighlighter? {
+        private func makeHighlighter(for textView: UITextView, language: SyntaxLanguage?) -> PredicateResolvingHighlighter? {
             guard
                 let language,
                 let languageConfiguration = SyntaxLanguageConfiguration.configuration(for: language)
@@ -190,15 +190,11 @@ struct DiffView_iOS: UIViewRepresentable {
             let attributeProvider: TokenAttributeProvider = { token in
                 [.foregroundColor: theme.color(for: SyntaxTokenKind(captureName: token.name))]
             }
-            let configuration = TextViewHighlighter.Configuration(
+            return try? PredicateResolvingHighlighter(
+                textView: textView,
                 languageConfiguration: languageConfiguration,
-                attributeProvider: attributeProvider,
-                languageProvider: { name in
-                    SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-                },
-                locationTransformer: { _ in nil }
+                attributeProvider: attributeProvider
             )
-            return try? TextViewHighlighter(textView: textView, configuration: configuration)
         }
 
         func teardown() {

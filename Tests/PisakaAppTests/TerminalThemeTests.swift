@@ -13,9 +13,13 @@ import PisakaCore
 /// compares is the only observable form of what an apply installs, so it is
 /// checked against the palette here — with this suite's own component arithmetic
 /// rather than the theme's private converter, so the comparison is not a
-/// tautology, including under both high-contrast variants. The light ANSI set's
-/// contrast floor, which set each appearance installs and both sets' size are
-/// pinned beside it.
+/// tautology, including under both high-contrast variants. Beside it are pinned:
+/// the light ANSI set's 4.5:1 floor on `bgPanel` light; the dark set's 4.5:1
+/// floor on `bgPanel` dark — the terminal's actual ground, read from the
+/// palette, never a literal — for every entry but ANSI 0, whose exact black is
+/// the one stated exception; the dark set's exact sixteen values, so dark →
+/// light → dark restores precisely them; which set each appearance installs; and
+/// both sets' size.
 final class TerminalThemeTests: XCTestCase {
 
     /// The roles in the order `ThemeKey` fingerprints them: ground, text, caret,
@@ -52,6 +56,51 @@ final class TerminalThemeTests: XCTestCase {
                 "light ANSI \(index) sits at \(String(format: "%.2f", ratio)):1 on the light ground"
             )
         }
+    }
+
+    func testEveryDarkANSIEntryButBlackClearsTheFloorOnTheDarkGround() {
+        let ground = Self.sixteenBit(ChromePalette.nsColor(.bgPanel, in: .dark))
+        let groundLuminance = Self.luminance(red: ground[0], green: ground[1], blue: ground[2])
+        let black = TerminalTheme.darkANSIColors[0]
+        XCTAssertEqual([black.red, black.green, black.blue], [0, 0, 0], "dark ANSI 0 is not exactly 0x000000")
+        for (index, entry) in TerminalTheme.darkANSIColors.enumerated().dropFirst() {
+            let luminance = Self.luminance(red: entry.red, green: entry.green, blue: entry.blue)
+            let ratio = (max(luminance, groundLuminance) + 0.05) / (min(luminance, groundLuminance) + 0.05)
+            XCTAssertGreaterThanOrEqual(
+                ratio,
+                4.5,
+                "dark ANSI \(index) sits at \(String(format: "%.2f", ratio)):1 on the dark ground"
+            )
+        }
+    }
+
+    /// Each dark bright entry (8–15) stays brighter than its normal partner
+    /// (0–7), so a retune cannot invert a pair while updating the pin. The
+    /// light set makes no such promise: its bright white is darkened for the
+    /// light ground.
+    func testEveryDarkBrightANSIEntryIsBrighterThanItsNormalPartner() {
+        let set = TerminalTheme.darkANSIColors
+        for index in 0..<8 {
+            let normal = set[index], bright = set[index + 8]
+            XCTAssertGreaterThan(
+                Self.luminance(red: bright.red, green: bright.green, blue: bright.blue),
+                Self.luminance(red: normal.red, green: normal.green, blue: normal.blue),
+                "dark ANSI \(index + 8) is not brighter than ANSI \(index)"
+            )
+        }
+    }
+
+    /// SwiftTerm's hues, nine of them brightened for `bgPanel` dark; the other
+    /// seven are SwiftTerm's own values verbatim.
+    func testTheDarkANSISetIsExactlyTheTunedSixteen() {
+        let expected: [UInt32] = [
+            0x000000, 0xFF6B6B, 0x00B803, 0xA0A000, 0x9393FF, 0xE070E0, 0x00A5B2, 0xBFBFBF,
+            0x9E9D9E, 0xFF8C8C, 0x00D800, 0xE5E500, 0xAAAAFF, 0xFF8CFF, 0x00E5E5, 0xE5E5E5,
+        ]
+        let actual = TerminalTheme.darkANSIColors.map { entry in
+            [entry.red, entry.green, entry.blue].reduce(UInt32(0)) { ($0 << 8) | UInt32($1 / 257) }
+        }
+        XCTAssertEqual(actual.map { String(format: "%06X", $0) }, expected.map { String(format: "%06X", $0) })
     }
 
     /// What an apply actually leaves on a live view, rather than the key: the

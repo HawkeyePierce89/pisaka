@@ -883,7 +883,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is a *sibling* of the text view, so the pointer walk cannot reach it through
     the pane (`docs/architecture/core-zoom.md`).
     The `Coordinator` mirrors vertical scroll between the panes (guarded against
-    the sync feedback loop), and builds a Neon `TextViewHighlighter` per pane
+    the sync feedback loop), and builds a `PredicateResolvingHighlighter` per pane
     (same `SyntaxLanguageConfiguration` + `SyntaxTheme` mapping as the editor,
     and — since Neon paints only what a capture covers — the same `.plain` base
     foreground beside the font, so uncovered text agrees with the editor instead

@@ -1034,6 +1034,120 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     resolve to `.plain`, and it draws variable names in string colour); every
     edit is listed in `Vendor/TreeSitterMake/VENDORED.md`, and
     `VendoredGrammarQueryTests` refuses a capture that resolves to `.plain`.
+  - `PredicateResolvingHighlighter.swift` (macOS + iOS) — the **one** syntax
+    highlighter every code view attaches: the macOS editor, the source viewer,
+    the diff panes, and on iOS the editor coordinator, the diff panes and the
+    merge panes. Six sites, one helper; none constructs Neon's
+    `TextViewHighlighter` any more, which `InjectedHighlightPredicateTests`
+    asserts over comment- and literal-stripped source, and
+    `SyntaxBaseForegroundGatingTests` keys its attaching-file set on this
+    type's name. It takes the root `LanguageConfiguration` and an attribute
+    provider; the injection resolver (`configuration(forInjectionName:)`) and the
+    `nil` location transformer are fixed inside it, so the sites differ in
+    nothing else.
+    **Why it exists.** The pinned Neon (484d6fb) answers a highlight request two
+    ways: `TreeSitterClient.highlightsProvider`'s async half runs the query and
+    then `resolve(with:)`, which evaluates `#match?`/`#eq?`/`#any-of?` and every
+    other predicate; its **sync** half returns the raw captures and skips that
+    step. The first paint goes async and was right; an injected sub-language's
+    sublayer finishes parsing later and was repainted through the sync half, as
+    was every range an edit invalidated. The symptom was the bash query's
+    `((command (_) @constant) (#match? @constant "^-"))` passing every child of
+    `command` — inside a Make recipe or a Markdown `sh` fence the command name,
+    the quoted string and `exit` all came out `constant`, and a standalone `.sh`
+    file did the same to the line being edited. No Neon revision (main, the
+    0.6.0 tag, the open branches, checked 2026-10-08) resolves predicates on that
+    path, so a pin bump was not available.
+    **What it does.** `TextViewHighlighter` builds its token provider privately,
+    and the sync output has already lost the pattern information a re-filter
+    would need, so the class reassembles the same parts from Neon's public API —
+    `TreeSitterClient`, `TextViewSystemInterface`, `TextSystemStyler`,
+    `RangeInvalidationBuffer`, its own `NSTextStorageDelegate` (Neon's is
+    internal) and the scroll observation (macOS bounds/frame notifications, iOS
+    `contentOffset` KVO) — and hands the styler a token provider whose **sync
+    half always declines**. Every request then goes through the resolving async
+    path, so the fix holds for any predicate kind, in any grammar, injected or
+    not. No remote package is patched or copied. The cost is one main-actor hop
+    between an invalidation and its restyle, the hop the first paint already
+    took. **Superseded requests paint nothing.** With every paint asynchronous,
+    Neon's `SinglePhaseRangeValidator` runs overlapping requests concurrently and
+    marks whichever finishes `success`; a request issued before an injected
+    layer finished parsing could land *after* the repaint that parse triggered
+    and leave the fence plain (reproduced as a 1-in-8 flake of the fence test).
+    So two counters — character edits and styler invalidations, kept apart —
+    are read on both sides of the await, and a request that saw either change
+    returns `.noChange`. Either way the request, one main-queue turn later —
+    after the validator has recorded the range valid — re-invalidates its range
+    through the buffer — carried through every edit that landed since, each
+    shifting it or, where it overlaps, widening it over the replacement, from a
+    log of the last 256 edits. **Never the whole document**: invalidating `.all`
+    drops the validator's entire valid set, so a keystroke landing mid-request
+    would re-query the full file, and under steady typing in a large file every
+    such request is itself superseded; only an edit already gone from the log
+    falls back to `.all` (`StyleGenerationRequeueTests` pins the mapping). An edit cannot be left to Neon's own retry: its content
+    version is the storage's `hashValue`, and `NSString`'s hash samples only the
+    length and three 32-character windows, so a same-length edit outside them
+    (overtyping a selected character, a same-length Replace All) leaves the
+    version unchanged and the validator would record the unpainted range valid. **The re-queue's own invalidation is not
+    counted**: it carries no new information, and counting it would let two
+    overlapping superseded requests cancel each other's re-queues indefinitely.
+    **A detached highlighter starts nothing and paints nothing.** Detaching
+    releases the object and clears the storage's delegate, but the buffer,
+    styler and client keep each other alive through their closures and the text
+    view is reused for the next file. So a request finishing after detach
+    answers `.noChange` — Neon would otherwise clear its range on the reused
+    view — and both the re-queue and the buffer's invalidation handler
+    first check that the storage's delegate is still this highlighter's;
+    otherwise a superseded request in flight at a tab switch would start a
+    full-document request through the old grammar, whose stale-generation
+    attributes would wipe the live colouring.
+    **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
+    of one language as **one combined layer**, and a Make recipe line's
+    `shell_text` ends before its newline, so bash reads the end of one recipe
+    line and the start of the next as one word (`exit 1` + `echo` → `1echo`): the
+    first word of each continuation line loses its `function` capture. Fixing it
+    would need a query or remote-package change; the test pins the loss exactly
+    (`makeCombinedLayerLosses`) so it cannot change unnoticed.
+    **Injection reach (enumerated 2026-10-08).** Every injection Pisaka resolves
+    goes through `configuration(forInjectionName:)` — `markdown_inline` by name,
+    anything else by `SyntaxLanguage` raw value, extension or file name — and an
+    unresolved name stays plain text. What each shipped `injections.scm` names,
+    and whether the resolved target's highlights query carries a predicate:
+    - **Markdown** (block grammar) → `markdown_inline` (no predicates); `html`
+      for an HTML block (none); `yaml` for `---` front matter (none); `toml` for
+      `+++` front matter → `nil`; and a fence's info string, which reaches every
+      language the editor highlights. Of those, JavaScript, TypeScript, CSS,
+      Python, Go, Rust, Swift, SQL, Make, Dockerfile and Shell carry predicates
+      (`#match?`, plus `#eq?`/`#is-not?` in JavaScript and `#eq?`/`#any-of?` in
+      Make); JSON, Markdown, HTML, YAML, Dotenv, Gitignore and EditorConfig carry
+      none.
+    - **Markdown inline** → `html` (none); `latex` → `nil`.
+    - **Make** → `bash` for recipe lines and `$(shell …)` bodies → Shell
+      (`#match?`), the suite's original subject.
+    - **HTML** → `javascript` in `<script>` (`#match?`, `#eq?`, `#is-not?`) and
+      `css` in `<style>` (`#match?`).
+    - **JavaScript** → a tagged template's tag names its language (`css`…``
+      and `html`…`` resolve, anything else such as `gql` → `nil`); `regex` and
+      `jsdoc` → `nil`; the `hbs` pattern captures `@glimmer`, not an injection,
+      and injects nothing.
+    - **Swift** → `comment` and `regex` → `nil`.
+    - **Rust** → `rust` for macro token trees (`#match?`).
+    - TypeScript's own bundle ships no `injections.scm`, so a `.ts` file
+      injects nothing; JSON, Python, Go, CSS, YAML, Dockerfile, bash and the
+      other four vendored grammars ship none either.
+    `testEveryPredicateCarryingInjectedTargetKeepsItsPredicates` holds one probe
+    set per predicate-carrying target above — HTML → JavaScript and CSS, a
+    `css`…`` template, a Rust macro, and a Markdown fence for each
+    predicate-carrying language — each probe a token whose paint the predicate
+    decides, and, where the snippet is a whole file of its language, compares it
+    kind for kind against that standalone file. The template and the macro are
+    probe-only: the host's `string` capture shows through under a template, and
+    a token tree is no whole Rust file. Two upstream facts the enumeration turned
+    up and the probes are written around: Rust's all-caps `@constant` pattern
+    ends `"…+$'"`, a stray quote that never matches, so `MAX_SIZE` is a
+    `constructor`; and the SQL query's `%d` is a Lua class that ICU reads
+    literally, so a SQL numeral is a `string`. Both hold standalone too, so
+    neither is an injection difference.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
     NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
     appearance-aware `NSColor`) for the attribute provider. The palette is **the
