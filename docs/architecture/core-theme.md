@@ -525,24 +525,37 @@ prevent. The design's own two lane colours cannot stand in either: two hues cann
 tell several concurrent branches apart, which is the gutter's whole job.
 
 The table is `ChromePalette`'s shape: an exhaustive `switch` over eight `Lane`
-identities with no `default`, each a light/dark `Entry` — blue 0x007AFF /
-0x0A84FF, green 0x28CD41 / 0x32D74B, orange 0xFF9500 / 0xFF9F0A, purple 0xAF52DE /
-0xBF5AF2, red 0xFF3B30 / 0xFF453A, teal 0x30B0C7 / 0x40C8E0, pink 0xFF2D55 /
-0xFF375F, yellow 0xFFCC00 / 0xFFD60A. `nsColor(forLane:)` answers a **dynamic**
+identities with no `default`, each a light/dark `Entry` — blue 0x2F64C8 /
+0x6AA2FF, green 0x2E7D32 / 0x5FC46A, orange 0xB8560A / 0xF0954A, purple 0x8A3FC0 /
+0xC08CF5, red 0xC0392B / 0xF2706A, teal 0x00798A / 0x3FC4D4, pink 0xC2185B /
+0xF27AAE, yellow 0x8A6D00 / 0xE3C449. `nsColor(forLane:)` answers a **dynamic**
 `NSColor` through `PlatformColor.dynamic(light:dark:)`, resolved at draw time, so
 the gutter caches nothing and watches for no appearance change; the index wraps
 modulo eight, negative indices included, as the old palette did.
 `CommitGraphView.swift`, its one reader, spells no colour at all and is gated;
 this file is exempt, and rule three's disjointness assertion is what refuses the
 two sets meeting at that seam. `CommitGraphPaletteTests` (app bundle) restates the
-values, asserts each set of eight pairwise distinct, resolves the dynamic colour
-under both appearances and pins the wrap at -1 and 8.
+values, asserts each set of eight pairwise distinct, measures the table (below),
+resolves the dynamic colour under both appearances and pins the wrap at -1 and 8.
 
-**The eight hues are today's system values, carried over deliberately**, so
-moving the gutter off the system colours changes nothing visually. Nobody chose
-them against the design's ground; **choosing hues that sit on it is an open design
-question**, recorded here and in the file's own comment rather than decided by
-this table.
+**The eight hues are chosen against the gutter's own ground.** The lanes sit on
+`bgPanel` — `0xECECEF` light, `0x2B2D30` dark — the ground the dock sets for
+itself; neither `CommitGraphView` nor an unselected `CommitRow` draws anything
+beneath them. The WCAG ratios against `bgPanel`, in table order (blue, green,
+orange, purple, red, teal, pink, yellow), are light 4.71, 4.35, 4.07, 5.01, 4.61,
+4.34, 4.98, 4.17 and dark 5.41, 6.31, 5.99, 5.47, 4.80, 6.61, 5.37, 8.06, so every
+entry clears 3:1 with no exception. Over a selected row (`accentTintStrong` over
+`bgPanel`: `0xC6D3EC` light, `0x324059` dark) the lowest is 3.19 light and 3.63
+dark — stated for information; the floor is pinned against `bgPanel` only. The
+hue families are light 219, 123, 26, 275, 6, 187, 336, 47° and dark 217, 127, 27,
+270, 3, 186, 334, 48°; the closest pairs are orange–red light (20.6°) and
+orange–yellow dark (20.8°). None of the sixteen values equals `statusRed`,
+`statusGreen`, `statusYellow` or `accent` in either appearance, so no lane can be
+read as a chrome meaning, and the table stays the fourth exemption rather than
+becoming roles. `CommitGraphPaletteTests` pins all three properties through the
+app bundle's `ContrastArithmetic` — the 3:1 floor against `ChromePalette`'s own
+`bgPanel` entry rather than a restated literal, a 20° minimum pairwise hue
+separation per appearance, and inequality with the four roles' resolved values.
 
 ### The SwiftUI path — `ChromeTheme` + `ChromeThemeEnvironment.swift`
 
@@ -1121,8 +1134,8 @@ a view; rule twenty pins the three panels' accessibility.
 
 **The lane palette is the fourth exemption** (`CommitGraphPalette.swift`, above):
 a lane colour is an identity token, not a chrome meaning. Its eight hues are
-today's system values carried over so the gutter changes nothing visually;
-choosing hues that sit on the design's ground is an open design question.
+chosen against the gutter's ground, `bgPanel`: each clears 3:1 on it, any two
+sit at least 20° apart, and none equals a status role or `accent`.
 
   - **The Log panel** — `CommitLogView.swift`, the environment path. Since the
     design pass it draws no title row: the refresh controls sit at the filter
@@ -2373,8 +2386,8 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the lane hues, the unified diff's per-line checkbox glyph. (The caret readout, the
-changed-line text tint and the terminal's own palette were waiting here too;
+stay named under *What is still waiting*: the unified diff's per-line checkbox glyph. (The caret readout, the
+changed-line text tint, the terminal's own palette and the lane hues were waiting here too;
 all are now settled — see the bottom bar's caret readout below, part five
 (b)'s departure seven, and *The dark terminal palette on its ground*.)
 
@@ -2874,9 +2887,10 @@ and `secondaryButtonHeight` are spent on the shared field. The **caret
 readout** is **no longer deferred**: it sits after the bar's toggles (see *The
 bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
 **no longer deferred** either: the design pass drew it (part five (b)'s
-departure seven). What stays deferred: the **lane hues**, and the unified
-diff's **per-line checkbox glyph** (part five (b)'s departure six), both open
-design questions. The terminal's own palette is **no longer
+departure seven). The **lane hues** are **no longer deferred**: they are
+chosen against `bgPanel` and measured (*The fourth exemption*, above). What
+stays deferred: the unified diff's **per-line checkbox glyph** (part five (b)'s
+departure six), an open design question. The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — and
 the item that took its place, **tuning the dark ANSI-16 set**, is closed too:
 on the terminal's ground, `bgPanel` dark `0x2B2D30`, nine entries were
@@ -2972,7 +2986,7 @@ The forty-seven rules, each invisible to the compiler:
    paints, so it cannot move behind a macOS-only palette) and, since part four
    (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
    line is the same branch as that one" — not a chrome meaning; its eight hues
-   are the former system values carried over as light/dark pairs and pinned by
+   are light/dark pairs chosen against `bgPanel` and measured by
    `CommitGraphPaletteTests`). `CommitGraphView.swift`, which asks that table
    for every lane and spells no colour itself, is *gated*, so the two sets
    meeting at that seam is exactly what the disjointness assertion refuses.

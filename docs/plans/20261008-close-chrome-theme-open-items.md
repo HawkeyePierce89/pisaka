@@ -105,19 +105,19 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Sources/Pisaka/CommitGraphPalette.swift`
 - Modify: `Tests/PisakaAppTests/CommitGraphPaletteTests.swift`
 - Modify: `docs/architecture/core-theme.md`, plus `docs/architecture/app-git-views.md` if it restates the values
-- [ ] Replace the eight entries with the values in the table above. Keep the case names and their order.
-- [ ] Rewrite the file's comment so it states:
+- [x] Replace the eight entries with the values in the table above. Keep the case names and their order.
+- [x] Rewrite the file's comment so it states:
   - the ground: `bgPanel` and its two values;
   - the measured contrast values;
   - that the palette stays the fourth stated exemption: lanes are identity tokens and get no `ChromeColorRole`.
-- [ ] Update the test's `expected` table to the new values.
-- [ ] Add tests that use `ContrastArithmetic` on the table's values:
+- [x] Update the test's `expected` table to the new values.
+- [x] Add tests that use `ContrastArithmetic` on the table's values:
   - every entry is at least 3:1 against `bgPanel`. The ground comes from `ChromePalette`'s resolved value for each appearance, not from a literal;
   - the minimum pairwise hue separation is at least 20° in each appearance;
   - no entry equals the resolved `statusRed`, `statusGreen`, `statusYellow` or `accent` in either appearance;
   - the existing exact pairwise-distinct assertion stays.
-- [ ] Update the fourth-exemption section of `core-theme.md` with the values, the ground and the measurements. Remove the lane question from *What is still waiting*.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Update the fourth-exemption section of `core-theme.md` with the values, the ground and the measurements. Remove the lane question from *What is still waiting*.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test and swiftlint clean; CommitGraphPaletteTests passes in full. The same eight scale-1.8 layout assertions noted in Task 1 still fail, unchanged and environmental.)
 
 ### Task 3: Part B — the pair overlay draws `bracketMatch`
 
