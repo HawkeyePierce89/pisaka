@@ -240,24 +240,24 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Sources/Pisaka/AcknowledgementsView.swift`
 - Modify: `Sources/Pisaka/DatabaseViewerView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
-- [ ] Replace each split with `ChromeSplitView`, following the six-step sweep guide in `core-theme.md`:
+- [x] Replace each split with `ChromeSplitView`, following the six-step sweep guide in `core-theme.md`:
   - `ContentView.editorSplit`: the tree at 180/240/360 (minimum/ideal/maximum, scaled), then the tab column within `TabColumnWidthRule`'s bounds, then the editor with a minimum of 320;
   - Local History: 220/260/380 against a trailing minimum of 360;
   - Acknowledgements: 180/200/280;
   - the database viewer's vertical split: `gridMinHeight` against `consoleMinHeight`.
-- [ ] Keep the host free of any clip, because a clip is what made the platform split's panes lose the top safe-area inset (`BottomDockColumn.swift`'s comment).
-- [ ] Do not claim more for the safe-area guard than it delivers:
+- [x] Keep the host free of any clip, because a clip is what made the platform split's panes lose the top safe-area inset (`BottomDockColumn.swift`'s comment).
+- [x] Do not claim more for the safe-area guard than it delivers:
   - `BottomDockLayoutTests` hosts `BottomDockColumn` with stub panes, because `ContentView` cannot be built in a test;
   - so that suite cannot see the main window's real split being replaced;
   - the trap it records belongs to the platform split, and may not apply to the new host at all.
   - 
   - Write this in `app-window.md`'s `ContentView` and `BottomDockColumn` entries. The real check of the main window's top row is the live check in Post-Completion.
-- [ ] `BottomDockLayoutTests`, `TabColumnLayoutTests` and every other app-bundle suite stay green, with no test weakened.
-- [ ] Add a new rule: no gated file spells `HSplitView` or `VSplitView`, matched against comment- and literal-stripped text. This is rule forty-eight, with a `// MARK: - Rule` marker and a header bullet.
-- [ ] Update `core-theme.md`:
+- [x] `BottomDockLayoutTests`, `TabColumnLayoutTests` and every other app-bundle suite stay green, with no test weakened.
+- [x] Add a new rule: no gated file spells `HSplitView` or `VSplitView`, matched against comment- and literal-stripped text. This is rule forty-eight, with a `// MARK: - Rule` marker and a header bullet.
+- [x] Update `core-theme.md`:
   - remove the `HSplitView`/`VSplitView` items from the part five (c) and (d) open-question lists and from *What is still waiting*;
   - record the decision in decision 15 (part five (c)) and decision 11 (part five (d)).
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test and swiftlint clean; the app bundle's only failures are the same eight scale-1.8 layout tests recorded in Tasks 1–6)
 
 ### Task 8: Part D — focus treatment, the Acknowledgements selection, and the iOS `.label`
 

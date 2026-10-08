@@ -155,18 +155,20 @@ struct DatabaseViewerView: View {
                     // pane, so the sidebar keeps its full height: the tables and
                     // the schema are what a reader writes SQL against, and a split
                     // that shortened them would hide the names being typed.
-                    VSplitView {
+                    // The grid is the top pane and opens as tall as the
+                    // console's floor allows: its ideal and maximum are the
+                    // largest finite extent, which the split's rule clamps to
+                    // what is left over the console.
+                    ChromeSplitView(
+                        .vertical,
+                        minimum: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
+                        ideal: .greatestFiniteMagnitude,
+                        maximum: .greatestFiniteMagnitude,
+                        trailingMinimum: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
+                    ) {
                         grid
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
-                                maxHeight: .infinity
-                            )
+                    } trailing: {
                         DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
-                            )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

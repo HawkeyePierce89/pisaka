@@ -3,6 +3,13 @@ import AppKit
 import PisakaCore
 import SwiftUI
 
+/// The split's drag strip, stated outside the generic view so a caller that
+/// budgets a nested split's strip into a trailing minimum can name it.
+enum ChromeSplitStrip {
+    /// The drag strip's thickness, unscaled.
+    static let thickness: Double = 5
+}
+
 /// The chrome's one two-pane split: a leading (or top) pane, a divider, and a
 /// trailing (or bottom) pane that takes what is left.
 ///
@@ -47,9 +54,6 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
     /// so a pop with nothing of ours on it would discard somebody else's.
     @State private var cursorPushed = false
 
-    /// The drag strip's thickness, unscaled.
-    private static var stripThickness: Double { 5 }
-
     init(
         _ axis: Axis,
         minimum: CGFloat, ideal: CGFloat, maximum: CGFloat, trailingMinimum: CGFloat,
@@ -93,7 +97,7 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
     /// What the two panes share along the axis: the whole extent less the strip.
     private func paneExtent(in size: CGSize) -> CGFloat {
         let total = axis == .horizontal ? size.width : size.height
-        return max(total - metrics.scaled(Self.stripThickness), 0)
+        return max(total - metrics.scaled(ChromeSplitStrip.thickness), 0)
     }
 
     private func renderedExtent(available: CGFloat) -> CGFloat {
@@ -101,7 +105,7 @@ struct ChromeSplitView<Leading: View, Trailing: View>: View {
     }
 
     private func dragStrip(available: CGFloat) -> some View {
-        let thickness = metrics.scaled(Self.stripThickness)
+        let thickness = metrics.scaled(ChromeSplitStrip.thickness)
         let line = metrics.scaled(ChromeGeometry.hairlineWidth)
         return Color.clear
             .frame(

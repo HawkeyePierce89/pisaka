@@ -13,12 +13,12 @@ import PisakaCore
 /// Which orientation a window shows is still `SettingsStore.tabOrientation`,
 /// read by the host, which also bounds the column's width through
 /// `TabColumnWidthRule` (a third of the window at most), by way of
-/// `TabColumnWidthProbe` and `TabColumnFrame` below.
+/// `TabColumnWidthProbe` and `TabColumnSplit` below.
 ///
 /// The column owns its ground and draws **no pane-edge rule of its own**. Its
-/// host is not a stack but the `HSplitView` in `ContentView.editorSplit`, which
-/// draws a splitter divider at the column/editor boundary whatever the column
-/// does — so a trailing hairline here would be a second rule beside that one.
+/// host is not a stack but the `ChromeSplitView` in `ContentView.editorSplit`,
+/// which draws a `hairline` divider at the column/editor boundary whatever the
+/// column does — so a trailing hairline here would be a second rule beside that one.
 /// `ProjectTreeView`, the pane immediately left of it in the same split view,
 /// states that boundary the same way: by leaving it to the splitter. (The
 /// strip's bottom rule is a different case — its host *is* a `VStack`, which
@@ -61,7 +61,7 @@ struct TabListView: View {
 /// column on every point of a resize, so the probe takes the width and the
 /// metrics and assigns the bounds only when `TabColumnWidthRule` answers
 /// something new. `nil` until the first read: the column's first layout is
-/// then given the bounds of an unbounded window, so a split view — which
+/// then given the bounds of an unbounded window, so the split — which
 /// adopts the ideal once and does not revisit it — starts at the default width
 /// rather than at a maximum computed from nothing.
 @MainActor
@@ -76,20 +76,34 @@ final class TabColumnWidthProbe: ObservableObject {
     }
 }
 
-/// Frames the vertical tab column with `TabColumnWidthProbe`'s bounds. It is the
-/// probe's only observer, so a change of bounds re-evaluates this frame and
-/// not the window root that owns the probe.
-struct TabColumnFrame<Content: View>: View {
+/// Splits the vertical tab column from the editor with `TabColumnWidthProbe`'s
+/// bounds. It is the probe's only observer, so a change of bounds re-evaluates
+/// this split and not the window root that owns the probe. The split keeps its
+/// dragged width across a change of bounds and only re-clamps it, so a window
+/// narrowed and widened again gets the column's width back.
+struct TabColumnSplit<Column: View, Editor: View>: View {
     @ObservedObject var probe: TabColumnWidthProbe
-    @ViewBuilder var content: Content
+    /// The editor's floor, already scaled.
+    let trailingMinimum: CGFloat
+    @ViewBuilder var column: Column
+    @ViewBuilder var trailing: Editor
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
-        let column = probe.bounds ?? TabColumnWidthRule.bounds(metrics: metrics, windowWidth: .infinity)
-        content
-            .frame(minWidth: column.minimum, idealWidth: column.ideal, maxWidth: column.maximum)
+        let bounds = probe.bounds ?? TabColumnWidthRule.bounds(metrics: metrics, windowWidth: .infinity)
+        ChromeSplitView(
+            .horizontal,
+            minimum: CGFloat(bounds.minimum),
+            ideal: CGFloat(bounds.ideal),
+            maximum: CGFloat(bounds.maximum),
+            trailingMinimum: trailingMinimum
+        ) {
+            column
+        } trailing: {
+            trailing
+        }
     }
 }
 #endif

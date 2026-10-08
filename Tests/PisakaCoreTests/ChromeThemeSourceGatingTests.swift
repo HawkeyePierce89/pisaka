@@ -273,6 +273,11 @@ import XCTest
 ///   half must show a colour background. The headless `HostedRender` has no
 ///   title bar, so no bitmap sees either; this rule is the only net. Its
 ///   horizon is this one file and arguments spelled as `theme.color(` or `Color.`.
+/// - **No gated file spells a platform split view.** `HSplitView` and
+///   `VSplitView` draw their divider in the platform's separator value, which no
+///   role reaches; every gated split is `ChromeSplitView`, whose divider is the
+///   `hairline` role. Matched as a token against comment- and literal-stripped
+///   text, so a file explaining why it left the platform split may still name it.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -5826,6 +5831,31 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule forty-eight: no gated file spells a platform split view
+
+    /// Rule forty-eight. No gated file spells `HSplitView` or `VSplitView` as a
+    /// token in its code — comments and string literals stripped, so the files
+    /// that explain why they left the platform split may still name it. The
+    /// platform split draws its divider in the platform's separator value, a
+    /// step off the `hairline` role beside it, and offers no way to change it;
+    /// every split in the chrome is `ChromeSplitView` instead. A platform split
+    /// slipped back in compiles and draws, and only its divider's colour —
+    /// a one-point line — says anything is wrong.
+    func testNoGatedFileSpellsAPlatformSplitView() throws {
+        var checked = 0
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            checked += 1
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for split in ["HSplitView", "VSplitView"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(split, in: code),
+                    "\(url.lastPathComponent) spells \(split) — use ChromeSplitView, whose divider is the hairline role"
+                )
+            }
+        }
+        XCTAssertEqual(checked, Self.gatedFiles.count, "every gated file must be read; one is missing from Sources/")
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5926,7 +5956,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
-        45: "forty-five", 46: "forty-six", 47: "forty-seven",
+        45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

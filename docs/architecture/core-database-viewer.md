@@ -981,7 +981,7 @@ only *consults* one, before each of its two writes.
   at all.
 
 - `DatabaseViewerView.swift` — the surface, which since part 2b hosts the console
-  under the grid in a `VSplitView` (under the *grid* only, so the sidebar keeps
+  under the grid in a vertical `ChromeSplitView` (under the *grid* only, so the sidebar keeps
   its full height) and disables the paging buttons, the sort headers and its idle
   test on the tab-wide `model.isWriteInFlight` rather than on `model.isWriting`.
   The non-obvious part is a **second `@ObservedObject` on `model.console`**:
@@ -1130,7 +1130,10 @@ only *consults* one, before each of its two writes.
   chevrons are `.plain` buttons named "Previous page"/"Next page" with scaled,
   hidden glyphs and their `.disabled(… || model.isWriteInFlight)` terms verbatim,
   and its activity indicator is the shared `ChromeSpinner`, labelled because
-  nothing beside it names the load. `VSplitView`'s divider stays the platform's.
+  nothing beside it names the load. The grid/console split is the shared
+  `ChromeSplitView`, whose divider is the `hairline` role (`core-theme.md`, part
+  five (d)'s decision 11): the grid the top pane, opening as tall as the
+  console's floor allows.
   The **sidebar is resizable and foldable**, a layout change that decides nothing
   new. Its right edge is a **hand-drawn divide** — a `Color.clear` drag strip 5
   points wide with the vertical `hairline` overlaid on it, so the rule is still
@@ -1157,7 +1160,7 @@ only *consults* one, before each of its two writes.
   divide's `onDisappear` as well as its hover and drag ends (`core-theme.md` rule
   twenty-two): a tab closed, or a sidebar folded, with the pointer on the strip or
   mid-drag gets neither a hover-exit nor a drag-end, and `NSCursor`'s stack is
-  global. The **grid has a floor** inside the `VSplitView`: 40 points, applied
+  global. The **grid has a floor** inside the vertical split: 40 points, applied
   to the whole grid stack — the scrolling region, the rule above the footer and
   the footer itself (about 26 points at scale one) — so what the floor keeps is
   the footer and its rule, the paging controls and the row-range readout

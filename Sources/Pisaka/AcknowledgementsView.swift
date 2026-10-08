@@ -73,8 +73,17 @@ struct AcknowledgementsView: View {
                 .padding(metrics.scaled(24))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                HSplitView {
+                // The detail pane states no floor of its own, as it never did:
+                // the page the Preferences host frames is what bounds it.
+                ChromeSplitView(
+                    .horizontal,
+                    minimum: metrics.scaled(180),
+                    ideal: metrics.scaled(200),
+                    maximum: metrics.scaled(280),
+                    trailingMinimum: 0
+                ) {
                     dependencyList
+                } trailing: {
                     detail
                 }
             }
@@ -129,11 +138,6 @@ struct AcknowledgementsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(theme.color(.bgPanel))
-        .frame(
-            minWidth: metrics.scaled(180),
-            idealWidth: metrics.scaled(200),
-            maxWidth: metrics.scaled(280)
-        )
     }
 
     private func sectionHeader(_ title: String) -> some View {

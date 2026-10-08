@@ -708,9 +708,9 @@ disagree.
   - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the
     environment path. The column states the strip's vocabulary turned through a
     right angle: `bgPanel` ground, **no pane-edge rule at all** — its host is the
-    `HSplitView` in `ContentView.editorSplit`, whose splitter already states the
-    column/editor boundary, exactly as the gated `ProjectTreeView` beside it in
-    the same split view leaves its own — a one-point `hairline` rule along every
+    `ChromeSplitView` in `ContentView.editorSplit`, whose `hairline` divider
+    already states the column/editor boundary, exactly as the gated
+    `ProjectTreeView` beside it in the same split leaves its own — a one-point `hairline` rule along every
     row's bottom, the active row's ground **unchanged** (no fill; the design's
     column marks it only by the `accentIndicator`-wide `accent` bar on its
     **leading** edge rather than underneath), `textPrimary` for the active label
@@ -1185,8 +1185,8 @@ sit at least 20° apart, and none equals a status role or `accent`.
     with a drag strip rather than an `HSplitView`. Full entry in
     `app-git-views.md`. The database viewer's sidebar divide has since taken the
     same shape — a hand-drawn hairline with a drag strip rather than a platform
-    divider (`core-database-viewer.md`); its `VSplitView` divider stays the named
-    open departure.
+    divider (`core-database-viewer.md`); its grid/console split is the shared
+    `ChromeSplitView` since part five (d)'s decision 11 was settled.
   - **The graph gutter** — `CommitGraphView.swift`, AppKit, reading
     `CommitGraphPalette` and spelling no colour; 2 pt lines, a 6 pt dot, 14 pt
     lanes. Full entry in `app-git-views.md`.
@@ -1970,9 +1970,15 @@ differed:
 14. **The origin link is a button**: a `.plain` button with an `accent` label
     calling `@Environment(\.openURL)`, since `Link` draws the platform's link
     colour — part five (b)'s "Edit…" treatment.
-15. **Three platform pieces stay**, stated as open questions below: the small
+15. **Three platform pieces stayed**, stated as open questions below: the small
     `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
-    list's platform selection.
+    list's platform selection. **The divider is settled**: Acknowledgements'
+    list/licence split is the shared `ChromeSplitView` (180/200/280, scaled, the
+    licence pane stating no floor of its own, as it never did), whose divider is
+    the `hairline` role, and so are the three other platform splits the gated
+    files held — the main window's editor split, Local History's and the
+    database viewer's grid/console split. Rule forty-eight forbids the platform
+    split in every gated file.
 
 **Every departure from the drawing**, stated:
 
@@ -2007,8 +2013,6 @@ since the design pass, about the design's 68), pinned by rule twenty-seven.
 - **The spinners.** `ProgressView` stays in Language Servers and both sheets;
   the ticket names no replacement. (Closed by part five (d): every gated site is
   the shared `ChromeSpinner`.)
-- **`HSplitView`'s divider** in Acknowledgements stays the platform's, as it
-  already is in three gated files.
 - **The iOS half's `.label`** in `LicenseTextView.swift`: a UIKit semantic
   colour on a platform outside the chrome theme, which rule one's list does not
   carry.
@@ -2171,8 +2175,13 @@ differed:
     `Section { } header: { }` in `textSecondary`; the platform draws the
     selection and no row background is set, so rule thirty-five pins `[[]]`.
     The key glyph takes its own scaled font and keeps its help.
-11. **`VSplitView`'s divider stays**, carried with `HSplitView`'s as one open
-    question.
+11. **`VSplitView`'s divider stayed**, carried with `HSplitView`'s as one open
+    question. **Settled**: the grid/console split is the shared
+    `ChromeSplitView` along the vertical axis — the grid the top pane, floored
+    at `gridMinHeight` and opening as tall as the console's `consoleMinHeight`
+    allows (its ideal and maximum are the largest finite extent, which
+    `SplitPaneRule` clamps) — and rule forty-eight forbids the platform split in
+    every gated file.
 12. **The browser is a window root**, so rule thirty-two applies: it resolves
     colours through a private `chromeColor(_:)` over
     `settings.chromeTheme(systemPrefersDark:)`, its root struct reads no
@@ -2229,7 +2238,6 @@ changed.
 
 **Open questions**, deliberately left:
 
-- **`VSplitView`/`HSplitView`'s dividers** stay the platform's.
 - **The platform focus ring** on the grid's focused cell and on the browser's
   focusable row list.
 - **The two served documents' palette**: the statement page and the sign-in
@@ -2880,7 +2888,19 @@ the resize cursor's push and pop through `syncDividerCursor()`, and
 seventh entry in rule twenty-two's pinned set. The host applies no
 `.clipped()`, `.clipShape` or `.mask`: a clip is what cost the platform split's
 panes the window's top safe-area inset (`BottomDockColumn`). A three-pane
-layout nests a second split as the trailing pane. `ChromeSplitLayoutTests`
+layout nests a second split as the trailing pane — the main window's tree,
+tab column and editor do. It replaced all four platform splits the gated files
+held: `ContentView.editorSplit` (the tree at 180/240/360, then — vertical tabs
+— `TabColumnSplit` within `TabColumnWidthRule`'s bounds, the editor floored at
+320 in both), Local History (220/260/380 against 360), Acknowledgements
+(180/200/280) and the database viewer's vertical grid/console split
+(`gridMinHeight` against `consoleMinHeight`); rule forty-eight keeps the
+platform split out. **What the safe-area guard does not see**: the clip trap
+`BottomDockColumn` records belongs to the platform split and may not apply to
+this host at all, and `BottomDockLayoutTests` hosts the dock column with stub
+panes around a platform split of its own, so it cannot see the main window's
+real split being replaced; the main window's top row is checked live.
+`ChromeSplitLayoutTests`
 renders both axes in both appearances and measures one `hairline` line of one
 hairline width between the panes, the leading pane at its ideal and the 5-pt
 strip, and at narrow widths the panes keeping their minimums and, when both
@@ -3065,7 +3085,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-seven rules, each invisible to the compiler:
+The forty-eight rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -4029,6 +4049,16 @@ The forty-seven rules, each invisible to the compiler:
     neither the climb nor the two-toning can be seen off a bitmap and this rule
     is the only net. **Its horizon**: this one file, and only arguments spelled
     as `theme.color(` or `Color.`.
+48. **No gated file spells a platform split view.** No gated file spells
+    `HSplitView` or `VSplitView` as a token, matched against comment- and
+    literal-stripped text, so a file explaining why it left the platform split
+    may still name it. The platform split draws its divider in the platform's
+    separator value — a step off the `hairline` role beside it — and offers no
+    way to change it; every gated split is `ChromeSplitView`, whose divider is
+    the `hairline` role at the scaled `hairlineWidth`. A platform split slipped
+    back in compiles and draws, and only a one-point line's colour says
+    anything is wrong. The rule also asserts it read every gated file, so a
+    renamed one cannot drop out of the sweep silently.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

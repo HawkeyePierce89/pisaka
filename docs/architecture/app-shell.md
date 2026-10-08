@@ -2201,8 +2201,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     UIKit name rule one's AppKit/SwiftUI list does not carry — recorded as an
     open question, not an exemption.
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
-    `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
-    `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
+    `ChromeSplitView` with the dependency list (name + SPDX, 180/200/280 scaled
+    as the split's leading pane, the licence pane stating no floor) beside the selected entry's identity (name, SPDX,
     version/revision, origin) and its full license text, filling the one page
     size the Preferences host frames (`SettingsView`'s 640×420, the size this
     tab always needed; the frame moved there in part five (c)). The
@@ -2250,4 +2250,5 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     above a `hairline` rule (a `Rectangle` at `hairlineWidth`, where a
     `Divider()` stood) and the license text on `bgEditor`, painted behind the
     representable. The failure state's glyph and sentence are `textSecondary`.
-    `HSplitView`'s divider stays the platform's, as in three other gated files.
+    The split is the shared `ChromeSplitView`, its divider the `hairline` role
+    (`core-theme.md`, part five (c)'s decision 15).
