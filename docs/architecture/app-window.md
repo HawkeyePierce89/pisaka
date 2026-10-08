@@ -9,9 +9,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     split, `TabColumnSplit` (`TabListView.swift`), holding the tab column within
     `TabColumnWidthRule`'s bounds against the editor's 320. The LeetCode
     statement pane beside the editor adds its rendered width to both splits'
-    trailing minimums through `ChromeSplitTrailingDemand`, so opening a
-    statement squeezes the tree and the tab column instead of pushing the
-    editor row past the window's edge. Left zone is
+    trailing minimums through `ChromeSplitTrailingDemand`, and the window root
+    reads the same preference into the window's width floor
+    (`editorRowFloorWidth`), so opening a statement raises the window's
+    minimum instead of pushing the editor row past the window's edge. Left zone is
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which
@@ -530,12 +531,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     dividers) into a window minimum above 640 in the no-panel branch, while the
     panel branch's `GeometryReader` erased them. `editorSplit` is now
     `ChromeSplitView`, which lays its panes out inside a `GeometryReader` of its
-    own, so no pane floor reaches the window in either branch and 640 is the
-    whole width floor in both. In a window narrower than the panes' sum,
-    `SplitPaneRule` decides: the trailing minimum wins and the tree (then the
-    tab column) is the pane squeezed — the composed sum is not raised into the
-    root `minWidth`, which would hard-code a number that moves with the tab
-    orientation and the panes' own floors. The top-*leading* pin above still
+    own, so no pane floor reaches the window from the split itself. The root
+    therefore composes it: `minWidth` is the larger of 640 and
+    `editorRowFloorWidth` — the tree's 180, its strip, the tree's trailing
+    minimum (editor 320, plus tab column 180 and its strip with vertical tabs)
+    and the width the LeetCode statement reports through
+    `ChromeSplitTrailingDemand`, all scaled and built from the same properties
+    the splits are handed, so the number cannot drift from them. Zero while the
+    Welcome screen stands in for the split. Stated at the root, it holds in
+    both branches — the panel branch's `GeometryReader` used to erase the
+    platform split's composed floor, so this is stricter than before — and no
+    pane is squeezed below its minimum nor the editor row pushed past the
+    window's edge. The preference is read on `mainArea`, not on `editorSplit`,
+    so it falls back to zero when the split leaves. `SplitPaneRule`'s
+    "trailing minimum wins" stays the in-split answer for a host that does
+    not compose a floor. The top-*leading* pin above still
     covers any child that refuses its proposal, which is why that alignment is
     described there as a live case rather than a hypothetical. The 320pt `minWidth` on `editorZone` is a different
     number for a different job and stays where it is (`app-editor.md`): it is the

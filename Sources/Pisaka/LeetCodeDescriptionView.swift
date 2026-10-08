@@ -121,9 +121,9 @@ struct LeetCodeDescriptionPane: View {
     }
 
     /// The width this pane takes beside the editor, reported to the main
-    /// window's splits so they squeeze the tree and the tab column rather than
-    /// push the editor row past the window's edge: the platform split read it
-    /// off the content, the chrome split is told.
+    /// window's splits and its root, so the window's floor grows with it rather
+    /// than the editor row running past the window's edge: the platform split
+    /// read it off the content, the chrome split is told.
     private var renderedWidth: CGFloat {
         isCollapsed
             ? metrics.scaled(ChromeGeometry.hairlineWidth) + metrics.scaled(28)

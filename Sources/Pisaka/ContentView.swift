@@ -308,6 +308,10 @@ struct ContentView: View {
     /// own `TabColumnSplit` observes it, and the probe publishes only when the
     /// bounds actually change.
     @State private var tabColumnWidth = TabColumnWidthProbe()
+    /// What the LeetCode statement beside the editor reports through
+    /// `ChromeSplitTrailingDemand`, read at the window root so the window's
+    /// floor can hold it (`editorRowFloorWidth`). Zero with no statement.
+    @State private var statementDemand: CGFloat = 0
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -443,6 +447,9 @@ struct ContentView: View {
                 .onChange(of: showsWelcome) { _, shows in
                     if !shows { welcomeState.reset() }
                 }
+                // Read here rather than on `editorSplit`, so the value falls
+                // back to zero when the split (and the statement in it) leaves.
+                .onPreferenceChange(ChromeSplitTrailingDemand.self) { statementDemand = $0 }
             // No `Divider()` here: the bar draws its own one-point `hairline`
             // along its top edge, so the rule is in the palette's value rather
             // than the platform's (part two's precedent). Keeping a rule at all
@@ -500,14 +507,18 @@ struct ContentView: View {
         // to shrink to what `panelHeightRule` reserved for it. The *height* is
         // then the same floor either way, and so is the width: the chrome split
         // is a `GeometryReader` host that states no minimum of its own, so this
-        // 640 is the window's floor in both branches and both orientations.
-        // Below the panes' combined floors (tree 180 + tab list 180 + editor
-        // 320, scaled, with vertical tabs) the split squeezes the tree — its
-        // `SplitPaneRule` lets the trailing minimum win — rather than raising
-        // the window's floor as the platform split did. The column is still
+        // floor is composed here: 640, or the editor row's own floor when that is
+        // wider (`editorRowFloorWidth` — the panes' minimums plus whatever the
+        // statement beside the editor reports), which is what the platform split
+        // did by raising the window's floor itself. Stated at the root, it holds
+        // in both branches, so no pane is squeezed below its minimum and the
+        // editor row never runs past the window's edge. The column is still
         // pinned `.topLeading`: a column wider than a narrow area is a live case
         // inside the dock's `GeometryReader`, not a hypothetical one.
-        .frame(minWidth: Self.windowFloor(metrics).width, minHeight: Self.windowFloor(metrics).height)
+        .frame(
+            minWidth: max(Self.windowFloor(metrics).width, editorRowFloorWidth),
+            minHeight: Self.windowFloor(metrics).height
+        )
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
         // inherits both and adds no root. The named space is the one the
@@ -983,12 +994,10 @@ struct ContentView: View {
         // the tabs are vertical.
         ChromeSplitView(
             .horizontal,
-            minimum: metrics.scaled(180),
+            minimum: treeMinimumWidth,
             ideal: metrics.scaled(240),
             maximum: metrics.scaled(360),
-            trailingMinimum: editorZoneMinimumWidth + (settings.tabOrientation == .vertical
-                ? metrics.scaled(TabColumnWidthRule.minimum) + metrics.scaled(ChromeSplitStrip.thickness)
-                : 0)
+            trailingMinimum: treeTrailingMinimumWidth
         ) {
             // Left zone: the project tree. (Local Changes is now a bottom dock
             // panel, so the old "Project ⇄ Changes" segmented toggle is gone.)
@@ -1058,6 +1067,29 @@ struct ContentView: View {
     /// The editor's floor, scaled: the one number both the editor's own frame
     /// and the splits' trailing minimums state.
     private var editorZoneMinimumWidth: CGFloat { metrics.scaled(320) }
+
+    /// The project tree's floor, scaled.
+    private var treeMinimumWidth: CGFloat { metrics.scaled(180) }
+
+    /// Everything right of the tree at its floor: the editor's 320, plus the
+    /// tab column and its strip when the tabs are vertical. The statement's
+    /// width is not here — the splits read it themselves.
+    private var treeTrailingMinimumWidth: CGFloat {
+        editorZoneMinimumWidth + (settings.tabOrientation == .vertical
+            ? metrics.scaled(TabColumnWidthRule.minimum) + metrics.scaled(ChromeSplitStrip.thickness)
+            : 0)
+    }
+
+    /// The editor row's own floor, scaled: every pane of `editorSplit` at its
+    /// minimum, both strips and the statement's reported width. Zero while the
+    /// Welcome screen stands in for the split. The window root holds the window
+    /// to at least this, since the chrome split, a `GeometryReader` host, raises
+    /// no floor of its own.
+    private var editorRowFloorWidth: CGFloat {
+        guard !showsWelcome else { return 0 }
+        return treeMinimumWidth + metrics.scaled(ChromeSplitStrip.thickness)
+            + treeTrailingMinimumWidth + statementDemand
+    }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —
     /// no divider, no width — unless the model has a statement for the active

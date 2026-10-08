@@ -1733,8 +1733,9 @@ the limits the design carries.
     back, so the pane can never be folded away and lost. The pane reports its
     rendered width — handle plus clamped width, or the collapsed strip — through
     `ChromeSplitTrailingDemand`, so the main window's chrome splits add it to
-    their trailing minimums and squeeze the tree rather than overflow the window
-    (`core-theme.md`, *The shared split*).
+    their trailing minimums and the window root adds it to the window's width
+    floor rather than letting the row overflow the window (`app-window.md`,
+    `core-theme.md`, *The shared split*).
     The handle's cursor push goes through **`syncResizeHandleCursor()`**, the exact
     shape `ContentView.syncPanelDividerCursor()` has: one `handleCursorPushed` flag
     driven off `hovering || dragging`, written by every mutation of either input

@@ -15,9 +15,10 @@ enum ChromeSplitStrip {
 /// whose width the caller cannot see: the LeetCode statement sits beside the
 /// editor at a width it holds itself. Every horizontal `ChromeSplitView` it
 /// sits under adds it to its trailing minimum, so the leading pane is the one
-/// squeezed and the row never runs past the window's edge — what the platform
-/// split did by reading the pane's minimum off its content, which a
-/// `GeometryReader` host cannot.
+/// squeezed; the main window's root reads it too, into the window's floor, so
+/// the row never runs past the window's edge — what the platform split did by
+/// reading the pane's minimum off its content, which a `GeometryReader` host
+/// cannot.
 struct ChromeSplitTrailingDemand: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
