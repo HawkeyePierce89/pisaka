@@ -317,15 +317,15 @@ All six colours stay at or above 3:1 in both appearances.
 **Files:**
 
 - Create: a throwaway harness under `/tmp`, outside the repository, as #99 did. Its results are summarised in `Vendor/TreeSitterMake/VENDORED.md` and `app-editor-overlays.md`.
-- [ ] Build a SwiftPM executable that depends on the pinned Neon, SwiftTreeSitter and tree-sitter-bash, with `Vendor/TreeSitterMake` as a path dependency.
-- [ ] Run a Make root `LanguageLayer` over `Tests/PisakaAppTests/Fixtures/injected-shell.mk` and confirm the joined word `1echo` appears.
-- [ ] Parse bash directly with `includedRanges`, in two cases:
+- [x] Build a SwiftPM executable that depends on the pinned Neon, SwiftTreeSitter and tree-sitter-bash, with `Vendor/TreeSitterMake` as a path dependency.
+- [x] Run a Make root `LanguageLayer` over `Tests/PisakaAppTests/Fixtures/injected-shell.mk` and confirm the joined word `1echo` appears.
+- [x] Parse bash directly with `includedRanges`, in two cases:
   - with ranges that stop before each `\n`, the lexer spans the gap and gives `1echo`;
   - with the same ranges extended to include each `\n`, the words stay separate.
-- [ ] Rule out the two other acceptable fixes:
+- [x] Rule out the two other acceptable fixes:
   - a query-only fix: `NL` cannot be captured by a query, because it is an unnamed immediate regex token inside a hidden rule;
   - an app-side range extension: SwiftTreeSitterLayer exposes no hook to transform ranges.
-- [ ] Record both dumps and both conclusions in the progress log. This task changes nothing in the repository, so the only test run is `swift test`, which must stay green.
+- [x] Record both dumps and both conclusions in the progress log. This task changes nothing in the repository, so the only test run is `swift test`, which must stay green. (dumps and conclusions in the progress log under [task 10 …]; harness at /tmp/pisaka-harness)
 
 ### Task 11: Part E — the recipe line's `shell_text` includes its terminator
 
