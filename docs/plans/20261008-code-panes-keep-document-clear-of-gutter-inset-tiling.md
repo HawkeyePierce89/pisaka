@@ -98,11 +98,11 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run the macOS Release build to confirm the override compiles on the shipping path: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
-- [ ] Confirm the suite reaches every branch in `CodeScrollView.tile()` on the running macOS: inset changed at home, inset changed while scrolled, and inset unchanged.
+- [x] Run `swift test`. (6136 tests, 0 failures.)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (252 tests; CodeScrollViewHomeTests passes. The only failures are the same 8 pre-existing ones recorded in Task 1, in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests.)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations.)
+- [x] Run the macOS Release build to confirm the override compiles on the shipping path: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`. (BUILD SUCCEEDED.)
+- [x] Confirm the suite reaches every branch in `CodeScrollView.tile()` on the running macOS: inset changed at home, inset changed while scrolled, and inset unchanged. (On macOS 27 the inset is applied: the first-tile, widen and narrow tests take the correcting branch, the scrolled-right test takes inset changed but not at home, and the no-ruler test takes inset unchanged.)
 
 ### Task 5: Update documentation
 
