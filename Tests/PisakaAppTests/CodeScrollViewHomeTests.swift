@@ -12,8 +12,10 @@ import XCTest
 /// tiles by narrowing the clip view's frame the inset is 0 and home is 0, so it
 /// passes on the older CI runner untouched; on macOS 26+, where the ruler's
 /// thickness arrives as a leading `contentInsets.left`, it exercises the
-/// correction — first tile, a widened ruler, a narrowed one, and a pane scrolled
-/// right that must not be re-homed.
+/// correction — first tile, a widened ruler, a narrowed one (each keeping the
+/// vertical position, since the gutter widens mid-file as the line count crosses a
+/// digit), a document narrower than the pane (the usual short-line file), and a
+/// pane scrolled right that must not be re-homed.
 @MainActor
 final class CodeScrollViewHomeTests: XCTestCase {
     func testTheFirstTileLeavesThePaneAtHome() {
@@ -23,16 +25,34 @@ final class CodeScrollViewHomeTests: XCTestCase {
 
     func testWideningTheRulerKeepsAPaneAtHomeAtTheNewHome() {
         let pane = makePane()
+        scrollDown(pane, to: 500)
         pane.verticalRulerView?.ruleThickness = 80
         pane.tile()
         assertAtHome(pane, "after widening the ruler")
+        XCTAssertEqual(pane.contentView.bounds.origin.y, 500, accuracy: 0.5, "the vertical position")
     }
 
     func testNarrowingTheRulerKeepsAPaneAtHomeAtTheNewHome() {
         let pane = makePane()
+        scrollDown(pane, to: 500)
         pane.verticalRulerView?.ruleThickness = 20
         pane.tile()
         assertAtHome(pane, "after narrowing the ruler")
+        XCTAssertEqual(pane.contentView.bounds.origin.y, 500, accuracy: 0.5, "the vertical position")
+    }
+
+    /// The editor's text view is content-sized, so a file of short lines is a
+    /// document narrower than the pane — the shape most panes open in. Here the
+    /// framework's own clamp already lands the origin at home (this test passes with
+    /// the correction removed); it pins that the correction leaves that alone.
+    func testADocumentNarrowerThanThePaneStaysAtHome() {
+        let pane = makePane(documentWidth: 200)
+        assertAtHome(pane, "after the first tile")
+        for thickness: CGFloat in [80, 20] {
+            pane.verticalRulerView?.ruleThickness = thickness
+            pane.tile()
+            assertAtHome(pane, "ruler at \(thickness)")
+        }
     }
 
     /// A pane the user scrolled right is never sent home by a ruler change.
@@ -75,11 +95,11 @@ final class CodeScrollViewHomeTests: XCTestCase {
         XCTAssertEqual(pane.contentView.contentInsets.left, 0)
     }
 
-    private func makePane() -> CodeScrollView {
+    private func makePane(documentWidth: CGFloat = 3000) -> CodeScrollView {
         let pane = CodeScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         pane.hasHorizontalScroller = true
         pane.hasVerticalScroller = true
-        pane.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 3000, height: 3000))
+        pane.documentView = NSView(frame: NSRect(x: 0, y: 0, width: documentWidth, height: 3000))
         let ruler = NSRulerView(scrollView: pane, orientation: .verticalRuler)
         ruler.ruleThickness = 40
         pane.verticalRulerView = ruler
@@ -87,6 +107,13 @@ final class CodeScrollViewHomeTests: XCTestCase {
         pane.rulersVisible = true
         pane.tile()
         return pane
+    }
+
+    private func scrollDown(_ pane: CodeScrollView, to y: CGFloat) {
+        let clip = pane.contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
+        pane.reflectScrolledClipView(clip)
+        XCTAssertEqual(clip.bounds.origin.y, y, accuracy: 0.5, "the vertical scroll itself")
     }
 
     private func assertAtHome(

@@ -370,8 +370,10 @@ items, and applies the three scales to views.
     panel has no ruler, so its inset is always 0 — in both the branch is inert.
     The invariant, across every code pane: **after every tile, a pane at home
     sits at `x == -contentInsets.left`.** `CodeScrollViewHomeTests` (the app
-    bundle) pins it — first tile, a widened ruler, a narrowed one, the ruler-less
-    shape — and that a pane scrolled right is not sent home. That last assertion
+    bundle) pins it — first tile, a widened ruler and a narrowed one (each keeping
+    the vertical position), a document narrower than the pane (where the
+    framework's clamp already lands home and the correction must leave it), the
+    ruler-less shape — and that a pane scrolled right is not sent home. That last assertion
     is deliberately weaker than exact preservation of the origin (the offset from
     home shrinks by at most the inset's own change): what the framework does to a
     scrolled view's origin when its inset changes is the framework's, and differs
