@@ -153,12 +153,16 @@ final class SymbolQueryTests: XCTestCase {
         }
     }
 
-    /// The HTML query is the only one that needs a predicate, and it needs it
+    /// The HTML query was the first that needs a predicate, and it needs it
     /// badly enough to assert: without the `#match?`, `(attribute (attribute_name) …
     /// (attribute_value) @definition.anchor)` matches *every* attribute in the
     /// document, so `class="page"` and `href="#header"` would be indexed as
     /// anchors. This pins that the filter is still there — and, by implication,
     /// that the extractor has to resolve predicates rather than walk raw matches.
+    ///
+    /// Make's special-target filter is the second, and the set of
+    /// predicate-bearing queries is pinned as an exact map: a third fails here
+    /// until it is reviewed.
     func testTheHTMLQueryFiltersAttributesByName() throws {
         let source = try querySource(for: .html)
         // `#match?` with a case-insensitive, fully anchored pattern rather than
@@ -170,14 +174,73 @@ final class SymbolQueryTests: XCTestCase {
             attribute value in every HTML file is indexed as an anchor.
             """)
 
-        XCTAssertEqual(try parsedQuery(for: .html).predicateNames, ["match?"])
+        var predicates: [SyntaxLanguage: Set<String>] = [:]
+        for language in try indexableLanguages() {
+            let names = try parsedQuery(for: language).predicateNames
+            if !names.isEmpty { predicates[language] = names }
+        }
+        XCTAssertEqual(predicates, [.html: ["match?"], .make: ["not-match?"]], """
+            The set of symbols queries carrying a predicate changed. A predicate only takes \
+            effect when the *client* evaluates it, so the extractor resolves predicates solely \
+            because HTML's id filter and Make's special-target filter need it; a query that \
+            grows one elsewhere (or loses one) means re-checking that dependency rather than \
+            assuming it.
+            """)
+    }
 
-        for language in try indexableLanguages() where language != .html {
-            XCTAssertEqual(try parsedQuery(for: language).predicateNames, [], """
-                \(language.rawValue)/symbols.scm gained a predicate. A predicate only takes \
-                effect when the *client* evaluates it, so the extractor resolves predicates \
-                solely because HTML needs it; a query that grows one elsewhere means re-checking \
-                that dependency rather than assuming it.
+    /// Make's predicates, pinned by their text: special targets (`.PHONY`),
+    /// special variables (`.DEFAULT_GOAL`) and pattern targets (`%.o`) declare no
+    /// name the user would jump to, so the filters must stay on every capture.
+    /// Suffix rules (`.c.o`, recognized against GNU make's default suffix list)
+    /// are filtered only from a rule with no prerequisites: GNU make records
+    /// `.c.o: foo.h` as an explicit target as well as a suffix rule, and a
+    /// static-pattern rule applies to the targets it enumerates. The filters list
+    /// GNU make's special names exactly rather than their shape, so an ordinary
+    /// dot-led target such as `.venv` or `.BUILD` stays indexed.
+    func testTheMakeQueryFiltersSpecialNamesAndPatternTargets() throws {
+        let source = try querySource(for: .make)
+        let specialTargets = [
+            "DEFAULT", "DELETE_ON_ERROR", "EXPORT_ALL_VARIABLES", "IGNORE", "INTERMEDIATE",
+            "LOW_RESOLUTION_TIME", "NOTINTERMEDIATE", "NOTPARALLEL", "ONESHELL", "PHONY", "POSIX",
+            "PRECIOUS", "SECONDARY", "SECONDEXPANSION", "SILENT", "SUFFIXES", "WAIT",
+        ].joined(separator: "|")
+        let defaultSuffixes = [
+            "out", "a", "ln", "o", "c", "cc", "C", "cpp", "p", "f", "F", "m", "r", "y", "l", "ym", "lm",
+            "s", "S", "mod", "sym", "def", "h", "info", "dvi", "tex", "texinfo", "texi", "txinfo", "w",
+            "ch", "web", "sh", "elc", "el",
+        ].joined(separator: "|")
+        let specialVariables = [
+            "DEFAULT_GOAL", "EXTRA_PREREQS", "FEATURES", "INCLUDE_DIRS", "LIBPATTERNS", "LOADED",
+            "RECIPEPREFIX", "SHELLFLAGS", "SHELLSTATUS", "VARIABLES",
+        ].joined(separator: "|")
+        let special = "^[.](\(specialTargets))$"
+        let suffixRule = "^([.](\(defaultSuffixes))){1,2}$"
+        let withPrerequisites = "(#not-match? @definition.target \"\(special)|%\"))"
+        for fields in ["target: (_)", "!target normal: (_)", "!target !normal order_only: (_)"] {
+            XCTAssertTrue(source.contains("""
+                ((rule (targets (word) @definition.target) \(fields))
+                 \(withPrerequisites)
+                """), """
+                The Make symbols query no longer filters special and pattern targets of a rule \
+                matching `\(fields)`, so `.PHONY` and `%.o` would be indexed as targets, or \
+                `.venv`/`.BUILD` would not be.
+                """)
+        }
+        XCTAssertTrue(source.contains("""
+            ((rule (targets (word) @definition.target) !target !normal !order_only)
+             (#not-match? @definition.target "\(special)|\(suffixRule)|%"))
+            """), """
+            The Make symbols query no longer filters special, suffix-rule and pattern targets \
+            of a prerequisite-less rule, so `.PHONY`, `.c.o` and `%.o` would be indexed as \
+            targets, or `.venv`/`.BUILD` would not be.
+            """)
+        for node in ["variable_assignment", "shell_assignment", "define_directive"] {
+            XCTAssertTrue(source.contains("""
+                ((\(node) name: (word) @definition.variable)
+                 (#not-match? @definition.variable "^[.](\(specialVariables))$"))
+                """), """
+                The Make symbols query no longer filters special variables defined through \
+                `\(node)`, so `.DEFAULT_GOAL` and `.RECIPEPREFIX` would be indexed as variables.
                 """)
         }
     }
@@ -215,6 +278,20 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
+    func testMakeSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        assertQueryNodesAreDeclared(
+            try parsedQuery(for: .make),
+            declaredBy: try declaredNodeTypes(vendoredPackage: "TreeSitterMake"),
+            describedAs: "TreeSitterMake",
+            consequence: "every Makefile would index zero symbols"
+        )
+    }
+
+    func testMakeSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        XCTAssertEqual(try parsedQuery(for: .make).outputCaptureNames,
+                       ["definition.target", "definition.variable"])
+    }
+
     func testEditorConfigSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
         XCTAssertEqual(try parsedQuery(for: .editorconfig).outputCaptureNames, ["definition.heading"])
     }
@@ -248,7 +325,7 @@ final class SymbolQueryTests: XCTestCase {
 
         // Every language with a query is either pinned here or read from its
         // vendored grammar above, so a new language cannot arrive unpinned.
-        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql, .editorconfig]),
+        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql, .editorconfig, .make]),
                        Set(try indexableLanguages()))
     }
 

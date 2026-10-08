@@ -43,4 +43,9 @@ final class CommentStyleTests: XCTestCase {
         XCTAssertEqual(CommentStyle.style(for: .shell), .line("#"))
         XCTAssertFalse(CommentStyle.languagesWithoutComments.contains(.shell))
     }
+
+    func testMakeUsesTheHashLineComment() {
+        XCTAssertEqual(CommentStyle.style(for: .make), .line("#"))
+        XCTAssertFalse(CommentStyle.languagesWithoutComments.contains(.make))
+    }
 }

@@ -23,6 +23,7 @@ final class FileGlyphTests: XCTestCase {
         .sql: ("schema.sql", .fileCode),
         .editorconfig: (".editorconfig", .fileText),
         .shell: ("build.sh", .fileCode),
+        .make: ("Makefile", .fileCode),
     ]
 
     func testEveryLanguageHasAnAnswer() {
@@ -33,6 +34,12 @@ final class FileGlyphTests: XCTestCase {
                 "\(sample.name) no longer resolves to \(language) — pick another sample"
             )
             XCTAssertEqual(FileGlyph.forFile(named: sample.name), sample.glyph, "\(sample.name)")
+        }
+    }
+
+    func testEveryMakeSpellingIsCode() {
+        for name in ["Makefile", "GNUmakefile", "makefile", "rules.mk", "legacy.mak"] {
+            XCTAssertEqual(FileGlyph.forFile(named: name), .fileCode, name)
         }
     }
 

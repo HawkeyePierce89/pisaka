@@ -316,8 +316,8 @@ two new geometry tokens) and each with its readers pinned by a gating
     `DatabaseFileRule` recognises the name (asked first, so a `.db` file is not
     text), `file-text` for a name no `SyntaxLanguage` claims and for Markdown,
     `.gitignore`, `.env` and `.editorconfig`, and `file-code` for every other
-    language — the language switch is exhaustive, so a new language is a compile
-    error until it is placed. `forFolder(expanded:)` answers `folder-open` or
+    language (Make included) — the language switch is exhaustive, so a new
+    language is a compile error until it is placed. `forFolder(expanded:)` answers `folder-open` or
     `folder`. It reads the two rules that already own the question rather than a
     third extension table, and `FileIcon` is untouched for iOS.
     `FileGlyphTests` walks every `SyntaxLanguage` through a sample table held

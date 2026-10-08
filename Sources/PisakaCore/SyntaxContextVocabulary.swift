@@ -41,7 +41,7 @@ public enum SyntaxContextVocabulary {
     public enum LineAnchor: Equatable, Sendable {
         /// The token starts a comment wherever it appears.
         /// Held by every language whose comment token is unambiguous:
-        /// swift, javascript, typescript, python, go, rust, sql.
+        /// swift, javascript, typescript, python, go, rust, sql, make.
         case anywhere
         /// Only at column zero — offset 0 or immediately after a line
         /// separator, with no whitespace tolerated before the token.
@@ -142,12 +142,12 @@ public enum SyntaxContextVocabulary {
     /// not the reason; these formats simply have no quoted-string concept that
     /// a lexing pass needs to know about.
     public static let languagesWithoutStringVocabulary: Set<SyntaxLanguage> = [
-        .markdown, .gitignore, .editorconfig,
+        .markdown, .gitignore, .editorconfig, .make,
     ]
 
     // MARK: - Accessors
 
-    /// The vocabulary for `language`, covering all 17 `SyntaxLanguage` cases.
+    /// The vocabulary for `language`, covering all 18 `SyntaxLanguage` cases.
     public static func vocabulary(for language: SyntaxLanguage) -> Vocabulary {
         Vocabulary(
             stringForms: stringForms(for: language),
@@ -185,7 +185,10 @@ public enum SyntaxContextVocabulary {
             return dotenvStringForms
         case .shell:
             return shellStringForms
-        case .gitignore, .editorconfig, .markdown:
+        case .gitignore, .editorconfig, .markdown, .make:
+            // Make has no string literal either: a quote is an ordinary
+            // character to make itself and only means something to the shell
+            // running a recipe line, which is not this vocabulary's to model.
             return []
         }
     }
@@ -246,6 +249,14 @@ public enum SyntaxContextVocabulary {
             // cost is that completion is suppressed inside an escaped-space
             // argument, which is the conservative direction of the two.
             return [.line(token: "#", anchor: .atWordStart)]
+        case .make:
+            // GNU make strips a `#` comment wherever it appears outside a
+            // recipe, so the token is unanchored. **Two non-models stay
+            // wrong, in the conservative direction**: a `#` inside a recipe
+            // line belongs to the shell (whose own rule is a word-start one),
+            // and a backslash-escaped `\#` is a literal hash — the scanner
+            // calls both a comment, so completion is suppressed there.
+            return [.line(token: "#", anchor: .anywhere)]
         case .markdown:
             return []
         }
@@ -265,7 +276,7 @@ public enum SyntaxContextVocabulary {
             return false
         case .swift, .javascript, .typescript, .python, .go, .rust, .css, .sql, .dockerfile:
             return true
-        case .markdown, .gitignore, .editorconfig:
+        case .markdown, .gitignore, .editorconfig, .make:
             return false
         }
     }

@@ -35,6 +35,15 @@ import Foundation
 /// the only phase that cannot interact with the `.env.` prefix rule in either
 /// direction — a looser rule claiming it would have to be ordered against that
 /// prefix, while an exact name is answered before either ever runs.
+///
+/// `.make` is claimed by exact name (`Makefile`, `makefile` and `GNUmakefile`,
+/// all reached through the lowercasing) and by the `mk`/`mak` extensions, and
+/// carries **no prefix rule**. The forms a prefix would buy — `Makefile.inc`,
+/// `Makefile.am` — are not required, and `makefile.` as a prefix would sit
+/// after the extension phase anyway, so `Makefile.swift` keeps resolving to
+/// Swift whatever is added later; the absence keeps `Makefile.inc` an honest
+/// `nil` rather than a guess. `.makeignore` stays gitignore through the
+/// dot-ignore shape, which no Make rule reaches.
 public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     case swift
     case javascript
@@ -53,6 +62,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case sql
     case editorconfig
     case shell
+    case make
 
     /// The name the bottom bar's caret readout shows for this language.
     ///
@@ -79,6 +89,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         case .sql: return "SQL"
         case .editorconfig: return "EditorConfig"
         case .shell: return "Shell"
+        case .make: return "Makefile"
         }
     }
 
@@ -159,6 +170,8 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "zsh": .shell,
         "ksh": .shell,
         "command": .shell,
+        "mk": .make,
+        "mak": .make,
     ]
 
     /// Lowercased whole file name → language, for the extensionless names.
@@ -176,6 +189,8 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         ".zlogout": .shell,
         ".profile": .shell,
         ".envrc": .shell,
+        "makefile": .make,
+        "gnumakefile": .make,
     ]
 
     /// The exact-name phase's keys and the extension phase's keys, exposed as

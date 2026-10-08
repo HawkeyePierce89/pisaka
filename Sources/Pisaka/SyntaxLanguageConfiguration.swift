@@ -33,6 +33,9 @@ import TreeSitterSql
 // Vendored locally (`Vendor/TreeSitterEditorconfig`) — the fourth vendored grammar;
 // see that package's `VENDORED.md`.
 import TreeSitterEditorconfig
+// Vendored locally (`Vendor/TreeSitterMake`) — the fifth vendored grammar; see its
+// `VENDORED.md` for why (upstream ships no SwiftPM manifest or Swift binding).
+import TreeSitterMake
 
 /// Maps a semantic `SyntaxLanguage` (PisakaCore) to a concrete tree-sitter
 /// `LanguageConfiguration` (grammar parser + bundled highlight queries).
@@ -129,6 +132,12 @@ enum SyntaxLanguageConfiguration {
             // which LanguageConfiguration derives from name: "Editorconfig",
             // not "EditorConfig".
             return try LanguageConfiguration(tree_sitter_editorconfig(), name: "Editorconfig")
+        case .make:
+            // The SPM resource bundle is TreeSitterMake_TreeSitterMake, which
+            // LanguageConfiguration derives from name: "Make". Its injections
+            // query hands recipe bodies to "bash", which resolves to `.shell`
+            // through the extension map in configuration(forInjectionName:).
+            return try LanguageConfiguration(tree_sitter_make(), name: "Make")
         }
     }
 
@@ -185,10 +194,12 @@ enum SyntaxLanguageConfiguration {
             return markdownInlineConfiguration()
         }
 
-        // Fenced code / embedded blocks reference languages by name or extension
-        // (e.g. "swift", "js", "py"); resolve through the same map the editor uses.
+        // Fenced code / embedded blocks reference languages by name, extension
+        // or bare file name (e.g. "swift", "js", "makefile"); resolve through
+        // the same maps the editor uses.
         if let language = SyntaxLanguage(rawValue: normalized)
-            ?? SyntaxLanguage(fileExtension: normalized) {
+            ?? SyntaxLanguage(fileExtension: normalized)
+            ?? SyntaxLanguage(forFileName: normalized) {
             return configuration(for: language)
         }
 

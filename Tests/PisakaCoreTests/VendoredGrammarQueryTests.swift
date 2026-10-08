@@ -1,8 +1,13 @@
 import XCTest
 @testable import PisakaCore
 
-/// Static verification of the two tree-sitter highlight queries that live *in
-/// this repository* (`Vendor/TreeSitterGitignore/`, `Vendor/TreeSitterDotenv/`).
+/// Static verification of the tree-sitter queries that live *in this
+/// repository*, under `Vendor/`: the highlight queries of all five vendored
+/// grammars (gitignore and editorconfig hand-written here, dotenv and SQL
+/// verbatim from upstream, make adapted from upstream), plus make's verbatim
+/// `injections.scm` — the one injection query a vendored grammar ships, held to
+/// the same node check because an undeclared node in it fails the whole
+/// configuration just the same.
 ///
 /// Both of a query's failure modes are silent in the app — an unknown *node*
 /// name makes the query fail to compile, so `LanguageConfiguration` throws,
@@ -151,6 +156,68 @@ final class VendoredGrammarQueryTests: XCTestCase {
         assertResolvesWithoutFallingBackToPlain(emitted)
     }
 
+    // MARK: - make (query adapted from upstream; injections vendored verbatim)
+
+    func testMakeQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterMake")
+    }
+
+    /// The injection query is the one other query file a vendored grammar ships:
+    /// a node name it uses that the grammar does not declare fails the whole
+    /// configuration exactly as a highlight query would, so it gets the same check.
+    func testMakeInjectionQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterMake",
+                                                 query: "injections.scm")
+    }
+
+    func testMakeQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        let query = try parsedQuery(vendoredPackage: "TreeSitterMake")
+        let emitted = query.outputCaptureNames
+
+        // `@_target` is the `.PHONY` pattern's predicate operand, never drawn.
+        XCTAssertEqual(query.auxiliaryCaptureNames, ["_target"])
+        XCTAssertEqual(emitted, [
+            "comment",
+            "keyword",
+            "keyword.conditional",  // ifeq/ifneq/ifdef/ifndef/else/endif
+            "keyword.import",       // include/-include/export/unexport
+            "function",             // rule targets, `.PHONY` prerequisites
+            "function.builtin",     // special targets, `$(patsubst …)`, `$(shell …)`
+            "operator",
+            "string.special.path",  // include filenames
+            "variable",             // assignment/define names and `$(NAME)` references
+            "variable.builtin",     // `$@`, `$<`, … and MAKEFLAGS-style variables
+            "punctuation.special",  // line-continuation backslash
+        ])
+
+        assertResolvesWithoutFallingBackToPlain(emitted)
+
+        // A Makefile is mostly `NAME = value` and `target: prereqs`, so the
+        // variable, the target and the operator between them must land in three
+        // different colors — the regression upstream's `@string` names were.
+        let kinds = Set(["variable", "function", "operator", "comment"]
+            .map { SyntaxTokenKind(captureName: $0) })
+        XCTAssertEqual(kinds.count, 4)
+    }
+
+    /// Upstream's own capture names that this adaptation exists to replace: each
+    /// one resolves to `.plain` or to the string colour, and none may come back
+    /// with a grammar update re-copied over the adapted file.
+    func testMakeQueryCarriesNoneOfUpstreamsReplacedCaptures() throws {
+        let emitted = try parsedQuery(vendoredPackage: "TreeSitterMake").captureNames
+        for replaced in ["spell", "character.special", "string.special.symbol", "string"] {
+            XCTAssertFalse(emitted.contains(replaced), "@\(replaced) is back in the make query")
+        }
+        XCTAssertEqual(SyntaxTokenKind(captureName: "spell"), .plain)
+        XCTAssertEqual(SyntaxTokenKind(captureName: "character.special"), .plain)
+    }
+
+    func testMakeInjectionQueryInjectsBashIntoRecipesAndShellCalls() throws {
+        let query = try parsedQuery(vendoredPackage: "TreeSitterMake", query: "injections.scm")
+        XCTAssertEqual(query.namedNodes, ["shell_text", "shell_command"])
+        XCTAssertEqual(query.captureNames, ["injection.content"])
+    }
+
     // MARK: - The named/anonymous split itself
 
     /// The node check is only as good as the `named` flag it reads: merging the
@@ -199,7 +266,9 @@ final class VendoredGrammarQueryTests: XCTestCase {
     /// set — a spurious field would fail the check against `node-types.json` with
     /// a mismatch that does not exist, and a missing one leaves the hole this
     /// collection was added to close (`ts_query_new` answering
-    /// `TSQueryErrorField`, i.e. the language silently indexing nothing).
+    /// `TSQueryErrorField`, i.e. the language silently indexing nothing). A
+    /// *negated* field (`!normal`, "this field is absent") is validated the same
+    /// way, so it is collected too.
     func testScannerCollectsFieldNamesAndNothingElse() {
         let query = ParsedQuery(source: """
         ; A comment mentioning body: and name: in prose.
@@ -208,9 +277,10 @@ final class VendoredGrammarQueryTests: XCTestCase {
           body: (block (function_definition name: (identifier) @definition.method)))
         ((attribute (attribute_name) @_a) (#match? @_a "^id:$"))
         (source_file (_ (pattern) @definition.variable))
+        (rule (targets) @definition.target !order_only)
         """)
 
-        XCTAssertEqual(query.fieldNames, ["name", "body"])
+        XCTAssertEqual(query.fieldNames, ["name", "body", "order_only"])
         XCTAssertEqual(query.anonymousNodes, [])
         XCTAssertTrue(query.namedNodes.contains("class_declaration"))
         XCTAssertFalse(query.namedNodes.contains("_"))
@@ -246,11 +316,12 @@ final class VendoredGrammarQueryTests: XCTestCase {
 
     private func assertHighlightQueryNodesAreDeclared(
         vendoredPackage: String,
+        query: String = "highlights.scm",
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
         assertQueryNodesAreDeclared(
-            try parsedQuery(vendoredPackage: vendoredPackage),
+            try parsedQuery(vendoredPackage: vendoredPackage, query: query),
             declaredBy: try declaredNodeTypes(vendoredPackage: vendoredPackage,
                                               file: file, line: line),
             describedAs: vendoredPackage,
@@ -265,9 +336,10 @@ final class VendoredGrammarQueryTests: XCTestCase {
         try parsedQuery(vendoredPackage: vendoredPackage).captureNames
     }
 
-    private func parsedQuery(vendoredPackage: String) throws -> ParsedQuery {
+    private func parsedQuery(vendoredPackage: String,
+                             query: String = "highlights.scm") throws -> ParsedQuery {
         let url = TestRepository.url(
-            atRepositoryPath: "Vendor/\(vendoredPackage)/queries/highlights.scm")
+            atRepositoryPath: "Vendor/\(vendoredPackage)/queries/\(query)")
         return ParsedQuery(source: try String(contentsOf: url, encoding: .utf8))
     }
 }

@@ -19,11 +19,11 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
 - `project.yml` (XcodeGen) declares one application target with
   `supportedDestinations: [macOS, iOS]` and pins every *remote* dependency to
   the exact version/revision the committed workspace `Package.resolved` records;
-  four tree-sitter grammars are instead local `path:` dependencies under
+  five tree-sitter grammars are instead local `path:` dependencies under
   `Vendor/` and so carry no pin (see Conventions). `xcodegen generate` produces
   `Pisaka.xcodeproj`; build with Xcode or `xcodebuild -scheme Pisaka …`.
-- `Vendor/` — four self-contained tree-sitter grammar SwiftPM packages
-  (`TreeSitterGitignore`, `TreeSitterDotenv`, `TreeSitterSql`, `TreeSitterEditorconfig`), each with a `VENDORED.md`
+- `Vendor/` — five self-contained tree-sitter grammar SwiftPM packages
+  (`TreeSitterGitignore`, `TreeSitterDotenv`, `TreeSitterSql`, `TreeSitterEditorconfig`, `TreeSitterMake`), each with a `VENDORED.md`
   recording the upstream SHA, what is verbatim vs. authored here, and the
   by-hand update procedure. Each builds in isolation
   (`swift build --package-path Vendor/<name>`); the root `Package.swift` does
@@ -408,7 +408,7 @@ logic. `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platfo
 test` runs `Tests/PisakaAppTests/`, headless XCTest (not UI automation) covering what
 `swift test` is blind to: the AppKit overlays with behaviour of their own, the app-layer
 rules the Core gate structurally cannot see, the two suites that drive a real `WKWebView`,
-the one that executes the bundled diagram renderer, the one that executes a shipped
+the one that executes the bundled diagram renderer, the two that execute a shipped
 tree-sitter query, the code zone's one cross-file rule, and the SwiftUI chrome whose
 drawn layout is its contract, measured off a bitmap through the shared `HostedRender`. It exists because the folding
 launch-time trap passed **every gate the pipeline had** — the Core suites *and* the smoke
@@ -584,10 +584,11 @@ owed are documented in `docs/RELEASING.md`.
   (`Resources/Licenses/` + manifest entry, `LicenseCoverageTests`), their bytes are pinned
   to the export's manifest by `DesignGlyphAssetTests`, and their provenance is
   `Resources/DesignGlyphs/VENDORED.md` — a record that is **not bundled** and **not under
-  `Vendor/`**, which holds the four grammar packages and nothing else (`core-theme.md`).
-- **Four tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
-  directory content is the pin), for four different reasons, each recorded in full in its
-  package's `VENDORED.md` — one of which carries a **mandatory verification recipe re-run on
+  `Vendor/`**, which holds the five grammar packages and nothing else (`core-theme.md`).
+- **Five tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
+  directory content is the pin), for five different reasons, each recorded in full in its
+  package's `VENDORED.md` — Make's because upstream ships no SwiftPM manifest and the pin is a
+  commit past the newest tag. Two of them carry a **mandatory verification recipe re-run on
   every grammar update**, because both failure modes of a hand-written query are silent. The
   *static* half of that verification is automated; the *runtime* half needs a dependency Core
   deliberately does not link, so the recipe stays manual.

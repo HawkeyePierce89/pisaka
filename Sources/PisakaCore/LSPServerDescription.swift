@@ -197,6 +197,9 @@ extension SyntaxLanguage {
         case .sql: return "sql"
         case .editorconfig: return "editorconfig"
         case .shell: return "shellscript"
+        // The protocol's own spelling; no registered server speaks it, the arm
+        // only keeps the mapping total.
+        case .make: return "makefile"
         }
     }
 

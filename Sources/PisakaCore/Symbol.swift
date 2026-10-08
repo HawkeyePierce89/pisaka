@@ -42,6 +42,9 @@ public enum SymbolKind: String, CaseIterable, Equatable, Hashable, Sendable {
     /// A name another part of the document refers back to: an HTML `id`
     /// attribute value, or a YAML anchor (`&name`, the target of a `*ref`).
     case anchor
+    /// A Makefile rule target (`build:`); special (`.PHONY`) and pattern
+    /// (`%.o`) targets are filtered out by the query.
+    case target
 
     /// The capture-name prefix every `symbols.scm` capture carries.
     ///

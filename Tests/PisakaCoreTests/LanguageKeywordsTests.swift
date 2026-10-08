@@ -29,7 +29,7 @@ final class LanguageKeywordsTests: XCTestCase {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
         XCTAssertEqual(withKeywords,
                        [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql,
-                        .editorconfig, .shell,
+                        .editorconfig, .shell, .make,
                        ])
     }
 
@@ -420,5 +420,59 @@ final class LanguageKeywordsTests: XCTestCase {
         ] {
             XCTAssertFalse(shell.contains(word), "\(word) is not a word the shell must interpret")
         }
+    }
+
+    // MARK: - Make
+
+    /// The 16 directives, shared by the two tests that pin the list's halves.
+    private static let makeDirectives = [
+        "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef",
+        "ifneq", "include", "override", "private", "sinclude", "undefine", "unexport", "vpath",
+    ]
+
+    /// The whole list, pinned: the 16 directives plus the identifier-shaped
+    /// built-in functions.
+    func testMakeListIsTheDirectivesAndTheIdentifierShapedFunctions() {
+        let functions = [
+            "abspath", "addprefix", "addsuffix", "and", "basename", "call", "dir", "error",
+            "eval", "file", "filter", "findstring", "firstword", "flavor", "foreach", "guile",
+            "if", "info", "intcmp", "join", "lastword", "let", "notdir", "or", "origin",
+            "patsubst", "realpath", "shell", "sort", "strip", "subst", "suffix", "value",
+            "warning", "wildcard", "word", "wordlist", "words",
+        ]
+        XCTAssertEqual(LanguageKeywords.keywords(for: .make), (Self.makeDirectives + functions).sorted())
+    }
+
+    /// The identifier-shape exclusion the list's comment states: special
+    /// targets (leading dot) and hyphenated names can never be inserted whole.
+    func testMakeListExcludesWhatIsNotIdentifierShaped() {
+        let make = Set(LanguageKeywords.keywords(for: .make))
+        for word in [".PHONY", ".SUFFIXES", ".DEFAULT_GOAL", "filter-out", "-include"] {
+            XCTAssertFalse(make.contains(word), "\(word) is not identifier-shaped")
+        }
+    }
+
+    /// The function half is reconciled against the vendored grammar's own
+    /// built-in list: every identifier-shaped name it declares is listed, and
+    /// every listed function is one it declares (plus `shell`, which the grammar
+    /// parses as a node of its own).
+    func testMakeFunctionsMatchTheVendoredGrammar() throws {
+        let grammarURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Vendor/TreeSitterMake/grammar.js")
+        let source = try String(contentsOf: grammarURL, encoding: .utf8)
+        guard let open = source.range(of: "const FUNCTIONS = ["),
+              let close = source.range(of: "];", range: open.upperBound..<source.endIndex) else {
+            return XCTFail("grammar.js no longer declares `const FUNCTIONS = [ … ];`")
+        }
+        let declared = source[open.upperBound..<close.lowerBound]
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \n'")) }
+            .filter { !$0.isEmpty }
+        XCTAssertFalse(declared.isEmpty)
+        let identifierShaped = Set(declared.filter { !$0.contains("-") }).union(["shell"])
+        let directives = Set(Self.makeDirectives)
+        XCTAssertTrue(directives.isDisjoint(with: identifierShaped))
+        XCTAssertEqual(Set(LanguageKeywords.keywords(for: .make)).subtracting(directives), identifierShaped)
     }
 }

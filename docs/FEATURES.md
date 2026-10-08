@@ -286,7 +286,7 @@ user sees it.
 - Toggle comment (Cmd+/): comments or uncomments the selected lines using the
   language's comment syntax. With no selection, it toggles the caret's line,
   moving the caret to the next line. Each toggle is a single undo step. Line-comment
-  languages (Swift, JS/TS, Python, Go, Rust, YAML, Dockerfile, dotenv,
+  languages (Swift, JS/TS, Python, Go, Rust, YAML, Dockerfile, Makefile, dotenv,
   gitignore, SQL, EditorConfig, shell) insert or remove `//`, `#`,
   or `--` after leading indentation; block-comment languages (HTML, CSS) wrap the
   non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
@@ -426,7 +426,11 @@ user sees it.
   keywords plus the primitive type names `i32`, `usize`, `f64`, `bool`, `str`, …,
   which likewise no crate declares), Dockerfile (`FROM`,
   `HEALTHCHECK`, … in the uppercase
-  they are written in), EditorConfig (property names and value literals), and
+  they are written in), Makefile (the GNU make directives — `ifeq`, `define`,
+  `include`, … — and built-in functions — `patsubst`, `wildcard`, `foreach`, … —
+  that are a single word; `.PHONY`, `filter-out` and `-include` cannot be offered,
+  since a completion is one identifier-shaped token), EditorConfig (property names
+  and value literals), and
   shell (the reserved words plus the builtins the shell itself has to interpret —
   `local`, `export`, `readonly`, `set`, `shopt`, `trap`, … — while an ordinary
   command a program in `$PATH` could perform, `echo` and `printf` among them,
@@ -467,7 +471,9 @@ user sees it.
   puts its methods under `Holder` — and top-level `const`/`static`, but not
   locals inside a function);
   Markdown headings, CSS selectors, top-level
-  YAML/JSON keys, Dockerfile build stages, `.env` variables, HTML `id`s, shell
+  YAML/JSON keys, Dockerfile build stages, Makefile targets and variables
+  (special targets such as `.PHONY` and pattern rules such as `%.o` are left
+  out), `.env` variables, HTML `id`s, shell
   functions and top-level shell variable assignments (one inside a function or a
   loop is a local, and is deliberately left out), SQL tables, views, materialized
   views, custom types, functions and a table's columns (filed under the table),
@@ -807,11 +813,12 @@ user sees it.
   panel; colors follow the system light/dark appearance.
 - Syntax highlighting (tree-sitter via ChimeHQ's Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
+  Makefiles (`*.mk`, `*.mak`; recipe lines are highlighted as shell),
   shell scripts (`.sh`, `.bash`, `.zsh`, `.ksh`, `.command`),
   `.env` files, `.editorconfig` files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
   `.npmignore`, `.eslintignore`, `.prettierignore`, …). The language is
   detected from the whole file name, not just its extension — so `Dockerfile`,
-  `Dockerfile.dev`, `.env.local`, `.editorconfig`, the shell startup files
+  `Dockerfile.dev`, `Makefile`, `makefile`, `GNUmakefile`, `.env.local`, `.editorconfig`, the shell startup files
   (`.bashrc`, `.bash_profile`, `.bash_logout`, `.zshrc`, `.zprofile`, `.zshenv`,
   `.zlogin`, `.zlogout`, `.profile`, `.envrc`) and any dot-file ending in
   `ignore` are recognized even though they carry no extension. Colors follow the system

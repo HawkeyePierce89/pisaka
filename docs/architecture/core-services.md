@@ -958,7 +958,16 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-09-21**, after linking the remote `tree-sitter-bash`
+    **Last re-run: 2026-10-08**, after vendoring TreeSitterMake, the fifth
+    vendored grammar — C compiled into the app, so the convention obliges the
+    re-run, and the answer is that nothing changes. The grammar is parser-only
+    (`src/parser.c`, no external scanner), and its object compiled on its own
+    (`clang -c` against the vendored `src/`) has **zero** undefined symbols in
+    `nm -u` — it calls no libc at all, so no required-reason API can be in it —
+    while `_tree_sitter_make` is defined (`T`), confirming the scanned object is
+    the grammar rather than an empty stub. Being a local path package, it ships
+    no `.xcprivacy` of its own. `PrivacyInfo.xcprivacy` is unchanged.
+    **Previous re-run: 2026-09-21**, after linking the remote `tree-sitter-bash`
     grammar for the shell language. A newly linked dependency compiled from C
     into the app, so the convention above obliges the re-run; the answer is that
     nothing changes. Built for the device (`-destination 'generic/platform=iOS'`,
@@ -981,7 +990,7 @@ run in `swift test` rather than needing an Xcode build.
     nothing, so no dependency has started shipping a manifest of its own.
     `PrivacyInfo.xcprivacy` is unchanged and `ReleaseMetadataTests`' set equality
     still passes.
-    **Previous re-run: 2026-09-02**, after the database viewer linked `SQLite3`. A
+    **Earlier re-run: 2026-09-02**, after the database viewer linked `SQLite3`. A
     newly linked library, so the convention above obliges the re-run; the answer
     is that nothing changes. `libsqlite3.tbd` is a macOS **system** dylib the
     viewer's one importing file (`DatabaseConnectionService.swift`, `#if
@@ -1337,7 +1346,7 @@ shape-specific line scanner) and asserts:
     bundle). From the directory's end, exactly one notice claims the folder and
     its imagesets are exactly the glyphs that record's table lists — read
     through `DesignGlyphRecord`, the reader `DesignGlyphAssetTests` shares. The
-    `Vendor/` checks are untouched and still select only the four grammars. The
+    `Vendor/` checks are untouched and still select only the five grammars. The
     copyright-holder table pins the text's MIT-section holder, since the ISC
     holder line spells the icon set's name, which stays out of code;
   - the SPDX exception set is no longer empty: `Swift-exception` is on SPDX's

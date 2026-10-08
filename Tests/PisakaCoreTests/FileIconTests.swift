@@ -160,6 +160,18 @@ final class FileIconTests: XCTestCase {
         XCTAssertEqual(FileIcon(for: file(".Bash_Profile")), FileIcon(symbolName: "terminal", color: .green))
     }
 
+    // MARK: - Make
+
+    /// Every spelling `SyntaxLanguage` resolves to `.make` draws the one hammer
+    /// icon, exact names and extensions alike.
+    func testEveryMakeSpellingCarriesTheHammerIcon() {
+        let hammer = FileIcon(symbolName: "hammer", color: .gray)
+        for name in ["Makefile", "makefile", "GNUmakefile", "GNUMAKEFILE", "rules.mk", "x.MAK", "legacy.mak"] {
+            XCTAssertEqual(FileIcon(for: file(name)), hammer, name)
+            XCTAssertEqual(SyntaxLanguage(forFileName: name), .make, name)
+        }
+    }
+
     // MARK: - The two tables, held together
 
     /// The rule rather than the instances: every *name* `SyntaxLanguage`

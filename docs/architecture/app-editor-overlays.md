@@ -988,7 +988,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     JavaScript highlight queries in as a base layer (the TS grammar's bundled
     `highlights.scm` carries only TS-specific captures), and
     `configuration(forInjectionName:)` resolves injected sub-languages including
-    Markdown's `markdown_inline`. `.dockerfile`/`.dotenv`/`.gitignore` are three
+    Markdown's `markdown_inline`, then by raw value, extension and bare file name
+    (so a ` ```makefile ` fence resolves to Make). `.dockerfile`/`.dotenv`/`.gitignore` are three
     plain one-line branches (`LanguageConfiguration(tree_sitter_x(), name:
     "Dockerfile"/"Dotenv"/"Gitignore")`) with **no** sub-language injections and
     **no** explicit `bundleName:` — all three resource bundles come out as
@@ -1019,6 +1020,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     passing quietly. The dockerfile header declares
     a non-`const` `TSLanguage *` return with no `void` parameter list, which
     needed no cast — it imports as `OpaquePointer!` like every other grammar.
+    `.make` is the fifth **vendored** grammar's branch
+    (`LanguageConfiguration(tree_sitter_make(), name: "Make")`, bundle
+    `TreeSitterMake_TreeSitterMake` by the default derivation, so no
+    `bundleName:`). It is the one vendored grammar that **injects**: its
+    `injections.scm`, adopted verbatim from upstream, hands `(shell_text)` and
+    `(shell_command)` — recipe lines and `$(shell …)` bodies — to `"bash"`, which
+    `configuration(forInjectionName:)` resolves through the extension map to
+    `.shell`, so recipe highlighting costs no code here; `MakeSymbolQueryTests`
+    reads that name out of the vendored file rather than restating it, so an
+    upstream re-copy that renames it fails the app-layer gate. Its `highlights.scm` is
+    **adapted** rather than verbatim (upstream's `@spell`/`@character.special`
+    resolve to `.plain`, and it draws variable names in string colour); every
+    edit is listed in `Vendor/TreeSitterMake/VENDORED.md`, and
+    `VendoredGrammarQueryTests` refuses a capture that resolves to `.plain`.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
     NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
     appearance-aware `NSColor`) for the attribute provider. The palette is **the

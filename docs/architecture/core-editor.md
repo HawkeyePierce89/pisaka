@@ -56,7 +56,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     toggle (mirroring `LanguageKeywords`). The tests assert that the set of
     styled languages and the set of no-comment languages are disjoint and
     exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
-    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. Unit-tested in
+    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. `.make` joins the `#` line group (GNU make's only comment form). Unit-tested in
     `CommentStyleTests`.
   - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
     the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
@@ -132,7 +132,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     icon: a `FileIcon` struct (`symbolName` + semantic `FileIconColor`) with
     `init(for: DirectoryEntry)`. Resolution order: directory → `folder`/`.accent`;
     special-cased file names (e.g. `Package.swift`, `LICENSE`, `.gitignore`,
-    `.editorconfig`, `Makefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
+    `.editorconfig`, `Makefile`, `GNUmakefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
     `doc`/`.gray`. The extension table is `staticExtensionMap` folded with one
     entry per `DatabaseFileRule.recognizedExtensions` member
     (`cylinder.split.1x2.fill`/`.green`), derived rather than restated so a
@@ -153,13 +153,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Three exemptions are named in the assertions rather than left implicit:
     `.env` (dotenv, still on the fallback — a separate decision), and the
     extensions `ksh` and `command`, a stated, accepted cost from the shell plan.
+    The Make icon (`hammer`/`.gray`) is likewise written once as `makeIcon` and
+    shared by the exact names `makefile` and `gnumakefile` and the `mk`/`mak`
+    extensions, so the icon/language agreement rule above holds for the
+    eighteenth language without an exemption.
     `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, go, rust, json,
     markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql,
-    editorconfig, shell) with
+    editorconfig, shell, make) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
     extension→language map, mirroring `FileIcon`'s extension-map pattern. The
     last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
@@ -210,12 +214,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     not carry the `.env.` prefix, so the name was unclaimed before this and no
     dotenv answer moved: `.env` stays phase 1, `.env.local` phase 3, `.env.json`
     phase 2, each pinned by its own test.
+    **Make likewise adds no phase, and deliberately no prefix rule.** The
+    exact-name map gained `makefile` and `gnumakefile` (the lowercasing reaches
+    `Makefile`, `makefile` and `GNUmakefile`), the extension map `mk` and `mak`.
+    A `makefile.` prefix would buy `Makefile.inc`/`Makefile.am`, which nothing
+    requires, and it would sit after the extension phase anyway — so
+    `Makefile.swift` resolves to Swift whatever is added later, and without it
+    `Makefile.inc` stays an honest `nil` rather than a guess. `.makeignore`
+    keeps resolving to gitignore through the dot-ignore shape, which no Make rule
+    reaches; `SyntaxLanguageTests` pins both.
     The **raw value is load-bearing for one path**: the editor's fenced-block
     injection, `SyntaxLanguageConfiguration.configuration(forInjectionName:)`,
-    lowercases the label and tries `SyntaxLanguage(rawValue:)` first and
-    `SyntaxLanguage(fileExtension:)` second — so a ` ```shell ` block resolves
-    through the raw value and ` ```sh `/` ```bash `/` ```zsh `/` ```ksh ` through
-    the extension map, with no code beyond the two maps above. The Markdown
+    lowercases the label and tries `SyntaxLanguage(rawValue:)` first,
+    `SyntaxLanguage(fileExtension:)` second and `SyntaxLanguage(forFileName:)`
+    third — so a ` ```shell ` block resolves through the raw value,
+    ` ```sh `/` ```bash `/` ```zsh `/` ```ksh ` through the extension map, and
+    ` ```makefile ` (the commonest Make fence tag, which is neither Make's raw
+    value nor an extension) through the exact-name map, with no code beyond the
+    maps above. `MakeSymbolQueryTests` pins the Make fence names. The Markdown
     **preview**'s fence label is a *different* path and is unaffected either way:
     `MarkdownRenderer.highlightName(for:)` emits `class="language-<name>"` for
     the bundled highlighter's own alias table and never consults this enum
@@ -239,7 +255,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`docs/architecture/core-intelligence.md`).
     `displayName` is the per-case name the caret readout shows (Swift,
     JavaScript, TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML,
-    Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell) — spelled out by an
+    Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell, Makefile) — spelled out by an
     exhaustive `switch` rather than derived from the lowercased raw value, so a
     new case cannot compile without one; `SyntaxLanguageTests` pins the table.
   - `CaretReadout.swift` — the bottom bar's caret readout,

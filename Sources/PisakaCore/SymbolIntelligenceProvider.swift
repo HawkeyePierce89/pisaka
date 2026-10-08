@@ -218,7 +218,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// `.editorconfig` file.
     ///
     /// Every other kind stays a candidate, including the ones the non-code
-    /// languages contribute (`.key`, `.anchor`, `.selector`, `.stage`): a
+    /// languages contribute (`.key`, `.anchor`, `.selector`, `.stage`, `.target`): a
     /// top-level YAML key *is* the word the author is typing.
     static let kindsExcludedFromCompletion: Set<SymbolKind> = [.heading]
 

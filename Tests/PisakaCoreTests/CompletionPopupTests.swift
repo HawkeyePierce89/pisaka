@@ -52,7 +52,9 @@ final class CompletionPopupTests: XCTestCase {
             .key: "k.square",
             .stage: "shippingbox",
             .anchor: "link",
+            .target: "target",
         ]
+        XCTAssertEqual(Set(expected.keys), Set(SymbolKind.allCases))
 
         for kind in SymbolKind.allCases {
             let badge = CompletionBadge(source: .symbol(kind))

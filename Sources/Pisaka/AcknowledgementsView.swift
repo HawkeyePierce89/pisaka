@@ -216,7 +216,7 @@ struct AcknowledgementsView: View {
         .background(theme.color(.bgPanel))
     }
 
-    /// Remote dependencies get a clickable URL; the two vendored grammars name a
+    /// Remote dependencies get a clickable URL; the vendored grammars name a
     /// `Vendor/<name>` path in this repository, which is not something to open.
     /// Which is which is `LicenseNotice.originURL`'s decision, not this view's.
     @ViewBuilder

@@ -445,4 +445,47 @@ final class ToggleCommentEngineTests: XCTestCase {
             .replacingCharacters(in: uncommented.replacementRange, with: uncommented.text)
         XCTAssertEqual(restored, text)
     }
+
+    func testMakeCaretLineInsertsAndRemovesTheHash() {
+        let text = "build:\n\tswift build\n"
+        assertToggle(
+            text,
+            selectedRange: NSRange(location: 2, length: 0),
+            language: .make,
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 7),
+                text: "# build:\n",
+                selectedRange: NSRange(location: 11, length: 0) // caret moves to the next line, column 2
+            )
+        )
+        assertToggle(
+            "# build:\n\tswift build\n",
+            selectedRange: NSRange(location: 4, length: 0),
+            language: .make,
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 9),
+                text: "build:\n",
+                selectedRange: NSRange(location: 11, length: 0) // next line starts at 7, column 4
+            )
+        )
+    }
+
+    /// A recipe line keeps its leading tab — the character that makes it a
+    /// recipe line to make — and the hash goes after it, so toggling twice
+    /// restores the original line exactly.
+    func testMakeRecipeLineKeepsItsTabBeforeTheHash() {
+        let text = "build:\n\tswift build\n"
+        let edit = ToggleCommentEngine.toggle(
+            text: text as NSString, selectedRange: NSRange(location: 9, length: 0), language: .make
+        )
+        XCTAssertEqual(edit?.replacementRange, NSRange(location: 7, length: 13))
+        XCTAssertEqual(edit?.text, "\t# swift build\n")
+
+        let commented = "build:\n\t# swift build\n"
+        let restore = ToggleCommentEngine.toggle(
+            text: commented as NSString, selectedRange: NSRange(location: 11, length: 0), language: .make
+        )
+        XCTAssertEqual(restore?.replacementRange, NSRange(location: 7, length: 15))
+        XCTAssertEqual(restore?.text, "\tswift build\n")
+    }
 }

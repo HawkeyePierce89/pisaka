@@ -12,7 +12,7 @@ import PackageDescription
 // Phase 0 — source-compatible with iOS). All external dependencies
 // (Neon/SwiftTreeSitter/Rearrange + tree-sitter grammars on every platform,
 // SwiftTerm on macOS only) live in `project.yml` — the remote ones with their
-// exact version/revision pins, and two tree-sitter grammars as local `path:`
+// exact version/revision pins, and five tree-sitter grammars as local `path:`
 // dependencies on the self-contained packages under `Vendor/`, which carry no
 // `Package.resolved` pin because their directory contents *are* the pin.
 // `PisakaCore` and the test target stay dependency-free — including of

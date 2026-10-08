@@ -58,7 +58,7 @@ import XCTest
 /// `Resources/DesignGlyphs/VENDORED.md`, and nothing else in the folder — and
 /// its `revision` and `version` must equal that record's, the revision being the
 /// export manifest's sha256 because the export carries no upstream commit. The
-/// `Vendor/` tests are untouched by it: they still select only the four grammars.
+/// `Vendor/` tests are untouched by it: they still select only the five grammars.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
     /// `project.yml`, so it ships and must be acknowledged even though no
@@ -325,7 +325,8 @@ final class LicenseCoverageTests: XCTestCase {
 
     func testEveryVendoredEntryNamesARealLicenseSource() throws {
         let vendored = try loadManifest().notices.filter { $0.origin.hasPrefix("Vendor/") }
-        XCTAssertEqual(Set(vendored.map(\.id)), ["TreeSitterDotenv", "TreeSitterGitignore", "TreeSitterSql", "TreeSitterEditorconfig"],
+        XCTAssertEqual(Set(vendored.map(\.id)),
+                       ["TreeSitterDotenv", "TreeSitterGitignore", "TreeSitterSql", "TreeSitterEditorconfig", "TreeSitterMake"],
                        "the vendored grammars are the only path dependencies the app links")
 
         for notice in vendored {
@@ -598,6 +599,7 @@ final class LicenseCoverageTests: XCTestCase {
         "swift-cmark": "Copyright (c) 2014, John MacFarlane",
         "swift-markdown": "Copyright (c) 2021 Apple Inc. and the Swift project authors",
         "TreeSitterEditorconfig": "Copyright (c) 2024 Omar Valdez",
+        "TreeSitterMake": "Copyright (c) 2021 Alexandre A. Muller",
         "SwiftTreeSitter": "Copyright (c) 2021, Chime",
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
         "tree-sitter-bash": "Copyright (c) 2017 Max Brunsfeld",

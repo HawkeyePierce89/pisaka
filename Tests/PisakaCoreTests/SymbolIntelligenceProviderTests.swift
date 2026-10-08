@@ -921,6 +921,17 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(SymbolIntelligenceProvider.kindsExcludedFromCompletion, [.heading])
     }
 
+    /// A Makefile target is an ordinary candidate when its name is
+    /// identifier-shaped, and refused like any other symbol when it is not.
+    func testAMakeTargetIsACandidateOnlyWhenIdentifierShaped() {
+        XCTAssertTrue(SymbolIntelligenceProvider.isCompletionCandidate(
+            symbol("build", kind: .target, in: "Makefile")))
+        XCTAssertFalse(SymbolIntelligenceProvider.isCompletionCandidate(
+            symbol("build-all", kind: .target, in: "Makefile")))
+        XCTAssertFalse(SymbolIntelligenceProvider.isCompletionCandidate(
+            symbol("foo.o", kind: .target, in: "Makefile")))
+    }
+
     /// What the member path does when the rule removes its *last* candidate: the
     /// existing empty-`ranked` branch opens, and buffer words answer a member
     /// request. That is the pre-existing degradation, not a new one — but it is

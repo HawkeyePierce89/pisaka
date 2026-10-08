@@ -119,25 +119,40 @@ struct ParsedQuery {
                 if let opened = predicateDepth, depth < opened { predicateDepth = nil }
 
             default:
-                // A field is the only bare identifier a query may contain: node
-                // names are always parenthesized and capture names always follow
-                // an `@`, both consumed above. So an identifier reached here is a
-                // field exactly when a `:` follows it, and anything else (a `[`,
-                // a quantifier, whitespace) is stepped over.
-                guard character.isLetter || character == "_" else {
-                    index += 1
-                    break
-                }
-                var probe = index
-                let name = ParsedQuery.identifier(in: characters, from: &probe, allowingDots: false)
-                if !name.isEmpty, probe < characters.count, characters[probe] == ":" {
-                    if predicateDepth == nil { fieldNames.insert(name) }
-                    index = probe + 1
-                } else {
-                    index = max(probe, index + 1)
+                if let field = ParsedQuery.field(in: characters, from: &index), predicateDepth == nil {
+                    fieldNames.insert(field)
                 }
             }
         }
+    }
+
+    /// The field named at `index`, if any, stepping past whatever is there.
+    ///
+    /// A field is the only bare identifier a query may contain: node names are
+    /// always parenthesized and capture names always follow an `@`, both
+    /// consumed by the caller. So an identifier reached here is a field exactly
+    /// when a `:` follows it — or a `!` precedes it, a *negated* field
+    /// (`!normal`, "this field is absent"), which `ts_query_new` validates with
+    /// the same `TSQueryErrorField`. Anything else (a `[`, a quantifier,
+    /// whitespace) is stepped over.
+    private static func field(in characters: [Character], from index: inout Int) -> String? {
+        if characters[index] == "!" {
+            index += 1
+            let name = identifier(in: characters, from: &index, allowingDots: false)
+            return name.isEmpty ? nil : name
+        }
+        guard characters[index].isLetter || characters[index] == "_" else {
+            index += 1
+            return nil
+        }
+        var probe = index
+        let name = identifier(in: characters, from: &probe, allowingDots: false)
+        guard !name.isEmpty, probe < characters.count, characters[probe] == ":" else {
+            index = max(probe, index + 1)
+            return nil
+        }
+        index = probe + 1
+        return name
     }
 
     private static func identifier(
@@ -205,7 +220,7 @@ func declaredNodeTypes(
     for entry in entries {
         guard let type = entry["type"] as? String else { continue }
         // A missing `named` flag means anonymous, matching tree-sitter's own
-        // default — but every entry both vendored grammars emit carries it.
+        // default — but every entry the vendored grammars emit carries it.
         if entry["named"] as? Bool == true { named.insert(type) } else { anonymous.insert(type) }
         // Fields are declared per node, but tree-sitter resolves a query's
         // `field:` against the grammar's whole field table, so the union is the

@@ -59,7 +59,8 @@ final class SyntaxLanguageTests: XCTestCase {
     }
 
     func testInitFromFileNameWithNoExtensionReturnsNil() {
-        XCTAssertNil(SyntaxLanguage(forFileName: "Makefile"))
+        // `Makefile` was the example here until `.make` claimed it by exact name.
+        XCTAssertNil(SyntaxLanguage(forFileName: "Procfile"))
         XCTAssertNil(SyntaxLanguage(forFileName: "LICENSE"))
         XCTAssertNil(SyntaxLanguage(forFileName: "README"))
         XCTAssertNil(SyntaxLanguage(forFileName: ""))
@@ -300,7 +301,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
             "Dockerfile", ".env", ".gitignore", "schema.sql", ".editorconfig",
-            "deploy.sh",
+            "deploy.sh", "Makefile",
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),
@@ -370,6 +371,48 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertNotEqual(SyntaxLanguage.shell.lspLanguageID, SyntaxLanguage.shell.rawValue)
     }
 
+    // MARK: - Make
+
+    func testMakeNamesResolve() {
+        for name in ["Makefile", "makefile", "GNUmakefile", "MAKEFILE", "rules.mk", "x.MAK",
+                     "sub/Makefile", "a/b/GNUmakefile", "build/rules.mk",
+        ] {
+            XCTAssertEqual(SyntaxLanguage(forFileName: name), .make, name)
+        }
+        XCTAssertEqual(SyntaxLanguage(fileExtension: "mk"), .make)
+        XCTAssertEqual(SyntaxLanguage(fileExtension: "MAK"), .make)
+    }
+
+    /// The extension phase answers before anything Make could claim, and the
+    /// dot-ignore shape is untouched — so the neighbouring names keep their
+    /// languages.
+    func testMakeNeighboursKeepTheirLanguages() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "Makefile.swift"), .swift)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "makefile.swift"), .swift)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".makeignore"), .gitignore)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "Dockerfile"), .dockerfile)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "Dockerfile.dev"), .dockerfile)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "deploy.sh"), .shell)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".gitignore"), .gitignore)
+    }
+
+    /// There is no prefix rule: the variant-suffixed and plural forms stay
+    /// unclaimed rather than guessed at.
+    func testMakeLookalikesDoNotResolve() {
+        XCTAssertNil(SyntaxLanguage(forFileName: "makefiles"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "Makefile.inc"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "Makefile.am"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "mk"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "make"))
+    }
+
+    func testMakeRawValueAndLSPLanguageID() {
+        XCTAssertEqual(SyntaxLanguage.make.rawValue, "make")
+        XCTAssertEqual(SyntaxLanguage.make.lspLanguageID, "makefile")
+        XCTAssertFalse(SymbolIndexModel.unindexableLanguages.contains(.make))
+        XCTAssertEqual(SymbolIndexModel.indexableLanguage(forFileName: "Makefile"), .make)
+    }
+
     // MARK: - displayName
 
     /// Every case's readout name, pinned as a whole table so a new case cannot
@@ -381,6 +424,7 @@ final class SyntaxLanguageTests: XCTestCase {
             .rust: "Rust", .html: "HTML", .css: "CSS", .yaml: "YAML",
             .dockerfile: "Dockerfile", .dotenv: "Dotenv", .gitignore: "Gitignore",
             .sql: "SQL", .editorconfig: "EditorConfig", .shell: "Shell",
+            .make: "Makefile",
         ]
         XCTAssertEqual(Set(expected.keys), Set(SyntaxLanguage.allCases))
         for language in SyntaxLanguage.allCases {

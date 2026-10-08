@@ -49,7 +49,8 @@ public struct FileIcon: Equatable {
         "license": FileIcon(symbolName: "checkmark.seal", color: .yellow),
         ".gitignore": FileIcon(symbolName: "arrow.triangle.branch", color: .gray),
         ".gitattributes": FileIcon(symbolName: "arrow.triangle.branch", color: .gray),
-        "makefile": FileIcon(symbolName: "hammer", color: .gray),
+        "makefile": makeIcon,
+        "gnumakefile": makeIcon,
         "dockerfile": FileIcon(symbolName: "shippingbox", color: .blue),
         ".editorconfig": FileIcon(symbolName: "slider.horizontal.3", color: .gray),
         // The shell startup dot-files. `SyntaxLanguage` claims all ten by exact
@@ -74,6 +75,10 @@ public struct FileIcon: Equatable {
     /// The one shell icon, written once so the ten startup dot-files and the
     /// `sh`/`bash`/`zsh` extensions cannot drift apart.
     private static let shellIcon = FileIcon(symbolName: "terminal", color: .green)
+
+    /// The one Make icon, shared by the exact names and the `mk`/`mak`
+    /// extensions for the same reason as `shellIcon`.
+    private static let makeIcon = FileIcon(symbolName: "hammer", color: .gray)
 
     /// Lowercased file extension → icon.
     ///
@@ -110,6 +115,8 @@ public struct FileIcon: Equatable {
         "sh": shellIcon,
         "bash": shellIcon,
         "zsh": shellIcon,
+        "mk": makeIcon,
+        "mak": makeIcon,
 
         // Markup / styles
         "html": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .orange),
