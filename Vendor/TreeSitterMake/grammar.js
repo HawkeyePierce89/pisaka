@@ -166,8 +166,9 @@ export default grammar({
       // target-and-prerequisites line with a semicolon
       // in between
       seq(
+        // EDIT: the line's NL moved into `_attached_recipe_line`, so a
+        // non-empty line's `shell_text` ends after its newline.
         $._attached_recipe_line,
-        NL,
         repeat(choice(
           $.conditional,
           $._prefixed_recipe_line,
@@ -182,23 +183,33 @@ export default grammar({
       ),
     )),
 
+    // EDIT: both recipe-line forms end in either a `recipe_line`, whose
+    // `shell_text` now carries the terminating NL, or a bare NL for an empty
+    // line. Upstream ended the `shell_text` before the NL, so an injected
+    // shell layer's ranges excluded every newline and its lexer joined the
+    // end of one recipe line to the start of the next.
     _attached_recipe_line: $ => seq(
       ';',
-      optional($.recipe_line),
+      choice($.recipe_line, NL),
     ),
 
     _prefixed_recipe_line: $ => seq(
       $._recipeprefix,
-      optional($.recipe_line),
-      NL,
+      choice($.recipe_line, NL),
     ),
 
     recipe_line: $ => seq(
       optional(choice(
         ...['@', '-', '+'].map(c => token(prec(1, c))),
       )),
-      alias($._line_text, $.shell_text),
+      // EDIT: was `alias($._line_text, $.shell_text)`.
+      alias($._shell_line, $.shell_text),
     ),
+
+    // EDIT: added. A line's text plus its terminator, aliased to
+    // `shell_text` and `shell_command` so an injection range covers the
+    // newline.
+    _shell_line: $ => seq($._line_text, NL),
     // }}}
     // Variables {{{
     _variable_definition: $ => choice(
@@ -248,8 +259,8 @@ export default grammar({
       optional(WS),
       field('operator', '!='),
       optional(WS),
-      field('value', alias($._line_text, $.shell_command)),
-      NL,
+      // EDIT: was `alias($._line_text, $.shell_command)` followed by NL.
+      field('value', alias($._shell_line, $.shell_command)),
     ),
 
     define_directive: $ => seq(

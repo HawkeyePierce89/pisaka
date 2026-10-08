@@ -335,24 +335,24 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify (regenerated): `Vendor/TreeSitterMake/src/{parser.c,grammar.json,node-types.json}`
 - Modify: `Vendor/TreeSitterMake/VENDORED.md`
 - Modify, only if the new node shape forces it: `Vendor/TreeSitterMake/queries/*.scm` and `Resources/Queries/make/symbols.scm`
-- [ ] Edit `grammar.js`, marking each change with an `// EDIT:` comment:
+- [x] Edit `grammar.js`, marking each change with an `// EDIT:` comment:
   - `_prefixed_recipe_line` and `_attached_recipe_line` move their `NL` into an aliased `shell_text`: a hidden `_shell_line: seq($._line_text, NL)` aliased to `shell_text`, so the node ends after its newline;
   - an empty prefixed line still parses, with a bare `NL`;
   - `shell_assignment`'s `shell_command` gets the same treatment;
   - nothing else in the grammar changes.
-- [ ] Regenerate with `npx tree-sitter-cli@<the version recorded in VENDORED.md> generate --abi 15`.
+- [x] Regenerate with `npx tree-sitter-cli@<the version recorded in VENDORED.md> generate --abi 15`. (0.26.6, in a scratch directory with upstream's tree-sitter.json, which ABI 15 needs; on the unedited grammar the pipeline reproduces upstream's src/ byte for byte; LANGUAGE_VERSION 15; node-types.json unchanged)
   - Confirm `LANGUAGE_VERSION` is 15 or lower.
   - Confirm `swift build --package-path Vendor/TreeSitterMake` succeeds.
-- [ ] Update `VENDORED.md`:
+- [x] Update `VENDORED.md`:
   - `grammar.js` is now edited here;
   - `parser.c`, `grammar.json` and `node-types.json` are generated here from it, with the CLI version and command;
   - the update procedure gains a step to re-apply the edits and regenerate;
   - the verbatim list shrinks to the headers, `LICENSE` and `injections.scm`.
-- [ ] Re-run the full verification recipe:
+- [x] Re-run the full verification recipe:
   - static half: `VendoredGrammarQueryTests` passes against the new `node-types.json`;
   - runtime half, through the Task 10 harness: both queries compile, fixtures A and B parse, and the dump is unchanged except that the joined words are now split;
   - record the result in `VENDORED.md`. The by-hand check in a DEBUG build is listed under Post-Completion.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test 6186 green incl. the new grammar.json pin; swiftlint clean; app bundle green apart from the 8 pre-existing scale-1.8 layout failures, identical with the change stashed; the Make app tests had to drop the pinned loss here, see Task 12)
 
 ### Task 12: Part E — invert the loss test and check Markdown fences
 
@@ -361,7 +361,7 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Tests/PisakaAppTests/InjectedHighlightPredicateTests.swift`
 - Create: `Tests/PisakaAppTests/Fixtures/injected-shell-two-fences.md`
 - Modify: `docs/architecture/app-editor-overlays.md`
-- [ ] Delete `makeCombinedLayerLosses`. The Make case now asserts that the injected captures equal the standalone `.sh` captures exactly, over the same fixture, so every recipe line's first word carries `function`.
+- [x] Delete `makeCombinedLayerLosses`. (done in Task 11: the grammar fix made the exactly-pinned loss fail the app gate) The Make case now asserts that the injected captures equal the standalone `.sh` captures exactly, over the same fixture, so every recipe line's first word carries `function`.
 - [ ] Add a Markdown fixture with two adjacent `sh` fences that split the same three lines between them, with prose in between.
 - [ ] Assert that every first word matches the standalone captures. The expected result is no loss, because `code_fence_content` includes its line endings.
 - [ ] If the fence case does show a loss, stop and report it as an open item. The Markdown grammars are out of scope, so this plan cannot fix it.
