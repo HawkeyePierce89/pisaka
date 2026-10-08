@@ -235,6 +235,15 @@
       "file" : "TreeSitterEditorconfig.txt"
     },
     {
+      "id" : "TreeSitterMake",
+      "name" : "tree-sitter-make (vendored)",
+      "origin" : "Vendor/TreeSitterMake",
+      "version" : null,
+      "revision" : "70613f3d812cbabbd7f38d104d60a409c4008b43",
+      "spdx" : "MIT",
+      "file" : "TreeSitterMake.txt"
+    },
+    {
       "id" : "highlight.js",
       "name" : "highlight.js (bundled asset)",
       "origin" : "Resources/MarkdownPreview/highlight.min.js",

@@ -181,24 +181,24 @@ variable definitions. There is no LSP server and no provisioning entry.
 - Modify: `project.yml`, `Resources/Licenses/licenses.json`,
   `Tests/PisakaCoreTests/LicenseCoverageTests.swift`
 
-- [ ] Clone `tree-sitter-grammars/tree-sitter-make`. Re-confirm the default-branch HEAD
+- [x] Clone `tree-sitter-grammars/tree-sitter-make`. Re-confirm the default-branch HEAD
   SHA and date, its distance from `v1.1.1`, `LANGUAGE_VERSION`, and the absence of
   `externals`/`scanner.c`. Pin the observed HEAD commit.
-- [ ] Copy these files **verbatim**:
+- [x] Copy these files **verbatim**:
   - `src/parser.c`, `src/grammar.json`, `src/node-types.json`
   - `src/tree_sitter/{parser.h,array.h,alloc.h}`
   - `grammar.js`, `LICENSE`, `queries/injections.scm`
-- [ ] Do not copy `folds.scm`, `bindings/c`, `CMakeLists.txt`, `Makefile`,
+- [x] Do not copy `folds.scm`, `bindings/c`, `CMakeLists.txt`, `Makefile`,
   `package.json`, `tree-sitter.json` or `test/`.
-- [ ] Author `bindings/swift/TreeSitterMake/make.h` declaring `tree_sitter_make()`,
+- [x] Author `bindings/swift/TreeSitterMake/make.h` declaring `tree_sitter_make()`,
   modelled on `gitignore.h`.
-- [ ] Author `Package.swift` on the gitignore/editorconfig model:
+- [x] Author `Package.swift` on the gitignore/editorconfig model:
   - package and target both named `TreeSitterMake`, so the bundle is
     `TreeSitterMake_TreeSitterMake`
   - `path: "."`, `sources: ["src/parser.c"]`, `.copy("queries")`
   - `publicHeadersPath: "bindings/swift"`, `headerSearchPath("src")`, `.c11`
   - no dependencies and no test target
-- [ ] Write `VENDORED.md` in the editorconfig shape, covering:
+- [x] Write `VENDORED.md` in the editorconfig shape, covering:
   - upstream URL, commit, date, vendored-on date and licence
   - why the fork rather than `alemuller`, and why HEAD rather than `v1.1.1`
   - the vendoring reason: no SwiftPM manifest and no Swift binding
@@ -207,20 +207,20 @@ variable definitions. There is no LSP server and no provisioning entry.
   - that `injections.scm` is adopted verbatim and resolves `"bash"` to the shell grammar
   - the by-hand update procedure
   - a Verification section placeholder, filled in Task 3
-- [ ] Wire `project.yml`: add a `TreeSitterMake: { path: Vendor/TreeSitterMake }` entry
+- [x] Wire `project.yml`: add a `TreeSitterMake: { path: Vendor/TreeSitterMake }` entry
   beside the other four, with a reason comment, plus the matching target dependency.
-- [ ] Copy `LICENSE` to `Resources/Licenses/TreeSitterMake.txt`. Check the tree for
+- [x] Copy `LICENSE` to `Resources/Licenses/TreeSitterMake.txt`. Check the tree for
   third-party code needing an appended notice (`src/tree_sitter/*.h` is already covered
   by the `tree-sitter` notice) and record the result.
-- [ ] Add the `licenses.json` notice: id `TreeSitterMake`, name
+- [x] Add the `licenses.json` notice: id `TreeSitterMake`, name
   `tree-sitter-make (vendored)`, origin `Vendor/TreeSitterMake`, revision = the SHA,
   `spdx: "MIT"`.
-- [ ] Extend `LicenseCoverageTests`: add `TreeSitterMake` to the vendored-id set and the
+- [x] Extend `LicenseCoverageTests`: add `TreeSitterMake` to the vendored-id set and the
   copyright line `Copyright (c) 2021 Alexandre A. Muller`.
-- [ ] Run the `nm -u` required-reason audit from `core-services.md` against the built
+- [x] Run the `nm -u` required-reason audit from `core-services.md` against the built
   object and record the result. No `PrivacyInfo.xcprivacy` change is expected.
-- [ ] Run `swift build --package-path Vendor/TreeSitterMake`.
-- [ ] Run `swift test`: `LicenseCoverageTests` and `DependencyPinTests` must be green.
+- [x] Run `swift build --package-path Vendor/TreeSitterMake`.
+- [x] Run `swift test`: `LicenseCoverageTests` and `DependencyPinTests` must be green.
 
 ### Task 2: Core language wiring: case, resolution, icon, comment, context, keywords, symbol kind, symbols query
 
