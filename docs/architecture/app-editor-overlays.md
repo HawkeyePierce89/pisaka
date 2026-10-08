@@ -1078,8 +1078,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     are read on both sides of the await, and a request that saw either change
     returns `.noChange`. Either way the request, one main-queue turn later —
     after the validator has recorded the range valid — re-invalidates its range
-    through the buffer (the whole document instead, if an edit landed and
-    shifted the range). An edit cannot be left to Neon's own retry: its content
+    through the buffer — carried through every edit that landed since, each
+    shifting it or, where it overlaps, widening it over the replacement, from a
+    log of the last 256 edits. **Never the whole document**: invalidating `.all`
+    drops the validator's entire valid set, so a keystroke landing mid-request
+    would re-query the full file, and under steady typing in a large file every
+    such request is itself superseded; only an edit already gone from the log
+    falls back to `.all` (`StyleGenerationRequeueTests` pins the mapping). An edit cannot be left to Neon's own retry: its content
     version is the storage's `hashValue`, and `NSString`'s hash samples only the
     length and three 32-character windows, so a same-length edit outside them
     (overtyping a selected character, a same-length Replace All) leaves the

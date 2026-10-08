@@ -139,8 +139,13 @@ final class PredicateResolvingHighlighter {
                     DispatchQueue.main.async {
                         guard isAttached() else { return }
                         // An edit since this answer shifted the content under
-                        // `range`; restyle what is visible rather than guess.
-                        let target: RangeTarget = generation.edits == requestedEdits ? .range(range) : .all
+                        // `range`; carry the range through those edits rather
+                        // than invalidate the whole document on a keystroke.
+                        let target = generation.requeueTarget(
+                            for: range,
+                            since: requestedEdits,
+                            length: interface.content.currentLength
+                        )
                         generation.isRequeueing = true
                         buffer.invalidate(target)
                         generation.isRequeueing = false
@@ -167,8 +172,8 @@ final class PredicateResolvingHighlighter {
             client.willChangeContent(in: range)
         }
         storageDelegate.didChangeContent = { range, delta in
-            generation.edits += 1
             let adjustedRange = NSRange(location: range.location, length: range.length - delta)
+            generation.recordEdit(in: adjustedRange, delta: delta)
             client.didChangeContent(in: adjustedRange, delta: delta)
             styler.didChangeContent(in: adjustedRange, delta: delta)
             // Styling is unsafe mid-edit and TextKit offers no hook for when it
@@ -231,11 +236,58 @@ final class PredicateResolvingHighlighter {
 /// Counts the buffer's edits and the styler's invalidations apart, so a
 /// highlight request can tell whether anything superseded it while it was in
 /// flight, and by which kind. A re-queue's own invalidation is not counted.
+/// The most recent edits are kept so a superseded request's range can be
+/// carried through them onto the current content.
 @MainActor
-private final class StyleGeneration {
-    var edits = 0
+final class StyleGeneration {
+    private static let editLogLimit = 256
+
+    private(set) var edits = 0
     var invalidations = 0
     var isRequeueing = false
+    /// The last `editLogLimit` edits as (pre-edit range, delta); entry `i`
+    /// is edit number `edits - editLog.count + i`.
+    private var editLog: [(range: NSRange, delta: Int)] = []
+
+    func recordEdit(in range: NSRange, delta: Int) {
+        edits += 1
+        editLog.append((range, delta))
+        if editLog.count > Self.editLogLimit {
+            editLog.removeFirst(editLog.count - Self.editLogLimit)
+        }
+    }
+
+    /// `range`, captured after edit number `since`, carried through every
+    /// edit recorded since then and clamped to `length`. An edit overlapping
+    /// the range widens it to cover the replacement. Falls back to `.all` only
+    /// when the edits needed have already left the log.
+    func requeueTarget(for range: NSRange, since: Int, length: Int) -> RangeTarget {
+        let pending = edits - since
+        guard pending > 0 else { return .range(Self.clamped(range, to: length)) }
+        guard pending <= editLog.count else { return .all }
+        var start = range.location
+        var end = NSMaxRange(range)
+        for edit in editLog.suffix(pending) {
+            let editStart = edit.range.location
+            let editEnd = NSMaxRange(edit.range)
+            if end <= editStart {
+                continue
+            } else if start >= editEnd {
+                start += edit.delta
+                end += edit.delta
+            } else {
+                start = min(start, editStart)
+                end = max(end, editEnd) + edit.delta
+            }
+        }
+        return .range(Self.clamped(NSRange(location: start, length: max(0, end - start)), to: length))
+    }
+
+    private static func clamped(_ range: NSRange, to length: Int) -> NSRange {
+        let start = min(max(0, range.location), length)
+        let end = min(max(start, NSMaxRange(range)), length)
+        return NSRange(location: start, length: end - start)
+    }
 }
 
 /// Forwards character edits — never attribute-only ones, which styling itself
