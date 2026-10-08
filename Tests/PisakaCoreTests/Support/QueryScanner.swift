@@ -205,7 +205,7 @@ func declaredNodeTypes(
     for entry in entries {
         guard let type = entry["type"] as? String else { continue }
         // A missing `named` flag means anonymous, matching tree-sitter's own
-        // default — but every entry both vendored grammars emit carries it.
+        // default — but every entry the vendored grammars emit carries it.
         if entry["named"] as? Bool == true { named.insert(type) } else { anonymous.insert(type) }
         // Fields are declared per node, but tree-sitter resolves a query's
         // `field:` against the grammar's whole field table, so the union is the

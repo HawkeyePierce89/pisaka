@@ -93,7 +93,7 @@ private struct LicenseTextView_iOS: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Remote dependencies get a tappable URL; the two vendored grammars name a
+    /// Remote dependencies get a tappable URL; the vendored grammars name a
     /// `Vendor/<name>` path in this repository, which is not something to open.
     /// Which is which is `LicenseNotice.originURL`'s decision, not this view's.
     @ViewBuilder

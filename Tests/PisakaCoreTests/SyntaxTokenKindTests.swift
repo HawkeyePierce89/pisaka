@@ -95,7 +95,7 @@ final class SyntaxTokenKindTests: XCTestCase {
         // The exact capture names emitted by the dockerfile grammar's own
         // `queries/highlights.scm` (camdencheek/tree-sitter-dockerfile 0.2.0),
         // read out of the resolved checkout at the time it was pinned. This
-        // query is a *remote* dependency, so — unlike the two vendored ones —
+        // query is a *remote* dependency, so — unlike the vendored ones —
         // nothing here can re-read it; these names are only as current as the
         // pin, and what the test actually guards is that the Core mapping keeps
         // resolving them (a name that stops resolving renders default-colored in

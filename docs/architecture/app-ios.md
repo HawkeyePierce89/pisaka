@@ -106,8 +106,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     two queries need it. An HTML `id` attribute is structurally identical to every
     other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")`
     every `class=` and `href=` value would be indexed as an anchor; and Make's
-    `(#not-match? @definition.target "^[.]|%")` keeps special (`.PHONY`) and
-    pattern (`%.o`) targets out of the index, which `MakeSymbolQueryTests` proves
+    `#not-match?` filters keep special targets (`.PHONY`), special variables
+    (`.DEFAULT_GOAL`) and pattern targets (`%.o`) out of the index, which `MakeSymbolQueryTests` proves
     by execution. `SymbolQueryTests` pins exactly that `{html, make}` map of
     predicates, so a third one is reviewed rather than silently relying on this. Captured ranges are whitespace-trimmed on
     **both** the text and the range (a Markdown heading's `inline` node carries the

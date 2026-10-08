@@ -225,10 +225,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     reaches; `SyntaxLanguageTests` pins both.
     The **raw value is load-bearing for one path**: the editor's fenced-block
     injection, `SyntaxLanguageConfiguration.configuration(forInjectionName:)`,
-    lowercases the label and tries `SyntaxLanguage(rawValue:)` first and
-    `SyntaxLanguage(fileExtension:)` second — so a ` ```shell ` block resolves
-    through the raw value and ` ```sh `/` ```bash `/` ```zsh `/` ```ksh ` through
-    the extension map, with no code beyond the two maps above. The Markdown
+    lowercases the label and tries `SyntaxLanguage(rawValue:)` first,
+    `SyntaxLanguage(fileExtension:)` second and `SyntaxLanguage(forFileName:)`
+    third — so a ` ```shell ` block resolves through the raw value,
+    ` ```sh `/` ```bash `/` ```zsh `/` ```ksh ` through the extension map, and
+    ` ```makefile ` (the commonest Make fence tag, which is neither Make's raw
+    value nor an extension) through the exact-name map, with no code beyond the
+    maps above. `MakeSymbolQueryTests` pins the Make fence names. The Markdown
     **preview**'s fence label is a *different* path and is unaffected either way:
     `MarkdownRenderer.highlightName(for:)` emits `class="language-<name>"` for
     the bundled highlighter's own alias table and never consults this enum

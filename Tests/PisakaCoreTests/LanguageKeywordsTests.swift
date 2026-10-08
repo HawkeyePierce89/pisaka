@@ -424,13 +424,15 @@ final class LanguageKeywordsTests: XCTestCase {
 
     // MARK: - Make
 
+    /// The 16 directives, shared by the two tests that pin the list's halves.
+    private static let makeDirectives = [
+        "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef",
+        "ifneq", "include", "override", "private", "sinclude", "undefine", "unexport", "vpath",
+    ]
+
     /// The whole list, pinned: the 16 directives plus the identifier-shaped
     /// built-in functions.
     func testMakeListIsTheDirectivesAndTheIdentifierShapedFunctions() {
-        let directives = [
-            "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef",
-            "ifneq", "include", "override", "private", "sinclude", "undefine", "unexport", "vpath",
-        ]
         let functions = [
             "abspath", "addprefix", "addsuffix", "and", "basename", "call", "dir", "error",
             "eval", "file", "filter", "findstring", "firstword", "flavor", "foreach", "guile",
@@ -438,7 +440,7 @@ final class LanguageKeywordsTests: XCTestCase {
             "patsubst", "realpath", "shell", "sort", "strip", "subst", "suffix", "value",
             "warning", "wildcard", "word", "wordlist", "words",
         ]
-        XCTAssertEqual(LanguageKeywords.keywords(for: .make), (directives + functions).sorted())
+        XCTAssertEqual(LanguageKeywords.keywords(for: .make), (Self.makeDirectives + functions).sorted())
     }
 
     /// The identifier-shape exclusion the list's comment states: special
@@ -469,10 +471,7 @@ final class LanguageKeywordsTests: XCTestCase {
             .filter { !$0.isEmpty }
         XCTAssertFalse(declared.isEmpty)
         let identifierShaped = Set(declared.filter { !$0.contains("-") }).union(["shell"])
-        let directives: Set<String> = [
-            "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef",
-            "ifneq", "include", "override", "private", "sinclude", "undefine", "unexport", "vpath",
-        ]
+        let directives = Set(Self.makeDirectives)
         XCTAssertTrue(directives.isDisjoint(with: identifierShaped))
         XCTAssertEqual(Set(LanguageKeywords.keywords(for: .make)).subtracting(directives), identifierShaped)
     }

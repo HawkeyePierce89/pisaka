@@ -188,14 +188,21 @@ final class SymbolQueryTests: XCTestCase {
             """)
     }
 
-    /// Make's predicate, pinned by its text: dot-led special targets (`.PHONY`)
-    /// and pattern targets (`%.o`) declare no name the user would jump to, so the
-    /// filter must stay on the target capture.
-    func testTheMakeQueryFiltersSpecialAndPatternTargets() throws {
+    /// Make's predicates, pinned by their text: special targets (`.PHONY`),
+    /// special variables (`.DEFAULT_GOAL`) and pattern targets (`%.o`) declare no
+    /// name the user would jump to, so the filters must stay on both captures.
+    /// The special shape is a dot followed by capitals and underscores only, so
+    /// an ordinary dot-led file target such as `.venv` stays indexed.
+    func testTheMakeQueryFiltersSpecialNamesAndPatternTargets() throws {
         let source = try querySource(for: .make)
-        XCTAssertTrue(source.contains("(#not-match? @definition.target \"^[.]|%\")"), """
-            The Make symbols query no longer filters special and pattern targets, so \
-            `.PHONY`, `.SUFFIXES` and `%.o` would be indexed as targets.
+        XCTAssertTrue(source.contains("(#not-match? @definition.target \"^[.][A-Z_]+$|%\")"), """
+            The Make symbols query no longer filters special and pattern targets (or filters \
+            every dot-led target), so `.PHONY`, `.SUFFIXES` and `%.o` would be indexed as \
+            targets, or `.venv` would not be.
+            """)
+        XCTAssertTrue(source.contains("(#not-match? @definition.variable \"^[.][A-Z_]+$\")"), """
+            The Make symbols query no longer filters special variables, so `.DEFAULT_GOAL` \
+            and `.RECIPEPREFIX` would be indexed as variables.
             """)
     }
 

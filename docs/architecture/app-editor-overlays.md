@@ -988,7 +988,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     JavaScript highlight queries in as a base layer (the TS grammar's bundled
     `highlights.scm` carries only TS-specific captures), and
     `configuration(forInjectionName:)` resolves injected sub-languages including
-    Markdown's `markdown_inline`. `.dockerfile`/`.dotenv`/`.gitignore` are three
+    Markdown's `markdown_inline`, then by raw value, extension and bare file name
+    (so a ` ```makefile ` fence resolves to Make). `.dockerfile`/`.dotenv`/`.gitignore` are three
     plain one-line branches (`LanguageConfiguration(tree_sitter_x(), name:
     "Dockerfile"/"Dotenv"/"Gitignore")`) with **no** sub-language injections and
     **no** explicit `bundleName:` — all three resource bundles come out as
@@ -1026,7 +1027,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `injections.scm`, adopted verbatim from upstream, hands `(shell_text)` and
     `(shell_command)` — recipe lines and `$(shell …)` bodies — to `"bash"`, which
     `configuration(forInjectionName:)` resolves through the extension map to
-    `.shell`, so recipe highlighting costs no code here. Its `highlights.scm` is
+    `.shell`, so recipe highlighting costs no code here; `MakeSymbolQueryTests`
+    reads that name out of the vendored file rather than restating it, so an
+    upstream re-copy that renames it fails the app-layer gate. Its `highlights.scm` is
     **adapted** rather than verbatim (upstream's `@spell`/`@character.special`
     resolve to `.plain`, and it draws variable names in string colour); every
     edit is listed in `Vendor/TreeSitterMake/VENDORED.md`, and

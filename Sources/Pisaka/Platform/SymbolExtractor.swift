@@ -32,8 +32,8 @@ import PisakaCore
 /// two queries need it. An HTML `id` attribute is structurally identical to every
 /// other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")` every
 /// `class=` and `href=` value in the document would be indexed as an anchor. And
-/// Make's `(#not-match? @definition.target "^[.]|%")` keeps special targets
-/// (`.PHONY`, `.SUFFIXES`) and pattern targets (`%.o`) out of the index, which
+/// Make's `#not-match?` filters keep special targets (`.PHONY`, `.SUFFIXES`),
+/// special variables (`.DEFAULT_GOAL`) and pattern targets (`%.o`) out of the index, which
 /// `MakeSymbolQueryTests` proves by execution. `SymbolQueryTests` pins exactly
 /// that set of queries and predicates, so a third one arriving is reviewed
 /// rather than silently relying on this.

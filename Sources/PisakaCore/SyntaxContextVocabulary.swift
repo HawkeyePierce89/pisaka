@@ -185,12 +185,10 @@ public enum SyntaxContextVocabulary {
             return dotenvStringForms
         case .shell:
             return shellStringForms
-        case .gitignore, .editorconfig, .markdown:
-            return []
-        case .make:
-            // Make has no string literal: a quote is an ordinary character to
-            // make itself and only means something to the shell running a
-            // recipe line, which is not this vocabulary's to model.
+        case .gitignore, .editorconfig, .markdown, .make:
+            // Make has no string literal either: a quote is an ordinary
+            // character to make itself and only means something to the shell
+            // running a recipe line, which is not this vocabulary's to model.
             return []
         }
     }
@@ -278,11 +276,7 @@ public enum SyntaxContextVocabulary {
             return false
         case .swift, .javascript, .typescript, .python, .go, .rust, .css, .sql, .dockerfile:
             return true
-        case .markdown, .gitignore, .editorconfig:
-            return false
-        case .make:
-            // No string vocabulary to gate; answered `false` so the language
-            // sits with the other string-less formats.
+        case .markdown, .gitignore, .editorconfig, .make:
             return false
         }
     }

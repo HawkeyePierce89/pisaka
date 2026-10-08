@@ -1011,7 +1011,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     into the middle of a line as text no language accepts, and could never be
     re-found by the prefix that offered it. Every other kind stays a candidate,
     including the ones the non-code languages contribute (`.key`, `.anchor`,
-    `.selector`, `.stage`): a top-level YAML key *is* the word the author is
+    `.selector`, `.stage`, `.target`): a top-level YAML key *is* the word the author is
     typing. The other two sources are not re-filtered because they cannot fail it
     by construction — `LanguageKeywords` are hand-written words, and harvested
     words come out of `words(in:limit:)`, which yields only what the predicate
@@ -1703,9 +1703,10 @@ set equality of query directories against `SyntaxLanguage.allCases` (with
 `.gitignore`'s absence asserted deliberately), every query non-empty, set
 equality of emitted capture names against what `SymbolKind` resolves, each kind
 capture resolving to *its own* kind, the single auxiliary capture
-(`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
-query validated against the vendored grammar's own `node-types.json` under the
-matching `named` flag *and* against its declared field table, and — for the
+(`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv,
+SQL, EditorConfig and Make queries validated against their vendored grammars'
+own `node-types.json` under the matching `named` flag *and* against the declared
+field tables, and — for the
 thirteen remote grammars, whose sources are not in the repository — the node-name,
 anonymous-literal and field-name sets pinned by hand, the way
 `SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
@@ -1963,10 +1964,17 @@ at `70613f3d…`) follows the shared convention and makes two decisions.
 
 **Rule targets are `.target`, minus special and pattern targets.** A `word` inside
 a `rule`'s `targets` is captured as `@definition.target`, filtered by
-`(#not-match? @definition.target "^[.]|%")`. `.PHONY`, `.SUFFIXES`,
-`.DEFAULT_GOAL` and every other dot-led target is a directive to make rather
-than a name the user declared, and a pattern rule's `%.o` declares no name at
-all; without the predicate both would fill ⌃⌘J. This makes Make the **second
+`(#not-match? @definition.target "^[.][A-Z_]+$|%")`. `.PHONY`, `.SUFFIXES` and
+the other special targets are directives to make rather than names the user
+declared, and a pattern rule's `%.o` declares no name at all; without the
+predicate both would fill ⌃⌘J. The filter is GNU make's special-name *shape* —
+a dot followed by capitals and underscores only — not "any leading dot", because
+ordinary file targets start with a dot too (`.venv`, `.build/app`) and are real
+names a user jumps to; the fixture indexes `.venv` to hold that line. The same
+shape filters `variable_assignment` names (`#not-match? @definition.variable`),
+so the special variables `.DEFAULT_GOAL`, `.RECIPEPREFIX` and `.SHELLFLAGS` stay
+out of ⌃⌘J as well; `shell_assignment` and `define_directive` carry no filter,
+since nothing special is spelled through them. This makes Make the **second
 predicate-bearing symbols query** after HTML's `id` filter, so
 `SymbolQueryTests` pins the exact map `{html: [match?], make: [not-match?]}`
 rather than "HTML alone", and `SymbolExtractor`'s doc comment names both. A
@@ -2040,8 +2048,9 @@ of the verification is `SymbolQueryTests`' pinned tables — named
 variable_assignments, variable_name, word}`, anonymous `{}`, fields `{name}` —
 so a grammar update that renames any of them fails `swift test` with shell named.
 
-**The runtime half is a test here, not a hand-off** — the one place in this
-repository where that is true. The failure this section is most exposed to (a
+**The runtime half is a test here, not a hand-off** — one of the two places in
+this repository where that is true (Make's query, `MakeSymbolQueryTests`, is the
+other). The failure this section is most exposed to (a
 query that stops compiling against its grammar, which indexes zero symbols and
 looks exactly like a file that declares nothing) is invisible to `swift test`,
 because Core does not link tree-sitter, and to both builds, because neither
