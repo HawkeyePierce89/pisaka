@@ -1069,7 +1069,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     path, so the fix holds for any predicate kind, in any grammar, injected or
     not. No remote package is patched or copied. The cost is one main-actor hop
     between an invalidation and its restyle, the hop the first paint already
-    took.
+    took. **Superseded requests paint nothing.** With every paint asynchronous,
+    Neon's `SinglePhaseRangeValidator` runs overlapping requests concurrently and
+    marks whichever finishes `success`; a request issued before an injected
+    layer finished parsing could land *after* the repaint that parse triggered
+    and leave the fence plain (reproduced as a 1-in-8 flake of the fence test).
+    So a counter bumped by every styler invalidation and every character edit is
+    read on both sides of the await: a request that saw it change returns
+    `.noChange` and, one main-queue turn later — after the validator has
+    recorded the range valid — re-invalidates its range through the buffer.
     **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
     of one language as **one combined layer**, and a Make recipe line's
     `shell_text` ends before its newline, so bash reads the end of one recipe

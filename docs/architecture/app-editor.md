@@ -5,13 +5,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `CodeEditorView.swift` — `NSViewRepresentable` wrapping `NSTextView` (built
     explicitly as TextKit 1 via `NSTextView(usingTextLayoutManager: false)` for
     Neon compatibility). Derives the active `SyntaxLanguage` from the file name,
-    attaches a Neon `TextViewHighlighter` for the resolved
+    attaches a `PredicateResolvingHighlighter` (`app-editor-overlays.md`) for the resolved
     `LanguageConfiguration`, and swaps/rebuilds it on tab (`fileID`) change. The
     highlighter is detached *before* a wholesale buffer swap so the outgoing
     grammar can't asynchronously repaint the incoming file (a stale
     cross-language race), then rebuilt for the new content. The attribute
     provider maps a tree-sitter capture name → `SyntaxTokenKind(captureName:)`
-    (Core) → `SyntaxTheme` color; the configuration's `languageProvider` resolves
+    (Core) → `SyntaxTheme` color; the highlighter itself resolves
     injected sub-languages (Markdown's `markdown_inline`, fenced code blocks,
     embedded HTML/YAML) via `SyntaxLanguageConfiguration`. No detected language →
     plain text, no highlighter attached.
@@ -314,7 +314,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     single character too — duplicating an *empty* line inserts just `"\n"` — so
     the guard covers both paths unconditionally. The closure `makeNSView` installs into
     `onDuplicate` captures the coordinator **weakly**: the coordinator holds the
-    text view weakly, but Neon's `TextViewHighlighter` — which the coordinator owns
+    text view weakly, but the `PredicateResolvingHighlighter` — which the coordinator owns
     strongly — keeps a strong `textView`, so a strong capture would close the cycle
     coordinator → highlighter → text view → closure → coordinator and leak the
     editor, its text storage and its per-file undo managers on every teardown.

@@ -74,6 +74,22 @@ final class TerminalThemeTests: XCTestCase {
         }
     }
 
+    /// Each dark bright entry (8–15) stays brighter than its normal partner
+    /// (0–7), so a retune cannot invert a pair while updating the pin. The
+    /// light set makes no such promise: its bright white is darkened for the
+    /// light ground.
+    func testEveryDarkBrightANSIEntryIsBrighterThanItsNormalPartner() {
+        let set = TerminalTheme.darkANSIColors
+        for index in 0..<8 {
+            let normal = set[index], bright = set[index + 8]
+            XCTAssertGreaterThan(
+                Self.luminance(red: bright.red, green: bright.green, blue: bright.blue),
+                Self.luminance(red: normal.red, green: normal.green, blue: normal.blue),
+                "dark ANSI \(index + 8) is not brighter than ANSI \(index)"
+            )
+        }
+    }
+
     /// SwiftTerm's hues, nine of them brightened for `bgPanel` dark; the other
     /// seven are SwiftTerm's own values verbatim.
     func testTheDarkANSISetIsExactlyTheTunedSixteen() {

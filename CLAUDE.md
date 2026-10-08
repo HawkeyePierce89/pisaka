@@ -187,7 +187,7 @@ headlessly in `Tests/PisakaAppTests`.
   `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `PredicateResolvingHighlighter.swift`
+  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
 
 `docs/architecture/app-git-views.md` — git UI & CLI service (macOS):
   `FilePanels.swift`, `BranchSwitcherView.swift`, `GitCLIService.swift`, `CommitDialogView.swift` / `CommitUnifiedDiffView.swift`, `MergeView.swift` / `MergeWindowController.swift`, `EscClosableWindow.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift`
@@ -408,7 +408,7 @@ logic. `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platfo
 test` runs `Tests/PisakaAppTests/`, headless XCTest (not UI automation) covering what
 `swift test` is blind to: the AppKit overlays with behaviour of their own, the app-layer
 rules the Core gate structurally cannot see, the two suites that drive a real `WKWebView`,
-the one that executes the bundled diagram renderer, the two that execute a shipped
+the one that executes the bundled diagram renderer, the three that execute a shipped
 tree-sitter query, the code zone's one cross-file rule, and the SwiftUI chrome whose
 drawn layout is its contract, measured off a bitmap through the shared `HostedRender`. It exists because the folding
 launch-time trap passed **every gate the pipeline had** — the Core suites *and* the smoke

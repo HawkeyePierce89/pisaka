@@ -1072,7 +1072,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `SourceViewerContent.swift` — the SwiftUI content of a source viewer window:
     one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
     `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
-    propagation into a separate window, same Neon highlighting through
+    propagation into a separate window, same `PredicateResolvingHighlighter` through
     `SyntaxLanguageConfiguration`/`SyntaxTheme` — including the `.plain` base
     foreground set beside the font, so a character no capture covers reads the
     same table the editor reads — same `@ObservedObject`

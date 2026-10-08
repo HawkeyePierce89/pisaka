@@ -117,8 +117,18 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     /// rendezvous is the inserted flag's own `constant` capture, which every
     /// path delivers.
     func testAStandaloneScriptKeepsThePredicateAfterAnEdit() async throws {
-        let text = try fixture("injected-shell.sh")
-        let view = try await paintedView(text, as: .shell)
+        try await assertPredicateHoldsAfterAnEdit(in: "injected-shell.sh", as: .shell)
+    }
+
+    /// The same edit inside a Markdown fence, where the restyle also waits on
+    /// the injected layer's re-parse.
+    func testAMarkdownShellFenceKeepsThePredicateAfterAnEdit() async throws {
+        try await assertPredicateHoldsAfterAnEdit(in: "injected-shell.md", as: .markdown)
+    }
+
+    private func assertPredicateHoldsAfterAnEdit(in fixtureName: String, as language: SyntaxLanguage) async throws {
+        let text = try fixture(fixtureName)
+        let view = try await paintedView(text, as: language)
         let storage = try XCTUnwrap(view.textView.textStorage)
         let insertion = (text as NSString).range(of: "--strict").location
         storage.replaceCharacters(in: NSRange(location: insertion, length: 0), with: "-x ")
@@ -327,7 +337,9 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     /// No view constructs Neon's own `TextViewHighlighter`, whose synchronous
     /// path skips predicates; every attaching site goes through
     /// `PredicateResolvingHighlighter`. Read over comment- and literal-stripped
-    /// text, so a doc comment naming the type does not count.
+    /// text, so a doc comment naming the type does not count; any mention of the
+    /// identifier counts, so `.init(`, a typealias or a spaced call cannot slip by
+    /// (`TextViewHighlighterError` is a different identifier and stays allowed).
     func testNoViewAttachesNeonsUnresolvingHighlighter() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -335,12 +347,13 @@ final class InjectedHighlightPredicateTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Pisaka")
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        let identifier = try NSRegularExpression(pattern: "\\bTextViewHighlighter\\b")
         var offenders: [String] = []
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             let code = SyntaxBaseForegroundGatingTests.strippingCommentsAndStringLiterals(
                 try String(contentsOf: url, encoding: .utf8)
             )
-            if code.contains("TextViewHighlighter(") || code.contains("TextViewHighlighter.Configuration") {
+            if identifier.firstMatch(in: code, range: NSRange(location: 0, length: (code as NSString).length)) != nil {
                 offenders.append(url.lastPathComponent)
             }
         }

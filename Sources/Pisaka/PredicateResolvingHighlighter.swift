@@ -36,7 +36,10 @@ import TreeSitterClient
 /// and hands the styler a token provider whose synchronous half always declines.
 /// Every request then goes through the resolving path. The cost is that a range is
 /// restyled one main-actor hop after it is invalidated instead of immediately —
-/// the same hop the first paint already takes.
+/// the same hop the first paint already takes. Because every paint is now
+/// asynchronous, overlapping requests can finish out of order, so a request
+/// superseded by an invalidation or an edit while in flight paints nothing and
+/// re-queues its range instead of painting over a newer answer.
 ///
 /// The injection resolver is fixed here (`SyntaxLanguageConfiguration`'s
 /// `configuration(forInjectionName:)`), so the six attaching sites differ only in
@@ -93,16 +96,33 @@ final class PredicateResolvingHighlighter {
         // The text provider is read through `interface` at request time, so the
         // predicates are always evaluated against the current content.
         let resolving = client.tokenProvider(with: { interface.content.string.predicateTextProvider($0, $1) })
+        let generation = StyleGeneration()
         let tokenProvider = TokenProvider(
             // Declining is the whole fix: Neon's synchronous answer skips the
             // predicates, so the styler must always take the asynchronous one.
             syncValue: { _ in nil },
-            mainActorAsyncValue: { range in await resolving.async(range) }
+            mainActorAsyncValue: { range in
+                let requested = generation.value
+                let application = await resolving.async(range)
+                guard generation.value == requested else {
+                    // An invalidation or an edit landed while this request was
+                    // in flight. Neon runs overlapping requests concurrently and
+                    // marks whichever finishes `success`, so a request issued
+                    // before an injected layer finished parsing could land after
+                    // the repaint that parse caused and leave the block plain.
+                    // Paint nothing, and once the styler has recorded this
+                    // range as valid, ask for it again.
+                    DispatchQueue.main.async { buffer.invalidate(.range(range)) }
+                    return .noChange
+                }
+                return application
+            }
         )
         let styler = Styler(textSystem: interface, tokenProvider: tokenProvider)
         self.styler = styler
 
         buffer.invalidationHandler = { target in
+            generation.value += 1
             styler.invalidate(target)
             styler.validate()
         }
@@ -112,6 +132,7 @@ final class PredicateResolvingHighlighter {
             client.willChangeContent(in: range)
         }
         storageDelegate.didChangeContent = { range, delta in
+            generation.value += 1
             let adjustedRange = NSRange(location: range.location, length: range.length - delta)
             client.didChangeContent(in: adjustedRange, delta: delta)
             styler.didChangeContent(in: adjustedRange, delta: delta)
@@ -170,6 +191,13 @@ final class PredicateResolvingHighlighter {
         styler.validate(.range(textView.visibleTextRange))
     }
 #endif
+}
+
+/// Counts the styler's invalidations and the buffer's edits, so a highlight
+/// request can tell whether anything superseded it while it was in flight.
+@MainActor
+private final class StyleGeneration {
+    var value = 0
 }
 
 /// Forwards character edits — never attribute-only ones, which styling itself

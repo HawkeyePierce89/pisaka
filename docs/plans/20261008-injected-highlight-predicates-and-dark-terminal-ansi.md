@@ -259,7 +259,7 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 ## Post-Completion
 
 Manual checks that need a running app and screenshots:
-- **Repository `Makefile` in a DEBUG build:** `@command -v swiftlint …` shows `@` as an operator, `command` plain, `-v` in the constant colour, and the quoted string in `echo "…"` green. Take a screenshot.
+- **Repository `Makefile` in a DEBUG build:** `@command -v swiftlint …` shows `@` as an operator, `command` plain, `-v` in the constant colour, and the quoted string in `echo "…"` green. Take a screenshot. The first word of each recipe line after the first stays plain where a `.sh` file paints it `function` — the combined-layer limit recorded in `app-editor-overlays.md`, not a regression.
 - **Markdown ```` ```sh ```` fence:** it renders identically to a standalone `.sh` file containing the same lines. Take a screenshot of both.
 - **Dark terminal:** in the dark theme with the terminal open, run `ls -G` and `git status` in a repository with changes. Directory and branch names in blue must be readable. Take a screenshot to compare against the current build.
 - **Appearance round trip:** switch dark → light → dark and confirm the terminal restores the new dark set.
