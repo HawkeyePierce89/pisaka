@@ -6031,7 +6031,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - The documented rule count
 
     /// The numbered rules above, counted from their own markers, and the two
-    /// documents that summarise them.
+    /// documents that summarise them — and, beside it, the gated set's size,
+    /// which the same two documents restate.
     ///
     /// This is bookkeeping rather than a rule of its own: it gates no source file. It
     /// exists because the rules above are the kind of thing a reader learns
@@ -6088,6 +6089,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertTrue(
             index.contains("and its \(word) rules"),
             "CLAUDE.md's chrome-theme invariant must name the suite's own rule count (\(count))"
+        )
+    }
+
+    /// The gated set's size is restated in both summaries too, and nothing held
+    /// it: the prose went on stating sixty-three while the set grew. Spelled
+    /// from the same table as the rule count, in the sentence that names it —
+    /// `core-theme.md`'s running total ends on the bolded "in all today", and
+    /// `CLAUDE.md`'s invariant states it in the parenthesis beside "by set".
+    func testBothSummariesSpellTheGatedSetsOwnSize() throws {
+        let count = Self.gatedFiles.count
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) gated files")
+
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        XCTAssertTrue(
+            theme.contains("**\(word)** in all today"),
+            "core-theme.md's gated-file running total must end on the suite's own count (\(count))"
+        )
+
+        let index = try Self.read(Self.document("CLAUDE.md"))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        XCTAssertTrue(
+            index.contains("pins which files obey the rule (\(word), by set equality)"),
+            "CLAUDE.md's chrome-theme invariant must name the gated set's own size (\(count))"
         )
     }
 

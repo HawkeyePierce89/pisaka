@@ -4149,7 +4149,13 @@ declared: nothing read it while both documents were checked. It gates no source 
 drifted, each correct on the day it was written, and a count that drifts tells a
 reader the sweep is smaller than it is while omitting the newest rules. Same
 shape as `LintConfigurationTests`' style-version pair: one source of truth, every
-document spelling it checked against that.
+document spelling it checked against that. The gated set's size is held the
+same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
+`gatedFiles.count`, spelled from the same `spelled` table, must appear in both
+summaries in the sentence naming it — the running total in the gated-files
+entry above, ending on "**sixty-four** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-four, by set equality)". Before it only prose
+stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'
 numbers, and those drifted exactly as the count once did — rule thirty's part

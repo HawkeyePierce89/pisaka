@@ -302,15 +302,15 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Modify: `CLAUDE.md`
 - Modify: `docs/architecture/core-theme.md`
-- [ ] Add a test that `CLAUDE.md` and `core-theme.md` both spell `gatedFiles.count` in words, using the same `spelled` table. Today only prose states 63; no test pins it.
-- [ ] Update every number in the prose:
+- [x] Add a test that `CLAUDE.md` and `core-theme.md` both spell `gatedFiles.count` in words, using the same `spelled` table. Today only prose states 63; no test pins it. (testBothSummariesSpellTheGatedSetsOwnSize)
+- [x] Update every number in the prose:
   - the gated-file count, now sixty-four;
   - the rule count, now forty-nine, both in "The forty-nine rules, each invisible to the compiler:" and in `CLAUDE.md`'s "and its forty-nine rules";
   - the canonical list, numbered 1 to 49;
   - the header inventory;
   - the stated-exceptions paragraph, if a new reading keeps literals.
-- [ ] Check that `CLAUDE.md` stays under 60,000 characters (`LintConfigurationTests`).
-- [ ] Run `swift test` and `swiftlint --strict`; both must pass.
+- [x] Check that `CLAUDE.md` stays under 60,000 characters (`LintConfigurationTests`).
+- [x] Run `swift test` and `swiftlint --strict`; both must pass. (6185 tests green; swiftlint clean; CLAUDE.md 51,789 characters)
 
 ### Task 10: Part E — reproduce the mechanism outside the app
 
