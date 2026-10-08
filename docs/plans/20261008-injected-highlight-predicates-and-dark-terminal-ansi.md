@@ -170,14 +170,14 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 **Files:**
 - Modify: `Tests/PisakaAppTests/TerminalThemeTests.swift`
 
-- [ ] Add `testEveryDarkANSIEntryButBlackClearsTheFloorOnTheDarkGround`, mirroring the light test:
+- [x] Add `testEveryDarkANSIEntryButBlackClearsTheFloorOnTheDarkGround`, mirroring the light test:
   - Compute with the suite's own `luminance` arithmetic.
   - Read the ground from `ChromePalette.nsColor(.bgPanel, in: .dark)`, never from a literal.
   - Skip index 0, with a separate assertion that ANSI 0 is exactly `0x000000`, the one stated exception.
   - Use a floor of 4.5:1.
-- [ ] Add an assertion that pins the exact sixteen dark values. Together with `testEachAppearanceInstallsItsOwnANSISet`, this proves that dark → light → dark restores the new array.
-- [ ] Update the suite's doc comment, which is its inventory, to name the dark floor and its ground.
-- [ ] Run the app bundle and confirm the new test fails on the current SwiftTerm defaults. Measured against `bgPanel` dark `0x2B2D30`:
+- [x] Add an assertion that pins the exact sixteen dark values. Together with `testEachAppearanceInstallsItsOwnANSISet`, this proves that dark → light → dark restores the new array.
+- [x] Update the suite's doc comment, which is its inventory, to name the dark floor and its ground.
+- [x] Run the app bundle and confirm the new test fails on the current SwiftTerm defaults. Measured against `bgPanel` dark `0x2B2D30`:
 
 | Entry | Current value | Contrast on `0x2B2D30` |
 |---|---|---|
