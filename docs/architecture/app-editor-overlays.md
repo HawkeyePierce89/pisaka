@@ -1078,6 +1078,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     read on both sides of the await: a request that saw it change returns
     `.noChange` and, one main-queue turn later — after the validator has
     recorded the range valid — re-invalidates its range through the buffer.
+    **A detached highlighter starts nothing.** Detaching releases the object
+    and clears the storage's delegate, but the buffer, styler and client keep
+    each other alive through their closures and the text view is reused for
+    the next file. So both the re-queue and the buffer's invalidation handler
+    first check that the storage's delegate is still this highlighter's;
+    otherwise a superseded request in flight at a tab switch would start a
+    full-document request through the old grammar, whose stale-generation
+    attributes would wipe the live colouring.
     **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
     of one language as **one combined layer**, and a Make recipe line's
     `shell_text` ends before its newline, so bash reads the end of one recipe

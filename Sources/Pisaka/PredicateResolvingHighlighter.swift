@@ -97,6 +97,18 @@ final class PredicateResolvingHighlighter {
         // predicates are always evaluated against the current content.
         let resolving = client.tokenProvider(with: { interface.content.string.predicateTextProvider($0, $1) })
         let generation = StyleGeneration()
+        // A caller detaches this highlighter by releasing it and clearing the
+        // storage's delegate, but the buffer, styler and client keep each other
+        // alive through their closures, and the text view is reused for the next
+        // file. Work still queued after that must not start a new request.
+        let isAttached = { [weak textView, weak storageDelegate = self.storageDelegate] () -> Bool in
+            guard let textView, let storageDelegate else { return false }
+#if os(macOS)
+            return textView.textStorage?.delegate === storageDelegate
+#else
+            return textView.textStorage.delegate === storageDelegate
+#endif
+        }
         let tokenProvider = TokenProvider(
             // Declining is the whole fix: Neon's synchronous answer skips the
             // predicates, so the styler must always take the asynchronous one.
@@ -111,8 +123,11 @@ final class PredicateResolvingHighlighter {
                     // before an injected layer finished parsing could land after
                     // the repaint that parse caused and leave the block plain.
                     // Paint nothing, and once the styler has recorded this
-                    // range as valid, ask for it again.
-                    DispatchQueue.main.async { buffer.invalidate(.range(range)) }
+                    // range as valid, ask for it again — unless it was detached.
+                    DispatchQueue.main.async {
+                        guard isAttached() else { return }
+                        buffer.invalidate(.range(range))
+                    }
                     return .noChange
                 }
                 return application
@@ -122,6 +137,7 @@ final class PredicateResolvingHighlighter {
         self.styler = styler
 
         buffer.invalidationHandler = { target in
+            guard isAttached() else { return }
             generation.value += 1
             styler.invalidate(target)
             styler.validate()

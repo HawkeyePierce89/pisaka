@@ -2373,10 +2373,10 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the terminal's own palette (its four
-chrome colours since swept, part five (h)), the lane hues, the unified diff's per-line checkbox glyph. (The caret readout and the
-changed-line text tint were waiting here too; both are now drawn — see the
-bottom bar's caret readout below, and part five (b)'s departure seven.)
+stay named under *What is still waiting*: the lane hues, the unified diff's per-line checkbox glyph. (The caret readout, the
+changed-line text tint and the terminal's own palette were waiting here too;
+all are now settled — see the bottom bar's caret readout below, part five
+(b)'s departure seven, and *The dark terminal palette on its ground*.)
 
 #### Part five (g) — the project tree's drop-target wash
 
