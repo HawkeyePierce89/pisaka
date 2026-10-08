@@ -106,8 +106,8 @@ On older macOS the inset stays 0, so home stays 0, a pane at home sits at `x == 
 
 ### Task 5: Update documentation
 
-- [ ] README.md and `docs/FEATURES.md`: no user-facing feature change, so leave them unless a known-issues line mentions the gutter overlap.
-- [ ] CLAUDE.md: no change. There is no new file index name, and the reasoning lives in `core-zoom.md`.
+- [x] README.md and `docs/FEATURES.md`: no user-facing feature change, so leave them unless a known-issues line mentions the gutter overlap. (Checked: no known-issues line mentions the overlap; both left unchanged.)
+- [x] CLAUDE.md: no change. There is no new file index name, and the reasoning lives in `core-zoom.md`.
 
 ## Post-Completion (manual)
 
