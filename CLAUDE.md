@@ -318,7 +318,7 @@ because nothing else states them.
   equality) and its forty-seven rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
-  theme is **not thereby finished**: the open questions, the swept surfaces, the unspent roles,
+  theme is **not thereby finished**: the open questions, the swept surfaces,
   the follow-up procedure and its one refusal all stay named in `core-theme.md`.
 
 - **Zoom is three zones, one arithmetic, one pointer rule** (macOS only, `core-zoom.md`):

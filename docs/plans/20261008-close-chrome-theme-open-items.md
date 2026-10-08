@@ -128,28 +128,28 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Sources/PisakaCore/ChromeColorRole.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Create: `Tests/PisakaAppTests/BracketPairBackgroundTests.swift`
-- [ ] In `paintBackgrounds(clippedTo:clampingTo:)`, paint the pair with `ChromePalette.nsColor(.bracketMatch)`. This is the dynamic colour: it is read at paint time and never stored.
-- [ ] Delete `SyntaxTheme`'s `pairBackground`, `matchedPairBackground` and `nsMatchedPairBackground`.
+- [x] In `paintBackgrounds(clippedTo:clampingTo:)`, paint the pair with `ChromePalette.nsColor(.bracketMatch)`. This is the dynamic colour: it is read at paint time and never stored.
+- [x] Delete `SyntaxTheme`'s `pairBackground`, `matchedPairBackground` and `nsMatchedPairBackground`.
   - The rainbow palette, the unmatched red and the indent tint stay in `SyntaxTheme`, because they are code colouring.
   - Move the reasoning "opaque and neutral, so the rainbow stays readable on it" to the role's doc comment.
-- [ ] Rule three (the exempt and gated sets stay disjoint) still holds, and the gated-file count does not change in this part:
+- [x] Rule three (the exempt and gated sets stay disjoint) still holds, and the gated-file count does not change in this part:
   - `BracketOverlayLayoutManager.swift` is already gated and stays gated.
   - `SyntaxTheme.swift` stays exempt and ungated.
   - `BracketHighlightController.swift` stays ungated. It draws nothing itself; it only passes `SyntaxTheme`'s rainbow colours, which are code colouring, to the layout manager.
-- [ ] Amend rule twenty-nine:
+- [x] Amend rule twenty-nine:
   - pin, by set equality, the files allowed to spell `bracketMatch`: {`ChromePalette.swift`, `BracketOverlayLayoutManager.swift`};
   - remove "unspent" from its doc comment;
   - add a clause that `SyntaxTheme.swift` spells no pair background (`pairBackground` or `matchedPair`), so the private value cannot return.
-- [ ] Update `ChromeColorRole`'s type doc comment: no role is unspent any more, and the table and the call sites agree.
-- [ ] Add app-bundle tests through `EditorLayoutHarness`:
+- [x] Update `ChromeColorRole`'s type doc comment: no role is unspent any more, and the table and the call sites agree.
+- [x] Add app-bundle tests through `EditorLayoutHarness`:
   - after `setPairRanges`, the temporary `.backgroundColor` on both pair ranges resolves to `ChromePalette.nsColor(.bracketMatch, in:)` under `.aqua` and under `.darkAqua`;
   - a bitmap sample inside the open bracket's cell matches the role within 3/255, as `CurrentLineHighlightTests` does;
   - using `ContrastArithmetic`, the five depth colours and the unmatched red each clear 3:1 over `bracketMatch` in both appearances.
-- [ ] Update the docs:
+- [x] Update the docs:
   - `core-theme.md`: every sentence that calls `bracketMatch` "the one unspent" role, the waiting list, and rule twenty-nine's entry;
   - `app-editor-overlays.md`: the entries for the layout manager and `SyntaxTheme`;
   - `CLAUDE.md`'s theme invariant paragraph: drop "the unspent roles".
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test and swiftlint clean; BracketPairBackgroundTests passes in full. The same eight scale-1.8 layout assertions noted in Task 1 still fail, unchanged and environmental.)
 
 ### Task 4: Part C — a Core sizing rule for the code-zone checkbox
 

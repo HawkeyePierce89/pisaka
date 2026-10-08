@@ -71,14 +71,6 @@ struct SyntaxTheme {
     /// marker, so it is the most saturated color in the editor.
     var unmatchedBracketColor: PlatformColor { SyntaxTheme.unmatchedBracket }
 
-    /// The background painted behind both halves of the pair
-    /// `BracketMatchEngine` matched for the caret. Opaque and neutral: every
-    /// rainbow color has to stay readable on top of it, it must not be mistaken
-    /// for the selection highlight, and — since it is painted over the indentation
-    /// tints rather than under them — it has to read as a background of its own
-    /// wherever a matched pair sits beside an indent.
-    var matchedPairBackground: PlatformColor { SyntaxTheme.pairBackground }
-
     // MARK: - Indentation levels
 
     /// The palette painted behind one indentation unit of leading whitespace,
@@ -117,10 +109,10 @@ struct SyntaxTheme {
     /// The background painted behind every match of the editor's search bar
     /// (⌘F), except the one the caret is currently on.
     ///
-    /// A warm yellow, deliberately far from `matchedPairBackground` (a neutral
-    /// blue-gray) and from the selection highlight (the user's accent color), so
-    /// a match sitting on a bracket pair and a match inside the selection both
-    /// stay recognizable as matches.
+    /// A warm yellow, deliberately far from the matched-pair background (the
+    /// chrome's neutral blue-gray `bracketMatch` role) and from the selection
+    /// highlight (the user's accent color), so a match sitting on a bracket pair
+    /// and a match inside the selection both stay recognizable as matches.
     var searchMatchBackground: PlatformColor { SyntaxTheme.searchBackground }
 
     /// The background of the *current* match — the one ⌘G steps through and
@@ -189,8 +181,6 @@ struct SyntaxTheme {
     }
 
     var nsUnmatchedBracketColor: NSColor { unmatchedBracketColor }
-
-    var nsMatchedPairBackground: NSColor { matchedPairBackground }
 
     var nsSearchMatchBackground: NSColor { searchMatchBackground }
 
@@ -296,8 +286,6 @@ struct SyntaxTheme {
         .dynamic(light: 0x0E7C86, dark: 0x5BD5E0, alpha: levelBackgroundAlpha),
         .dynamic(light: 0x9A6400, dark: 0xFFD479, alpha: levelBackgroundAlpha),
     ]
-
-    private static let pairBackground: PlatformColor = .dynamic(light: 0xD0DCEA, dark: 0x3D4B5C)
 
     private static let searchBackground: PlatformColor = .dynamic(light: 0xF3E39B, dark: 0x5C4F1E)
 

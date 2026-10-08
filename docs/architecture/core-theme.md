@@ -91,12 +91,12 @@ adds no write of any kind. Its only persisted input is the existing
     `bracketMatch`. The current-line highlight then spends `currentLine` — the
     full-width band the layout manager paints under the caret's line and its
     continuation in the gutter (see *The current-line highlight*, below) — which
-    leaves **one**: `bracketMatch`, deliberately still unused, because it
-    belongs to the *code* zone, whose matched-pair overlay is a temporary text
-    attribute on the editor's own theme (`SyntaxTheme`), so spending it is a
-    decision about where the chrome ends rather than a restyle. It is declared
-    nonetheless, because the table is the design rather than an inventory of
-    today's call sites. The raw values are the stable names the
+    leaves **one**: `bracketMatch`. The matched-pair overlay spends it last —
+    the layout manager's temporary background behind both halves of the
+    caret's pair, which until then drew a private value of the editor's own
+    theme (see *The matched-pair background*, below) — so **no role is
+    unspent**: the table and the call sites agree. The table is still the
+    design rather than an inventory of today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
     **`diagnosticRole(for:)` — the chrome's one severity answer**, moved here in
@@ -2772,6 +2772,37 @@ above that say so record their own moment. `ChromePaletteTests` keeps the wash d
 halves, on the caret's line and not its neighbour, and none under a multi-line
 selection.
 
+#### The matched-pair background
+
+The background behind both halves of the caret's matched pair is the
+`bracketMatch` role — light `0xDBE6F5`, dark `0x3D4A5C` — the last role the
+chrome had not spent. It was a private value of `SyntaxTheme` (`0xD0DCEA` /
+`0x3D4B5C`, within a few steps of the role on every channel), and that value,
+its `matchedPairBackground` accessor and its `NSColor` spelling are deleted
+rather than kept beside the role. `BracketOverlayLayoutManager.paintBackgrounds`
+writes `ChromePalette.nsColor(.bracketMatch)` as the pair's temporary
+`.backgroundColor` — the dynamic colour, asked for on every paint and never
+stored, so it resolves in whatever appearance draws it, rule twenty-five's
+footing. The pair is the chrome's even though it sits in the code: it is a
+highlight drawn *around* two glyphs, not a colouring of them. What is drawn on
+it stays code colouring and stays in `SyntaxTheme` — the five rainbow depth
+colours, the unmatched-bracket red and the indentation tints the pair is
+painted over — and `BracketHighlightController`, which only hands those colours
+to the layout manager, stays ungated. The reasoning that chose the old value —
+opaque and neutral, so every rainbow colour stays readable on it, never
+mistaken for the selection, and a background of its own over an indent tint —
+now lives on the role's doc comment. Measured over the role, the five depth
+colours and the unmatched red each clear 3:1: light 3.97, 5.56, 4.14, 3.92,
+4.28 and 4.61; dark 6.41, 4.53, 4.10, 5.16, 5.86 and 3.23.
+
+Rule twenty-nine holds the files spelling `bracketMatch` to the palette and the
+layout manager, by set equality, and refuses a pair background (`pairBackground`
+or `matchedPair`, in any case) in `SyntaxTheme.swift`, so the private value
+cannot come back beside the role. `BracketPairBackgroundTests` reads the
+temporary attribute on both halves under each appearance, samples the open
+bracket's cell off a rendered bitmap, and computes the six contrasts with
+`ContrastArithmetic`.
+
 #### The terminal's ground and inset
 
 The design sets the terminal into its panel rather than edge to edge: a
@@ -2896,9 +2927,10 @@ the item that took its place, **tuning the dark ANSI-16 set**, is closed too:
 on the terminal's ground, `bgPanel` dark `0x2B2D30`, nine entries were
 brightened along SwiftTerm's own hues so every entry but black clears 4.5:1
 (see *The dark terminal palette on its ground*). Each deferred item follows the
-six-step guide at the end of this document, on its own. One role remains unspent — `bracketMatch`, code
-zone — after the current-line highlight spent `currentLine`, the same one role
-`ChromeColorRole.swift`'s own doc comment names.
+six-step guide at the end of this document, on its own. **No role remains
+unspent**: the matched-pair overlay spent `bracketMatch`, the last of them (see
+*The matched-pair background*), which is what `ChromeColorRole.swift`'s own doc
+comment now states.
 
 ### The monochrome-icon decision
 
@@ -3510,7 +3542,13 @@ The forty-seven rules, each invisible to the compiler:
     designated initializer assigns `backgroundColor` and names `bgPanel`.
 29. **The merge wash is Core's one answer.** The `mergeWashRole` token is read
     by `MergeView.swift` alone among the app files; no app file other than
-    `ChromePalette.swift` spells `conflictBackground` or `bracketMatch`; the app
+    `ChromePalette.swift` spells `conflictBackground`; the app files spelling
+    `bracketMatch` are exactly `ChromePalette.swift` and
+    `BracketOverlayLayoutManager.swift` (the matched-pair overlay's one
+    painter), by set equality; `SyntaxTheme.swift` spells no pair background —
+    neither `pairBackground` nor `matchedPair`, a lowercased substring of the
+    stripped text, since the former accessors carried the words inside longer
+    identifiers; the app
     files spelling `currentLine` are exactly `ChromePalette.swift`,
     `BracketOverlayLayoutManager.swift` and `LineNumberRulerView.swift` (the
     current-line highlight's two painters), by set equality; no gated file chains `.withAlphaComponent`/`.opacity` onto a

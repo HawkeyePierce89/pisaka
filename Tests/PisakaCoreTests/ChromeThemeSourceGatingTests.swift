@@ -162,10 +162,12 @@ import XCTest
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
 ///   silently, the later one winning with nothing to say so.
 /// - **The merge wash is Core's one answer.** `mergeWashRole(for:)` is read by
-///   the merge panes alone, `conflictBackground`/`bracketMatch` by no app file
-///   but the palette, `currentLine` by the palette and the current-line
-///   highlight's two painters alone, and no gated file chains an alpha onto a
-///   role's colour — a composed alpha is a second wash nothing re-themes.
+///   the merge panes alone, `conflictBackground` by no app file but the
+///   palette, `bracketMatch` by the palette and the matched-pair overlay alone,
+///   `currentLine` by the palette and the current-line highlight's two painters
+///   alone, `SyntaxTheme.swift` spells no pair background of its own, and no
+///   gated file chains an alpha onto a role's colour — a composed alpha is a
+///   second wash nothing re-themes.
 /// - **One primary button, one secondary, one checkbox.** No gated file spells a
 ///   platform toggle or button style; the shared controls' callers are pinned;
 ///   every button in part five (b)'s and part five (c)'s files is styled, by a
@@ -3306,10 +3308,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule twenty-nine: the merge wash is Core's one answer
 
     /// `mergeWashRole(for:)` is read by the merge panes alone; the merge wash's
-    /// own role and the unspent `bracketMatch` are spelled by no app file but the
-    /// palette; `currentLine` — spent by the current-line highlight — by the
-    /// palette and that highlight's two painters exactly, by set equality; and
-    /// no gated file composes an alpha onto a role's colour.
+    /// own role is spelled by no app file but the palette; `bracketMatch` —
+    /// spent by the matched-pair overlay — by the palette and the layout
+    /// manager exactly, by set equality; `currentLine` — spent by the
+    /// current-line highlight — by the palette and that highlight's two
+    /// painters exactly, by set equality; and no gated file composes an alpha
+    /// onto a role's colour.
+    ///
+    /// `SyntaxTheme.swift` additionally spells no pair background — neither
+    /// `pairBackground` nor `matchedPair`, in any case — so the private value the
+    /// role replaced cannot return beside it. That clause reads the stripped
+    /// text as a substring, lowercased, because the former accessors spelled the
+    /// words inside longer identifiers (`nsMatchedPairBackground`).
     ///
     /// The alpha clause is a pattern over a call and the member chained onto it
     /// — `nsColor(…)`, `.color(…)` or `chromeColor(…)`, its brace-matched
@@ -3350,21 +3360,36 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ChromePalette.swift", "BracketOverlayLayoutManager.swift", "LineNumberRulerView.swift",
     ]
 
+    /// The palette, plus the matched-pair overlay's one painter.
+    private static let bracketMatchPainters: Set<String> = [
+        "ChromePalette.swift", "BracketOverlayLayoutManager.swift",
+    ]
+
     func testTheMergeWashIsCoresOneAnswer() throws {
         var readers: Set<String> = []
         var currentLinePainters: Set<String> = []
+        var bracketMatchPainters: Set<String> = []
+        var sawSyntaxTheme = false
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
             if LSPSourceGatingTests.containsToken("currentLine", in: code) { currentLinePainters.insert(name) }
-            guard name != "ChromePalette.swift" else { continue }
-            for role in ["conflictBackground", "bracketMatch"] {
-                XCTAssertFalse(
-                    LSPSourceGatingTests.containsToken(role, in: code),
-                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, bracketMatch is the code zone's"
-                )
+            if LSPSourceGatingTests.containsToken("bracketMatch", in: code) { bracketMatchPainters.insert(name) }
+            if name == "SyntaxTheme.swift" {
+                sawSyntaxTheme = true
+                for word in ["pairbackground", "matchedpair"] {
+                    XCTAssertFalse(
+                        code.lowercased().contains(word),
+                        "SyntaxTheme.swift spells a pair background (\(word)) — the matched pair draws the chrome's bracketMatch role"
+                    )
+                }
             }
+            guard name != "ChromePalette.swift" else { continue }
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("conflictBackground", in: code),
+                "\(name) names conflictBackground directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer"
+            )
         }
         XCTAssertEqual(
             readers, Self.mergeWashReaders,
@@ -3374,6 +3399,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             currentLinePainters, Self.currentLinePainters,
             "the app files naming currentLine must be exactly the palette and the current-line highlight's two painters"
         )
+        XCTAssertEqual(
+            bracketMatchPainters, Self.bracketMatchPainters,
+            "the app files naming bracketMatch must be exactly the palette and the matched-pair overlay"
+        )
+        XCTAssertTrue(sawSyntaxTheme, "SyntaxTheme.swift is gone — re-point the pair-background clause rather than losing it")
 
         let roleColor = try NSRegularExpression(pattern: "(?:\\bnsColor|\\.color|\\bchromeColor)\\s*\\(")
         for (name, code) in try Self.strippedGatedSources() {
