@@ -198,7 +198,7 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `docs/architecture/app-terminal.md`
 
-- [ ] Brighten the eight failing entries. Also brighten ANSI 3: 4.54 sits within rounding of the floor, and the test reads the palette's resolved colour rather than a literal, so that margin is fragile.
+- [x] Brighten the eight failing entries. Also brighten ANSI 3: 4.54 sits within rounding of the floor, and the test reads the palette's resolved colour rather than a literal, so that margin is fragile.
   - Every new value keeps SwiftTerm's own hue angle and only increases brightness: red 0°, green ≈121°, yellow 60°, blue 240°, magenta 300°, and ANSI 8 keeps its slight 300° grey tint.
   - Every bright entry stays brighter than its normal partner (1/9, 2/10, 3/11, 4/12, 5/13, 0/8 vs 7).
   - Contrasts are measured with WCAG relative luminance against `0x2B2D30`:
@@ -215,7 +215,7 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 | ANSI 12 | `0x0700FE` | `0xAAAAFF` | 6.51 | 240° |
 | ANSI 13 | `0xE500E5` | `0xFF8CFF` | 6.87 | 300° |
 
-- [ ] Leave the other seven entries verbatim; each already clears on `0x2B2D30`:
+- [x] Leave the other seven entries verbatim; each already clears on `0x2B2D30`:
   - ANSI 0: black, the stated exception;
   - ANSI 6: 4.62;
   - ANSI 7: 7.51;
@@ -225,22 +225,22 @@ One possibility is that the async path repaints root-layer ranges but not sublay
   - ANSI 15: 10.96.
 
   No per-entry exception is needed, so the floor is uniformly 4.5:1 (WCAG AA for normal text), matching the light set.
-- [ ] Spell entries with `rgb8(…)`, keep sixteen entries per array, and keep every `0x` literal inside the two arrays, so rule 44 of `ChromeThemeSourceGatingTests` stays green.
-- [ ] Rewrite the doc comments in `TerminalTheme.swift`:
+- [x] Spell entries with `rgb8(…)`, keep sixteen entries per array, and keep every `0x` literal inside the two arrays, so rule 44 of `ChromeThemeSourceGatingTests` stays green.
+- [x] Rewrite the doc comments in `TerminalTheme.swift`:
   - The `darkANSIColors` comment says what the set now is: SwiftTerm's hues, with nine entries brightened to clear 4.5:1 on `bgPanel` dark `0x2B2D30`. It also explains that unconditional installation requires only a fixed set, not SwiftTerm's.
   - The type-level comment ("installs SwiftTerm's values verbatim") and the `apply(to:appearance:)` comment ("dark reinstalls SwiftTerm's own values") are updated to match.
-- [ ] Update `core-theme.md`:
+- [x] Update `core-theme.md`:
   - Close the open item in part five (h) and in the closing *What is still waiting* paragraph.
   - Record the nine new values with their measured contrasts and the uniform 4.5:1 floor.
   - Name the new test.
-- [ ] Correct the stale ground in both docs. In `core-theme.md`'s closing paragraph and in `app-terminal.md`'s ANSI paragraph, replace the `0x1E1F22` mentions and the contrasts quoted on it. State that the terminal's ground is `bgPanel` dark `0x2B2D30`. Part five (h)'s historical table row, which already says "since moved to `bgPanel`", stays as a record.
-- [ ] Update `app-terminal.md`'s ANSI paragraph to the new values.
-- [ ] Run the following; all must pass:
+- [x] Correct the stale ground in both docs. In `core-theme.md`'s closing paragraph and in `app-terminal.md`'s ANSI paragraph, replace the `0x1E1F22` mentions and the contrasts quoted on it. State that the terminal's ground is `bgPanel` dark `0x2B2D30`. Part five (h)'s historical table row, which already says "since moved to `bgPanel`", stays as a record.
+- [x] Update `app-terminal.md`'s ANSI paragraph to the new values.
+- [x] Run the following; all must pass:
   - Task 5's tests;
   - `ChromeThemeSourceGatingTests` and `LintConfigurationTests` in `swift test`;
-  - the full app bundle;
+  - the full app bundle (green except the 8 pre-existing scale-1.8 layout failures in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests, which fail identically on HEAD without this change, as already noted in Task 4);
   - `swiftlint --strict`.
-- [ ] Commit Part B.
+- [x] Commit Part B.
 
 ### Task 7: Verify acceptance criteria
 

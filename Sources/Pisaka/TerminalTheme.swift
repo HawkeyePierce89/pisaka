@@ -31,9 +31,11 @@ import SwiftTerm
 /// unreadable on a light one (bright white `#E5E5E5` is 1.26:1 on white, bright
 /// yellow 1.35:1, bright cyan 1.57:1, ANSI 7 `#BFBFBF` 1.84:1 — and since
 /// `useBrightColors` defaults to `true`, *bold* text on colors 0–6 is remapped
-/// onto those brights, so ordinary prompt/`ls`/`npm` output would vanish). The
-/// dark theme installs SwiftTerm's values verbatim; the light theme installs a
-/// darkened set. What stays out of scope is a *user-configurable* palette.
+/// onto those brights, so ordinary prompt/`ls`/`npm` output would vanish).
+/// SwiftTerm's set fails the other way too: on the dark `bgPanel` ground eight of
+/// its entries fall below 4.5:1. So each appearance installs a fixed set of its
+/// own — the dark theme SwiftTerm's hues with nine entries brightened, the light
+/// theme a darkened set. What stays out of scope is a *user-configurable* palette.
 enum TerminalTheme {
     /// The chrome appearance a hosting `NSAppearance` resolves the four roles
     /// under, matched against the two base appearances so a high-contrast or
@@ -54,27 +56,36 @@ enum TerminalTheme {
         SwiftTerm.Color(red: red * 257, green: green * 257, blue: blue * 257)
     }
 
-    /// SwiftTerm's `Color.defaultInstalledColors`, verbatim: it is the terminal's
-    /// own vocabulary and the one thing this file still spells for itself
-    /// (installing is unconditional, so switching dark → light → dark must
-    /// restore exactly these).
+    /// The dark theme's ANSI-16: SwiftTerm's `Color.defaultInstalledColors` hues,
+    /// with nine entries brightened so every one but black clears at least 4.5:1
+    /// against the terminal's actual ground, `bgPanel`'s dark `0x2B2D30`.
+    /// SwiftTerm's own set is tuned for black and, on that ground, sinks to 1.08:1
+    /// (ANSI 4) — eight of its entries fell below the floor and ANSI 3 sat on it.
+    /// Each brightened entry keeps SwiftTerm's hue angle (red 0°, green ≈121°,
+    /// yellow 60°, blue 240°, magenta 300°, ANSI 8's faint 300° grey tint) and
+    /// only gains lightness, and every bright entry stays brighter than its
+    /// normal partner. ANSI 0, 6, 7, 10, 11, 14 and 15 already cleared and are
+    /// SwiftTerm's values verbatim; ANSI 0's exact black is the one stated
+    /// exception to the floor. Installing is unconditional, so switching dark →
+    /// light → dark must restore exactly these — which needs a *fixed* set, not
+    /// SwiftTerm's.
     static let darkANSIColors: [SwiftTerm.Color] = [
-        rgb8(0, 0, 0),
-        rgb8(153, 0, 1),
-        rgb8(0, 166, 3),
-        rgb8(153, 153, 0),
-        rgb8(3, 0, 178),
-        rgb8(178, 0, 178),
-        rgb8(0, 165, 178),
-        rgb8(191, 191, 191),
-        rgb8(138, 137, 138),
-        rgb8(229, 0, 1),
-        rgb8(0, 216, 0),
-        rgb8(229, 229, 0),
-        rgb8(7, 0, 254),
-        rgb8(229, 0, 229),
-        rgb8(0, 229, 229),
-        rgb8(229, 229, 229),
+        rgb8(0x00, 0x00, 0x00),
+        rgb8(0xFF, 0x6B, 0x6B),
+        rgb8(0x00, 0xB8, 0x03),
+        rgb8(0xA0, 0xA0, 0x00),
+        rgb8(0x93, 0x93, 0xFF),
+        rgb8(0xE0, 0x70, 0xE0),
+        rgb8(0x00, 0xA5, 0xB2),
+        rgb8(0xBF, 0xBF, 0xBF),
+        rgb8(0x9E, 0x9D, 0x9E),
+        rgb8(0xFF, 0x8C, 0x8C),
+        rgb8(0x00, 0xD8, 0x00),
+        rgb8(0xE5, 0xE5, 0x00),
+        rgb8(0xAA, 0xAA, 0xFF),
+        rgb8(0xFF, 0x8C, 0xFF),
+        rgb8(0x00, 0xE5, 0xE5),
+        rgb8(0xE5, 0xE5, 0xE5),
     ]
 
     /// The light theme's ANSI-16, darkened so every entry clears at least 4.5:1
@@ -151,8 +162,8 @@ enum TerminalTheme {
         let terminal = view.getTerminal()
         // `installColors` also resets the cached attributes and repaints, so the
         // ANSI palette goes in through the same public surface as the two default
-        // colors. Unconditional in both directions: dark reinstalls SwiftTerm's
-        // own values, so switching back restores exactly what the view started with.
+        // colors. Unconditional in both directions: each appearance reinstalls its
+        // own fixed set, so switching back restores exactly the same sixteen.
         view.installColors(ansiColors(for: chrome))
         view.setBackgroundColor(source: terminal, color: terminalColor(background))
         view.setForegroundColor(source: terminal, color: terminalColor(foreground))
