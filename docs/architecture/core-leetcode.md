@@ -1973,7 +1973,10 @@ the limits the design carries.
     resize is dropped** — the design's panel has none: the number, difficulty and
     status columns take fixed widths scaled from the old ideal widths (56 / 88 /
     96) and the title the rest. **Keyboard**: the list is one focusable
-    container; `onMoveCommand` moves the selection up and down and the
+    container, its platform focus ring disabled (`.focusEffectDisabled()`,
+    chrome rule forty-nine) — while it holds focus the selected row draws the
+    chrome's focus border, `accent` at the scaled `fieldFocusedBorderWidth`,
+    over its wash; `onMoveCommand` moves the selection up and down and the
     `ScrollViewReader` keeps it visible; Return opens through a zero-sized
     shortcut button enabled only while the list holds focus (the database grid's
     idiom); single tap selects, double tap opens,

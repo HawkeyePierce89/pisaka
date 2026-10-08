@@ -1112,7 +1112,11 @@ only *consults* one, before each of its two writes.
   over either. The grid has **no row selection, and none was added**: a row takes
   `hoverTint` under the pointer (`GridRowHover`, a modifier the console reuses)
   and the focused cell, the grid's one selection-like state, draws
-  `accentTintStrong`. **No alternation**: the zebra (`isTinted`) is deleted,
+  `accentTintStrong` under the chrome's focus border (`accent` at the scaled
+  `fieldFocusedBorderWidth`, through the file-scope `DatabaseGridCellFocus`),
+  its `.focusable(` chain applying `.focusEffectDisabled()` so the platform's
+  ring is not a second answer (`core-theme.md`, chrome rule forty-nine).
+  **No alternation**: the zebra (`isTinted`) is deleted,
   since the design's tables read by selection and hover. The header row is
   `bgPanel` with the sort chevron `textSecondary` and its rule over that ground, under the titles; the column
   separators and the seven former `Divider()`s are `hairline` rules. The

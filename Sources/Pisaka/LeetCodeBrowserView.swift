@@ -318,6 +318,11 @@ struct LeetCodeBrowserView: View {
     /// context menu offers Open; the Open button above stays the fourth way in.
     /// Below the last row, a click clears the selection and a right-click offers
     /// Open for it, as the platform table did.
+    ///
+    /// While the list holds focus, the selected row draws the chrome's focus
+    /// border over its wash, and the platform's ring around the whole container
+    /// is disabled — the border on the row is the one place the keyboard is
+    /// shown, as on the database grid's focused cell.
     private var problemList: some View {
         VStack(spacing: 0) {
             columnHeader
@@ -329,6 +334,7 @@ struct LeetCodeBrowserView: View {
                                 LeetCodeBrowserRow(
                                     problem: problem,
                                     isSelected: selection == problem.slug,
+                                    showsFocusBorder: selection == problem.slug && focus == .list,
                                     onSelect: {
                                         selection = problem.slug
                                         focus = .list
@@ -364,6 +370,7 @@ struct LeetCodeBrowserView: View {
                     }
                 }
                 .focusable()
+                .focusEffectDisabled()
                 .focused($focus, equals: .list)
                 .onMoveCommand { direction in
                     moveSelection(direction)
@@ -606,12 +613,15 @@ private enum LeetCodeBrowserLayout {
 /// and the status, each coloured by Core's one answer.
 ///
 /// The Log's row shape: the selection wash is `accentTintStrong` whether or not
-/// the window is key, and the pointer's is `hoverTint`. One combined
+/// the window is key, and the pointer's is `hoverTint`; the selected row of a
+/// focused list adds the chrome's focus border over that wash. One combined
 /// accessibility element carrying the selected trait and a named Open action,
 /// so an assistive reader reaches the open without a double-click.
-private struct LeetCodeBrowserRow: View {
+struct LeetCodeBrowserRow: View {
     let problem: LeetCodeProblem
     let isSelected: Bool
+    /// Whether this row is the selection of a list holding the keyboard.
+    let showsFocusBorder: Bool
     let onSelect: () -> Void
     let onOpen: () -> Void
 
@@ -662,6 +672,7 @@ private struct LeetCodeBrowserRow: View {
         .padding(.horizontal, metrics.scaled(LeetCodeBrowserLayout.rowPaddingX))
         .frame(maxWidth: .infinity, minHeight: metrics.scaled(LeetCodeBrowserLayout.rowHeight), alignment: .leading)
         .background(rowBackground)
+        .chromeFocusBorder(showsFocusBorder)
         .contentShape(Rectangle())
         .gesture(TapGesture(count: 2).onEnded { onOpen() })
         .simultaneousGesture(TapGesture().onEnded { onSelect() })

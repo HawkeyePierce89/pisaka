@@ -53,6 +53,41 @@ struct ChromeControlBox<Content: View>: View {
     }
 }
 
+/// The focus border a focusable surface that is not a field draws: the box's
+/// own focused stroke — `accent` at `fieldFocusedBorderWidth`, scaled — laid
+/// inside the bounds of whatever carries the keyboard (the database grid's
+/// focused cell, the selected row of a focused row list). Drawn *over* the
+/// surface's own fill, so the `accentTintStrong` selection wash stays and the
+/// border is what says the keyboard is here. Each caller pairs it with
+/// `.focusEffectDisabled()` on its `.focusable(`, so the platform's ring is not
+/// drawn as a second answer (rule forty-nine).
+struct ChromeFocusBorder: ViewModifier {
+    let isShown: Bool
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isShown {
+                Rectangle()
+                    .strokeBorder(
+                        theme.color(.accent),
+                        lineWidth: metrics.scaled(ChromeGeometry.fieldFocusedBorderWidth)
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+extension View {
+    /// Draws `ChromeFocusBorder` while `isShown`.
+    func chromeFocusBorder(_ isShown: Bool) -> some View {
+        modifier(ChromeFocusBorder(isShown: isShown))
+    }
+}
+
 /// A themed text field built on `ChromeControlBox`.
 ///
 /// A plain `TextField` with `textPrimary` content, an optional leading glyph

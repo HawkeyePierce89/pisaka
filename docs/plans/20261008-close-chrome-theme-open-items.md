@@ -270,30 +270,30 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Sources/Pisaka/Platform/LicenseTextView.swift` (comment only)
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Create or extend: app-bundle layout tests for the focused cell and the focused row
-- [ ] **Database grid:** the focused cell keeps its `accentTintStrong` fill and adds an `accent` border at the scaled `fieldFocusedBorderWidth`. Apply `.focusEffectDisabled()` next to its `.focusable(`.
-- [ ] **Problem browser:** while the list holds focus, the selected row draws the same `accent` border over its `accentTintStrong` wash. Apply `.focusEffectDisabled()` to the focusable list.
-- [ ] **Welcome root:** closed by reason, with no code change.
+- [x] **Database grid:** the focused cell keeps its `accentTintStrong` fill and adds an `accent` border at the scaled `fieldFocusedBorderWidth`. Apply `.focusEffectDisabled()` next to its `.focusable(`.
+- [x] **Problem browser:** while the list holds focus, the selected row draws the same `accent` border over its `accentTintStrong` wash. Apply `.focusEffectDisabled()` to the focusable list.
+- [x] **Welcome root:** closed by reason, with no code change.
   - Its focus exists only so the whole screen receives key equivalents; it marks no control.
   - A border around the whole canvas would therefore suggest a selection that does not exist.
   - The platform ring is already suppressed.
   - 
   - Record this in the welcome screen's section and in `app-window.md`.
-- [ ] **Acknowledgements:** move from `List(selection:)` to the gated list shape the problem browser and the Log already use:
+- [x] **Acknowledgements:** move from `List(selection:)` to the gated list shape the problem browser and the Log already use:
   - a `LazyVStack` of rows, with `accentTintStrong` on the selected row and `hoverTint` on hover;
   - no platform highlight;
   - `.focusable` plus `onMoveCommand` for keyboard selection, with the same focus border when focused.
-- [ ] Change rule thirty-five's pin for `AcknowledgementsView.swift` from `[[]]` to its selected-row background expression. Rewrite decision 15's "no row background" sentence.
-- [ ] **iOS `.label`:** closed with the sentence "iOS is outside the theme", and no iOS code changes. Rule one's list does not grow. Write the sentence in two places:
+- [x] Change rule thirty-five's pin for `AcknowledgementsView.swift` from `[[]]` to its selected-row background expression. Rewrite decision 15's "no row background" sentence.
+- [x] **iOS `.label`:** closed with the sentence "iOS is outside the theme", and no iOS code changes. Rule one's list does not grow. Write the sentence in two places:
   - `LicenseTextView.swift`'s header sentence, which already says the iOS half is not swept;
   - decision 13 of part five (c).
-- [ ] Add rule forty-nine: in every gated file, each `.focusable(` modifier chain also applies `.focusEffectDisabled(`. Pin it by count equality per file, cross-checked against the set of files that spell `.focusable(`.
-- [ ] Extend the suite's `spelled` number table so it can spell forty-eight, forty-nine and sixty-four.
-- [ ] Add app-bundle layout tests through `HostedRender`:
+- [x] Add rule forty-nine: in every gated file, each `.focusable(` modifier chain also applies `.focusEffectDisabled(`. Pin it by count equality per file, cross-checked against the set of files that spell `.focusable(`.
+- [x] Extend the suite's `spelled` number table so it can spell forty-eight, forty-nine and sixty-four.
+- [x] Add app-bundle layout tests through `HostedRender`:
   - a focused grid cell shows the `accent` border at the focused-border width;
   - the selected Acknowledgements row draws `accentTintStrong`;
   - the focused browser row shows the border.
-- [ ] Rewrite the open-question lists in parts five (c) and (d) without these items. Anything that stays open goes into a new explicit list, one reason per line.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Rewrite the open-question lists in parts five (c) and (d) without these items. Anything that stays open goes into a new explicit list, one reason per line.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test (6184) and swiftlint clean; FocusBorderLayoutTests passes in full; the app bundle's only failures are the same eight scale-1.8 layout tests recorded in Tasks 1–7)
 
 ### Task 9: Part D — keep the counts from drifting
 

@@ -197,6 +197,8 @@ import XCTest
 ///   `listRowBackground` under a `List` binding `selection:` is pinned, per
 ///   file and per list, by set equality; the rule does not read the
 ///   conditional, so any changed expression fails and a person re-confirms it.
+///   The chrome's own row lists are pinned the same way: every `rowBackground`
+///   a gated file declares, per file, by set equality.
 /// - **No gated file builds a platform form control.** A `Form`, `Picker`,
 ///   `Stepper`, `Toggle` or `TabView` draws in the platform's colours and
 ///   metrics; the chrome draws a replacement for every one.
@@ -278,6 +280,13 @@ import XCTest
 ///   role reaches; every gated split is `ChromeSplitView`, whose divider is the
 ///   `hairline` role. Matched as a token against comment- and literal-stripped
 ///   text, so a file explaining why it left the platform split may still name it.
+/// - **Every focusable chain disables the platform's focus effect.** In every
+///   gated file the `.focusable(` calls and the `.focusEffectDisabled()` calls
+///   are equal in number, and the files spelling `.focusable(` are a pinned
+///   set. The platform's ring is drawn in the system accent, which no role
+///   reaches, and around the whole focusable container rather than the row or
+///   cell the keyboard is on; the chrome draws its own focus border there
+///   instead, or — on the Welcome root — deliberately none.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -2239,7 +2248,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // menu only on the rows silently lost both. Whether that menu *appears*
         // is not something a token rule can see; the container spelling one is.
         ("LeetCodeBrowserView.swift", [
-            ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
+            ControlBuilder(path: ["struct LeetCodeBrowserRow:", "var body: some View"],
                            required: [
                                ".accessibilityElement(children: .combine)",
                                ".accessibilityAddTraits(isSelected ? .isSelected",
@@ -4449,9 +4458,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift": [
             ["snapshot.fileName == selection.wrappedValue ? Color.clear : chromeColor(.bgPanel)"],
         ],
-        // The dependency list sets no row background at all: the platform draws
-        // the selection, and nothing paints over it.
-        "AcknowledgementsView.swift": [[]],
         // The database viewer's tables-and-views sidebar, the same answer: the
         // platform draws the selection and no row paints a background.
         "DatabaseViewerView.swift": [[]],
@@ -4512,7 +4518,68 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             Color.clear : <background>`), then update selectableListBackgrounds to the new text
             """
         )
+
+        var rows: [String: [String]] = [:]
+        let declaration = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])var\\s+rowBackground\\s*:")
+        for (name, code) in try Self.strippedGatedSources() {
+            for match in declaration.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                guard let range = Range(match.range, in: code),
+                      let open = code[range.upperBound...].firstIndex(of: "{"),
+                      let close = Self.balancedEnd(from: open, in: code) else { continue }
+                rows[name, default: []].append(
+                    String(code[code.index(after: open)..<code.index(before: close)])
+                        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces)
+                )
+            }
+        }
+        XCTAssertEqual(
+            rows, Self.chromeRowBackgrounds,
+            """
+            a chrome row's rowBackground changed, or a row gained or lost one. This rule cannot read the expression, \
+            so it refuses to guess: confirm by reading the code that a selected row still yields its selection \
+            wash, then update chromeRowBackgrounds to the new text
+            """
+        )
     }
+
+    /// The chrome's own row shape — the rows a gated file lays out itself, in
+    /// place of a platform `List(selection:)` or `Table` — pinned the same way:
+    /// file name → the whitespace-normalized body of every `var rowBackground`
+    /// the file declares, in source order. Set equality in both directions, so
+    /// a row whose background stops yielding its selection wash, a new row
+    /// background and a deleted one all fail until a person reads the code.
+    /// Acknowledgements joined this pin when its dependency list left
+    /// `List(selection:)` for the Log's row shape.
+    private static let chromeRowBackgrounds: [String: [String]] = [
+        "AcknowledgementsView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "CommitLogView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "LeetCodeBrowserView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "LocalChangesView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "ProblemsPanelView.swift": [
+            "isHovering ? theme.color(.hoverTint) : .clear",
+        ],
+        "ProjectTreeView.swift": [
+            "let state = TreeRowState.state( isSelected: false, isWindowKey: controlActiveState == .key, "
+                + "isHovering: isHovering, isDropTarget: isDropTarget ) "
+                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+            "let state = TreeRowState.state( isSelected: isSelected, isWindowKey: controlActiveState == .key, "
+                + "isHovering: isHovering, isDropTarget: false ) "
+                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+        ],
+        "TabRowView.swift": [
+            "if !isActive && isHovering { return theme.color(.hoverTint) } return Color.clear",
+        ],
+    ]
 
     /// The top-level, comma-separated arguments of an argument list's inside —
     /// a comma nested in parentheses, brackets or braces does not split. The
@@ -5856,6 +5923,50 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertEqual(checked, Self.gatedFiles.count, "every gated file must be read; one is missing from Sources/")
     }
 
+    // MARK: - Rule forty-nine: every focusable chain disables the platform's focus effect
+
+    /// The gated files spelling `.focusable(`, pinned so the per-file count
+    /// equality below cannot go vacuous by the last focusable surface moving
+    /// out from under it. Three draw the chrome's focus border on what holds
+    /// the keyboard — the grid's focused cell, the selected row of the problem
+    /// browser and of the dependency list — and the Welcome root draws none,
+    /// by reason (`app-window.md`).
+    private static let focusableFiles: Set<String> = [
+        "AcknowledgementsView.swift",
+        "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
+        "WelcomeView.swift",
+    ]
+
+    /// Rule forty-nine. In every gated file, the `.focusable(` calls and the
+    /// `.focusEffectDisabled()` calls — with an empty argument list, since
+    /// `focusEffectDisabled(false)` keeps the ring — are equal in number. A
+    /// count rather than a chain reading, so the rule stays a token rule: a
+    /// chain that forgets the modifier makes the two numbers differ, and the
+    /// shared field's `TextField`, which disables the effect on a control that
+    /// is focusable without asking, is excused by sitting in a file that spells
+    /// no `.focusable(` (rule forty-five pins that one). The files that spell
+    /// `.focusable(` are cross-checked against `focusableFiles`.
+    func testEveryFocusableChainDisablesThePlatformsFocusEffect() throws {
+        var spelling: Set<String> = []
+        for (name, code) in try Self.strippedGatedSources() {
+            let focusable = Self.callCount(".focusable(", in: code)
+            guard focusable > 0 else { continue }
+            spelling.insert(name)
+            XCTAssertEqual(
+                Self.callCount(".focusEffectDisabled()", in: code), focusable,
+                """
+                \(name) spells \(focusable) .focusable( call(s) but a different number of .focusEffectDisabled() — \
+                the platform's ring is back around a focusable surface; draw the chrome's focus border instead
+                """
+            )
+        }
+        XCTAssertEqual(
+            spelling, Self.focusableFiles,
+            "the gated files spelling .focusable( changed — read the new surface, then update focusableFiles"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5957,6 +6068,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
+        49: "forty-nine", 64: "sixty-four",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

@@ -1966,13 +1966,22 @@ differed:
 13. **`LicenseTextView.swift` is shared with iOS, and its iOS half is not
     swept.** Its `backgroundColor = .clear` is a sixth pin in rule thirty-one,
     with its reason; its `textColor = .label` is a UIKit name rule one's list
-    does not carry, recorded below as an open question rather than an exemption.
+    does not carry. **Closed**: iOS is outside the theme. A UIKit semantic
+    colour on iOS is therefore not a theme question; rule one's list does not
+    grow, no iOS code changes, and the file's own header says the same.
 14. **The origin link is a button**: a `.plain` button with an `accent` label
     calling `@Environment(\.openURL)`, since `Link` draws the platform's link
     colour — part five (b)'s "Edit…" treatment.
-15. **Three platform pieces stayed**, stated as open questions below: the small
-    `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
-    list's platform selection. **The divider is settled**: Acknowledgements'
+15. **Three platform pieces stayed**, stated as open questions at the time: the
+    small `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
+    list's platform selection. All three are now settled. **The selection is
+    the chrome's**: the dependency list left `List(selection:)` for the Log's
+    and the problem browser's row shape — a `LazyVStack` of rows, the selected
+    one `accentTintStrong`, the hovered one `hoverTint`, no platform highlight —
+    as one focusable container (`onMoveCommand` moves the selection, the
+    platform's ring disabled) whose selected row draws the chrome's focus
+    border while the list holds the keyboard; rule thirty-five pins its
+    selected-row background. **The divider is settled**: Acknowledgements'
     list/licence split is the shared `ChromeSplitView` (180/200/280, scaled, the
     licence pane stating no floor of its own, as it never did), whose divider is
     the `hairline` role, and so are the three other platform splits the gated
@@ -2010,14 +2019,11 @@ since the design pass, about the design's 68), pinned by rule twenty-seven.
 
 - **The tab-placement wording.** The drawing rewords the tab-orientation row;
   the code's words are kept verbatim.
-- **The spinners.** `ProgressView` stays in Language Servers and both sheets;
-  the ticket names no replacement. (Closed by part five (d): every gated site is
-  the shared `ChromeSpinner`.)
-- **The iOS half's `.label`** in `LicenseTextView.swift`: a UIKit semantic
-  colour on a platform outside the chrome theme, which rule one's list does not
-  carry.
-- **The Acknowledgements list's platform selection**: the list draws no row
-  background (rule thirty-five), so the selection box is the platform's.
+
+Closed since, and so no longer listed above: the spinners (part five (d): every
+gated site is the shared `ChromeSpinner`), `HSplitView`'s divider and the
+Acknowledgements list's platform selection (decision 15), and the iOS half's
+`.label` (decision 13: iOS is outside the theme).
 
 #### Part five (d) — the database viewer, its SQL console and the problem-catalog surfaces
 
@@ -2236,10 +2242,20 @@ Every label, sentence, shortcut, disabled rule and generation-token capture is
 verbatim; nothing about the viewer's two writes or the gate they consult
 changed.
 
+**Focus.** The grid's focused cell keeps its `accentTintStrong` fill and adds
+the chrome's focus border over it — `ChromeFocusBorder`, `accent` at the scaled
+`fieldFocusedBorderWidth`, the shared field's own focused stroke, drawn by the
+file-scope `DatabaseGridCellFocus` — and the browser's selected row draws the
+same border over its wash while the list holds focus. Both `.focusable(` chains
+apply `.focusEffectDisabled()` (rule forty-nine), so the platform's ring no
+longer draws around the cell or around the whole list. The Welcome root is
+**closed by reason with no code change**: its focus exists only so the whole
+screen receives key equivalents and marks no control, so a border around the
+whole canvas would suggest a selection that does not exist; its platform ring
+was already suppressed (`app-window.md`).
+
 **Open questions**, deliberately left:
 
-- **The platform focus ring** on the grid's focused cell and on the browser's
-  focusable row list.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
 - **The terminal's ANSI-16** stays `TerminalTheme`'s, as before (its four
@@ -3085,7 +3101,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-eight rules, each invisible to the compiler:
+The forty-nine rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3815,15 +3831,24 @@ The forty-eight rules, each invisible to the compiler:
     and a person confirms the selected row still yields its background before
     updating the pin. Today the pin holds two lists: `LocalHistoryView.swift`'s,
     whose one background is `snapshot.fileName == selection.wrappedValue ?
-    Color.clear : chromeColor(.bgPanel)`, and — since part five (c) —
-    `AcknowledgementsView.swift`'s, pinned with an **empty** list of
-    backgrounds: it sets no row background at all, so nothing paints over the
-    platform's selection, and a `listRowBackground` added there is red — and,
-    since part five (d), `DatabaseViewerView.swift`'s tables-and-views sidebar,
-    pinned `[[]]` on the same footing. On macOS a row background is drawn
+    Color.clear : chromeColor(.bgPanel)`, and, since part five (d),
+    `DatabaseViewerView.swift`'s tables-and-views sidebar, pinned with an
+    **empty** list of backgrounds (`[[]]`): it sets no row background at all,
+    so nothing paints over the platform's selection, and a
+    `listRowBackground` added there is red. On macOS a row background is drawn
     over the platform's selection box, so an unconditional one hides the
     selection outright — the Local History revisions list shipped that way,
-    and its selected row is the one Restore applies.
+    and its selected row is the one Restore applies. **The chrome's own row
+    lists are pinned the same way**: `chromeRowBackgrounds` maps each gated
+    file to the whitespace-normalized body of every `var rowBackground` it
+    declares, in source order, compared in both directions — today the Log's
+    two, the problem browser's, Local Changes', the Problems panel's, the
+    tree's two, the vertical tab row's and Acknowledgements'. The last moved
+    there from the platform pin, where it had stood as `[[]]`, when its list
+    left `List(selection:)` for the Log's row shape (part five (c)'s decision
+    15): its selected-row background is `if isSelected { return
+    theme.color(.accentTintStrong) } …`, so the selection is now the chrome's
+    wash rather than the platform's box.
 36. **No gated file builds a platform form control.** No gated file spells the
     tokens `Form`, `Picker`, `pickerStyle`, `Stepper`, `Toggle`, `TabView` or
     `tabItem` (matched through `containsToken`, so `ChromeStepper(` is not a
@@ -4059,6 +4084,23 @@ The forty-eight rules, each invisible to the compiler:
     back in compiles and draws, and only a one-point line's colour says
     anything is wrong. The rule also asserts it read every gated file, so a
     renamed one cannot drop out of the sweep silently.
+49. **Every focusable chain disables the platform's focus effect.** In every
+    gated file the `.focusable(` calls and the `.focusEffectDisabled()` calls
+    (empty argument list, since `focusEffectDisabled(false)` keeps the ring)
+    are equal in number, counted through the suite's call matcher against
+    comment- and literal-stripped text; the files spelling `.focusable(` are
+    cross-checked against the pinned `focusableFiles` — Acknowledgements, the
+    database viewer, the problem browser and the Welcome screen. The
+    platform's ring is the system accent, which no role reaches, drawn around
+    the whole focusable container rather than the cell or row the keyboard is
+    on. The chrome draws its own focus border there instead —
+    `ChromeFocusBorder`, `accent` at the scaled `fieldFocusedBorderWidth`, the
+    shared field's focused stroke — on the grid's focused cell and on the
+    selected row of the two focusable row lists; the Welcome root draws none,
+    by reason (part five (d)'s *Focus*, below). A count rather than a chain
+    reading keeps it a token rule; the shared field's `TextField`, which
+    disables the effect without being `.focusable(`, sits in a file spelling
+    no `.focusable(` and is rule forty-five's.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

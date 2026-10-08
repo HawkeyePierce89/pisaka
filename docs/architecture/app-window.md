@@ -807,8 +807,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ContentView` as `visiblePanel != nil`): closing a panel removes the view
     that held focus, so without it ↑/↓/Return would be dead until a click,
     while opening one leaves focus with the panel.
-    **Keyboard.** The view is focusable, with its focus ring suppressed, and
-    takes focus on its showing's first appear and whenever it reappears with
+    **Keyboard.** The view is focusable, with its focus ring suppressed
+    (`.focusEffectDisabled()`, chrome rule forty-nine), and draws **no focus
+    border in its place** — closed by reason, not deferred: its focus exists
+    only so the whole screen receives key equivalents and marks no control, so
+    a border around the whole canvas would suggest a selection that does not
+    exist (the keyboard selection is the row's `accentTint`). It takes focus on its showing's first appear and whenever it reappears with
     the dock closed. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
     other column's first row — or, when that column is empty, is ignored so
     ordinary focus navigation takes it — and Return activates the selected target: an
