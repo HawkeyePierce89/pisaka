@@ -356,18 +356,26 @@ variable definitions. There is no LSP server and no provisioning entry.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] Run `swift test` fully green, including:
+- [x] Run `swift test` fully green, including: (6160 tests, 0 failures)
   - `VendoredGrammarQueryTests`, `SymbolQueryTests`, `LanguageKeywordsTests`,
     `LicenseCoverageTests`, `DependencyPinTests`
   - `SyntaxLanguageTests`, `FileIconTests`, `CommentStyleTests`
-- [ ] Run `swift build --package-path Vendor/TreeSitterMake`.
-- [ ] Run the app-bundle `xcodebuild … test`, the macOS Release build and the iOS device
-  build.
-- [ ] Run `swiftlint --strict` from the repository root; it must be clean.
-- [ ] Confirm nothing was touched in: the LSP registry (beyond the `lspLanguageID` arm),
+- [x] Run `swift build --package-path Vendor/TreeSitterMake`. (Build complete.)
+- [x] Run the app-bundle `xcodebuild … test`, the macOS Release build and the iOS device
+  build. (Release and iOS builds succeeded. App bundle: 258 tests, 8 assertion failures across
+  the same 5 pre-existing chrome-layout tests at scale 1.8 that Task 4 recorded, none of
+  them Make-related; `MakeSymbolQueryTests` is green.)
+- [x] Run `swiftlint --strict` from the repository root; it must be clean. (0 violations.)
+- [x] Confirm nothing was touched in: the LSP registry (beyond the `lspLanguageID` arm),
   the provisioning manifest, `PrivacyInfo.xcprivacy`, the indentation rules or the save
-  transforms.
-- [ ] Confirm every new test fails when its subject is reverted.
+  transforms. (`git diff master..HEAD`: only the `lspLanguageID` arm.)
+- [x] Confirm every new test fails when its subject is reverted. (Mutations in a scratch
+  worktree, each caught: `mk` extension → SyntaxLanguageTests; `mk` icon → FileIconTests;
+  `.make` moved to `//` → CommentStyle/ToggleCommentEngine tests; `#not-match?` dropped →
+  SymbolQueryTests and app-layer `MakeSymbolQueryTests`; `patsubst` dropped →
+  LanguageKeywordsTests; `#` anchor to word-start → SyntaxContext vocabulary/scanner
+  tests; a `@spell` capture → VendoredGrammarQueryTests; `.target` badge dropped →
+  CompletionPopupTests.)
 
 ### Task 6: Update documentation
 
