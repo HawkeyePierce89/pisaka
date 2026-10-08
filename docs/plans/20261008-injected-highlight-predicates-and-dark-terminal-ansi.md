@@ -152,18 +152,18 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 - Modify: `Vendor/TreeSitterMake/VENDORED.md` or `docs/architecture/core-services.md`, only if the Make verification recipe changes
 - Modify: `Tests/PisakaAppTests/InjectedHighlightPredicateTests.swift`
 
-- [ ] Enumerate every injection Pisaka resolves today:
+- [x] Enumerate every injection Pisaka resolves today:
   - Markdown → `markdown_inline` and the fenced languages;
   - Make → bash;
   - HTML → JavaScript/CSS;
   - the injections queries shipped by the JavaScript, Swift and Rust grammars, noting each name for which `configuration(forInjectionName:)` returns nil.
-- [ ] For each resolved target, state whether its highlights query carries predicates.
-- [ ] Record in the entry:
+- [x] For each resolved target, state whether its highlights query carries predicates.
+- [x] Record in the entry:
   - the cause Task 1 pinned;
   - the Task 3 fix (pin bump or workaround) and the reason for it;
   - `InjectedHighlightPredicateTests` as the test that pins it.
-- [ ] Extend the Task 2 test with one assertion for each other predicate-carrying injected target the enumeration finds — for example, a JavaScript or CSS `#match?` pattern inside HTML, if such a target exists.
-- [ ] Run the app bundle and `swift test`; both must pass. Commit Part A.
+- [x] Extend the Task 2 test with one assertion for each other predicate-carrying injected target the enumeration finds — for example, a JavaScript or CSS `#match?` pattern inside HTML, if such a target exists.
+- [x] Run the app bundle and `swift test`; both must pass. Commit Part A.
 
 ### Task 5: Failing dark-ground floor test for the terminal ANSI-16 set
 

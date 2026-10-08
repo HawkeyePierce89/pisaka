@@ -1077,6 +1077,46 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     first word of each continuation line loses its `function` capture. Fixing it
     would need a query or remote-package change; the test pins the loss exactly
     (`makeCombinedLayerLosses`) so it cannot change unnoticed.
+    **Injection reach (enumerated 2026-10-08).** Every injection Pisaka resolves
+    goes through `configuration(forInjectionName:)` — `markdown_inline` by name,
+    anything else by `SyntaxLanguage` raw value, extension or file name — and an
+    unresolved name stays plain text. What each shipped `injections.scm` names,
+    and whether the resolved target's highlights query carries a predicate:
+    - **Markdown** (block grammar) → `markdown_inline` (no predicates); `html`
+      for an HTML block (none); `yaml` for `---` front matter (none); `toml` for
+      `+++` front matter → `nil`; and a fence's info string, which reaches every
+      language the editor highlights. Of those, JavaScript, TypeScript, CSS,
+      Python, Go, Rust, Swift, SQL, Make, Dockerfile and Shell carry predicates
+      (`#match?`, plus `#eq?`/`#is-not?` in JavaScript and `#eq?`/`#any-of?` in
+      Make); JSON, Markdown, HTML, YAML, Dotenv, Gitignore and EditorConfig carry
+      none.
+    - **Markdown inline** → `html` (none); `latex` → `nil`.
+    - **Make** → `bash` for recipe lines and `$(shell …)` bodies → Shell
+      (`#match?`), the suite's original subject.
+    - **HTML** → `javascript` in `<script>` (`#match?`, `#eq?`, `#is-not?`) and
+      `css` in `<style>` (`#match?`).
+    - **JavaScript** → a tagged template's tag names its language (`css`…``
+      and `html`…`` resolve, anything else such as `gql` → `nil`); `regex` and
+      `jsdoc` → `nil`; the `hbs` pattern captures `@glimmer`, not an injection,
+      and injects nothing.
+    - **Swift** → `comment` and `regex` → `nil`.
+    - **Rust** → `rust` for macro token trees (`#match?`).
+    - TypeScript's own bundle ships no `injections.scm`, so a `.ts` file
+      injects nothing; JSON, Python, Go, CSS, YAML, Dockerfile, bash and the
+      other four vendored grammars ship none either.
+    `testEveryPredicateCarryingInjectedTargetKeepsItsPredicates` holds one probe
+    set per predicate-carrying target above — HTML → JavaScript and CSS, a
+    `css`…`` template, a Rust macro, and a Markdown fence for each
+    predicate-carrying language — each probe a token whose paint the predicate
+    decides, and, where the snippet is a whole file of its language, compares it
+    kind for kind against that standalone file. The template and the macro are
+    probe-only: the host's `string` capture shows through under a template, and
+    a token tree is no whole Rust file. Two upstream facts the enumeration turned
+    up and the probes are written around: Rust's all-caps `@constant` pattern
+    ends `"…+$'"`, a stray quote that never matches, so `MAX_SIZE` is a
+    `constructor`; and the SQL query's `%d` is a Lua class that ICU reads
+    literally, so a SQL numeral is a `string`. Both hold standalone too, so
+    neither is an injection difference.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
     NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
     appearance-aware `NSColor`) for the attribute provider. The palette is **the

@@ -22,6 +22,12 @@ import PisakaCore
 /// declines, so every paint resolves predicates; every attaching site uses it,
 /// which `testNoViewAttachesNeonsUnresolvingHighlighter` pins.
 ///
+/// Bash is not the only injected target with predicates.
+/// `testEveryPredicateCarryingInjectedTargetKeepsItsPredicates` probes every
+/// other one the enumeration in `app-editor-overlays.md` finds: HTML →
+/// JavaScript and CSS, a JavaScript `css` tagged template, a Rust macro, and a
+/// Markdown fence for each predicate-carrying language.
+///
 /// **Only the app bundle can see this.** `PisakaCore` does not link tree-sitter
 /// or Neon, so no `swift test` suite can parse, inject or highlight anything;
 /// and executing a query directly (as `ShellSymbolQueryTests` does) would test a
@@ -162,6 +168,158 @@ final class InjectedHighlightPredicateTests: XCTestCase {
             start = end
         }
         return result
+    }
+
+    // MARK: - Every other predicate-carrying injected target
+
+    /// One captured name the editor must paint at `token`, found inside the
+    /// first occurrence of `anchor` (so a token that appears twice is named by
+    /// its context); `nil` means painted plain — uncaptured, or a name such as
+    /// Markdown's `@none` over a fence that `SyntaxTokenKind` reads as `.plain`.
+    private struct Probe {
+        let anchor: String
+        let token: String
+        let name: String?
+
+        init(_ token: String, in anchor: String? = nil, is name: String?) {
+            self.anchor = anchor ?? token
+            self.token = token
+            self.name = name
+        }
+    }
+
+    /// An injection whose target's highlights query carries a predicate:
+    /// `snippet` sits verbatim inside `host`, and each probe names a token whose
+    /// paint the predicate decides — so a skipped predicate fails at least one.
+    /// When `standalone` is set, the snippet must also paint as it does in a
+    /// file of that language, kind for kind.
+    private struct InjectedTarget {
+        let label: String
+        let host: SyntaxLanguage
+        let text: String
+        let snippet: String
+        let standalone: SyntaxLanguage?
+        let probes: [Probe]
+    }
+
+    /// The enumeration `app-editor-overlays.md` records, reduced to the targets
+    /// whose highlights query carries a predicate (`#match?`, `#eq?`,
+    /// `#any-of?`). Bash is the suite's own subject above; HTML, YAML and
+    /// `markdown_inline` carry none, and every other injected name resolves to
+    /// `nil`.
+    private static let javaScriptSnippet = "const lower = MAX_SIZE + Widget(console);"
+    private static let cssSnippet = "a { color: red; --main: blue; }"
+    private static let javaScriptProbes = [
+        Probe("lower", is: "variable"),
+        Probe("MAX_SIZE", is: "constant"),
+        Probe("Widget", is: "constructor"),
+        Probe("console", is: "variable.builtin"),
+    ]
+    private static let cssProbes = [
+        Probe("color", is: "property"),
+        Probe("--main", is: "variable"),
+    ]
+
+    private static let injectedTargets: [InjectedTarget] = [
+        InjectedTarget(
+            label: "HTML <script> → JavaScript", host: .html,
+            text: "<p>x</p>\n<script>\n\(javaScriptSnippet)\n</script>\n",
+            snippet: javaScriptSnippet, standalone: .javascript, probes: javaScriptProbes
+        ),
+        InjectedTarget(
+            label: "HTML <style> → CSS", host: .html,
+            text: "<p>x</p>\n<style>\n\(cssSnippet)\n</style>\n",
+            snippet: cssSnippet, standalone: .css, probes: cssProbes
+        ),
+        // A tagged template's tag names its language. Only the probes apply:
+        // the host's own `string` capture over the template shows through
+        // wherever CSS captures nothing, so it is no standalone file.
+        InjectedTarget(
+            label: "JavaScript css`…` → CSS", host: .javascript,
+            text: "const sheet = css`\(cssSnippet)`;\n",
+            snippet: cssSnippet, standalone: nil, probes: cssProbes
+        ),
+        // A macro's token tree is reparsed as Rust; it is no whole Rust file,
+        // so only the probes apply. `lower` is uncaptured, `Upper` takes the
+        // `^[A-Z]` constructor pattern.
+        InjectedTarget(
+            label: "Rust macro → Rust", host: .rust,
+            text: "fn main() {\n    vec![lower, Upper];\n}\n",
+            snippet: "[lower, Upper]", standalone: nil,
+            probes: [Probe("lower", in: "[lower", is: nil), Probe("Upper", in: "Upper]", is: "constructor")]
+        ),
+    ] + fencedTargets
+
+    /// One Markdown fence per predicate-carrying language a fence can name.
+    private static let fencedTargets: [InjectedTarget] = [
+        ("js", .javascript, javaScriptSnippet, javaScriptProbes),
+        ("ts", .typescript, "let lower: Upper = foo;", [Probe("lower", is: "variable"), Probe("Upper", is: "type")]),
+        ("css", .css, cssSnippet, cssProbes),
+        ("python", .python, "lower = Upper(MAX_SIZE)",
+         [Probe("lower", is: "variable"), Probe("MAX_SIZE", is: "constant")]),
+        ("go", .go, "package main\nfunc f() { x := len(y); foo(x) }",
+         [Probe("len", is: "function.builtin"), Probe("foo", is: "variable")]),
+        ("rust", .rust, "fn main() { let lower = Upper::new(); }",
+         [Probe("lower", is: nil), Probe("Upper", is: "type")]),
+        ("swift", .swift, "/// doc\n// plain\nlet lower = Widget.make()",
+         [
+             Probe("/// doc", is: "comment.documentation"),
+             Probe("// plain", is: "spell"),
+             Probe("Widget", is: "type"),
+         ]),
+        ("sql", .sql, "SELECT 'text', 1 FROM t;", [Probe("'text'", is: "string"), Probe("1", in: " 1 ", is: "string")]),
+        ("make", .make, ".PHONY: all\nbuild: dep .WAIT",
+         [Probe("all", is: "function"), Probe("dep", is: nil), Probe(".WAIT", is: "function.builtin")]),
+        ("dockerfile", .dockerfile, "FROM alpine\nENV lower=$lower UPPER=$UPPER",
+         [Probe("lower", in: "$lower", is: nil), Probe("UPPER", in: "$UPPER", is: "constant")]),
+    ].map { info, language, snippet, probes in
+        InjectedTarget(
+            label: "Markdown ```\(info) fence", host: .markdown,
+            text: "# Title\n\n```\(info)\n\(snippet)\n```\n",
+            snippet: snippet, standalone: language, probes: probes
+        )
+    }
+
+    func testEveryPredicateCarryingInjectedTargetKeepsItsPredicates() async throws {
+        for target in Self.injectedTargets {
+            let painted = try await paintedView(target.text, as: target.host) { painted in
+                Self.unmetProbes(target.probes, in: painted, text: target.text).isEmpty
+            } onTimeout: {
+                "\(target.label): the probes never all held"
+            }.captures()
+            let unmet = Self.unmetProbes(target.probes, in: painted, text: target.text)
+            XCTAssertEqual(unmet, [], "\(target.label): painted \(runs(of: painted, in: target.text))")
+
+            guard let language = target.standalone else { continue }
+            let standalone = try await paintedView(target.snippet, as: language) { painted in
+                Self.unmetProbes(target.probes, in: painted, text: target.snippet).isEmpty
+            } onTimeout: {
+                "\(target.label): the standalone probes never all held"
+            }.captures()
+            let offset = (target.text as NSString).range(of: target.snippet).location
+            XCTAssertNotEqual(offset, NSNotFound, "\(target.label): the host lost its snippet")
+            guard offset != NSNotFound else { continue }
+            let length = (target.snippet as NSString).length
+            let injectedKinds = (0..<length).map { Self.paintedKind(painted[offset + $0]) }
+            let standaloneKinds = (0..<length).map { Self.paintedKind(standalone[$0]) }
+            XCTAssertEqual(injectedKinds, standaloneKinds,
+                           "\(target.label): the injected snippet paints differently from a standalone file")
+        }
+    }
+
+    /// The probes whose token is not painted the stated name, spelled
+    /// `<token>=<painted>`; a probe whose anchor is missing is unmet too.
+    private static func unmetProbes(_ probes: [Probe], in painted: [String?], text: String) -> [String] {
+        let ns = text as NSString
+        return probes.compactMap { probe in
+            let anchor = ns.range(of: probe.anchor)
+            guard anchor.location != NSNotFound else { return "\(probe.token)=<missing>" }
+            let token = (probe.anchor as NSString).range(of: probe.token)
+            let range = (anchor.location + token.location)..<(anchor.location + NSMaxRange(token))
+            let names = Set(range.map { painted[$0] })
+            let holds = probe.name.map { names == [$0] } ?? names.allSatisfy { paintedKind($0) == nil }
+            return holds ? nil : "\(probe.token)=\(names.map { $0 ?? "nil" }.sorted())"
+        }
     }
 
     // MARK: - Every site goes through the resolving highlighter
@@ -325,6 +483,25 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     }
 
     private func paintedView(_ text: String, as language: SyntaxLanguage) async throws -> PaintedView {
+        let quoted = (text as NSString).range(of: "\"swiftlint is not installed\"")
+        return try await paintedView(text, as: language) { painted in
+            (quoted.location..<NSMaxRange(quoted)).allSatisfy { painted[$0] == "string" }
+        } onTimeout: {
+            """
+            \(language): the quoted string never received its `string` capture — the last \
+            paint over it skipped the bash query's predicates
+            """
+        }
+    }
+
+    /// A hidden text view painted as `language`, polled until `settled` holds
+    /// over its captures; a deadline without it fails loudly with `onTimeout`.
+    private func paintedView(
+        _ text: String,
+        as language: SyntaxLanguage,
+        until settled: ([String?]) -> Bool,
+        onTimeout: () -> String
+    ) async throws -> PaintedView {
         let languageConfiguration = try XCTUnwrap(SyntaxLanguageConfiguration.configuration(for: language))
 
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 1200))
@@ -343,23 +520,17 @@ final class InjectedHighlightPredicateTests: XCTestCase {
             )
         )
 
-        let quoted = (text as NSString).range(of: "\"swiftlint is not installed\"")
-
         let deadline = Date().addingTimeInterval(10)
-        var settled = false
+        var reached = false
         while Date() < deadline {
-            let painted = view.captures()
-            if (quoted.location..<NSMaxRange(quoted)).allSatisfy({ painted[$0] == "string" }) {
-                settled = true
+            if settled(view.captures()) {
+                reached = true
                 break
             }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        if !settled {
-            XCTFail("""
-                \(language): the quoted string never received its `string` capture — the last \
-                paint over it skipped the bash query's predicates
-                """)
+        if !reached {
+            XCTFail(onTimeout())
         }
         return view
     }
