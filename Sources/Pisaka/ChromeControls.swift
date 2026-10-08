@@ -250,7 +250,8 @@ extension ButtonStyle where Self == ChromePrimaryButtonStyle {
     static var chromePrimary: ChromePrimaryButtonStyle { ChromePrimaryButtonStyle() }
 }
 
-/// The one chrome checkbox, lifted from Local Changes' revert checkbox.
+/// The chrome's checkbox, lifted from Local Changes' revert checkbox: the
+/// interface-zone entry to the one checkbox shape (`ChromeCheckboxShape`).
 ///
 /// A `checkboxSide` square with `checkboxCornerRadius`: off is a `hairline`
 /// border and no ground, on an `accent` ground with an `onAccent` check, mixed
@@ -274,29 +275,16 @@ struct ChromeCheckbox: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.checkboxCornerRadius))
         Button(action: action) {
             HStack(spacing: metrics.scaled(ChromeCheckboxLayout.titleGap)) {
-                ZStack {
-                    if state == .off {
-                        shape.strokeBorder(
-                            theme.color(.hairline),
-                            lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
-                        )
-                    } else {
-                        shape.fill(theme.color(.accent))
-                        Image(systemName: state == .on ? "checkmark" : "minus")
-                            .resizable()
-                            .scaledToFit()
-                            .foregroundStyle(theme.color(.onAccent))
-                            .frame(width: metrics.scaled(ChromeCheckboxLayout.glyphSide))
-                    }
-                }
-                .frame(
-                    width: metrics.scaled(ChromeGeometry.checkboxSide),
-                    height: metrics.scaled(ChromeGeometry.checkboxSide)
+                ChromeCheckboxShape(
+                    state: state,
+                    side: metrics.scaled(ChromeGeometry.checkboxSide),
+                    glyphSide: metrics.scaled(ChromeCheckboxLayout.glyphSide),
+                    cornerRadius: metrics.scaled(ChromeGeometry.checkboxCornerRadius),
+                    strokeWidth: metrics.scaled(ChromeGeometry.hairlineWidth),
+                    offStroke: .hairline
                 )
-                .accessibilityHidden(true)
                 if let title {
                     Text(title)
                         .font(metrics.scaledFont(.callout))
@@ -318,6 +306,81 @@ struct ChromeCheckbox: View {
         case .off: "Off"
         case .mixed: "Mixed"
         }
+    }
+}
+
+/// The one drawing of a checkbox's box, at whichever size its entry passes.
+///
+/// Two entries reach it, one per zone, and neither draws a box of its own:
+/// `ChromeCheckbox` passes the interface-scaled tokens and a `hairline` off
+/// stroke; `ChromeCodeZoneCheckbox` passes `CodeZoneCheckboxRule`'s values for
+/// a row drawn at the code font. Every size arrives as a parameter, so the box
+/// reads neither zone itself. Off is a stroked border and no ground; on is an
+/// `accent` ground with an `onAccent` check, mixed the same ground with an
+/// `onAccent` dash. The box is hidden from accessibility — the entry's control
+/// speaks for it.
+///
+/// Declared after `ChromeCheckbox` on purpose: the gating suite names that
+/// struct by the first occurrence of its declaration's text, which this one's
+/// name extends.
+struct ChromeCheckboxShape: View {
+    let state: ChromeCheckbox.State
+    let side: CGFloat
+    let glyphSide: CGFloat
+    let cornerRadius: CGFloat
+    let strokeWidth: CGFloat
+    /// The off box's stroke, the one colour the two entries choose differently.
+    let offStroke: ChromeColorRole
+
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        ZStack {
+            if state == .off {
+                shape.strokeBorder(theme.color(offStroke), lineWidth: strokeWidth)
+            } else {
+                shape.fill(theme.color(.accent))
+                Image(systemName: state == .on ? "checkmark" : "minus")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(theme.color(.onAccent))
+                    .frame(width: glyphSide)
+            }
+        }
+        .frame(width: side, height: side)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The checkbox on a row drawn at the code font — the unified diff's per-line
+/// toggle — sized from the code font size alone by `CodeZoneCheckboxRule`, so
+/// it keeps its proportion to its line and never follows the interface zoom.
+///
+/// Two states: on is the shared `accent` box with its `onAccent` check; off is
+/// stroked in `textSecondary` rather than the chrome entry's `hairline`. This
+/// box sits on the diff's added and removed washes, where a hairline border
+/// all but vanishes, so the code-zone entry takes the stronger stroke.
+///
+/// The box alone, not a button: its caller owns the click, the help text and
+/// the disabled state. It speaks its state as its value; the caller names it.
+struct ChromeCodeZoneCheckbox: View {
+    let isOn: Bool
+    /// The code font size the row draws at.
+    let fontSize: Double
+
+    var body: some View {
+        let measure = CodeZoneCheckboxRule(fontSize: fontSize)
+        ChromeCheckboxShape(
+            state: isOn ? .on : .off,
+            side: CGFloat(measure.side),
+            glyphSide: CGFloat(measure.glyphSide),
+            cornerRadius: CGFloat(measure.cornerRadius),
+            strokeWidth: CGFloat(measure.strokeWidth),
+            offStroke: .textSecondary
+        )
+        .accessibilityElement()
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 }
 

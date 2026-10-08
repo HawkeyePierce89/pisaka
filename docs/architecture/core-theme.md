@@ -1285,7 +1285,17 @@ title inside the click target, a `checkboxSide` square at `checkboxCornerRadius`
 speaking "On"/"Off"/"Mixed", dimmed when disabled. The glyph is 10 points, a
 named private constant (`ChromeCheckboxLayout.glyphSide`): the design's check
 inside the 14-point box, taken over Local Changes' former private 8, so the
-revert checkbox's check grew two points. Its first callers are the revert
+revert checkbox's check grew two points. **The box itself is one internal
+view, `ChromeCheckboxShape`**, taking the state, the side, the glyph side, the
+corner radius, the stroke width and the off stroke's role, and reading no zone:
+`ChromeCheckbox` passes the interface-scaled tokens and `hairline`, so it draws
+exactly as before, and `ChromeCodeZoneCheckbox` — the second entry, for a row
+drawn at the code font — passes `CodeZoneCheckboxRule(fontSize:)`'s four values
+and a `textSecondary` off stroke, because a `hairline` box all but vanishes on
+the diff's washes. The code-zone entry is two-state, the box alone (its caller
+owns the click, help and disabled state) and speaks "On"/"Off" as its value.
+One shape at two zones, so there is still exactly one drawing of a checkbox.
+Its first callers are the revert
 checkbox (the private builder and its three `LocalChangesLayout` numbers
 deleted) and the Log filter bar's two date bounds, which replaced a platform
 `Toggle`. Callers: `LogFilterBar.swift` (its text fields and its
@@ -1694,12 +1704,19 @@ search surfaces.
 5. **"Edit…"** on the author line is a `.plain` button with an `accent` label,
    not `.buttonStyle(.link)`, a platform style rule thirty forbids. (The design
    pass folded it into the footer's author control, still a `.plain` button.)
-6. **The unified diff's per-line checkbox keeps its SF Symbol glyph — an open
-   question.** It sits inside a code-font row; the shared checkbox is
-   interface-scaled, and putting it in a code-zoom row is the mixed-zone
-   mistake rule twenty-seven exists to catch. Rule thirty bans platform toggles,
-   and the glyph is neither. Whether that row's checkbox should be a code-zone
-   shape of its own is a design question.
+6. **The unified diff's per-line checkbox — closed: the shared shape at the
+   code zone's size.** It sits inside a code-font row, and the chrome's
+   checkbox is interface-scaled, so dropping it in would be the mixed-zone
+   mistake rule twenty-seven exists to catch; the row kept an SF Symbol glyph
+   while that was open. The decision: the box is the shared checkbox shape,
+   drawn through its code-zone entry `ChromeCodeZoneCheckbox` and sized by
+   Core's `CodeZoneCheckboxRule` from the code font alone (14 pt beside 13-pt
+   text, the chrome box's own proportion), so it grows with the diff and never
+   with the interface. On is the shared `accent` box and `onAccent` check; off
+   is stroked in `textSecondary`, stronger than the chrome's `hairline`, which
+   all but vanishes on the added and removed washes. A context line reserves
+   the rule's `placeholderWidth`, so its text starts where a changed line's
+   does. `CommitDiffCheckboxLayoutTests` measures all three off a bitmap.
 7. **The unified diff's added and removed text — closed by the design pass.**
    This was left open: the design tints a changed line's text as well as its
    ground, and a tinted *text* is a chrome colour on code. The design pass
@@ -2403,10 +2420,11 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the unified diff's per-line checkbox glyph. (The caret readout, the
-changed-line text tint, the terminal's own palette and the lane hues were waiting here too;
-all are now settled — see the bottom bar's caret readout below, part five
-(b)'s departure seven, and *The dark terminal palette on its ground*.)
+stay named under *What is still waiting*. (The caret readout, the
+changed-line text tint, the terminal's own palette, the lane hues and the unified
+diff's per-line checkbox were waiting here too; all are now settled — see the
+bottom bar's caret readout below, part five (b)'s departures six and seven, and
+*The dark terminal palette on its ground*.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2936,9 +2954,9 @@ readout** is **no longer deferred**: it sits after the bar's toggles (see *The
 bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
 **no longer deferred** either: the design pass drew it (part five (b)'s
 departure seven). The **lane hues** are **no longer deferred**: they are
-chosen against `bgPanel` and measured (*The fourth exemption*, above). What
-stays deferred: the unified diff's **per-line checkbox glyph** (part five (b)'s
-departure six), an open design question. The terminal's own palette is **no longer
+chosen against `bgPanel` and measured (*The fourth exemption*, above). The
+unified diff's **per-line checkbox** is **no longer deferred**: it is the shared
+checkbox shape at the code zone's size (part five (b)'s departure six). The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — and
 the item that took its place, **tuning the dark ANSI-16 set**, is closed too:
 on the terminal's ground, `bgPanel` dark `0x2B2D30`, nine entries were
@@ -3550,7 +3568,11 @@ The forty-seven rules, each invisible to the compiler:
    `CommitDialogView.swift`'s `private var messageBox` body (found through the
    call matcher, so a wrapped call counts) names `messageLineHeight` and none
    names `metrics` — the message box is counted in lines of the code font it
-   draws at, and at least one such frame must exist.
+   draws at, and at least one such frame must exist. Part C of the open-items
+   plan adds a fourth: `CommitUnifiedDiffView.swift`'s `private func
+   checkbox(for` body names `fontSize` and never `metrics` — the per-line box
+   and the context line's placeholder are sized from the code font through
+   `CodeZoneCheckboxRule`.
 28. **A secondary window's ground is set in the window subclass.** The files
     constructing `EscClosableWindow` (a call: the token then its argument list)
     equal the six secondary-window controllers, by set equality; none of them
@@ -3594,15 +3616,17 @@ The forty-seven rules, each invisible to the compiler:
     fold placeholder's former `color.withAlphaComponent(0.5)`, removed in part
     five (f) rather than caught): following a value through a `let` needs data
     flow, which a text scan does not have.
-30. **One primary button, one secondary, one checkbox.** No gated file spells the
+30. **One primary button, one secondary, one checkbox shape at two zones.** No gated file spells the
     tokens `Toggle`, `toggleStyle` (bare, because `containsToken` rejects a dotted
     needle after an identifier character; the token match is also what keeps
     `ChromeQueryToggle(` from being a hit), `BorderedButtonStyle`,
     `BorderedProminentButtonStyle`, `LinkButtonStyle` or `DefaultButtonStyle`;
     no `.buttonStyle(` argument names `bordered`, `borderedProminent`, `link` or
     `automatic` (scoped to the argument; `plain` and `borderless` stay allowed);
-    the files spelling `chromePrimary`, `chromeSecondary` and `ChromeCheckbox`
-    are pinned by set equality, the defining file included; no gated file but
+    the files spelling `chromePrimary`, `chromeSecondary`, `ChromeCheckbox`,
+    `ChromeCodeZoneCheckbox` (the code-zone entry: `CommitUnifiedDiffView.swift`)
+    and `ChromeCheckboxShape` (the one drawing of a box: `ChromeControls.swift`
+    alone) are pinned by set equality, the defining file included; no gated file but
     `ChromeControls.swift` declares a checkbox or checkmark measurement; and in
     each of part five (b)'s ten files and part five (c)'s seven the `Button`
     count equals the `buttonStyle` count, each file's number stated
@@ -3684,13 +3708,17 @@ The forty-seven rules, each invisible to the compiler:
     re-checks: a container font (some enclosing block's chain sets `.font(`
     through `metrics`), a use-site font (every use of the declaration is under
     one — the tree draft's icon column), a button style (the enclosing button's
-    chain names `chromeSecondary` — the merge strip's chevrons), or
-    deliberately off both scales (the unified diff's per-line checkbox, a code
-    row's fixed geometry). Re-checking the source is the half that matters: an
+    chain names `chromeSecondary` — the merge strip's chevrons), or entry
+    arguments (the glyph lives in a shape whose sizes are all parameters, the
+    shape is constructed only by the named entries, once each, and each entry's
+    body names what sizes it — `ChromeCheckboxShape`'s check, sized through
+    `metrics` by `ChromeCheckbox` and through `CodeZoneCheckboxRule` by
+    `ChromeCodeZoneCheckbox`). The off-both-scales exemption the unified diff's
+    per-line checkbox held is gone: its site holds no glyph since it draws the
+    shared shape. Re-checking the source is the half that matters: an
     exemption that only counted its glyphs would stay green through the very
     regression — a removed container font — that the rule was written for. The
-    shared checkbox's glyph needs no entry; it is resizable and sizes itself by
-    frame. The switcher popovers' rows carry no exemption: since both moved
+    switcher popovers' rows carry no exemption: since both moved
     onto `ChromePopover`'s pieces they draw design glyphs through
     `DesignGlyphImage`, sized by construction, and the three container-font
     entries that pinned their old SF Symbol icon column (`branchRow`,

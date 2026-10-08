@@ -51,9 +51,10 @@ struct CommitUnifiedDiffView: View {
     /// The interface zone's metrics, inherited from the commit sheet.
     ///
     /// Read by the **placeholder alone**. The diff itself is the code zone: every
-    /// row's text draws at `fontSize`, and the fixed geometry around it (the
-    /// checkbox column, the number gutter's width, the row's own spacing and
-    /// padding) is left off *both* scales — it is chrome that belongs to a code
+    /// row's text draws at `fontSize`, the checkbox column is sized from it
+    /// (`CodeZoneCheckboxRule`), and the fixed geometry around them (the number
+    /// gutter's width, the row's own spacing and padding) is left off *both*
+    /// scales — it is chrome that belongs to a code
     /// row, and putting it on the interface scale would make the two zones
     /// interact, which is the Find in Files result rows' rule and the one thing
     /// the three-zone split exists to prevent.
@@ -222,20 +223,24 @@ struct CommitUnifiedDiffView: View {
         }
     }
 
+    /// The per-line toggle: the shared checkbox shape's code-zone entry, sized
+    /// from `fontSize` so it keeps its proportion to the row it sits on, and a
+    /// context line's placeholder exactly as wide, so every row's text starts
+    /// at the same x. Neither half reads `metrics` — this is a code row.
     @ViewBuilder
     private func checkbox(for line: UnifiedDiffLine) -> some View {
         if let unit = line.unitIndex {
             let isOn = selectedUnits.contains(unit)
             Button { onToggleUnit(unit) } label: {
-                Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(theme.color(isOn ? .accent : .textSecondary))
+                ChromeCodeZoneCheckbox(isOn: isOn, fontSize: fontSize)
             }
             .buttonStyle(.borderless)
             .help("Include this change in the commit")
+            .accessibilityLabel("Include this change in the commit")
             .disabled(!isMutable)
         } else {
             // A context line is not a unit and must never look like one.
-            Color.clear.frame(width: 14, height: 1)
+            Color.clear.frame(width: CodeZoneCheckboxRule(fontSize: fontSize).placeholderWidth, height: 1)
         }
     }
 

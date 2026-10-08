@@ -168,8 +168,10 @@ import XCTest
 ///   alone, `SyntaxTheme.swift` spells no pair background of its own, and no
 ///   gated file chains an alpha onto a role's colour — a composed alpha is a
 ///   second wash nothing re-themes.
-/// - **One primary button, one secondary, one checkbox.** No gated file spells a
-///   platform toggle or button style; the shared controls' callers are pinned;
+/// - **One primary button, one secondary, one checkbox shape at two zones.** No
+///   gated file spells a platform toggle or button style; the shared controls'
+///   callers are pinned, the checkbox's two entries' included, and the one
+///   shape that draws a box is spelled in `ChromeControls.swift` alone;
 ///   every button in part five (b)'s and part five (c)'s files is styled, by a
 ///   per-file count of constructions against `.buttonStyle(`. A platform control
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
@@ -188,8 +190,8 @@ import XCTest
 ///   font of its own draws at the system default, which follows neither zoom;
 ///   each glyph carries a scaled font of its own, or a scaled frame beside
 ///   `.resizable()` (a frame alone does not size a symbol that is not resizable),
-///   or sits in a pinned declaration whose container font, button style or stated
-///   off-scale reason is re-checked.
+///   or sits in a pinned declaration whose container font, button style or
+///   sizing entries are re-checked.
 /// - **A selectable list yields its selected row's background.** On macOS a row
 ///   background is drawn over the platform's selection box, so every
 ///   `listRowBackground` under a `List` binding `selection:` is pinned, per
@@ -3157,6 +3159,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
+        // The unified diff's per-line checkbox sits on a code-font row, so its
+        // site is sized from the code font and never from the interface metrics:
+        // the box and the context line's placeholder both come from
+        // `CodeZoneCheckboxRule`, which takes the font size alone.
+        let unifiedDiffCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "CommitUnifiedDiffView.swift"))
+        )
+        let checkboxSite = try XCTUnwrap(
+            Self.matchedBody(after: "private func checkbox(for", in: unifiedDiffCode),
+            "CommitUnifiedDiffView.swift's private func checkbox(for is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("fontSize", in: checkboxSite),
+            "CommitUnifiedDiffView.swift's checkbox site must name fontSize — the box is sized from the code font"
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("metrics", in: checkboxSite),
+            "CommitUnifiedDiffView.swift's checkbox site names metrics — a code row's checkbox is the code zone's, not the interface's"
+        )
+
         for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
                 try Self.read(Self.source(named: name))
@@ -3521,7 +3543,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return hits
     }
 
-    // MARK: - Rule thirty: one primary button, one secondary, one checkbox
+    // MARK: - Rule thirty: one primary button, one secondary, one checkbox shape at two zones
 
     /// The files spelling each shared control, the defining file included.
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
@@ -3543,6 +3565,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
             "NewPullRequestSheet.swift", "LeetCodeBrowserView.swift",
         ]),
+        // The checkbox's code-zone entry, for a row drawn at the code font: the
+        // unified diff's per-line toggle is its one caller.
+        ("ChromeCodeZoneCheckbox", ["ChromeControls.swift", "CommitUnifiedDiffView.swift"]),
+        // The one drawing of a box, which both entries construct: spelled
+        // nowhere else, so a second checkbox drawing has to be a new shape this
+        // pin does not know.
+        ("ChromeCheckboxShape", ["ChromeControls.swift"]),
     ]
 
     /// Each of part five (b)'s ten files: how many `Button` constructions it
@@ -3605,7 +3634,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LeetCodeLoginView.swift": (buttons: 1, styled: 1),
     ]
 
-    func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
+    func testOnePrimaryButtonOneSecondaryOneCheckboxShapeAtTwoZones() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
         XCTAssertTrue(
             Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
@@ -4150,8 +4179,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         /// The glyph is a button label, and the enclosing button's chain names
         /// this shared style, which sets the label's font through the metrics.
         case buttonStyle(String)
-        /// Deliberately on neither scale; the reason is stated at the entry.
-        case offBothScales
+        /// The glyph lives in a shape whose every size is a parameter, and the
+        /// shape is constructed only by the named entries in the same file —
+        /// each constructing it exactly once, and each body naming the token
+        /// that sizes it — so the size is set in exactly those entries.
+        case entryArguments(shape: String, entries: [(declaration: String, sizedBy: String)])
     }
 
     private static let glyphSizeExemptions: [(file: String, declaration: String, count: Int, sizing: GlyphSizing)] = [
@@ -4173,11 +4205,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
         // (The tree's rows, their inline draft and both tab orientations draw
         // design glyphs since part eight, sized by the helper.)
-        // The unified diff's per-line checkbox is fixed geometry belonging to a
-        // *code* row, left off both scales on purpose (the file's own `metrics`
-        // comment states it — the Find in Files rows' rule), so neither zone
-        // may size it.
-        ("CommitUnifiedDiffView.swift", "private func checkbox(for", 1, .offBothScales),
+        // The one checkbox shape's check (or dash) is framed by the glyph side
+        // its entry passes: the chrome entry through the interface metrics, the
+        // code-zone entry through `CodeZoneCheckboxRule` — the unified diff's
+        // per-line box, which follows the code font and never the interface.
+        ("ChromeControls.swift", "struct ChromeCheckboxShape", 1, .entryArguments(
+            shape: "ChromeCheckboxShape",
+            entries: [
+                (declaration: "struct ChromeCheckbox", sizedBy: "metrics"),
+                (declaration: "struct ChromeCodeZoneCheckbox", sizedBy: "CodeZoneCheckboxRule"),
+            ]
+        )),
     ]
 
     func testEveryChromeGlyphIsSizedInTheInterfaceZone() throws {
@@ -4236,8 +4274,31 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         """
                     )
                 }
-            case .offBothScales:
-                break
+            case let .entryArguments(shape, entries):
+                XCTAssertEqual(
+                    Self.callRanges(shape + "(", in: code).count, entries.count,
+                    """
+                    \(exemption.file) constructs \(shape) outside its \(entries.count) pinned entries — a \
+                    construction no entry names sizes its glyph from nowhere the rule re-checks
+                    """
+                )
+                for entry in entries {
+                    let entryBody = try XCTUnwrap(
+                        Self.matchedBody(after: entry.declaration, in: code),
+                        "\(exemption.file)'s \(entry.declaration) is gone or renamed — re-point this exemption"
+                    )
+                    XCTAssertEqual(
+                        Self.callRanges(shape + "(", in: entryBody).count, 1,
+                        "\(exemption.file)'s \(entry.declaration) must construct \(shape) exactly once"
+                    )
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken(entry.sizedBy, in: entryBody),
+                        """
+                        \(exemption.file)'s \(entry.declaration) no longer names \(entry.sizedBy) — the \
+                        \(shape) it constructs is sized from nowhere the rule re-checks
+                        """
+                    )
+                }
             }
         }
         let helper = LSPSourceGatingTests.strippingCommentsAndStringLiterals(

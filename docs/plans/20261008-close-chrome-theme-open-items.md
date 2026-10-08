@@ -180,29 +180,29 @@ All six colours stay at or above 3:1 in both appearances.
 - Modify: `Sources/Pisaka/CommitUnifiedDiffView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Create: `Tests/PisakaAppTests/CommitDiffCheckboxLayoutTests.swift`
-- [ ] In `ChromeControls.swift`, move the box drawing out of `ChromeCheckbox` into one internal shape view. It takes the state, the side, the glyph side, the corner radius, the stroke width and the role for the off stroke.
-- [ ] `ChromeCheckbox` passes its interface-scaled tokens and keeps the `hairline` off stroke, so it draws exactly as before.
-- [ ] Add a second public entry in the same file for code-zone rows, sized from `CodeZoneCheckboxRule(fontSize:)`:
+- [x] In `ChromeControls.swift`, move the box drawing out of `ChromeCheckbox` into one internal shape view. It takes the state, the side, the glyph side, the corner radius, the stroke width and the role for the off stroke.
+- [x] `ChromeCheckbox` passes its interface-scaled tokens and keeps the `hairline` off stroke, so it draws exactly as before.
+- [x] Add a second public entry in the same file for code-zone rows, sized from `CodeZoneCheckboxRule(fontSize:)`:
   - when on: an `accent` fill with an `onAccent` check glyph;
   - when off: a `textSecondary` stroke. A `hairline` box would disappear on the diff washes, so this one is stronger; the shape's comment says why.
-- [ ] After this change there is still exactly one drawing of a checkbox, and it lives in `ChromeControls.swift`.
-- [ ] In `CommitUnifiedDiffView`:
+- [x] After this change there is still exactly one drawing of a checkbox, and it lives in `ChromeControls.swift`.
+- [x] In `CommitUnifiedDiffView`:
   - replace the `Image(systemName:)` toggle with the code-zone entry inside the existing borderless `Button`, keeping `.help` and `.disabled`;
   - set the context-line placeholder's width to the rule's side instead of the literal 14;
   - declare no `let` or `var` whose name contains "checkbox" or "checkmark" (rule thirty's ban);
   - read no `metrics`.
-- [ ] Update `ChromeThemeSourceGatingTests`:
+- [x] Update `ChromeThemeSourceGatingTests`:
   - rule thirty's caller pin gains the code-zone entry's callers, {`ChromeControls`, `CommitUnifiedDiffView`}, and its "one checkbox" wording becomes "one checkbox shape at two zones";
   - remove rule thirty-four's `.offBothScales` exemption for `checkbox(for`, because that function no longer holds a glyph;
   - rule twenty-seven gains a clause: the diff's checkbox site names `fontSize` and never `metrics`;
   - update the header inventory to match.
-- [ ] If `SyntaxBaseForegroundGatingTests` or the zoom suites pin anything in `CommitUnifiedDiffView.swift` that changes, update them.
-- [ ] Add an app-bundle layout test that hosts `CommitUnifiedDiffView` through `HostedRender`, as `CommitUnifiedDiffWashTests` does:
+- [x] If `SyntaxBaseForegroundGatingTests` or the zoom suites pin anything in `CommitUnifiedDiffView.swift` that changes, update them. (nothing pinned there changed; both suites pass unchanged)
+- [x] Add an app-bundle layout test that hosts `CommitUnifiedDiffView` through `HostedRender`, as `CommitUnifiedDiffWashTests` does:
   - at font sizes 13 and 20, the `accent` extent of a checked row's box equals the rule's side, scaled by the backing factor, within one pixel;
   - at a fixed font size, the measured side is the same with the interface scale at 1.0 and at 1.5;
   - a context row's text starts at the same x as a changed row's text, so the placeholder width matches the box.
-- [ ] In `core-theme.md`, close departure six with the decision, update the entries for rules thirty and thirty-four, and remove the item from *What is still waiting*. Update `CommitUnifiedDiffView`'s entry in `app-git-views.md`.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] In `core-theme.md`, close departure six with the decision, update the entries for rules thirty and thirty-four, and remove the item from *What is still waiting*. Update `CommitUnifiedDiffView`'s entry in `app-git-views.md`.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (the only app-bundle failures are the eight scale-1.8 layout tests that fail on the untouched tree too, as in Tasks 1–4)
 
 ### Task 6: Part D — the shared split: a Core rule and a gated host
 
