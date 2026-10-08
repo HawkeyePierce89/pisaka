@@ -157,20 +157,20 @@ All six colours stay at or above 3:1 in both appearances.
 
 - Create: `Sources/PisakaCore/CodeZoneCheckboxRule.swift`
 - Create: `Tests/PisakaCoreTests/CodeZoneCheckboxRuleTests.swift`
-- [ ] Add a pure rule that maps the code font size to four values: the box's side, the glyph's side, the corner radius and the stroke width.
-- [ ] The interface box is `checkboxSide` 14 against 13-pt default text, so the code-zone side is `fontSize × 14 / 13`.
-- [ ] The glyph is `side × 10 / 14`, which is the shared shape's proportion.
-- [ ] The corner radius is `checkboxCornerRadius × side / 14`. The stroke is never thinner than 1 pt.
-- [ ] Every value is rounded to the half-point grid that `InterfaceMetrics.pt` uses.
-- [ ] The context-line placeholder's width equals the side.
-- [ ] The rule names neither `InterfaceMetrics` nor the interface scale.
-- [ ] Add tests:
+- [x] Add a pure rule that maps the code font size to four values: the box's side, the glyph's side, the corner radius and the stroke width.
+- [x] The interface box is `checkboxSide` 14 against 13-pt default text, so the code-zone side is `fontSize × 14 / 13`.
+- [x] The glyph is `side × 10 / 14`, which is the shared shape's proportion.
+- [x] The corner radius is `checkboxCornerRadius × side / 14`. The stroke is never thinner than 1 pt.
+- [x] Every value is rounded to the half-point grid that `InterfaceMetrics.pt` uses.
+- [x] The context-line placeholder's width equals the side.
+- [x] The rule names neither `InterfaceMetrics` nor the interface scale.
+- [x] Add tests:
   - a 13-pt font gives side 14 and glyph 10;
   - the 8-pt and 32-pt bounds of `ZoomScaleRule.editorFont`;
   - the side grows with the font size;
   - the glyph-to-side proportion holds within rounding.
-- [ ] Add the file to `core-theme.md`'s file list and to `CLAUDE.md`'s `core-theme.md` index line.
-- [ ] Run `swift test`; it must pass.
+- [x] Add the file to `core-theme.md`'s file list and to `CLAUDE.md`'s `core-theme.md` index line.
+- [x] Run `swift test`; it must pass.
 
 ### Task 5: Part C — one checkbox shape at two sizes
 

@@ -202,6 +202,23 @@ two new geometry tokens) and each with its readers pinned by a gating
     the chrome draws with — reached through `InterfaceMetrics.font(_:)` /
     `scaledFont(_:)`. A second table of those numbers would be a second opinion
     about them, so `ChromeGeometry` carries none.
+  - `CodeZoneCheckboxRule.swift` — the shared checkbox shape's measurements for
+    a row drawn at the **code** font (part five (b)'s departure six, the unified
+    diff's per-line toggle). `init(fontSize:)` clamps through
+    `ZoomScaleRule.editorFont` and answers four values: `side` =
+    `fontSize × 14 / 13` (the chrome box's 14 against the chrome's 13-pt
+    default text, so a 13-pt line carries exactly `checkboxSide`), `glyphSide` =
+    `side × 10 / 14` (the shape's own glyph proportion), `cornerRadius` =
+    `checkboxCornerRadius × side / 14` and `strokeWidth` =
+    `hairlineWidth × side / 14`, never thinner than 1 pt. Every value is on the
+    half-point grid the chrome's layout metrics use, each derived from the
+    *rounded* side so the four describe one box, and `placeholderWidth` — what a
+    context line reserves in the box's place — is the side. The rule names no
+    interface-zone type and reads no interface scale, because the code zone and
+    the chrome's must not interact (`core-zoom.md`); its tests
+    (`CodeZoneCheckboxRuleTests`) pin the 13-pt reference, the 8- and 32-pt
+    bounds, monotonicity, the glyph proportion within rounding, and that the
+    file never mentions the metrics type at all.
   - `ChromeAppearance.swift` — `dark` / `light`, and no third value: the palette
     holds one dark and one light entry per role, so this is the whole question a
     colour resolution has to answer. `resolved(_:systemPrefersDark:)` maps a
