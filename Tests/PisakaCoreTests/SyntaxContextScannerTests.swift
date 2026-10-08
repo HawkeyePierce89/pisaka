@@ -756,4 +756,41 @@ final class SyntaxContextScannerTests: XCTestCase {
         let cleanInside = (clean as NSString).range(of: "note").location
         assertContext(clean, at: cleanInside, language: .shell, is: .comment)
     }
+
+    // MARK: - Make
+
+    func testMakeHashCommentAtLineStartAndMidLine() {
+        let text = "# build the app\nCC := clang # the compiler\n"
+        let lead = (text as NSString).range(of: "build").location
+        assertContext(text, at: lead, language: .make, is: .comment)
+        assertSuppress(text, at: lead, language: .make, is: true)
+
+        let trailing = (text as NSString).range(of: "compiler").location
+        assertContext(text, at: trailing, language: .make, is: .comment)
+        assertSuppress(text, at: trailing, language: .make, is: true)
+
+        let code = (text as NSString).range(of: "clang").location
+        assertContext(text, at: code, language: .make, is: .code)
+        assertSuppress(text, at: code, language: .make, is: false)
+    }
+
+    /// Make has no string literal: text between quotes is code, so completion
+    /// answers there.
+    func testMakeQuotesOpenNoStringContext() {
+        let text = "MSG = \"hello world\"\n"
+        let inside = (text as NSString).range(of: "world").location
+        assertContext(text, at: inside, language: .make, is: .code)
+        assertSuppress(text, at: inside, language: .make, is: false)
+    }
+
+    /// The stated non-models: a recipe-line `#` and an escaped `\#` are both
+    /// read as comments, which suppresses completion — the conservative side.
+    func testMakeStatedNonModelsReadAsComments() {
+        let recipe = "build:\n\techo a#b\n"
+        assertContext(recipe, at: (recipe as NSString).range(of: "b\n").location, language: .make, is: .comment)
+
+        let escaped = "HASH := \\#literal\n"
+        assertContext(escaped, at: (escaped as NSString).range(of: "literal").location,
+                      language: .make, is: .comment)
+    }
 }

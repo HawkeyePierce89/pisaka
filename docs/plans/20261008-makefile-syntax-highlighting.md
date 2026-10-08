@@ -234,55 +234,55 @@ variable definitions. There is no LSP server and no provisioning entry.
 - Create: `Resources/Queries/make/symbols.scm`
 - Modify: the matching Core tests in `Tests/PisakaCoreTests/`
 
-- [ ] Add `case make` with `displayName` "Makefile".
-- [ ] Add exact names `makefile`, `gnumakefile` (lowercased; `Makefile` is reached
+- [x] Add `case make` with `displayName` "Makefile".
+- [x] Add exact names `makefile`, `gnumakefile` (lowercased; `Makefile` is reached
   through the type's case folding) and extensions `mk`, `mak`. Add no prefix rule.
   Extend the type's doc comment with one paragraph on the case and why it needs no
   prefix rule.
-- [ ] `FileIcon`: add `gnumakefile` plus the `mk`/`mak` extensions with the existing
+- [x] `FileIcon`: add `gnumakefile` plus the `mk`/`mak` extensions with the existing
   hammer/gray icon. `FileGlyph`: `.make` → `.fileCode`.
-- [ ] `CommentStyle`: add `.make` to the `#` line group.
-- [ ] `SyntaxContextVocabulary`:
+- [x] `CommentStyle`: add `.make` to the `#` line group.
+- [x] `SyntaxContextVocabulary`:
   - comment form `#`, anchor `.anywhere`
   - string forms: none
   - `stringsSuppressCompletion` is `false`
   - comment the recipe-line and `\#` non-models
-- [ ] `LanguageKeywords`: add the `make` list described in Context, sorted, with a
+- [x] `LanguageKeywords`: add the `make` list described in Context, sorted, with a
   comment stating the sourcing and the identifier-shape exclusion (special targets,
   `filter-out`, `-include`).
-- [ ] `lspLanguageID`: `.make` → `"makefile"`, with a one-line reason.
-- [ ] `SymbolKind`: add `case target` with a doc comment ("a Makefile rule target"). Add
+- [x] `lspLanguageID`: `.make` → `"makefile"`, with a one-line reason.
+- [x] `SymbolKind`: add `case target` with a doc comment ("a Makefile rule target"). Add
   its `CompletionPopup` badge (e.g. `"target"` or `"scope"`; pick an SF Symbol that
   exists on macOS 14/iOS 17). Name `.target` in the `kindsExcludedFromCompletion` doc
   comment's list of non-code kinds that stay candidates.
-- [ ] Create `Resources/Queries/make/symbols.scm` with:
+- [x] Create `Resources/Queries/make/symbols.scm` with:
   - the shared convention header
   - `(rule (targets (word) @definition.target) (#not-match? @definition.target "^[.]|%"))`
   - the three `name: (word) @definition.variable` patterns
   - comments on why special/pattern targets are excluded and why variables are
     unanchored
-- [ ] Tests, `SyntaxLanguageTests`:
+- [x] Tests, `SyntaxLanguageTests`:
   - `Makefile`, `makefile`, `GNUmakefile`, `MAKEFILE`, `rules.mk`, `x.MAK` and the
     path-qualified `sub/Makefile` all resolve to `.make`
   - `Makefile.swift` → `.swift` and `.makeignore` → `.gitignore`
   - `makefiles` and `Makefile.inc` → nil
   - every pre-existing mapping is re-asserted unchanged where it neighbours the new names
-- [ ] Tests, `FileIconTests` and `FileGlyphTests`: the new names and extensions.
-- [ ] Tests, `CommentStyleTests` and `ToggleCommentEngineTests`: ⌘/ inserts and removes
+- [x] Tests, `FileIconTests` and `FileGlyphTests`: the new names and extensions.
+- [x] Tests, `CommentStyleTests` and `ToggleCommentEngineTests`: ⌘/ inserts and removes
   `# ` on a Makefile line.
-- [ ] Tests, `SyntaxContextVocabularyTests` and `SyntaxContextScannerTests`: `#` comments
+- [x] Tests, `SyntaxContextVocabularyTests` and `SyntaxContextScannerTests`: `#` comments
   at line start and mid-line, and no string context.
-- [ ] Tests, `LanguageKeywordsTests`:
+- [x] Tests, `LanguageKeywordsTests`:
   - add `.make` to the documented-languages set
   - add a dedicated test pinning the exact list, and that `.PHONY`, `filter-out` and
     `-include` are absent
-- [ ] Tests, `SymbolQueryTests`:
+- [x] Tests, `SymbolQueryTests`:
   - `testMakeSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares` against
     `declaredNodeTypes(vendoredPackage: "TreeSitterMake")`
   - add `.make` to the vendored union
   - change the predicate pin to the exact `{html: [match?], make: [not-match?]}` map,
     with the reason in the assertion message
-- [ ] Run `swift test`.
+- [x] Run `swift test`.
 
 ### Task 3: The highlight query and its static gate
 

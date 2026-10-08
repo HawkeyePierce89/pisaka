@@ -63,6 +63,7 @@ public enum CompletionPopup {
             .key: .init(symbolName: "k.square"),
             .stage: .init(symbolName: "shippingbox"),
             .anchor: .init(symbolName: "link"),
+            .target: .init(symbolName: "target"),
         ]
 
         public init(symbolName: String) {

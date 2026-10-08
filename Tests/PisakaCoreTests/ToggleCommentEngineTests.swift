@@ -445,4 +445,28 @@ final class ToggleCommentEngineTests: XCTestCase {
             .replacingCharacters(in: uncommented.replacementRange, with: uncommented.text)
         XCTAssertEqual(restored, text)
     }
+
+    func testMakeCaretLineInsertsAndRemovesTheHash() {
+        let text = "build:\n\tswift build\n"
+        assertToggle(
+            text,
+            selectedRange: NSRange(location: 2, length: 0),
+            language: .make,
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 7),
+                text: "# build:\n",
+                selectedRange: NSRange(location: 11, length: 0) // caret moves to the next line, column 2
+            )
+        )
+        assertToggle(
+            "# build:\n\tswift build\n",
+            selectedRange: NSRange(location: 4, length: 0),
+            language: .make,
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 9),
+                text: "build:\n",
+                selectedRange: NSRange(location: 11, length: 0) // next line starts at 7, column 4
+            )
+        )
+    }
 }

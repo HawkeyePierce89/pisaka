@@ -153,12 +153,16 @@ final class SymbolQueryTests: XCTestCase {
         }
     }
 
-    /// The HTML query is the only one that needs a predicate, and it needs it
+    /// The HTML query was the first that needs a predicate, and it needs it
     /// badly enough to assert: without the `#match?`, `(attribute (attribute_name) …
     /// (attribute_value) @definition.anchor)` matches *every* attribute in the
     /// document, so `class="page"` and `href="#header"` would be indexed as
     /// anchors. This pins that the filter is still there — and, by implication,
     /// that the extractor has to resolve predicates rather than walk raw matches.
+    ///
+    /// Make's special-target filter is the second, and the set of
+    /// predicate-bearing queries is pinned as an exact map: a third fails here
+    /// until it is reviewed.
     func testTheHTMLQueryFiltersAttributesByName() throws {
         let source = try querySource(for: .html)
         // `#match?` with a case-insensitive, fully anchored pattern rather than
@@ -170,16 +174,29 @@ final class SymbolQueryTests: XCTestCase {
             attribute value in every HTML file is indexed as an anchor.
             """)
 
-        XCTAssertEqual(try parsedQuery(for: .html).predicateNames, ["match?"])
-
-        for language in try indexableLanguages() where language != .html {
-            XCTAssertEqual(try parsedQuery(for: language).predicateNames, [], """
-                \(language.rawValue)/symbols.scm gained a predicate. A predicate only takes \
-                effect when the *client* evaluates it, so the extractor resolves predicates \
-                solely because HTML needs it; a query that grows one elsewhere means re-checking \
-                that dependency rather than assuming it.
-                """)
+        var predicates: [SyntaxLanguage: Set<String>] = [:]
+        for language in try indexableLanguages() {
+            let names = try parsedQuery(for: language).predicateNames
+            if !names.isEmpty { predicates[language] = names }
         }
+        XCTAssertEqual(predicates, [.html: ["match?"], .make: ["not-match?"]], """
+            The set of symbols queries carrying a predicate changed. A predicate only takes \
+            effect when the *client* evaluates it, so the extractor resolves predicates solely \
+            because HTML's id filter and Make's special-target filter need it; a query that \
+            grows one elsewhere (or loses one) means re-checking that dependency rather than \
+            assuming it.
+            """)
+    }
+
+    /// Make's predicate, pinned by its text: dot-led special targets (`.PHONY`)
+    /// and pattern targets (`%.o`) declare no name the user would jump to, so the
+    /// filter must stay on the target capture.
+    func testTheMakeQueryFiltersSpecialAndPatternTargets() throws {
+        let source = try querySource(for: .make)
+        XCTAssertTrue(source.contains("(#not-match? @definition.target \"^[.]|%\")"), """
+            The Make symbols query no longer filters special and pattern targets, so \
+            `.PHONY`, `.SUFFIXES` and `%.o` would be indexed as targets.
+            """)
     }
 
     // MARK: - Node names
@@ -215,6 +232,20 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
+    func testMakeSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        assertQueryNodesAreDeclared(
+            try parsedQuery(for: .make),
+            declaredBy: try declaredNodeTypes(vendoredPackage: "TreeSitterMake"),
+            describedAs: "TreeSitterMake",
+            consequence: "every Makefile would index zero symbols"
+        )
+    }
+
+    func testMakeSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        XCTAssertEqual(try parsedQuery(for: .make).outputCaptureNames,
+                       ["definition.target", "definition.variable"])
+    }
+
     func testEditorConfigSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
         XCTAssertEqual(try parsedQuery(for: .editorconfig).outputCaptureNames, ["definition.heading"])
     }
@@ -248,7 +279,7 @@ final class SymbolQueryTests: XCTestCase {
 
         // Every language with a query is either pinned here or read from its
         // vendored grammar above, so a new language cannot arrive unpinned.
-        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql, .editorconfig]),
+        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql, .editorconfig, .make]),
                        Set(try indexableLanguages()))
     }
 

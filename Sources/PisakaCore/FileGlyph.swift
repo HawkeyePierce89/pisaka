@@ -30,7 +30,7 @@ public enum FileGlyph {
         case .markdown, .gitignore, .dotenv, .editorconfig:
             return .fileText
         case .swift, .javascript, .typescript, .json, .python, .go, .rust, .html, .css,
-             .yaml, .dockerfile, .sql, .shell:
+             .yaml, .dockerfile, .sql, .shell, .make:
             return .fileCode
         }
     }

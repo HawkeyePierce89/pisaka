@@ -33,6 +33,9 @@ import TreeSitterSql
 // Vendored locally (`Vendor/TreeSitterEditorconfig`) — the fourth vendored grammar;
 // see that package's `VENDORED.md`.
 import TreeSitterEditorconfig
+// Vendored locally (`Vendor/TreeSitterMake`) — the fifth vendored grammar; see its
+// `VENDORED.md` for why (upstream ships no SwiftPM manifest or Swift binding).
+import TreeSitterMake
 
 /// Maps a semantic `SyntaxLanguage` (PisakaCore) to a concrete tree-sitter
 /// `LanguageConfiguration` (grammar parser + bundled highlight queries).
@@ -129,6 +132,8 @@ enum SyntaxLanguageConfiguration {
             // which LanguageConfiguration derives from name: "Editorconfig",
             // not "EditorConfig".
             return try LanguageConfiguration(tree_sitter_editorconfig(), name: "Editorconfig")
+        case .make:
+            return try LanguageConfiguration(tree_sitter_make(), name: "Make")
         }
     }
 

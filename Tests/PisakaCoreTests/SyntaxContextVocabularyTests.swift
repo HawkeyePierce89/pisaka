@@ -23,7 +23,7 @@ final class SyntaxContextVocabularyTests: XCTestCase {
     func testLanguagesWithoutStringVocabularyIsExactlyDocumented() {
         XCTAssertEqual(
             SyntaxContextVocabulary.languagesWithoutStringVocabulary,
-            [.markdown, .gitignore, .editorconfig]
+            [.markdown, .gitignore, .editorconfig, .make]
         )
     }
 
@@ -233,7 +233,7 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         // starts a comment went unstated.
         XCTAssertEqual(Set(byAnchor.keys),
                        [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace, .atWordStart])
-        XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql])
+        XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql, .make])
         XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
         XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
         // yaml keeps `.afterWhitespace` — the reading is correct there, and
@@ -313,5 +313,18 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         XCTAssertFalse(SyntaxContextVocabulary.stringsSuppressCompletion(for: .shell))
         // It can still suppress — inside a comment.
         XCTAssertTrue(SyntaxContextVocabulary.canSuppressCompletion(.shell))
+    }
+
+    // MARK: - Make
+
+    /// Make's comment is an unanchored `#`, it has no string vocabulary, and
+    /// its (absent) strings do not gate completion — while the comment still
+    /// lets the scanner suppress.
+    func testMakeVocabulary() {
+        XCTAssertEqual(SyntaxContextVocabulary.commentForms(for: .make),
+                       [.line(token: "#", anchor: .anywhere)])
+        XCTAssertEqual(SyntaxContextVocabulary.stringForms(for: .make), [])
+        XCTAssertFalse(SyntaxContextVocabulary.stringsSuppressCompletion(for: .make))
+        XCTAssertTrue(SyntaxContextVocabulary.canSuppressCompletion(.make))
     }
 }

@@ -48,6 +48,7 @@ public enum LanguageKeywords {
         case .sql: return sql
         case .editorconfig: return editorConfig
         case .shell: return shell
+        case .make: return make
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -400,5 +401,25 @@ public enum LanguageKeywords {
         "indent_style", "insert_final_newline", "latin1", "lf", "max_line_length",
         "root", "space", "tab", "tab_width", "trim_trailing_whitespace", "true",
         "unset",
+    ]
+
+    /// Make: the 16 GNU make directives and the built-in functions the pinned
+    /// grammar recognizes (`grammar.js`'s function list, plus `shell`, which it
+    /// parses as a node of its own) — 54 entries.
+    ///
+    /// **Only identifier-shaped words are listed**, for the reason the
+    /// EditorConfig list states for its charset values: the special targets
+    /// (`.PHONY`, `.SUFFIXES`, … — a leading dot), `filter-out` and `-include`
+    /// (a hyphen) stop the identifier scanner, so offering them would insert
+    /// text the completion engine can never finish. They are absent on purpose,
+    /// and `LanguageKeywordsTests` pins that absence.
+    private static let make: [String] = [
+        "abspath", "addprefix", "addsuffix", "and", "basename", "call", "define", "dir",
+        "else", "endef", "endif", "error", "eval", "export", "file", "filter",
+        "findstring", "firstword", "flavor", "foreach", "guile", "if", "ifdef", "ifeq",
+        "ifndef", "ifneq", "include", "info", "intcmp", "join", "lastword", "let",
+        "notdir", "or", "origin", "override", "patsubst", "private", "realpath",
+        "shell", "sinclude", "sort", "strip", "subst", "suffix", "undefine", "unexport",
+        "value", "vpath", "warning", "wildcard", "word", "wordlist", "words",
     ]
 }
