@@ -253,8 +253,8 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 
 ### Task 8: Update documentation
 
-- [ ] `README.md` / `docs/FEATURES.md`: no user-facing feature change is expected. Confirm that nothing there restates the old terminal colours or the injection behaviour.
-- [ ] CLAUDE.md: add an index entry only if Task 3 introduced a new app file, and keep the file under 60,000 characters (`LintConfigurationTests`).
+- [x] `README.md` / `docs/FEATURES.md`: no user-facing feature change is expected. Confirm that nothing there restates the old terminal colours or the injection behaviour. (confirmed: neither mentions the ANSI values, the terminal ground or injected highlighting)
+- [x] CLAUDE.md: add an index entry only if Task 3 introduced a new app file, and keep the file under 60,000 characters (`LintConfigurationTests`). (`PredicateResolvingHighlighter.swift` already indexed under `app-editor-overlays.md`; 51,716 characters, `LintConfigurationTests` green)
 
 ## Post-Completion
 
