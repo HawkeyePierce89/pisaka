@@ -133,6 +133,10 @@ enum SyntaxLanguageConfiguration {
             // not "EditorConfig".
             return try LanguageConfiguration(tree_sitter_editorconfig(), name: "Editorconfig")
         case .make:
+            // The SPM resource bundle is TreeSitterMake_TreeSitterMake, which
+            // LanguageConfiguration derives from name: "Make". Its injections
+            // query hands recipe bodies to "bash", which resolves to `.shell`
+            // through the extension map in configuration(forInjectionName:).
             return try LanguageConfiguration(tree_sitter_make(), name: "Make")
         }
     }

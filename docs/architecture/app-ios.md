@@ -103,12 +103,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `@container` capture is paired with the kind capture inside one pattern and a
     flat capture stream would lose which type a method belongs to. **Predicates are
     resolved** (`match.allowed(in:)`), unlike the minimap's highlight pass: exactly
-    one query needs it — an HTML `id` attribute is structurally identical to every
+    two queries need it. An HTML `id` attribute is structurally identical to every
     other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")`
-    every `class=`
-    and `href=` value would be indexed as an anchor — and `SymbolQueryTests` pins
-    that HTML is the only query with a predicate, so a second one is reviewed
-    rather than silently relying on this. Captured ranges are whitespace-trimmed on
+    every `class=` and `href=` value would be indexed as an anchor; and Make's
+    `(#not-match? @definition.target "^[.]|%")` keeps special (`.PHONY`) and
+    pattern (`%.o`) targets out of the index, which `MakeSymbolQueryTests` proves
+    by execution. `SymbolQueryTests` pins exactly that `{html, make}` map of
+    predicates, so a third one is reviewed rather than silently relying on this. Captured ranges are whitespace-trimmed on
     **both** the text and the range (a Markdown heading's `inline` node carries the
     space after the `#` and the trailing newline), so a jump still lands on the
     name's first character. The same narrowing drops the **leading `#` of a

@@ -328,12 +328,12 @@ variable definitions. There is no LSP server and no provisioning entry.
 - Create: `Tests/PisakaAppTests/MakeSymbolQueryTests.swift`,
   `Tests/PisakaAppTests/Fixtures/make-symbols.mk`
 
-- [ ] Add `import TreeSitterMake` with the "fifth vendored grammar, see its
+- [x] Add `import TreeSitterMake` with the "fifth vendored grammar, see its
   `VENDORED.md`" comment. Finalise the `.make` arm (`name: "Make"` → bundle
   `TreeSitterMake_TreeSitterMake`) with a short comment.
-- [ ] Update `SymbolExtractor`'s "exactly one query needs predicates" paragraph to name
+- [x] Update `SymbolExtractor`'s "exactly one query needs predicates" paragraph to name
   Make's special-target filter as the second.
-- [ ] Add `MakeSymbolQueryTests`, modelled on `ShellSymbolQueryTests`:
+- [x] Add `MakeSymbolQueryTests`, modelled on `ShellSymbolQueryTests`:
   - the configuration and `SymbolQueryCatalog.query(for: .make)` load
   - extraction over the fixture yields exactly the expected targets (`build`, `test`,
     `lint`, …) and variables, by set equality
@@ -341,13 +341,18 @@ variable definitions. There is no LSP server and no provisioning entry.
   - a `$(VAR):` target is not captured
   - the configuration's injection query loads, and
     `configuration(forInjectionName: "bash")` resolves
-- [ ] Run `xcodegen generate`, then
+- [x] Run `xcodegen generate`, then
   `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run the macOS `-configuration Release` build and the iOS `generic/platform=iOS`
+  (`MakeSymbolQueryTests` 5/5 green. 8 failures elsewhere in 258 tests are pre-existing and
+  unrelated: chrome-layout measurements at scale 1.8 in `BottomBarLayoutTests`,
+  `BottomBarToolTipTests`, `ChromePopoverLayoutTests` and `CommitDialogLayoutTests`. They fail
+  identically with this task's changes stashed, on this machine's macOS 27.)
+- [x] Run the macOS `-configuration Release` build and the iOS `generic/platform=iOS`
   build.
-- [ ] Confirm `Package.resolved` is unchanged (a path dependency carries no pin). If it
+- [x] Confirm `Package.resolved` is unchanged (a path dependency carries no pin). If it
   is rewritten, regenerate it rather than hand-edit, and re-run `DependencyPinTests`.
-- [ ] Run `swift test`.
+  (Unchanged.)
+- [x] Run `swift test`.
 
 ### Task 5: Verify acceptance criteria
 

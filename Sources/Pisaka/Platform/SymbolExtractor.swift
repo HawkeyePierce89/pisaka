@@ -29,11 +29,14 @@ import PisakaCore
 /// this walks `QueryCursor`'s match sequence rather than `highlights()`.
 ///
 /// **Predicates are resolved**, unlike in the minimap's highlight pass. Exactly
-/// one query needs it: an HTML `id` attribute is structurally identical to every
+/// two queries need it. An HTML `id` attribute is structurally identical to every
 /// other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")` every
-/// `class=` and `href=` value in the document would be indexed as an anchor.
-/// `SymbolQueryTests` pins that HTML is the only query with a predicate, so a
-/// second one arriving is reviewed rather than silently relying on this.
+/// `class=` and `href=` value in the document would be indexed as an anchor. And
+/// Make's `(#not-match? @definition.target "^[.]|%")` keeps special targets
+/// (`.PHONY`, `.SUFFIXES`) and pattern targets (`%.o`) out of the index, which
+/// `MakeSymbolQueryTests` proves by execution. `SymbolQueryTests` pins exactly
+/// that set of queries and predicates, so a third one arriving is reviewed
+/// rather than silently relying on this.
 ///
 /// **Returning `[]` is the documented degradation**, covering all of: a language
 /// with no query, a query that failed to compile, a grammar that failed to load,
@@ -85,7 +88,7 @@ enum SymbolExtractor {
         var symbols: [Symbol] = []
         for match in query.execute(node: root, in: tree) {
             // `allowed(in:)` is `allSatisfy` over the pattern's predicates, so a
-            // pattern without any (every query but HTML) costs nothing here.
+            // pattern without any (every query but HTML's and Make's) costs nothing here.
             guard match.allowed(in: context) else { continue }
 
             let container = match.captures

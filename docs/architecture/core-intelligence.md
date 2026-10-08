@@ -2000,7 +2000,11 @@ in both spellings is present, every top-level assignment in all three shapes is
 present, no assignment made inside a function body or a loop appears, and neither
 `arr[2]=x` nor the valueless `export PATH` does. A fourth assertion, over an
 inline source rather than the fixture, pins the grammar conflict above: with
-`A=1 B=2` followed by an ordinary command, neither name is indexed. The manual ⌃⌘J check on a grammar
+`A=1 B=2` followed by an ordinary command, neither name is indexed.
+`MakeSymbolQueryTests` does the same for Make's query over
+`Fixtures/make-symbols.mk`, and adds the one thing only execution can show
+there: that the special/pattern-target predicate is *evaluated*, not merely
+present. The manual ⌃⌘J check on a grammar
 update still stands for shell as it does for every other language, but here it is
 a **confirmation of the end-to-end path** (bundle → catalog → extractor → index →
 picker) rather than the only evidence. The same gap remains for the other
