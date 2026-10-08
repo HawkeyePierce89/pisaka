@@ -411,6 +411,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The Welcome screen: its header, the two column cards, their rows
         // and the shortcut footer.
         "WelcomeView.swift",
+        // Part five (d): the shared two-pane split, its hairline divider and
+        // its drag strip, which replaces the platform's split views.
+        "ChromeSplitView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2593,6 +2596,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// equality so a scanner that stopped finding them fails instead of passing
     /// vacuously, and a new hand-rolled divider joins the rule deliberately.
     static let cursorPushingFunctions: Set<String> = [
+        "ChromeSplitView.swift: syncDividerCursor",
         "CommitLogView.swift: syncDivideCursor",
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",

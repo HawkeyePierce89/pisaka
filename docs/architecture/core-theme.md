@@ -219,6 +219,25 @@ two new geometry tokens) and each with its readers pinned by a gating
     (`CodeZoneCheckboxRuleTests`) pin the 13-pt reference, the 8- and 32-pt
     bounds, monotonicity, the glyph proportion within rounding, and that the
     file never mentions the metrics type at all.
+  - `SplitPaneRule.swift` — the shared split's one sizing decision: the extent
+    of the leading (or top) pane of a two-pane split, from that pane's
+    `minimum`, `ideal` and `maximum`, the trailing pane's `trailingMinimum`, the
+    extent the two panes share (`available`, the divider's strip already
+    deducted by the caller) and a drag translation. The ceiling is
+    `min(maximum, available - trailingMinimum)`; when it falls below `minimum`
+    the **trailing pane's minimum wins** and the leading pane is the one
+    squeezed, collapsing to zero rather than going negative, so the answer
+    always lies in `0...available`. `extent(base:dragTranslation:available:)`
+    adds the translation — the leading pane is before the divider, so rightward
+    or downward grows it — and a zero translation changes nothing, the
+    `BottomPanelHeightRule` shape. Non-finite inputs are guarded the same way
+    as that rule's: an unusable `available` collapses to zero, an unusable
+    translation leaves the base, a non-finite proposal falls back to the ideal,
+    and a non-finite or negative bound contributes nothing. Every value arrives
+    interface-scaled, so Core stays scale-agnostic. `SplitPaneRuleTests` pin the
+    one-to-one drag, the zero translation, both ends of the clamp, the
+    shortfall, the `0...available` bound over a sweep, and the degenerate
+    inputs.
   - `ChromeAppearance.swift` — `dark` / `light`, and no third value: the palette
     holds one dark and one light entry per role, so this is the whole question a
     colour resolution has to answer. `resolved(_:systemPrefersDark:)` maps a
@@ -2838,6 +2857,35 @@ temporary attribute on both halves under each appearance, samples the open
 bracket's cell off a rendered bitmap, and computes the six contrasts with
 `ContrastArithmetic`.
 
+#### The shared split — `ChromeSplitView.swift`
+
+The chrome's one two-pane split, the shape the four hand-drawn dividers
+already shared — the dock divider, the Markdown preview divider, the Log's
+list/detail divide and the database sidebar divide — stated once as a view,
+so the platform's split views, whose divider is the platform's separator
+colour and cannot be changed, have something to be replaced by. It joins the
+gated set, taking it from sixty-three to **sixty-four**, and spends no new
+role and no new token. Along a horizontal or vertical axis it lays out a
+leading pane, a clear 5-pt drag strip (scaled) with a `hairline` line of the
+scaled `hairlineWidth` centred in it, and a trailing pane taking what is left.
+The caller states the leading pane's minimum, ideal and maximum and the
+trailing pane's minimum, already scaled; every clamp, on screen and during the
+drag, is `SplitPaneRule`'s. The extent lives in `@State`, starting at the
+ideal, and is never re-clamped as the window shrinks, so an extent the window
+cannot grant comes back when it grows. The drag is measured in the window's
+space, captures the rendered extent as its base and writes nothing on its
+zero-translation opening frame — the dock divider's reasons. One flag drives
+the resize cursor's push and pop through `syncDividerCursor()`, and
+`.onDisappear` clears hover and drag state and calls it, so the file is the
+seventh entry in rule twenty-two's pinned set. The host applies no
+`.clipped()`, `.clipShape` or `.mask`: a clip is what cost the platform split's
+panes the window's top safe-area inset (`BottomDockColumn`). A three-pane
+layout nests a second split as the trailing pane. `ChromeSplitLayoutTests`
+renders both axes in both appearances and measures one `hairline` line of one
+hairline width between the panes, the leading pane at its ideal and the 5-pt
+strip, and at narrow widths the panes keeping their minimums and, when both
+cannot fit, the trailing pane's minimum winning.
+
 #### The terminal's ground and inset
 
 The design sets the terminal into its panel rather than edge to edge: a
@@ -3009,7 +3057,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — and the Welcome screen, `WelcomeView.swift`, one more: **sixty-three** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more: **sixty-four** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft

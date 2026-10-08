@@ -212,24 +212,24 @@ All six colours stay at or above 3:1 in both appearances.
 - Create: `Tests/PisakaCoreTests/SplitPaneRuleTests.swift`
 - Create: `Sources/Pisaka/ChromeSplitView.swift`
 - Create: `Tests/PisakaAppTests/ChromeSplitLayoutTests.swift`
-- [ ] Add a pure `SplitPaneRule` that clamps the extent of the leading (or top) pane:
+- [x] Add a pure `SplitPaneRule` that clamps the extent of the leading (or top) pane:
   - its inputs are that pane's minimum, ideal and maximum, the trailing pane's minimum, the available extent, and the drag translation;
   - when space runs short, the trailing pane's minimum wins;
   - a zero translation, as on the opening frame, changes nothing, the way `BottomPanelHeightRule` already behaves.
-- [ ] Test the rule: clamping at both ends, a shortfall of space, and a negative or oversized drag.
-- [ ] Add `ChromeSplitView`, a macOS two-pane split with a horizontal or vertical axis:
+- [x] Test the rule: clamping at both ends, a shortfall of space, and a negative or oversized drag.
+- [x] Add `ChromeSplitView`, a macOS two-pane split with a horizontal or vertical axis:
   - it draws a `hairline` line at the scaled `hairlineWidth` inside a clear 5-pt drag strip;
   - a `DragGesture` resizes the panes through `SplitPaneRule`;
   - one flag drives the cursor push and pop, and `.onDisappear` releases it (rule twenty-two);
   - the pane extent is held in `@State`, starting at the ideal;
   - the host applies no `.clipped()`, `.clipShape` or `.mask` (see Task 7 for why);
   - a three-pane layout nests two splits.
-- [ ] Add the file to `gatedFiles`, which takes the count from 63 to 64.
-- [ ] Add an app-bundle layout test through `HostedRender`:
+- [x] Add the file to `gatedFiles`, which takes the count from 63 to 64.
+- [x] Add an app-bundle layout test through `HostedRender`:
   - the divider draws `hairline` at one hairline width in both appearances;
   - the panes keep their minimums at a narrow width.
-- [ ] Add both files to `core-theme.md`'s lists and to `CLAUDE.md`'s index line.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] Add both files to `core-theme.md`'s lists and to `CLAUDE.md`'s index line.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass. (swift test and swiftlint clean; ChromeSplitLayoutTests passes in full. The app bundle's only failures are the same scale-1.8 layout tests noted in Tasks 1–5, unchanged and environmental.)
 
 ### Task 7: Part D — replace the four platform splits
 
