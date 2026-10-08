@@ -244,12 +244,12 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Build Release macOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
-- [ ] Build iOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
-- [ ] Confirm the new tests cover the Make and Markdown injection paths, every dark ANSI entry, and every new or changed app-layer branch.
+- [x] Run `swift test`. (6161 tests, 0 failures)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (272 tests; only the 8 pre-existing scale-1.8 layout assertion failures in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests, unchanged from HEAD before this work)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations)
+- [x] Build Release macOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
+- [x] Build iOS: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
+- [x] Confirm the new tests cover the Make and Markdown injection paths, every dark ANSI entry, and every new or changed app-layer branch.
 
 ### Task 8: Update documentation
 
