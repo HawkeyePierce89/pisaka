@@ -1074,14 +1074,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     marks whichever finishes `success`; a request issued before an injected
     layer finished parsing could land *after* the repaint that parse triggered
     and leave the fence plain (reproduced as a 1-in-8 flake of the fence test).
-    So a counter bumped by every styler invalidation and every character edit is
-    read on both sides of the await: a request that saw it change returns
-    `.noChange` and, one main-queue turn later — after the validator has
-    recorded the range valid — re-invalidates its range through the buffer.
-    **A detached highlighter starts nothing.** Detaching releases the object
-    and clears the storage's delegate, but the buffer, styler and client keep
-    each other alive through their closures and the text view is reused for
-    the next file. So both the re-queue and the buffer's invalidation handler
+    So two counters — character edits and styler invalidations, kept apart —
+    are read on both sides of the await, and a request that saw either change
+    returns `.noChange`. After an edit nothing more is owed: Neon's content
+    version moved, so the validator discards the answer and retries the range
+    itself. After an invalidation the request, one main-queue turn later —
+    after the validator has recorded the range valid — re-invalidates its range
+    through the buffer (the whole document instead, if an edit landed in that
+    turn and shifted the range). **The re-queue's own invalidation is not
+    counted**: it carries no new information, and counting it would let two
+    overlapping superseded requests cancel each other's re-queues indefinitely.
+    **A detached highlighter starts nothing and paints nothing.** Detaching
+    releases the object and clears the storage's delegate, but the buffer,
+    styler and client keep each other alive through their closures and the text
+    view is reused for the next file. So a request finishing after detach
+    answers `.noChange` — Neon would otherwise clear its range on the reused
+    view — and both the re-queue and the buffer's invalidation handler
     first check that the storage's delegate is still this highlighter's;
     otherwise a superseded request in flight at a tab switch would start a
     full-document request through the old grammar, whose stale-generation

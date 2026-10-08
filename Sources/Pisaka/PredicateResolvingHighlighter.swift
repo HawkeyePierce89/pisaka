@@ -114,19 +114,34 @@ final class PredicateResolvingHighlighter {
             // predicates, so the styler must always take the asynchronous one.
             syncValue: { _ in nil },
             mainActorAsyncValue: { range in
-                let requested = generation.value
+                let requestedEdits = generation.edits
+                let requestedInvalidations = generation.invalidations
                 let application = await resolving.async(range)
-                guard generation.value == requested else {
-                    // An invalidation or an edit landed while this request was
-                    // in flight. Neon runs overlapping requests concurrently and
-                    // marks whichever finishes `success`, so a request issued
-                    // before an injected layer finished parsing could land after
-                    // the repaint that parse caused and leave the block plain.
+                // A detached highlighter's late answer must not touch the
+                // reused text view, which may already hold the next file.
+                guard isAttached() else { return .noChange }
+                // An edit moved Neon's content version, so Neon discards this
+                // answer itself and leaves the range pending for its own retry.
+                guard generation.edits == requestedEdits else { return .noChange }
+                guard generation.invalidations == requestedInvalidations else {
+                    // An invalidation landed while this request was in flight.
+                    // Neon runs overlapping requests concurrently and marks
+                    // whichever finishes `success`, so a request issued before
+                    // an injected layer finished parsing could land after the
+                    // repaint that parse caused and leave the block plain.
                     // Paint nothing, and once the styler has recorded this
                     // range as valid, ask for it again — unless it was detached.
+                    // The re-queue is no new information, so it must not
+                    // supersede other requests in flight: two overlapping
+                    // re-queues would otherwise keep cancelling each other.
                     DispatchQueue.main.async {
                         guard isAttached() else { return }
-                        buffer.invalidate(.range(range))
+                        // An edit since this answer shifted the content under
+                        // `range`; restyle what is visible rather than guess.
+                        let target: RangeTarget = generation.edits == requestedEdits ? .range(range) : .all
+                        generation.isRequeueing = true
+                        buffer.invalidate(target)
+                        generation.isRequeueing = false
                     }
                     return .noChange
                 }
@@ -138,7 +153,9 @@ final class PredicateResolvingHighlighter {
 
         buffer.invalidationHandler = { target in
             guard isAttached() else { return }
-            generation.value += 1
+            if !generation.isRequeueing {
+                generation.invalidations += 1
+            }
             styler.invalidate(target)
             styler.validate()
         }
@@ -148,7 +165,7 @@ final class PredicateResolvingHighlighter {
             client.willChangeContent(in: range)
         }
         storageDelegate.didChangeContent = { range, delta in
-            generation.value += 1
+            generation.edits += 1
             let adjustedRange = NSRange(location: range.location, length: range.length - delta)
             client.didChangeContent(in: adjustedRange, delta: delta)
             styler.didChangeContent(in: adjustedRange, delta: delta)
@@ -209,11 +226,14 @@ final class PredicateResolvingHighlighter {
 #endif
 }
 
-/// Counts the styler's invalidations and the buffer's edits, so a highlight
-/// request can tell whether anything superseded it while it was in flight.
+/// Counts the buffer's edits and the styler's invalidations apart, so a
+/// highlight request can tell whether anything superseded it while it was in
+/// flight, and by which kind. A re-queue's own invalidation is not counted.
 @MainActor
 private final class StyleGeneration {
-    var value = 0
+    var edits = 0
+    var invalidations = 0
+    var isRequeueing = false
 }
 
 /// Forwards character edits — never attribute-only ones, which styling itself
