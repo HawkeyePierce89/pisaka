@@ -1034,6 +1034,49 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     resolve to `.plain`, and it draws variable names in string colour); every
     edit is listed in `Vendor/TreeSitterMake/VENDORED.md`, and
     `VendoredGrammarQueryTests` refuses a capture that resolves to `.plain`.
+  - `PredicateResolvingHighlighter.swift` (macOS + iOS) — the **one** syntax
+    highlighter every code view attaches: the macOS editor, the source viewer,
+    the diff panes, and on iOS the editor coordinator, the diff panes and the
+    merge panes. Six sites, one helper; none constructs Neon's
+    `TextViewHighlighter` any more, which `InjectedHighlightPredicateTests`
+    asserts over comment- and literal-stripped source, and
+    `SyntaxBaseForegroundGatingTests` keys its attaching-file set on this
+    type's name. It takes the root `LanguageConfiguration` and an attribute
+    provider; the injection resolver (`configuration(forInjectionName:)`) and the
+    `nil` location transformer are fixed inside it, so the sites differ in
+    nothing else.
+    **Why it exists.** The pinned Neon (484d6fb) answers a highlight request two
+    ways: `TreeSitterClient.highlightsProvider`'s async half runs the query and
+    then `resolve(with:)`, which evaluates `#match?`/`#eq?`/`#any-of?` and every
+    other predicate; its **sync** half returns the raw captures and skips that
+    step. The first paint goes async and was right; an injected sub-language's
+    sublayer finishes parsing later and was repainted through the sync half, as
+    was every range an edit invalidated. The symptom was the bash query's
+    `((command (_) @constant) (#match? @constant "^-"))` passing every child of
+    `command` — inside a Make recipe or a Markdown `sh` fence the command name,
+    the quoted string and `exit` all came out `constant`, and a standalone `.sh`
+    file did the same to the line being edited. No Neon revision (main, the
+    0.6.0 tag, the open branches, checked 2026-10-08) resolves predicates on that
+    path, so a pin bump was not available.
+    **What it does.** `TextViewHighlighter` builds its token provider privately,
+    and the sync output has already lost the pattern information a re-filter
+    would need, so the class reassembles the same parts from Neon's public API —
+    `TreeSitterClient`, `TextViewSystemInterface`, `TextSystemStyler`,
+    `RangeInvalidationBuffer`, its own `NSTextStorageDelegate` (Neon's is
+    internal) and the scroll observation (macOS bounds/frame notifications, iOS
+    `contentOffset` KVO) — and hands the styler a token provider whose **sync
+    half always declines**. Every request then goes through the resolving async
+    path, so the fix holds for any predicate kind, in any grammar, injected or
+    not. No remote package is patched or copied. The cost is one main-actor hop
+    between an invalidation and its restyle, the hop the first paint already
+    took.
+    **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
+    of one language as **one combined layer**, and a Make recipe line's
+    `shell_text` ends before its newline, so bash reads the end of one recipe
+    line and the start of the next as one word (`exit 1` + `echo` → `1echo`): the
+    first word of each continuation line loses its `function` capture. Fixing it
+    would need a query or remote-package change; the test pins the loss exactly
+    (`makeCombinedLayerLosses`) so it cannot change unnoticed.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →
     NSColor` table with light/dark variants, exposing `nsColor(for:)` (a dynamic,
     appearance-aware `NSColor`) for the attribute provider. The palette is **the

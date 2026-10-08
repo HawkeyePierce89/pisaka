@@ -18,15 +18,19 @@ import PisakaCore
 /// parsing after the first paint and is repainted through the sync path, so
 /// every child of `command` — the command name, the quoted string, `exit` —
 /// came out `constant`. A standalone `.sh` file hid it until its first edit.
+/// The fix is `PredicateResolvingHighlighter`, whose synchronous half always
+/// declines, so every paint resolves predicates; every attaching site uses it,
+/// which `testNoViewAttachesNeonsUnresolvingHighlighter` pins.
 ///
 /// **Only the app bundle can see this.** `PisakaCore` does not link tree-sitter
 /// or Neon, so no `swift test` suite can parse, inject or highlight anything;
 /// and executing a query directly (as `ShellSymbolQueryTests` does) would test a
 /// reimplementation rather than the path the editor paints through. So the
 /// captures here are read back off a real, hidden TextKit 1 `NSTextView` styled
-/// by the editor's own highlighter construction, built from
-/// `SyntaxLanguageConfiguration.configuration(for:)` and
-/// `configuration(forInjectionName:)` exactly as the editor builds it.
+/// by the editor's own `PredicateResolvingHighlighter`, built from
+/// `SyntaxLanguageConfiguration.configuration(for:)` (the injections resolve
+/// through `configuration(forInjectionName:)` inside it) exactly as the editor
+/// builds it.
 ///
 /// The fixtures are read through `#filePath`: they are source data about the
 /// queries, not resources the product ships. `injected-shell.sh` holds the shell
@@ -60,8 +64,22 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     func testAMakeRecipePaintsLikeTheStandaloneScript() async throws {
         let text = try fixture("injected-shell.mk")
         let painted = try await paint(text, as: .make)
-        try await assertMatchesStandalone(painted, text: text, label: "Make recipe")
+        try await assertMatchesStandalone(
+            painted, text: text, label: "Make recipe", combinedLayerLosses: Self.makeCombinedLayerLosses
+        )
     }
+
+    /// The one stated difference a Make recipe keeps, and not a predicate one:
+    /// SwiftTreeSitterLayer parses **every** injection of one language as one
+    /// combined layer (`LanguageLayer`'s grouping by name), and a recipe line's
+    /// `shell_text` ends before its newline, so bash reads `exit 1` and the next
+    /// line's `echo` as the single word `1echo`. The first word of each
+    /// continuation line therefore loses its `function` capture. Pinned exactly,
+    /// so a change in either direction fails here instead of hiding.
+    private static let makeCombinedLayerLosses: Set<Capture> = Set(
+        (0..<4).map { Capture(line: 1, column: $0, name: "function") }
+            + (0..<9).map { Capture(line: 2, column: $0, name: "function") }
+    )
 
     // MARK: - Markdown fence
 
@@ -75,6 +93,100 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         let text = try fixture("injected-shell.md")
         let painted = try await paint(text, as: .markdown)
         try await assertMatchesStandalone(painted, text: text, label: "Markdown fence")
+    }
+
+    // MARK: - Standalone script
+
+    /// The regression side of the fix: a standalone `.sh` file's first paint
+    /// was already right before it, and must stay exactly what it was — every
+    /// captured run, named.
+    func testAStandaloneScriptPaintsWhatItPaintedBeforeTheFix() async throws {
+        let text = try fixture("injected-shell.sh")
+        let painted = try await paint(text, as: .shell)
+        XCTAssertEqual(runs(of: painted, in: text), Self.standaloneRuns)
+    }
+
+    /// An edit repaints the edited range, which Neon's synchronous path did
+    /// without predicates: `swiftlint` and `lint` turned `constant`. The
+    /// rendezvous is the inserted flag's own `constant` capture, which every
+    /// path delivers.
+    func testAStandaloneScriptKeepsThePredicateAfterAnEdit() async throws {
+        let text = try fixture("injected-shell.sh")
+        let view = try await paintedView(text, as: .shell)
+        let storage = try XCTUnwrap(view.textView.textStorage)
+        let insertion = (text as NSString).range(of: "--strict").location
+        storage.replaceCharacters(in: NSRange(location: insertion, length: 0), with: "-x ")
+
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, view.captures()[insertion] != "constant" {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let painted = view.captures()
+        XCTAssertEqual(painted[insertion], "constant", "the inserted `-x` was never repainted")
+        let edited = view.textView.string as NSString
+        let lastLine = edited.range(of: "swiftlint lint -x --strict")
+        XCTAssertNotEqual(lastLine.location, NSNotFound)
+        let constants = runs(of: painted, in: view.textView.string)
+            .filter { $0.hasSuffix("=constant") }
+        XCTAssertEqual(constants, ["-v=constant", "-x=constant", "--strict=constant"])
+    }
+
+    /// What `testAStandaloneScriptPaintsWhatItPaintedBeforeTheFix` pins: the
+    /// fixture's captured runs in order, `<text>=<capture>`.
+    /// Only `-v` and `--strict` are `constant`; the second `swiftlint` and
+    /// `lint` are arguments the predicate leaves uncaptured.
+    private static let standaloneRuns: [String] = [
+        "command=function",
+        "-v=constant",
+        ">=operator",
+        "2=number",
+        "exit=function",
+        "echo=function",
+        "\"swiftlint is not installed\"=string",
+        "swiftlint=function",
+        "--strict=constant",
+    ]
+
+    /// The painted runs in order: each maximal stretch of one capture name,
+    /// spelled `<text>=<capture>`. Uncaptured text is skipped.
+    private func runs(of painted: [String?], in text: String) -> [String] {
+        let ns = text as NSString
+        var result: [String] = []
+        var start = 0
+        while start < painted.count {
+            var end = start + 1
+            while end < painted.count, painted[end] == painted[start] { end += 1 }
+            if let name = painted[start] {
+                result.append("\(ns.substring(with: NSRange(start..<end)))=\(name)")
+            }
+            start = end
+        }
+        return result
+    }
+
+    // MARK: - Every site goes through the resolving highlighter
+
+    /// No view constructs Neon's own `TextViewHighlighter`, whose synchronous
+    /// path skips predicates; every attaching site goes through
+    /// `PredicateResolvingHighlighter`. Read over comment- and literal-stripped
+    /// text, so a doc comment naming the type does not count.
+    func testNoViewAttachesNeonsUnresolvingHighlighter() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Pisaka")
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let code = SyntaxBaseForegroundGatingTests.strippingCommentsAndStringLiterals(
+                try String(contentsOf: url, encoding: .utf8)
+            )
+            if code.contains("TextViewHighlighter(") || code.contains("TextViewHighlighter.Configuration") {
+                offenders.append(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(offenders, [], "these files attach Neon's highlighter directly and lose every predicate")
     }
 
     // MARK: - Assertions
@@ -112,11 +224,17 @@ final class InjectedHighlightPredicateTests: XCTestCase {
 
     /// The injected block paints character for character what the standalone
     /// `.sh` paints, once each shell line is offset to where it sits in the
-    /// host (after a recipe's tab and `@`, or at a fence line's start).
+    /// host (after a recipe's tab and `@`, or at a fence line's start), except
+    /// for `combinedLayerLosses` — captures only the standalone script has.
+    ///
+    /// Names are compared as the editor reads them: through `SyntaxTokenKind`,
+    /// with `.plain` counted as uncaptured, so the Markdown host's `@none` over a
+    /// fence's content — painted plain — is not a difference.
     private func assertMatchesStandalone(
         _ painted: [String?],
         text: String,
         label: String,
+        combinedLayerLosses: Set<Capture> = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -134,10 +252,10 @@ final class InjectedHighlightPredicateTests: XCTestCase {
                               "\(label): the host fixture lost shell line \(index)", file: file, line: line)
             guard hostLine.location != NSNotFound else { continue }
             for column in 0..<(shellLine as NSString).length {
-                if let name = standalone[scriptStart + column] {
+                if let name = Self.paintedKind(standalone[scriptStart + column]) {
                     expected.insert(Capture(line: index, column: column, name: name))
                 }
-                if let name = painted[hostLine.location + column] {
+                if let name = Self.paintedKind(painted[hostLine.location + column]) {
                     injected.insert(Capture(line: index, column: column, name: name))
                 }
             }
@@ -145,6 +263,7 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         XCTAssertFalse(expected.isEmpty, "the standalone script painted nothing", file: file, line: line)
         // `XCTAssertTrue` rather than `XCTAssertEqual`: the two differences name
         // the failure; the two whole sets would bury it.
+        expected.subtract(combinedLayerLosses)
         XCTAssertTrue(injected == expected,
                       """
                       \(label): the injected shell lines paint differently from the standalone script. \
@@ -152,6 +271,13 @@ final class InjectedHighlightPredicateTests: XCTestCase {
                       only standalone: \(describe(expected.subtracting(injected)))
                       """,
                       file: file, line: line)
+    }
+
+    /// The kind the editor paints for a capture name, `nil` when it paints plain.
+    private static func paintedKind(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let kind = SyntaxTokenKind(captureName: name)
+        return kind == .plain ? nil : "\(kind)"
     }
 
     private struct Capture: Hashable {
@@ -177,6 +303,28 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     /// the wait fails loudly and the assertions then say what was painted
     /// instead.
     private func paint(_ text: String, as language: SyntaxLanguage) async throws -> [String?] {
+        try await paintedView(text, as: language).captures()
+    }
+
+    /// A hidden text view painted as `language`, settled on the same rendezvous
+    /// as `paint`, kept alive with its highlighter so a test can edit it.
+    private struct PaintedView {
+        let scrollView: NSScrollView
+        let textView: NSTextView
+        let highlighter: PredicateResolvingHighlighter
+
+        @MainActor
+        func captures() -> [String?] {
+            let layoutManager = textView.layoutManager
+            return (0..<(textView.string as NSString).length).map {
+                layoutManager?.temporaryAttribute(
+                    InjectedHighlightPredicateTests.captureKey, atCharacterIndex: $0, effectiveRange: nil
+                ) as? String
+            }
+        }
+    }
+
+    private func paintedView(_ text: String, as language: SyntaxLanguage) async throws -> PaintedView {
         let languageConfiguration = try XCTUnwrap(SyntaxLanguageConfiguration.configuration(for: language))
 
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 1200))
@@ -185,29 +333,22 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         scrollView.documentView = textView
         textView.string = text
 
-        let configuration = TextViewHighlighter.Configuration(
-            languageConfiguration: languageConfiguration,
-            attributeProvider: { token in [Self.captureKey: token.name] },
-            languageProvider: { name in
-                SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-            },
-            locationTransformer: { _ in nil }
+        let view = PaintedView(
+            scrollView: scrollView,
+            textView: textView,
+            highlighter: try PredicateResolvingHighlighter(
+                textView: textView,
+                languageConfiguration: languageConfiguration,
+                attributeProvider: { token in [Self.captureKey: token.name] }
+            )
         )
-        let highlighter = try TextViewHighlighter(textView: textView, configuration: configuration)
 
-        let layoutManager = try XCTUnwrap(textView.layoutManager)
-        let ns = text as NSString
-        let quoted = ns.range(of: "\"swiftlint is not installed\"")
-        func captures() -> [String?] {
-            (0..<ns.length).map {
-                layoutManager.temporaryAttribute(Self.captureKey, atCharacterIndex: $0, effectiveRange: nil) as? String
-            }
-        }
+        let quoted = (text as NSString).range(of: "\"swiftlint is not installed\"")
 
         let deadline = Date().addingTimeInterval(10)
         var settled = false
         while Date() < deadline {
-            let painted = captures()
+            let painted = view.captures()
             if (quoted.location..<NSMaxRange(quoted)).allSatisfy({ painted[$0] == "string" }) {
                 settled = true
                 break
@@ -220,8 +361,7 @@ final class InjectedHighlightPredicateTests: XCTestCase {
                 paint over it skipped the bash query's predicates
                 """)
         }
-        withExtendedLifetime(highlighter) {}
-        return captures()
+        return view
     }
 }
 #endif

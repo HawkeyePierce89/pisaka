@@ -128,22 +128,22 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 - Modify: `project.yml` + `Pisaka.xcworkspace/.../Package.resolved` (pin bump), or
 - Modify: `Sources/Pisaka/SyntaxLanguageConfiguration.swift` and/or the six highlighter call sites (workaround).
 
-- [ ] If an upstream Neon/SwiftTreeSitterLayer release carries the fix, bump the pin:
+- [x] If an upstream Neon/SwiftTreeSitterLayer release carries the fix, bump the pin (not applicable — Task 1 found no release carrying it; workaround taken):
   - change it in `project.yml`;
   - run `xcodegen generate` and regenerate `Package.resolved` through resolution, never by hand;
   - re-verify the SwiftTreeSitter branch-pin rationale comment;
   - keep `DependencyPinTests` and `LicenseCoverageTests` green.
-- [ ] Otherwise, add a documented Pisaka-side workaround that makes every highlight request resolve predicates against the buffer's text provider. Two possible shapes:
+- [x] Otherwise, add a documented Pisaka-side workaround that makes every highlight request resolve predicates against the buffer's text provider. Two possible shapes:
   - a highlights provider, or a `TextViewHighlighter` construction, that routes through the resolving path;
   - re-filtering the matches through `.resolve(with:)`.
-- [ ] Whichever shape the workaround takes, it must:
+- [x] Whichever shape the workaround takes, it must:
   - work for any predicate-carrying query (`#match?`, `#eq?`, `#any-of?` …), not just this bash pattern;
   - be shared by all six highlighter sites through one helper, not copied six times — this covers `MergeView_iOS` and `CodeEditorCoordinator_iOS` as well as the four other sites;
   - patch or copy no remote package.
-- [ ] If the fix introduces a new app file, give it an index entry in CLAUDE.md under `app-editor-overlays.md` and keep CLAUDE.md under 60,000 characters.
-- [ ] Run the Task 2 test; it must now pass.
-- [ ] Add a regression assertion that a standalone `.sh` file still produces the capture set it produced before the fix.
-- [ ] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
+- [x] If the fix introduces a new app file, give it an index entry in CLAUDE.md under `app-editor-overlays.md` and keep CLAUDE.md under 60,000 characters.
+- [x] Run the Task 2 test; it must now pass.
+- [x] Add a regression assertion that a standalone `.sh` file still produces the capture set it produced before the fix.
+- [x] Run `swift test`, the app bundle and `swiftlint --strict`; all must pass.
 
 ### Task 4: Enumerate injection reach and document Part A
 

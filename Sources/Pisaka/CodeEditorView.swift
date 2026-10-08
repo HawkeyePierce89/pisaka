@@ -6,7 +6,7 @@ import Neon
 import PisakaCore
 
 /// A monospaced code editor backed by `NSTextView` inside an `NSScrollView`,
-/// with tree-sitter syntax highlighting via Neon's `TextViewHighlighter`.
+/// with tree-sitter syntax highlighting via `PredicateResolvingHighlighter`.
 ///
 /// The text is driven by a SwiftUI `Binding`; user edits flow back through that
 /// binding so the workspace model can track dirty state.
@@ -270,7 +270,7 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
-        // Build the text view explicitly as TextKit 1. Neon's `TextViewHighlighter`
+        // Build the text view explicitly as TextKit 1. The Neon highlighter
         // supports both TextKit systems, but a fixed, known-good configuration
         // (matching Neon's own example) avoids any per-OS ambiguity about which
         // layout system `NSTextView.scrollableTextView()` would hand back.
@@ -295,8 +295,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainer?.replaceLayoutManager(overlayLayoutManager)
         assert(textView.layoutManager === overlayLayoutManager, "bracket overlay layout manager did not install")
         // Cmd+D → the coordinator's duplicate handler. The coordinator is captured
-        // *weakly*: it holds this text view only weakly itself, but Neon's
-        // `TextViewHighlighter` (which the coordinator owns strongly) keeps a
+        // *weakly*: it holds this text view only weakly itself, but the
+        // `PredicateResolvingHighlighter` (which the coordinator owns strongly) keeps a
         // strong `textView` reference, so a strong capture here would close the
         // cycle coordinator → highlighter → text view → closure → coordinator and
         // leak the whole editor (text storage, per-file undo managers, tree-sitter
@@ -1190,7 +1190,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// The active Neon highlighter. It installs itself as the text storage's
         /// delegate; replacing it (or setting it to `nil`) detaches the old one.
-        private var highlighter: TextViewHighlighter?
+        private var highlighter: PredicateResolvingHighlighter?
 
         /// Identifies the current highlighter so a superseded one can't restyle
         /// the reused text view. Each `rebuildHighlighter` advances it; every
@@ -3719,21 +3719,13 @@ struct CodeEditorView: NSViewRepresentable {
                 return [.foregroundColor: theme.nsColor(for: kind)]
             }
 
-            let configuration = TextViewHighlighter.Configuration(
-                languageConfiguration: languageConfiguration,
-                attributeProvider: attributeProvider,
-                // Resolve injected sub-languages (e.g. Markdown's `markdown_inline`
-                // for emphasis/links/code spans, fenced code blocks, embedded
-                // HTML/YAML). Without this, injections stay unhighlighted.
-                languageProvider: { name in
-                    SyntaxLanguageConfiguration.configuration(forInjectionName: name)
-                },
-                locationTransformer: { _ in nil }
-            )
-
             // A grammar that fails to start the parser degrades to plain text
             // rather than crashing the editor.
-            highlighter = try? TextViewHighlighter(textView: textView, configuration: configuration)
+            highlighter = try? PredicateResolvingHighlighter(
+                textView: textView,
+                languageConfiguration: languageConfiguration,
+                attributeProvider: attributeProvider
+            )
         }
     }
 }
