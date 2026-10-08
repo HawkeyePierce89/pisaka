@@ -1,11 +1,11 @@
-# A plausible project Makefile, written so that every decision
-# Resources/Queries/make/symbols.scm makes is exercised at least once:
-# ordinary targets are indexed (an ordinary dot-led file target included, and
-# every target of a multi-target or double-colon rule), special names (a dot
-# and capitals) and pattern (%) targets are not, a `$(VAR):` target is a
-# reference and not a name, and every variable definition shape is indexed
-# wherever it sits, including inside conditionals, under export/override/
-# private and as a target-specific assignment.
+# A plausible project Makefile exercising every decision symbols.scm makes:
+# ordinary targets are indexed (a dot-led file target, every target of a
+# multi-target or double-colon rule, a suffix-shaped target with prerequisites
+# or of a static-pattern rule); special names, prerequisite-less suffix rules,
+# pattern (%) targets and `$(VAR):` references are not; every variable shape
+# is indexed wherever it sits (conditionals, export/override/private, target-
+# specific, VPATH) unless it names a special variable, whatever defines it.
+#
 
 CC := cc
 CFLAGS ?= -O2
@@ -56,3 +56,33 @@ clean::
 
 .venv: requirements.txt
 	python3 -m venv $@
+
+.BUILD: build
+	touch $@
+
+VPATH = src
+
+.SUFFIXES: .c .o
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+
+.SHELLSTATUS := 0
+
+.lm.c:
+	lex -t $< > $@
+
+.yl:
+	touch $@
+
+.c.o: config.h
+
+.s.o: | out
+	$(AS) -o $@ $<
+
+.S.o: %.o: %.S
+	$(CC) -c $<
+
+.EXTRA_PREREQS != printf tools
+define .FEATURES
+none
+endef

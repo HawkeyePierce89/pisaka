@@ -190,20 +190,59 @@ final class SymbolQueryTests: XCTestCase {
 
     /// Make's predicates, pinned by their text: special targets (`.PHONY`),
     /// special variables (`.DEFAULT_GOAL`) and pattern targets (`%.o`) declare no
-    /// name the user would jump to, so the filters must stay on both captures.
-    /// The special shape is a dot followed by capitals and underscores only, so
-    /// an ordinary dot-led file target such as `.venv` stays indexed.
+    /// name the user would jump to, so the filters must stay on every capture.
+    /// Suffix rules (`.c.o`, recognized against GNU make's default suffix list)
+    /// are filtered only from a rule with no prerequisites: GNU make records
+    /// `.c.o: foo.h` as an explicit target as well as a suffix rule, and a
+    /// static-pattern rule applies to the targets it enumerates. The filters list
+    /// GNU make's special names exactly rather than their shape, so an ordinary
+    /// dot-led target such as `.venv` or `.BUILD` stays indexed.
     func testTheMakeQueryFiltersSpecialNamesAndPatternTargets() throws {
         let source = try querySource(for: .make)
-        XCTAssertTrue(source.contains("(#not-match? @definition.target \"^[.][A-Z_]+$|%\")"), """
-            The Make symbols query no longer filters special and pattern targets (or filters \
-            every dot-led target), so `.PHONY`, `.SUFFIXES` and `%.o` would be indexed as \
-            targets, or `.venv` would not be.
+        let specialTargets = [
+            "DEFAULT", "DELETE_ON_ERROR", "EXPORT_ALL_VARIABLES", "IGNORE", "INTERMEDIATE",
+            "LOW_RESOLUTION_TIME", "NOTINTERMEDIATE", "NOTPARALLEL", "ONESHELL", "PHONY", "POSIX",
+            "PRECIOUS", "SECONDARY", "SECONDEXPANSION", "SILENT", "SUFFIXES", "WAIT",
+        ].joined(separator: "|")
+        let defaultSuffixes = [
+            "out", "a", "ln", "o", "c", "cc", "C", "cpp", "p", "f", "F", "m", "r", "y", "l", "ym", "lm",
+            "s", "S", "mod", "sym", "def", "h", "info", "dvi", "tex", "texinfo", "texi", "txinfo", "w",
+            "ch", "web", "sh", "elc", "el",
+        ].joined(separator: "|")
+        let specialVariables = [
+            "DEFAULT_GOAL", "EXTRA_PREREQS", "FEATURES", "INCLUDE_DIRS", "LIBPATTERNS", "LOADED",
+            "RECIPEPREFIX", "SHELLFLAGS", "SHELLSTATUS", "VARIABLES",
+        ].joined(separator: "|")
+        let special = "^[.](\(specialTargets))$"
+        let suffixRule = "^([.](\(defaultSuffixes))){1,2}$"
+        let withPrerequisites = "(#not-match? @definition.target \"\(special)|%\"))"
+        for fields in ["target: (_)", "!target normal: (_)", "!target !normal order_only: (_)"] {
+            XCTAssertTrue(source.contains("""
+                ((rule (targets (word) @definition.target) \(fields))
+                 \(withPrerequisites)
+                """), """
+                The Make symbols query no longer filters special and pattern targets of a rule \
+                matching `\(fields)`, so `.PHONY` and `%.o` would be indexed as targets, or \
+                `.venv`/`.BUILD` would not be.
+                """)
+        }
+        XCTAssertTrue(source.contains("""
+            ((rule (targets (word) @definition.target) !target !normal !order_only)
+             (#not-match? @definition.target "\(special)|\(suffixRule)|%"))
+            """), """
+            The Make symbols query no longer filters special, suffix-rule and pattern targets \
+            of a prerequisite-less rule, so `.PHONY`, `.c.o` and `%.o` would be indexed as \
+            targets, or `.venv`/`.BUILD` would not be.
             """)
-        XCTAssertTrue(source.contains("(#not-match? @definition.variable \"^[.][A-Z_]+$\")"), """
-            The Make symbols query no longer filters special variables, so `.DEFAULT_GOAL` \
-            and `.RECIPEPREFIX` would be indexed as variables.
-            """)
+        for node in ["variable_assignment", "shell_assignment", "define_directive"] {
+            XCTAssertTrue(source.contains("""
+                ((\(node) name: (word) @definition.variable)
+                 (#not-match? @definition.variable "^[.](\(specialVariables))$"))
+                """), """
+                The Make symbols query no longer filters special variables defined through \
+                `\(node)`, so `.DEFAULT_GOAL` and `.RECIPEPREFIX` would be indexed as variables.
+                """)
+        }
     }
 
     // MARK: - Node names

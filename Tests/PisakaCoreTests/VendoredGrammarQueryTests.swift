@@ -266,7 +266,9 @@ final class VendoredGrammarQueryTests: XCTestCase {
     /// set — a spurious field would fail the check against `node-types.json` with
     /// a mismatch that does not exist, and a missing one leaves the hole this
     /// collection was added to close (`ts_query_new` answering
-    /// `TSQueryErrorField`, i.e. the language silently indexing nothing).
+    /// `TSQueryErrorField`, i.e. the language silently indexing nothing). A
+    /// *negated* field (`!normal`, "this field is absent") is validated the same
+    /// way, so it is collected too.
     func testScannerCollectsFieldNamesAndNothingElse() {
         let query = ParsedQuery(source: """
         ; A comment mentioning body: and name: in prose.
@@ -275,9 +277,10 @@ final class VendoredGrammarQueryTests: XCTestCase {
           body: (block (function_definition name: (identifier) @definition.method)))
         ((attribute (attribute_name) @_a) (#match? @_a "^id:$"))
         (source_file (_ (pattern) @definition.variable))
+        (rule (targets) @definition.target !order_only)
         """)
 
-        XCTAssertEqual(query.fieldNames, ["name", "body"])
+        XCTAssertEqual(query.fieldNames, ["name", "body", "order_only"])
         XCTAssertEqual(query.anonymousNodes, [])
         XCTAssertTrue(query.namedNodes.contains("class_declaration"))
         XCTAssertFalse(query.namedNodes.contains("_"))

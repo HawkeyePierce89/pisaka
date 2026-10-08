@@ -92,6 +92,47 @@ Written **in this repository**, not upstream:
     (`debug: CFLAGS += -O0`). These are `variable_assignment` nodes, not `rule`
     nodes, so upstream left their target and `:` uncoloured. They get
     `@function`/`@operator`, the same as an ordinary rule.
+  - Added `"sinclude"` to the `include_directive` keyword alternatives. The
+    grammar parses GNU make's `-include` alias as an `include_directive`, and
+    without it in the list the whole pattern failed to match, so neither the
+    keyword nor its filenames were coloured. The keyword and the filenames are
+    also split into two patterns: upstream's single pattern required a bare
+    `word` filename, so `include $(DEPS)` or `sinclude $(wildcard *.mk)` left
+    the keyword plain. Executed by `MakeSymbolQueryTests` in the app-layer
+    bundle.
+  - Replaced `"!="` with `"+="` in the `define_directive` operator
+    alternatives: `node-types.json` declares `+=` and not `!=` for that node.
+  - Added two patterns for `VPATH_assignment` and `RECIPEPREFIX_assignment`.
+    Their names are anonymous tokens, not a `word`, so upstream's
+    `variable_assignment` patterns never matched them and both stayed
+    uncoloured. The name is `@variable.builtin` and the operator `@operator`.
+    `VPATH` is also added to the three special-variable `#any-of?` lists, since
+    `override VPATH = …` and `define VPATH` parse its name as an ordinary
+    `word`. Executed by `MakeSymbolQueryTests` in the app-layer bundle.
+  - Known grammar limit, not fixable in a query: the parser hardcodes the
+    recipe prefix to a tab (`_recipeprefix`, an upstream `TODO external parser
+    for .RECIPEPREFIX`), so after `.RECIPEPREFIX = >` a `>`-prefixed line is
+    not a `recipe_line`, gets no Bash injection and may parse as an `ERROR`.
+    The assignment itself is coloured; honouring it needs an external scanner,
+    which this fork deliberately does not add (`src/parser.c` stays verbatim).
+    Likewise `VPATH != …` at a line start lexes `VPATH` as the dedicated
+    node's keyword and does not parse as a `shell_assignment`.
+  - Added `.NOTINTERMEDIATE` and `.WAIT` to the special-target `#any-of?`, and
+    `.LIBPATTERNS`, `.LOADED` and `.SHELLSTATUS` to the special-variable one, so
+    both lists match the names `Resources/Queries/make/symbols.scm` refuses to
+    index. Added two patterns drawing `.WAIT` as `@function.builtin` among a
+    rule's prerequisites, where it is ordinarily written — one for an ordinary
+    rule's `prerequisites`, one for a static-pattern rule's
+    `prerequisite: (pattern_list)`. Added two patterns applying the
+    special-variable list to `shell_assignment` and `define_directive` names,
+    because `.EXTRA_PREREQS != …` and `define .FEATURES` set a special variable
+    as surely as `:=` does and the symbols query filters all three forms alike.
+    All of these are executed by `MakeSymbolQueryTests` in the app-layer bundle.
+  - Added three patterns capturing `vpath`, `undefine` and `private` as
+    `@keyword`. The grammar parses each into a node of its own
+    (`vpath_directive`, `undefine_directive`, `private_directive`), but
+    upstream's query gave none of them a capture, so the keyword stayed plain
+    text. Executed by `MakeSymbolQueryTests` in the app-layer bundle.
 
   Everything else is upstream's text: patterns, predicates (`#eq?`,
   `#any-of?`, `#set! priority`) and the commented-out `":::="` lines. All three
@@ -126,13 +167,18 @@ text.
 Last run: 2026-10-08, against the vendored grammar at the SHA in the Upstream
 table, using the recipe below.
 
-The query **compiles**: 24 patterns and 12 capture names, of which 11 are
+The query **compiles**: 34 patterns and 12 capture names, of which 11 are
 emitted plus the auxiliary `@_target` that the `.PHONY` pattern's predicate
 reads. The injection query compiles too. Both fixtures parse with no `ERROR`
 node.
 
 Every row of both tables below was witnessed as the **effective** capture at
-that element. "Effective" means the last of SwiftTreeSitter's `highlights()`,
+that element. The captures added after this run — `vpath`, `undefine` and
+`private`, the special-variable list on `!=` and `define` names, `.WAIT` among
+prerequisites, and the include keyword ahead of a non-`word` filename — are
+**not** in either fixture; they are verified instead by the runtime tests in
+`Tests/PisakaAppTests/MakeSymbolQueryTests.swift`, which execute the query
+against the vendored grammar with predicates resolved. "Effective" means the last of SwiftTreeSitter's `highlights()`,
 which sorts less-specific captures before more-specific ones; Neon applies them
 in that order, so the last one is what gets drawn. Every observed name resolved
 through `SyntaxTokenKind(captureName:)` to the table's kind and none to `.plain`.
@@ -191,6 +237,7 @@ lint:
 ```make
 include config.mk
 -include local.mk
+sinclude extra.mk
 export PATH
 override CFLAGS += -O2
 SRCS := $(wildcard src/*.c)
@@ -223,22 +270,29 @@ app: $(OBJS)
 
 NUM := $(intcmp 1,2,lt)
 .SUFFIXES:
+
+VPATH = src
+.RECIPEPREFIX = >
+define FOOTER +=
+done
+endef
 ```
 
 ### Confirmed captures (fixture B)
 
 | Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
 |---|---|---|---|
-| `include`, `-include`, `export` | anonymous keywords | `@keyword.import` | `.keyword` |
-| `config.mk`, `local.mk` | `word` in `include_directive` `filenames:` | `@string.special.path` | `.string` |
-| `override` | anonymous `"override"` | `@keyword` | `.keyword` |
+| `include`, `-include`, `sinclude`, `export` | anonymous keywords | `@keyword.import` | `.keyword` |
+| `config.mk`, `local.mk`, `extra.mk` | `word` in `include_directive` `filenames:` | `@string.special.path` | `.string` |
+| `override` | anonymous keyword | `@keyword` | `.keyword` |
 | `ifeq`, `else`, `endif`, `ifdef` | anonymous keywords in `conditional` | `@keyword.conditional` | `.keyword` |
 | `define`, `endef` | anonymous keywords in `define_directive` | `@keyword` | `.keyword` |
 | `CFLAGS`, `SRCS`, `OBJS`, `CC` (also inside `ifeq`), `NUM` | `variable_assignment` `name:` | `@variable` | `.variable` |
 | `HASH` | `shell_assignment` `name:` | `@variable` | `.variable` |
-| `BANNER` | `define_directive` `name:` | `@variable` | `.variable` |
+| `BANNER`, `FOOTER` | `define_directive` `name:` | `@variable` | `.variable` |
+| `VPATH`, `.RECIPEPREFIX` | anonymous name token in `VPATH_assignment` / `RECIPEPREFIX_assignment` | `@variable.builtin` | `.variable` |
 | `MAKEFLAGS` | `word` in `variable_assignment` (`#any-of?`) | `@variable.builtin` | `.variable` |
-| `+=`, `:=`, `=`, `?=`, `!=` | anonymous operators | `@operator` | `.operator` |
+| `+=`, `:=`, `=`, `?=`, `!=` (incl. `define FOOTER +=` and the `VPATH`/`.RECIPEPREFIX` `=`) | anonymous operators | `@operator` | `.operator` |
 | `wildcard`, `patsubst`, `shell`, `intcmp` | anonymous function names | `@function.builtin` | `.function` |
 | `$(` / `)` of function calls and references | anonymous `"$"`/`"("`/`")"` | `@operator` | `.operator` |
 | `SRCS`, `OS`, `CC`, `CFLAGS`, `OBJS` in `$(…)` | `word` in `variable_reference` | `@variable` | `.variable` |

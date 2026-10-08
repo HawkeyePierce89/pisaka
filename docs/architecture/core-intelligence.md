@@ -1962,19 +1962,46 @@ EditorConfig's query follows the shared convention and captures the section head
 Make's query (grammar `Vendor/TreeSitterMake`, the fifth vendored grammar, pinned
 at `70613f3d…`) follows the shared convention and makes two decisions.
 
-**Rule targets are `.target`, minus special and pattern targets.** A `word` inside
-a `rule`'s `targets` is captured as `@definition.target`, filtered by
-`(#not-match? @definition.target "^[.][A-Z_]+$|%")`. `.PHONY`, `.SUFFIXES` and
-the other special targets are directives to make rather than names the user
+**Rule targets are `.target`, minus special, suffix-rule and pattern targets.** A
+`word` inside a `rule`'s `targets` is captured as `@definition.target`, filtered by
+`(#not-match? @definition.target "^[.](DEFAULT|…|WAIT)$|…|%")`, the first
+alternation listing GNU make's seventeen special targets by name. `.PHONY`,
+`.SUFFIXES` and the rest are directives to make rather than names the user
 declared, and a pattern rule's `%.o` declares no name at all; without the
-predicate both would fill ⌃⌘J. The filter is GNU make's special-name *shape* —
-a dot followed by capitals and underscores only — not "any leading dot", because
-ordinary file targets start with a dot too (`.venv`, `.build/app`) and are real
-names a user jumps to; the fixture indexes `.venv` to hold that line. The same
-shape filters `variable_assignment` names (`#not-match? @definition.variable`),
-so the special variables `.DEFAULT_GOAL`, `.RECIPEPREFIX` and `.SHELLFLAGS` stay
-out of ⌃⌘J as well; `shell_assignment` and `define_directive` carry no filter,
-since nothing special is spelled through them. This makes Make the **second
+predicate both would fill ⌃⌘J. The filter is the *exact* list, not "any leading
+dot" and not the dot-and-capitals shape, because make gives special meaning only
+to those names: ordinary file targets start with a dot too (`.venv`,
+`.build/app`), and so can an ordinary phony-style target spelled in capitals
+(`.BUILD`); both are real names a user jumps to, and the fixture indexes `.venv`
+and `.BUILD` to hold that line.
+
+Suffix rules (`.c.o:`, `.c:`) are filtered too, but **only from a rule with no
+prerequisites at all**. A prerequisite-less suffix rule is an implicit rule
+equivalent to `%.o: %.c` and, like a pattern rule, declares no concrete name. One
+with prerequisites does: GNU make records every target as a file in `record_files`
+and its 4.3 NEWS states that a suffix rule with prerequisites is treated *both* as
+an explicit target and as a pattern rule outside `.POSIX` (and as an explicit
+target only under it), so `.c.o: config.h` and `.s.o: | out` are real navigation
+destinations. A static-pattern rule (`.S.o: %.o: %.S`) always applies to the
+targets it enumerates, so its targets are kept as well. The query therefore has
+four target patterns, disjoint on which prerequisite fields are present — `target:`
+(static pattern); `!target normal:`; `!target !normal order_only:`; and
+`!target !normal !order_only` — so a target is captured once, and only the last
+carries the suffix alternation `^([.](out|…|el)){1,2}$`. A query cannot read the
+Makefile's `.SUFFIXES`, so a target counts as a suffix rule when it is one or two
+suffixes from GNU make's *default* suffix list — the filter's honest horizon: a
+suffix a Makefile adds itself is not recognized, and a prerequisite-less `.c.o`
+file target in a Makefile that cleared the defaults is still filtered. The fixture
+holds every line: `.c.o:` and `.lm.c:` are filtered (`.lm` is a default suffix;
+`.yl` is not, and `.yl:` stays indexed), while `.c.o: config.h`, `.s.o: | out`
+and `.S.o: %.o: %.S` are indexed.
+
+The same approach filters variable names against the dot-led special variables —
+`.DEFAULT_GOAL`, `.EXTRA_PREREQS`, `.FEATURES`, `.INCLUDE_DIRS`, `.LIBPATTERNS`,
+`.LOADED`, `.RECIPEPREFIX`, `.SHELLFLAGS`, `.SHELLSTATUS`, `.VARIABLES` — on all
+three definition forms, `variable_assignment`, `shell_assignment` (`!=`) and
+`define_directive`, since `.DEFAULT_GOAL != …` and `define .DEFAULT_GOAL` set the
+special variable as surely as `:=` does. This makes Make the **second
 predicate-bearing symbols query** after HTML's `id` filter, so
 `SymbolQueryTests` pins the exact map `{html: [match?], make: [not-match?]}`
 rather than "HTML alone", and `SymbolExtractor`'s doc comment names both. A
@@ -1988,7 +2015,11 @@ nested under an `ifeq`/`ifdef` block (a `conditional` node) is as global as one
 at the top, so anchoring at the root would silently drop every conditionally
 defined variable. A target-specific assignment (`test: CFLAGS += -g`) is a
 top-level `variable_assignment` too and is indexed: it is a real definition
-site, and ⌃⌘J already lists several definitions of one name.
+site, and ⌃⌘J already lists several definitions of one name. `VPATH` is indexed
+too, through a pattern of its own: the grammar parses it as a dedicated
+`VPATH_assignment` whose name is an anonymous `"VPATH"` token rather than a
+`word`, so none of the three variable patterns above sees it. It is indexed like `SHELL`
+or `MAKEFLAGS`, which are ordinary assignments.
 
 The static half is `SymbolQueryTests`' node/field tables; the runtime half is
 `MakeSymbolQueryTests` (below), which executes the query and so proves the
