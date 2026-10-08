@@ -339,6 +339,49 @@ items, and applies the three scales to views.
     pins it in both directions, because every one of those four files stays in
     the surface list above even after regressing to a plain `NSScrollView`.
 
+    **`CodeScrollView` carries one behaviour beyond its marker: it keeps the
+    document clear of the gutter.** On macOS 26+ AppKit no longer tiles a
+    vertical ruler by narrowing the clip view's frame; it hands the ruler's
+    thickness to the clip view as a leading `contentInsets.left`, which moves the
+    document's home to a bounds origin of `-contentInsets.left`. The framework
+    applies that inset inside `NSScrollView.tile()` and leaves the origin at 0,
+    so every code pane opened one gutter's width right of home, its first columns
+    under the ruler. The fix lives in `tile()` because that is the one place the
+    inset is applied, and no app scroll runs before it to put things right. The
+    alternatives were ruled out one by one: the app's scroll paths
+    (`scrollEditor(to:)`, the viewport restore, the scroll anchor, the reveal) run
+    for only some panes and only some of the time, and a ruler-thickness change
+    on a digit boundary or a blame toggle runs none of them; the inset setter
+    sees the origin before the framework has decided anything about it; a second
+    `tile()` changes nothing, the inset being already applied and the origin left
+    where it was; and `automaticallyAdjustsContentInsets = false` keeps the clip
+    view at full width *under* the ruler, so the overlap stays and merely stops
+    being correctable.
+
+    The override reads the old inset and the origin **before** `super.tile()`
+    and counts the pane as at home when `origin.x <= -oldInset` — at *or left of*
+    its old home, because when the inset shrinks the framework can clamp the view
+    left of where the old home was, and that pane is still the one the user left
+    at home. After `super.tile()` it reads the new inset; only when the inset
+    changed **and** the pane was at home does it scroll the clip view to
+    `x = -newInset`, keeping y, and reflect the scroll to the scrollers. A user's
+    horizontal offset is never re-homed. Where the framework tiles by frame the
+    inset stays 0, so home is 0 and the inset never changes; the completion
+    panel has no ruler, so its inset is always 0 — in both the branch is inert.
+    The invariant, across every code pane: **after every tile, a pane at home
+    sits at `x == -contentInsets.left`.** `CodeScrollViewHomeTests` (the app
+    bundle) pins it — first tile, a widened ruler and a narrowed one (each keeping
+    the vertical position), a document narrower than the pane (where the
+    framework's clamp already lands home and the correction must leave it), the
+    ruler-less shape — and that a pane scrolled right is not sent home. That last assertion
+    is deliberately weaker than exact preservation of the origin (the offset from
+    home shrinks by at most the inset's own change): what the framework does to a
+    scrolled view's origin when its inset changes is the framework's, and differs
+    between frame tiling and inset tiling; the property this type owns is only
+    that a scrolled pane is never re-homed. The suite pins the invariant rather
+    than the mechanism, so it is green under both tilings, and on macOS 26+ it
+    fails with the correction removed.
+
     `ZoomSurfaceMarker` is the `NSViewRepresentable` for the surfaces that
     draw at the code font with no `NSTextView` behind them — the Find in Files
     result rows, the LeetCode statement's `WKWebView` body, the commit
