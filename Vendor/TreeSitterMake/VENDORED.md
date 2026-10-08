@@ -69,8 +69,33 @@ Written **in this repository**, not upstream:
   vendored grammars (`TreeSitterGitignore` is the reference).
 - `bindings/swift/TreeSitterMake/make.h` — the C entry-point declaration
   (`tree_sitter_make()`).
-- `queries/highlights.scm` — the highlight query, adapted from upstream's (see
-  the Verification section for what changed and why).
+- `queries/highlights.scm` — the highlight query, **adapted** from upstream's
+  `queries/highlights.scm` at the pinned commit. Upstream's file cannot be used
+  verbatim, and every departure is marked `; EDIT:` in the file:
+  - `@spell` dropped from `(comment)`, because it has no `SyntaxTokenKind` and
+    resolves to `.plain`.
+  - Automatic variables (`$@`, `$<`, `$^`, …): `@character.special` →
+    `@variable.builtin`. The upstream name resolves to `.plain`.
+  - The recipe's `@` echo-suppression prefix: `@character.special` →
+    `@operator`, for the same reason.
+  - Names in `variable_assignment`, `shell_assignment` and `define_directive`:
+    `@string.special.symbol` → `@variable`.
+  - In `$(NAME)` references, upstream captured the name as `@string` ("to match
+    bash") and the whole node as `@operator`. Here the name is `@variable` and
+    only the delimiters `$`, `$$`, `(`, `)`, `{`, `}` are `@operator`, so the two
+    captures no longer overlap. Upstream's two string captures would have drawn
+    every variable in string colour.
+  - Added `intcmp`, `let` and `guile` to the `@function.builtin` list. The pinned
+    `grammar.js` declares them in `FUNCTIONS`, but upstream's query list was
+    never updated.
+  - Added one pattern for target-specific assignments
+    (`debug: CFLAGS += -O0`). These are `variable_assignment` nodes, not `rule`
+    nodes, so upstream left their target and `:` uncoloured. They get
+    `@function`/`@operator`, the same as an ordinary rule.
+
+  Everything else is upstream's text: patterns, predicates (`#eq?`,
+  `#any-of?`, `#set! priority`) and the commented-out `":::="` lines. All three
+  predicates are implemented by the pinned SwiftTreeSitter.
 - This file.
 
 ### Third-party code inside the vendored tree
@@ -98,7 +123,181 @@ text.
 
 ## Verification
 
-To be filled in when `queries/highlights.scm` is authored.
+Last run: 2026-10-08, against the vendored grammar at the SHA in the Upstream
+table, using the recipe below.
+
+The query **compiles**: 24 patterns and 12 capture names, of which 11 are
+emitted plus the auxiliary `@_target` that the `.PHONY` pattern's predicate
+reads. The injection query compiles too. Both fixtures parse with no `ERROR`
+node.
+
+Every row of both tables below was witnessed as the **effective** capture at
+that element. "Effective" means the last of SwiftTreeSitter's `highlights()`,
+which sorts less-specific captures before more-specific ones; Neon applies them
+in that order, so the last one is what gets drawn. Every observed name resolved
+through `SyntaxTokenKind(captureName:)` to the table's kind and none to `.plain`.
+The one exception is `_target`, which Neon draws over the whole `.PHONY`
+targets node before the finer `@function.builtin` replaces it.
+
+Recipe bodies were reported as `bash` injections. So were `$(shell …)` and `!=`
+right-hand sides, and the app resolves `bash` to the shell grammar.
+
+Uncaptured non-whitespace outside the injected shell: 25 offsets in fixture A,
+93 in fixture B. **All of them are deliberately plain text**, as upstream
+leaves them too: assignment values (`Pisaka`, `platform=macOS`, `-O2`),
+function arguments (`src/*.c`, `%.c,%.o,`), `ifeq` operands and the variable
+after `ifdef`/`export`, the body of a `define`, and the prerequisites of
+ordinary rules (`build` in `test: build`; `.PHONY`'s prerequisites *are*
+coloured). Make has no literal syntax that tells a value from a word, so
+colouring these would be guessing.
+
+### Fixture A
+
+```make
+# Build helpers
+.PHONY: build test lint
+
+SCHEME = Pisaka
+DEST ?= platform=macOS
+
+build:
+	xcodebuild -scheme $(SCHEME) -destination '$(DEST)' build
+
+test: build
+	@swift test
+
+lint:
+	swiftlint --strict
+```
+
+### Confirmed captures (fixture A)
+
+| Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
+|---|---|---|---|
+| `# Build helpers` | `comment` | `@comment` | `.comment` |
+| `.PHONY` | `word` in `targets` (special-target `#any-of?`) | `@function.builtin` | `.function` |
+| `build`, `test`, `lint` after `.PHONY:` | `word` in `prerequisites` (`#eq? @_target ".PHONY"`) | `@function` | `.function` |
+| `build:`, `test:`, `lint:` targets | `word` in `targets` | `@function` | `.function` |
+| `:` in rules | anonymous `":"` in `rule` | `@operator` | `.operator` |
+| `SCHEME`, `DEST` | `variable_assignment` `name:` | `@variable` | `.variable` |
+| `=`, `?=` | anonymous operator in `variable_assignment` | `@operator` | `.operator` |
+| `$(` / `)` in `$(SCHEME)` | anonymous `"$"`/`"("`/`")"` in `variable_reference` | `@operator` | `.operator` |
+| `SCHEME`, `DEST` in references | `word` in `variable_reference` | `@variable` | `.variable` |
+| `@` before `swift test` | anonymous `"@"` in `recipe_line` | `@operator` | `.operator` |
+| recipe bodies | `shell_text` | injected `bash` | (shell grammar) |
+
+### Fixture B
+
+```make
+include config.mk
+-include local.mk
+export PATH
+override CFLAGS += -O2
+SRCS := $(wildcard src/*.c)
+OBJS = $(patsubst %.c,%.o,$(SRCS))
+HASH != git rev-parse HEAD
+MAKEFLAGS += --no-builtin-rules
+
+ifeq ($(OS),Darwin)
+  CC := clang
+else
+  CC ?= gcc
+endif
+
+ifdef DEBUG
+CFLAGS += -g
+endif
+
+define BANNER =
+built $(HASH)
+endef
+
+debug: CFLAGS += -O0
+
+%.o: %.c | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+app: $(OBJS)
+	$(CC) -o $@ $^ \
+	  $(shell pkg-config --libs zlib)
+
+NUM := $(intcmp 1,2,lt)
+.SUFFIXES:
+```
+
+### Confirmed captures (fixture B)
+
+| Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
+|---|---|---|---|
+| `include`, `-include`, `export` | anonymous keywords | `@keyword.import` | `.keyword` |
+| `config.mk`, `local.mk` | `word` in `include_directive` `filenames:` | `@string.special.path` | `.string` |
+| `override` | anonymous `"override"` | `@keyword` | `.keyword` |
+| `ifeq`, `else`, `endif`, `ifdef` | anonymous keywords in `conditional` | `@keyword.conditional` | `.keyword` |
+| `define`, `endef` | anonymous keywords in `define_directive` | `@keyword` | `.keyword` |
+| `CFLAGS`, `SRCS`, `OBJS`, `CC` (also inside `ifeq`), `NUM` | `variable_assignment` `name:` | `@variable` | `.variable` |
+| `HASH` | `shell_assignment` `name:` | `@variable` | `.variable` |
+| `BANNER` | `define_directive` `name:` | `@variable` | `.variable` |
+| `MAKEFLAGS` | `word` in `variable_assignment` (`#any-of?`) | `@variable.builtin` | `.variable` |
+| `+=`, `:=`, `=`, `?=`, `!=` | anonymous operators | `@operator` | `.operator` |
+| `wildcard`, `patsubst`, `shell`, `intcmp` | anonymous function names | `@function.builtin` | `.function` |
+| `$(` / `)` of function calls and references | anonymous `"$"`/`"("`/`")"` | `@operator` | `.operator` |
+| `SRCS`, `OS`, `CC`, `CFLAGS`, `OBJS` in `$(…)` | `word` in `variable_reference` | `@variable` | `.variable` |
+| `debug` / `:` in `debug: CFLAGS += -O0` | `word` in `target_or_pattern:` / anonymous `":"` | `@function` / `@operator` | `.function` / `.operator` |
+| `%.o` target, `\|` | `word` in `targets` / anonymous `"\|"` | `@function` / `@operator` | `.function` / `.operator` |
+| `$` / `<`, `@`, `^` in `$<`, `$@`, `$^` | `automatic_variable` | `@operator` / `@variable.builtin` | `.operator` / `.variable` |
+| `.SUFFIXES` | `word` in `targets` (special-target `#any-of?`) | `@function.builtin` | `.function` |
+| recipe bodies, `$(shell …)` body, `!=` value | `shell_text` / `shell_command` | injected `bash` | (shell grammar) |
+
+### How to re-run it
+
+**1. Static cross-check.** This step is automated and runs on every
+`swift test` (see 3), but run it first anyway because it is cheap. Every node
+name, anonymous literal and field used in `queries/highlights.scm` and
+`queries/injections.scm` must appear in `src/node-types.json` **under the
+matching `named` flag**.
+
+**2. The harness.** Create a throwaway SwiftPM package in a temp directory and
+do **not** commit it. Give it an executable target that depends on:
+
+- `.package(path: "<repo>/Vendor/TreeSitterMake")` → product `TreeSitterMake`
+- `.package(path: "<DerivedData>/SourcePackages/checkouts/SwiftTreeSitter")` →
+  product `SwiftTreeSitter`
+- `.package(path: "<DerivedData>/SourcePackages/checkouts/tree-sitter")`,
+  declared but unused
+- `.package(path: "<repo>")` → product `PisakaCore`, for
+  `SyntaxTokenKind(captureName:)`
+
+The program does the following:
+
+1. Build `Language(language: tree_sitter_make())`.
+2. Load both `queries/highlights.scm` and `queries/injections.scm` with
+   `try Query(language:data:)`. A compile failure here is the loud version of
+   the app's silent plain-text fallback, so exit non-zero on one.
+3. Parse each fixture and report any `ERROR` node.
+4. Run `query.execute(in: tree).resolve(with: Predicate.Context(string:))`, so
+   that the `#eq?` and `#any-of?` predicates are evaluated rather than ignored.
+5. Collect `highlights()` and `injections()`.
+6. Assign each UTF-16 offset the **last** highlight covering it, and print the
+   runs with each name's `SyntaxTokenKind`.
+7. Print the injected ranges.
+8. Print every non-whitespace offset that no highlight covers and that lies
+   outside an injected range.
+
+Compare the output against the tables above, and classify every uncaptured
+offset as one of the deliberately-plain cases listed above.
+
+Delete the temp package afterwards. `swift test` automates only the static
+half of this procedure.
+
+**3. The Core pin.** This part is automated and runs on every `swift test`.
+`Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift` reads this package's
+files through `#filePath` and asserts:
+
+- every node name, literal and field in both query files is declared;
+- the emitted capture set equals the expected set exactly, with each name
+  non-`.plain`;
+- the auxiliary set is `{_target}`;
+- none of upstream's replaced capture names has come back with a re-copy.
 
 ## Update procedure
 

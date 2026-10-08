@@ -291,25 +291,25 @@ variable definitions. There is no LSP server and no provisioning entry.
 - Modify: `Vendor/TreeSitterMake/VENDORED.md`,
   `Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift`
 
-- [ ] Author `queries/highlights.scm` adapted from upstream at the pin. Each edit is
+- [x] Author `queries/highlights.scm` adapted from upstream at the pin. Each edit is
   marked in the file and listed in `VENDORED.md`:
   - drop `@spell`
   - automatic variables (`$@`, `$<`, …) → `@variable.builtin`
   - recipe `@` prefix → `@operator`
   - assignment/define names → `@variable`
   - `variable_reference` word → `@variable`, keeping `$`/`(`/`)` as `@operator`
-- [ ] Keep these from upstream: `@comment`, `@keyword*`, `@function` (targets and
+- [x] Keep these from upstream: `@comment`, `@keyword*`, `@function` (targets and
   `.PHONY` prerequisites), `@function.builtin`, `@operator`, `@string.special.path`
   (include filenames), `@variable.builtin`, `@punctuation.special`.
-- [ ] Every capture must resolve to a non-`.plain` `SyntaxTokenKind` with no change to
+- [x] Every capture must resolve to a non-`.plain` `SyntaxTokenKind` with no change to
   Core's map. State in the header comment that both failure modes are silent.
-- [ ] Extend `VendoredGrammarQueryTests` with the make pair:
+- [x] Extend `VendoredGrammarQueryTests` with the make pair:
   - node names and literals declared under the matching `named` flag
   - the emitted (non-auxiliary) capture set by equality, each non-`.plain`
-- [ ] Add a node-name check for `queries/injections.scm`. A small helper overload reading
+- [x] Add a node-name check for `queries/injections.scm`. A small helper overload reading
   that file is enough.
-- [ ] Update the suite's doc comment inventory.
-- [ ] Fill in `VENDORED.md`'s Verification section:
+- [x] Update the suite's doc comment inventory.
+- [x] Fill in `VENDORED.md`'s Verification section:
   - two fixtures: an ordinary Makefile; and one with conditionals, `define`/`endef`,
     `!=`, target-specific variables, pattern rules, automatic variables and
     `$(shell …)`/`$(patsubst …)`
@@ -317,8 +317,8 @@ variable definitions. There is no LSP server and no provisioning entry.
     count of uncaptured non-whitespace offsets outside recipe bodies
   - the observed capture table
   - the note that `swift test` automates only the static half
-- [ ] Run the harness and record the result.
-- [ ] Run `swift test`.
+- [x] Run the harness and record the result.
+- [x] Run `swift test`.
 
 ### Task 4: App-layer registration and the executed symbols query
 
