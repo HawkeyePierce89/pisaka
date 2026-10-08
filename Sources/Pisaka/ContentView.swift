@@ -310,8 +310,11 @@ struct ContentView: View {
     @State private var tabColumnWidth = TabColumnWidthProbe()
     /// What the LeetCode statement beside the editor reports through
     /// `ChromeSplitTrailingDemand`, read at the window root so the window's
-    /// floor can hold it (`editorRowFloorWidth`). Zero with no statement.
-    @State private var statementDemand: CGFloat = 0
+    /// floor can hold it (`WindowFloorFrame`). Zero with no statement. Held as
+    /// `@State` for `caretReadout`'s reason: a statement drag changes it on
+    /// every frame, and only `WindowFloorFrame` observes it, so the drag does
+    /// not re-evaluate the whole window root.
+    @State private var statementDemand = StatementDemandProbe()
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -449,7 +452,7 @@ struct ContentView: View {
                 }
                 // Read here rather than on `editorSplit`, so the value falls
                 // back to zero when the split (and the statement in it) leaves.
-                .onPreferenceChange(ChromeSplitTrailingDemand.self) { statementDemand = $0 }
+                .onPreferenceChange(ChromeSplitTrailingDemand.self) { statementDemand.update($0) }
             // No `Divider()` here: the bar draws its own one-point `hairline`
             // along its top edge, so the rule is in the palette's value rather
             // than the platform's (part two's precedent). Keeping a rule at all
@@ -515,10 +518,11 @@ struct ContentView: View {
         // editor row never runs past the window's edge. The column is still
         // pinned `.topLeading`: a column wider than a narrow area is a live case
         // inside the dock's `GeometryReader`, not a hypothetical one.
-        .frame(
-            minWidth: max(Self.windowFloor(metrics).width, editorRowFloorWidth),
-            minHeight: Self.windowFloor(metrics).height
-        )
+        .modifier(WindowFloorFrame(
+            demand: statementDemand,
+            floor: Self.windowFloor(metrics),
+            editorRowFloorWidth: editorRowFloorWidth
+        ))
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
         // inherits both and adds no root. The named space is the one the
@@ -1081,14 +1085,15 @@ struct ContentView: View {
     }
 
     /// The editor row's own floor, scaled: every pane of `editorSplit` at its
-    /// minimum, both strips and the statement's reported width. Zero while the
-    /// Welcome screen stands in for the split. The window root holds the window
-    /// to at least this, since the chrome split, a `GeometryReader` host, raises
-    /// no floor of its own.
-    private var editorRowFloorWidth: CGFloat {
-        guard !showsWelcome else { return 0 }
+    /// minimum and both strips — the statement's reported width is added by
+    /// `WindowFloorFrame`, its only observer. `nil` while the Welcome screen
+    /// stands in for the split. The window root holds the window to at least
+    /// this, since the chrome split, a `GeometryReader` host, raises no floor of
+    /// its own.
+    private var editorRowFloorWidth: CGFloat? {
+        guard !showsWelcome else { return nil }
         return treeMinimumWidth + metrics.scaled(ChromeSplitStrip.thickness)
-            + treeTrailingMinimumWidth + statementDemand
+            + treeTrailingMinimumWidth
     }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —
@@ -1768,6 +1773,35 @@ struct CaretReadoutObserver<Content: View>: View {
 
     var body: some View {
         content(model.readout(for: focusedFileID))
+    }
+}
+
+/// The LeetCode statement's reported width (`ChromeSplitTrailingDemand`), held
+/// out of `ContentView`'s own state so a statement drag — which changes it on
+/// every frame — re-evaluates only `WindowFloorFrame`, its one observer, and
+/// not the window root. Publishes only when the value actually changes.
+final class StatementDemandProbe: ObservableObject {
+    @Published private(set) var width: CGFloat = 0
+
+    func update(_ next: CGFloat) {
+        if next != width { width = next }
+    }
+}
+
+/// The window root's minimum content size: `floor`, widened to the editor
+/// row's own floor plus the statement's reported width when the row is shown
+/// (`editorRowFloorWidth` non-`nil`). The statement's probe is observed here
+/// rather than by `ContentView`, for `StatementDemandProbe`'s reason.
+private struct WindowFloorFrame: ViewModifier {
+    @ObservedObject var demand: StatementDemandProbe
+    let floor: CGSize
+    let editorRowFloorWidth: CGFloat?
+
+    func body(content: Content) -> some View {
+        content.frame(
+            minWidth: max(floor.width, editorRowFloorWidth.map { $0 + demand.width } ?? 0),
+            minHeight: floor.height
+        )
     }
 }
 #endif

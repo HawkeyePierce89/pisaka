@@ -11,7 +11,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     statement pane beside the editor adds its rendered width to both splits'
     trailing minimums through `ChromeSplitTrailingDemand`, and the window root
     reads the same preference into the window's width floor
-    (`editorRowFloorWidth`), so opening a statement raises the window's
+    (`editorRowFloorWidth` + `WindowFloorFrame`), so opening a statement raises the window's
     minimum instead of pushing the editor row past the window's edge. Left zone is
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
@@ -543,7 +543,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     platform split's composed floor, so this is stricter than before — and no
     pane is squeezed below its minimum nor the editor row pushed past the
     window's edge. The preference is read on `mainArea`, not on `editorSplit`,
-    so it falls back to zero when the split leaves. `SplitPaneRule`'s
+    so it falls back to zero when the split leaves. It is held in a
+    `StatementDemandProbe` the root never reads, observed only by the
+    `WindowFloorFrame` modifier that applies the floor, so a statement drag —
+    which changes the reported width on every frame — re-evaluates that
+    modifier and not the whole window root (the `caretReadout` /
+    `TabColumnWidthProbe` pattern). `SplitPaneRule`'s
     "trailing minimum wins" stays the in-split answer for a host that does
     not compose a floor. The top-*leading* pin above still
     covers any child that refuses its proposal, which is why that alignment is
