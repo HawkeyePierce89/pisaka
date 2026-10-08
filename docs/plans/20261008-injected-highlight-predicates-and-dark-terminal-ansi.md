@@ -89,20 +89,20 @@ One possibility is that the async path repaints root-layer ranges but not sublay
 **Files:**
 - Create: a scratch SwiftPM package outside the repository, in the session scratchpad and not committed
 
-- [ ] Build a throwaway executable package that depends on:
+- [x] Build a throwaway executable package that depends on:
   - Neon and SwiftTreeSitter at the exact revisions in `Package.resolved`;
   - `tree-sitter-bash` and `tree-sitter-markdown` at their pins;
   - `Vendor/TreeSitterMake` as a path dependency.
-- [ ] Parse a Makefile fixture that mirrors the repository `Makefile`'s `@command -v swiftlint …` and `echo "…"` recipe lines. Use a root `LanguageLayer` for Make whose injection provider resolves `bash`.
-- [ ] Dump the highlight captures per range three ways:
+- [x] Parse a Makefile fixture that mirrors the repository `Makefile`'s `@command -v swiftlint …` and `echo "…"` recipe lines. Use a root `LanguageLayer` for Make whose injection provider resolves `bash`.
+- [x] Dump the highlight captures per range three ways:
   - (a) unresolved, `executeQuery(.highlights, in:).highlights()`, as Neon's `syncValue` does;
   - (b) resolved, `.resolve(with: textProvider).highlights()`, as `asyncValue` does;
   - (c) from a standalone bash layer over the same text.
-- [ ] Repeat the three dumps for a Markdown ```` ```sh ```` fence.
-- [ ] Trace `TextSystemStyler`/`highlightsProvider` to settle what Neon's `TextViewHighlighter` actually requests for a sublayer range: the sync path or the async one.
-- [ ] Check upstream Neon `main` and its tags for a commit that resolves predicates on the sync path. Record whether a pin bump is available and what it costs: the SwiftTreeSitter branch pin and `DependencyPinTests`.
-- [ ] Write the pinned cause into the progress log: the exact failing link, the evidence, and the decision between a pin bump and a Pisaka-side workaround.
-- [ ] Change no repository code in this task. `swift test` stays green.
+- [x] Repeat the three dumps for a Markdown ```` ```sh ```` fence.
+- [x] Trace `TextSystemStyler`/`highlightsProvider` to settle what Neon's `TextViewHighlighter` actually requests for a sublayer range: the sync path or the async one.
+- [x] Check upstream Neon `main` and its tags for a commit that resolves predicates on the sync path. Record whether a pin bump is available and what it costs: the SwiftTreeSitter branch pin and `DependencyPinTests`.
+- [x] Write the pinned cause into the progress log: the exact failing link, the evidence, and the decision between a pin bump and a Pisaka-side workaround.
+- [x] Change no repository code in this task. `swift test` stays green.
 
 ### Task 2: Failing app-layer test for predicates through the injection path
 
