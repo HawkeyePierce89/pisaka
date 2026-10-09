@@ -321,13 +321,6 @@
                 "name": "_attached_recipe_line"
               },
               {
-                "type": "IMMEDIATE_TOKEN",
-                "content": {
-                  "type": "PATTERN",
-                  "value": "[\\r\\n]+"
-                }
-              },
-              {
                 "type": "REPEAT",
                 "content": {
                   "type": "CHOICE",
@@ -391,7 +384,11 @@
               "name": "recipe_line"
             },
             {
-              "type": "BLANK"
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\r\\n]+"
+              }
             }
           ]
         }
@@ -412,16 +409,13 @@
               "name": "recipe_line"
             },
             {
-              "type": "BLANK"
+              "type": "IMMEDIATE_TOKEN",
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\r\\n]+"
+              }
             }
           ]
-        },
-        {
-          "type": "IMMEDIATE_TOKEN",
-          "content": {
-            "type": "PATTERN",
-            "value": "[\\r\\n]+"
-          }
         }
       ]
     },
@@ -478,10 +472,26 @@
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
-            "name": "_line_text"
+            "name": "_shell_line"
           },
           "named": true,
           "value": "shell_text"
+        }
+      ]
+    },
+    "_shell_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "_line_text"
+        },
+        {
+          "type": "IMMEDIATE_TOKEN",
+          "content": {
+            "type": "PATTERN",
+            "value": "[\\r\\n]+"
+          }
         }
       ]
     },
@@ -855,17 +865,10 @@
             "type": "ALIAS",
             "content": {
               "type": "SYMBOL",
-              "name": "_line_text"
+              "name": "_shell_line"
             },
             "named": true,
             "value": "shell_command"
-          }
-        },
-        {
-          "type": "IMMEDIATE_TOKEN",
-          "content": {
-            "type": "PATTERN",
-            "value": "[\\r\\n]+"
           }
         }
       ]

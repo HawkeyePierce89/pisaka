@@ -35,7 +35,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — the only place in the class that adds a temporary `.backgroundColor`.** It
     walks the three caches in one fixed order, pair → matches → current, so a
     later write wins: the current match sits on top of an ordinary match, which
-    sits on top of the caret's pair highlight. Because that order lives in *one
+    sits on top of the caret's pair highlight. The pair is painted in the
+    chrome's `bracketMatch` role, `ChromePalette.nsColor(.bracketMatch)` — the
+    dynamic colour, asked for on every paint and never stored, so an appearance
+    switch resolves it afresh (`core-theme.md`, *The matched-pair background*;
+    `BracketPairBackgroundTests` reads it off both halves, off a rendered cell,
+    and measures the rainbow over it). The two search backgrounds stay this
+    file's code-zone colours from `SyntaxTheme`. Because that order lives in *one
     loop body* shared by both paint paths — the state setters (through the private
     `repaintBackgrounds(clearing:clampingTo:)`, which removes `.backgroundColor`
     over the previously painted ranges and then repaints the whole buffer) and
@@ -1101,13 +1107,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     otherwise a superseded request in flight at a tab switch would start a
     full-document request through the old grammar, whose stale-generation
     attributes would wipe the live colouring.
-    **Stated limit, not this fix's.** SwiftTreeSitterLayer parses every injection
-    of one language as **one combined layer**, and a Make recipe line's
-    `shell_text` ends before its newline, so bash reads the end of one recipe
-    line and the start of the next as one word (`exit 1` + `echo` → `1echo`): the
-    first word of each continuation line loses its `function` capture. Fixing it
-    would need a query or remote-package change; the test pins the loss exactly
-    (`makeCombinedLayerLosses`) so it cannot change unnoticed.
+    **Combined layers and line ends.** SwiftTreeSitterLayer parses every
+    injection of one language as **one combined layer**, so the included ranges
+    must carry each line's newline or bash reads the end of one range and the
+    start of the next as one word. A Make recipe line's `shell_text` used to end
+    before its newline, which joined `exit 1` and the next line's `echo` into
+    `1echo` and cost every continuation line's first word its `function`
+    capture. The vendored Make grammar now aliases a hidden `_shell_line`
+    (line text + newline) to `shell_text` and `shell_command`
+    (`Vendor/TreeSitterMake/VENDORED.md` records the edit and its regeneration),
+    so the ranges include the newline and `testAMakeRecipePaintsLikeTheStandaloneScript`
+    asserts the recipe paints exactly what the standalone script paints. A
+    query-only fix was not available (the newline is an unnamed token inside a
+    hidden rule) and neither was an app-side one (the layer exposes no hook to
+    transform ranges). Markdown needs nothing: `code_fence_content` already
+    includes its line endings, which
+    `testTwoAdjacentShellFencesPaintLikeTheStandaloneScript` confirms over two
+    `sh` fences splitting the same three lines with prose between them.
     **Injection reach (enumerated 2026-10-08).** Every injection Pisaka resolves
     goes through `configuration(forInjectionName:)` — `markdown_inline` by name,
     anything else by `SyntaxLanguage` raw value, extension or file name — and an
@@ -1123,7 +1139,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       none.
     - **Markdown inline** → `html` (none); `latex` → `nil`.
     - **Make** → `bash` for recipe lines and `$(shell …)` bodies → Shell
-      (`#match?`), the suite's original subject.
+      (`#match?`), the suite's original subject, compared capture for capture
+      against the standalone script — as are one Markdown `sh` fence and two
+      adjacent ones splitting the same lines.
     - **HTML** → `javascript` in `<script>` (`#match?`, `#eq?`, `#is-not?`) and
       `css` in `<style>` (`#match?`).
     - **JavaScript** → a tagged template's tag names its language (`css`…``
@@ -1208,18 +1226,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`depth % count`, a negative depth folding back into range rather than
     trapping — `BracketDepthScanner` reports an honest depth and the *view* cycles
     it), `unmatchedBracketColor` (red, deliberately not the `.string` red: an
-    unmatched bracket is an error marker), and `matchedPairBackground` (opaque and
-    neutral — every rainbow color must stay readable on it and it must not be
-    mistaken for the selection highlight). Two more, in the same shape, back the
+    unmatched bracket is an error marker). The matched pair's background is
+    **not** here: it is the chrome's `bracketMatch` role, and the private value
+    this file used to carry for it — with its accessor and `NSColor` spelling —
+    is deleted, its reasoning (opaque and neutral, every rainbow color readable
+    on it, never mistaken for the selection) moved to the role's doc comment;
+    the theme gate refuses a pair background spelled here again
+    (`core-theme.md`, rule twenty-nine). Two more, in the same shape, back the
     editor's search bar: `searchMatchBackground` (a warm yellow behind every match
     but the current one — deliberately far from the blue-gray
-    `matchedPairBackground` and from the accent-colored selection, so a match
+    matched-pair background and from the accent-colored selection, so a match
     sitting on a bracket pair and a match inside the selection both stay
     recognizable as matches) and `currentSearchMatchBackground` (a saturated
     orange for the match ⌘G steps to — the same family, so it still reads as one
     of the matches, but unmistakably the highlighted one at a glance). On macOS a
     `nsBracketColor(forDepth:)` / `nsUnmatchedBracketColor` /
-    `nsMatchedPairBackground` / `nsSearchMatchBackground` /
+    `nsSearchMatchBackground` /
     `nsCurrentSearchMatchBackground` set mirrors
     `nsColor(for:)` for the temporary-attribute call sites. Being dynamic colors,
     a light/dark or forced-theme switch recolors the brackets and the search
@@ -1259,9 +1281,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **not** built through `PlatformColor.dynamic(light:dark:)` but through its new
     alpha-carrying form `dynamic(light:dark:alpha:)` at `levelBackgroundAlpha`,
     and the translucency is a constraint rather than a decoration: the blocks are
-    painted *under* the glyphs, the selection, `matchedPairBackground` and both
+    painted *under* the glyphs, the selection, the matched-pair background and both
     search backgrounds, so every one of those has to stay legible on top of a
-    tint — which is a third clause on `matchedPairBackground`'s own opacity, now
+    tint — which is a third clause on the pair background's own opacity, now
     that it can sit over an indent block as well as beside one.
     The Markdown preview adds the one **reader of this whole table that is not a
     drawing call**: `markdownPreviewTheme(prefersDark:)` (macOS), which resolves

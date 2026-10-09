@@ -26,7 +26,12 @@ import XCTest
 ///    whose `named` status a grammar update *flipped*, before any of them ships
 ///    as plain text;
 ///  * the set of capture names the query emits is exactly the expected one, and
-///    each resolves to its intended, non-`.plain` `SyntaxTokenKind`.
+///    each resolves to its intended, non-`.plain` `SyntaxTokenKind`;
+///  * make's one *grammar* edit is present in its generated `src/grammar.json`:
+///    both nodes bash is injected into from a whole line end after the line's
+///    newline, so a re-copy of upstream's `src/` cannot silently bring back the
+///    injected shell layer joining one recipe line's last word to the next
+///    line's first.
 ///
 /// The set equality is the point of the second check: a query gaining a new
 /// capture fails here until someone confirms the Core mapping covers it, rather
@@ -216,6 +221,56 @@ final class VendoredGrammarQueryTests: XCTestCase {
         let query = try parsedQuery(vendoredPackage: "TreeSitterMake", query: "injections.scm")
         XCTAssertEqual(query.namedNodes, ["shell_text", "shell_command"])
         XCTAssertEqual(query.captureNames, ["injection.content"])
+    }
+
+    /// The one edit this repository makes to make's *grammar* (`// EDIT:` in
+    /// `grammar.js`, regenerated into `src/`): every node bash is injected into
+    /// from a whole line ends **after** that line's newline. Upstream ended it
+    /// before, so the injected layer's ranges excluded every newline and bash's
+    /// lexer read the last word of one recipe line and the first of the next as
+    /// one word. A grammar update that re-copies upstream's `src/` without
+    /// re-applying the edit brings that back silently, and this read of the
+    /// generated `grammar.json` is the only place `swift test` can see it.
+    ///
+    /// The `$(shell …)` body is the one other `shell_command`, and keeps
+    /// `_paren_text`: it ends at its `)`, not at a newline.
+    func testMakeShellInjectionTargetsEndAfterTheirNewline() throws {
+        let url = TestRepository.url(atRepositoryPath: "Vendor/TreeSitterMake/src/grammar.json")
+        let grammar = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let rules = try XCTUnwrap(grammar["rules"] as? [String: Any])
+
+        let shellLine = try XCTUnwrap(rules["_shell_line"] as? [String: Any],
+                                      "`_shell_line` is gone: the newline edit was not re-applied")
+        XCTAssertEqual(shellLine["type"] as? String, "SEQ")
+        let members = try XCTUnwrap(shellLine["members"] as? [[String: Any]])
+        XCTAssertEqual(members.count, 2)
+        XCTAssertEqual(members.first?["type"] as? String, "SYMBOL")
+        XCTAssertEqual(members.first?["name"] as? String, "_line_text")
+        XCTAssertEqual(members.last?["type"] as? String, "IMMEDIATE_TOKEN")
+        let newline = try XCTUnwrap(members.last?["content"] as? [String: Any])
+        XCTAssertEqual(newline["value"] as? String, "[\\r\\n]+")
+
+        var aliased: [String: Set<String>] = [:]
+        func collect(_ value: Any) {
+            if let object = value as? [String: Any] {
+                if object["type"] as? String == "ALIAS",
+                   let target = object["value"] as? String,
+                   ["shell_text", "shell_command"].contains(target),
+                   let content = object["content"] as? [String: Any],
+                   let symbol = content["name"] as? String {
+                    aliased[target, default: []].insert(symbol)
+                }
+                object.values.forEach(collect)
+            } else if let array = value as? [Any] {
+                array.forEach(collect)
+            }
+        }
+        collect(rules)
+        XCTAssertEqual(aliased, [
+            "shell_text": ["_shell_line"],
+            "shell_command": ["_shell_line", "_paren_text"],
+        ])
     }
 
     // MARK: - The named/anonymous split itself

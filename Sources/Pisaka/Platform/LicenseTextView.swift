@@ -9,7 +9,10 @@ import SwiftUI
 /// gated set (`ChromeThemeSourceGatingTests`): the macOS half draws its text in
 /// the `textPrimary` role, and the ground behind it is the caller's `bgEditor`.
 /// The iOS half is not swept — iOS is outside the chrome theme — and its one
-/// `backgroundColor = .clear` is a pinned assignment of rule thirty-one. It makes
+/// `backgroundColor = .clear` is a pinned assignment of rule thirty-one. Its
+/// `textColor = .label` is closed on the same footing rather than left open:
+/// iOS is outside the theme, so a UIKit semantic colour there is not a theme
+/// question, and rule one's list does not grow to carry it. It makes
 /// no decisions about *what* is shown: it takes a `String` and renders all of it.
 ///
 /// **Why this is TextKit and not `ScrollView { Text(...) }`.** The texts here are

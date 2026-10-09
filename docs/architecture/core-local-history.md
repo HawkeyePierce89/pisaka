@@ -687,6 +687,10 @@ changes.)
     former `Divider()` is a `hairline` rule; Restore is `.chromeSecondary`,
     keeping its plan-driven enablement. `RevisionRow`, at file scope, reads
     `\.chromeTheme` as a child: title `textPrimary`, time line `textSecondary`.
+    The revisions/detail split is the shared `ChromeSplitView` (`core-theme.md`,
+    *The shared split*): the revisions list is the leading pane at 220/260/380,
+    scaled, against the detail's scaled floor of 360, and the divider is the
+    `hairline` role; chrome rule forty-eight keeps the platform split out.
 
 ### The wiring in `PisakaApp` and `AutosaveController`
 

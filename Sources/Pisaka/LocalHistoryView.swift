@@ -119,15 +119,16 @@ struct LocalHistoryView: View {
     }
 
     var body: some View {
-        HSplitView {
+        ChromeSplitView(
+            .horizontal,
+            minimum: metrics.scaled(220),
+            ideal: metrics.scaled(260),
+            maximum: metrics.scaled(380),
+            trailingMinimum: metrics.scaled(360)
+        ) {
             revisions
-                .frame(
-                    minWidth: metrics.scaled(220),
-                    idealWidth: metrics.scaled(260),
-                    maxWidth: metrics.scaled(380)
-                )
+        } trailing: {
             detail
-                .frame(minWidth: metrics.scaled(360), maxWidth: .infinity)
         }
         .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(380))
         .preferredColorScheme(settings.themePreference.colorScheme)

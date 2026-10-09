@@ -13,11 +13,14 @@ import SwiftUI
 /// named coordinate space.
 ///
 /// **It carries no clip, and must not.** A clip — `.clipped()`, `.clipShape`,
-/// `.mask`, at any distance — applied to an ancestor of the editor's
+/// `.mask`, at any distance — applied to an ancestor of the platform's
 /// `HSplitView` makes the split's panes drop the window's top safe-area inset:
 /// the split's own frame stays put while the panes' content rises by the inset
 /// and slides under the transparent title bar. That was the lost top row with
-/// the dock open, and `BottomDockLayoutTests` records the bisection. The
+/// the dock open, when the editor's split was the platform's, and
+/// `BottomDockLayoutTests` records the bisection. The editor's split is now
+/// `ChromeSplitView`, which that trap may not reach at all; the column stays
+/// unclipped regardless, because nothing has shown the new host is immune. The
 /// guarantee the clip used to give — nothing in this column paints over the
 /// bottom bar — is the window root's instead: the bar is drawn above the main
 /// area on an opaque ground (`ContentView.body`), so whatever spills off this

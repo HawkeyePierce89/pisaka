@@ -1730,7 +1730,12 @@ the limits the design carries.
     sometimes an `EmptyView` costs the editor nothing, and the width is then the
     pane's own `@State` behind a `resizeLeftRight` drag handle: the `panelHeight`
     shape turned ninety degrees. Collapsing leaves a strip that is the only way
-    back, so the pane can never be folded away and lost.
+    back, so the pane can never be folded away and lost. The pane reports its
+    rendered width — handle plus clamped width, or the collapsed strip — through
+    `ChromeSplitTrailingDemand`, so the main window's chrome splits add it to
+    their trailing minimums and the window root adds it to the window's width
+    floor rather than letting the row overflow the window (`app-window.md`,
+    `core-theme.md`, *The shared split*).
     The handle's cursor push goes through **`syncResizeHandleCursor()`**, the exact
     shape `ContentView.syncPanelDividerCursor()` has: one `handleCursorPushed` flag
     driven off `hovering || dragging`, written by every mutation of either input
@@ -1973,7 +1978,10 @@ the limits the design carries.
     resize is dropped** — the design's panel has none: the number, difficulty and
     status columns take fixed widths scaled from the old ideal widths (56 / 88 /
     96) and the title the rest. **Keyboard**: the list is one focusable
-    container; `onMoveCommand` moves the selection up and down and the
+    container, its platform focus ring disabled (`.focusEffectDisabled()`,
+    chrome rule forty-nine) — while it holds focus the selected row draws the
+    chrome's focus border, `accent` at the scaled `fieldFocusedBorderWidth`,
+    over its wash; `onMoveCommand` moves the selection up and down and the
     `ScrollViewReader` keeps it visible; Return opens through a zero-sized
     shortcut button enabled only while the list holds focus (the database grid's
     idiom); single tap selects, double tap opens,

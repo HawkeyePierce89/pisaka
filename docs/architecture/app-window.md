@@ -2,7 +2,17 @@
 
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
-  - `ContentView.swift` — three-column `HSplitView` (`editorSplit`): left zone is
+  - `ContentView.swift` — three-column split (`editorSplit`), two nested
+    `ChromeSplitView`s rather than the platform's `HSplitView` (`core-theme.md`,
+    *The shared split*): the tree at 180/240/360 scaled against a trailing
+    minimum of everything right of it at its floor; with vertical tabs a second
+    split, `TabColumnSplit` (`TabListView.swift`), holding the tab column within
+    `TabColumnWidthRule`'s bounds against the editor's 320. The LeetCode
+    statement pane beside the editor adds its rendered width to both splits'
+    trailing minimums through `ChromeSplitTrailingDemand`, and the window root
+    reads the same preference into the window's width floor
+    (`editorRowFloorWidth` + `WindowFloorFrame`), so opening a statement raises the window's
+    minimum instead of pushing the editor row past the window's edge. Left zone is
     just `ProjectTreeView` (the old segmented "Project ⇄ Changes" toggle and
     `LeftPanelMode` are gone — Local Changes moved to the bottom dock), middle is
     the open-tabs list (`TabListView`), right zone is the `editorZone` — which
@@ -54,7 +64,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     beats it (entry in `core-lsp.md`).
     The **LeetCode description pane** (LC-1, full entry in `core-leetcode.md`) is
     the trailing child of an `HStack` around the editor split — a sibling, never a
-    fourth `HSplitView` column and never a conditional *wrapping* the editor, since
+    fourth split column and never a conditional *wrapping* the editor, since
     a split child that comes and goes resets every column's width and a wrapper
     would tear down the `NSTextView`, its undo stack and its scroll position on
     every LeetCode tab selection. `leetCode: LeetCodeModel` is threaded in beside
@@ -515,18 +525,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     editor refuse to render shorter than it, which is what pushed the surplus onto
     the bottom bar. Stated on the window body `VStack` both apply in both branches
     and `editorSplit` inside the column is free to shrink to the rule's much
-    smaller reservation. **The height agrees in both branches now; the width does
-    not always**, and that is left as it is on purpose: in the no-panel branch
-    with *vertical* tabs the split's panes compose a larger floor than 640 (tree
-    180 + tab list 180 + editor 320, scaled, plus the `HSplitView` dividers) and
-    raise the window's minimum above it, while in the panel branch the
-    `GeometryReader` erases them and 640 is the whole floor. With *horizontal*
-    tabs there is no tab-list column — the strip is stacked above the editor
-    inside the right zone — so the split composes 180 + 320 and 640 is the
-    window's width minimum in both branches. Raising the root `minWidth` to the composed sum
-    would hard-code a number that moves with the tab orientation and with the
-    panes' own floors, and the case it would rule out is the one the top-*leading*
-    pin above already handles — which is why that alignment is
+    smaller reservation. **The height and the width now agree in both branches.**
+    The width once did not: with vertical tabs the platform split composed its
+    panes' floors (tree 180 + tab list 180 + editor 320, scaled, plus its
+    dividers) into a window minimum above 640 in the no-panel branch, while the
+    panel branch's `GeometryReader` erased them. `editorSplit` is now
+    `ChromeSplitView`, which lays its panes out inside a `GeometryReader` of its
+    own, so no pane floor reaches the window from the split itself. The root
+    therefore composes it: `minWidth` is the larger of 640 and
+    `editorRowFloorWidth` — the tree's 180, its strip, the tree's trailing
+    minimum (editor 320, plus tab column 180 and its strip with vertical tabs)
+    and the width the LeetCode statement reports through
+    `ChromeSplitTrailingDemand`, all scaled and built from the same properties
+    the splits are handed, so the number cannot drift from them. Zero while the
+    Welcome screen stands in for the split. Stated at the root, it holds in
+    both branches — the panel branch's `GeometryReader` used to erase the
+    platform split's composed floor, so this is stricter than before — and no
+    pane is squeezed below its minimum nor the editor row pushed past the
+    window's edge. The preference is read on `mainArea`, not on `editorSplit`,
+    so it falls back to zero when the split leaves. It is held in a
+    `StatementDemandProbe` the root never reads, observed only by the
+    `WindowFloorFrame` modifier that applies the floor, so a statement drag —
+    which changes the reported width on every frame — re-evaluates that
+    modifier and not the whole window root (the `caretReadout` /
+    `TabColumnWidthProbe` pattern). `SplitPaneRule`'s
+    "trailing minimum wins" stays the in-split answer for a host that does
+    not compose a floor. The top-*leading* pin above still
+    covers any child that refuses its proposal, which is why that alignment is
     described there as a live case rather than a hypothetical. The 320pt `minWidth` on `editorZone` is a different
     number for a different job and stays where it is (`app-editor.md`): it is the
     text view's floor against the statement pane beside it, not the window's.
@@ -566,7 +591,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     frames sum to no more than the area, and pins and clips the pair so a half
     that refuses its proposal cannot paint over the other. That clip is safe where
     the dock column's was not: it sits inside one of `editorSplit`'s panes, below
-    the `HSplitView`, and only a clip *above* that split loses the top inset. The gesture is measured in `markdownSplitSpace` — the split's own
+    the split, and only a clip *above* that split ever lost the top inset. The gesture is measured in `markdownSplitSpace` — the split's own
     frame, which cannot move while the divider does, `panelColumnSpace`'s reason
     on the horizontal axis — with `minimumDistance: 0`, an opening
     zero-translation frame that writes nothing (a bare click must change no
@@ -721,9 +746,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     adds nothing. The space's name is the caller's (`coordinateSpaceName`,
     `ContentView.panelColumnSpace`), because the drag that reads it is built
     there. **It carries no clip, and must not**: a clip on any ancestor of the
-    editor's `HSplitView` makes the split's panes drop the window's top safe-area
-    inset and slide under the transparent title bar — the lost-top-row bug,
-    whose bisection and fix are in `ContentView.swift`'s entry above. The
+    editor's split made the platform split's panes drop the window's top
+    safe-area inset and slide under the transparent title bar — the lost-top-row
+    bug, whose bisection and fix are in `ContentView.swift`'s entry above. The
+    editor's split is now `ChromeSplitView`, which that trap may not reach; the
+    column stays unclipped all the same. The
     guarantees it keeps: the divider drag is measured in its stationary pinned
     rect and tracks one-to-one; `BottomPanelHeightRule` stays the one authority
     on the slot's height (the column sizes nothing); top-leading alignment sends
@@ -734,6 +761,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     erases its children's minimums. `BottomPanelSourceGatingTests` pins the pin,
     the absence of any clip spelling and the published space;
     `BottomDockLayoutTests` (app-layer bundle) hosts it in a real window.
+    **What that guard does not deliver, stated rather than claimed**: the suite
+    hosts this column with stub panes around a platform `HSplitView` of its own,
+    because `ContentView` cannot be built in a test — so it cannot see the main
+    window's real split, which is now `ChromeSplitView`, and the clip trap it
+    records belongs to the platform split and may not apply to the new host at
+    all. The column stays unclipped regardless. The real check of the main
+    window's top row under the title bar is a live one, made in the running
+    app.
     **Why it is a file of its own**: testability of the real container.
     `ContentView` needs dozens of models and closures to exist at all, so no
     layout suite can build it; this view needs none of them, so the suite hosts
@@ -791,8 +826,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ContentView` as `visiblePanel != nil`): closing a panel removes the view
     that held focus, so without it ↑/↓/Return would be dead until a click,
     while opening one leaves focus with the panel.
-    **Keyboard.** The view is focusable, with its focus ring suppressed, and
-    takes focus on its showing's first appear and whenever it reappears with
+    **Keyboard.** The view is focusable, with its focus ring suppressed
+    (`.focusEffectDisabled()`, chrome rule forty-nine), and draws **no focus
+    border in its place** — closed by reason, not deferred: its focus exists
+    only so the whole screen receives key equivalents and marks no control, so
+    a border around the whole canvas would suggest a selection that does not
+    exist (the keyboard selection is the row's `accentTint`). It takes focus on its showing's first appear and whenever it reappears with
     the dock closed. ↑/↓ move Core's `WelcomeSelection`, Tab jumps to the
     other column's first row — or, when that column is empty, is ignored so
     ordinary focus navigation takes it — and Return activates the selected target: an
@@ -1675,11 +1714,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Both files are **drawn entirely from the chrome colour roles** (the second
     part of the sweep, `core-theme.md`) through the environment path. The column
     is `bgPanel` behind the scroll view and draws **no pane-edge rule of its
-    own**: its host is not a stack but the `HSplitView` in `editorSplit`, which
-    draws a splitter divider at the column/editor boundary whatever the column
-    does, so a trailing hairline here would be a second rule beside that one —
-    and `app-window.md`'s own minimum-width paragraph already budgets those
-    dividers into the window. The pane immediately left of it in the same split
+    own**: its host is not a stack but the `ChromeSplitView` in `editorSplit`, which
+    draws a `hairline` divider at the column/editor boundary whatever the column
+    does, so a trailing hairline here would be a second rule beside that one.
+    The pane immediately left of it in the same split
     view, the gated `ProjectTreeView`, states that boundary the same way: by
     leaving it to the splitter. (The strip's bottom rule is the other case — its
     host *is* a `VStack`, which draws nothing between its children.)
@@ -1695,12 +1733,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `Bounds` and **assigns only when they differ**: above the threshold, where
     the maximum is the scaled 320 whatever the width, a resize publishes
     nothing, where the former `@State windowWidth` re-evaluated the whole window
-    root on every point of a drag. The column's frame is applied by
-    `TabColumnFrame`, the probe's only observer, wrapping `TabListView` in the
-    vertical branch. The bounds are `nil` until the first read, and the frame
-    then uses an unbounded window's, so the split's first layout adopts the
-    default width rather than a maximum computed from nothing (a split view
-    adopts the ideal once). `TabColumnWidthProbeTests` pins the publishing with
+    root on every point of a drag. The bounds reach the split through
+    `TabColumnSplit`, the probe's only observer, a `ChromeSplitView` holding
+    `TabListView` as its leading pane and the editor as its trailing one, the
+    editor's scaled 320 as the trailing minimum. A change of bounds re-clamps
+    the dragged width without discarding it, so a window narrowed and widened
+    again gets the column's width back. The bounds are `nil` until the first
+    read, and the split then uses an unbounded window's, so its first layout
+    adopts the default width rather than a maximum computed from nothing (the
+    split adopts the ideal once). `TabColumnWidthProbeTests` pins the publishing with
     no view: two widths above the threshold publish once, a narrow one
     publishes new bounds, the bounds are `nil` before the first update, and a
     zoom at an unchanged width publishes the zoomed bounds.

@@ -305,9 +305,16 @@ struct ContentView: View {
     /// read at the body root's geometry. Held as `@State` rather than
     /// `@StateObject` for `caretReadout`'s reason: this view never reads it, so
     /// a resize must not re-evaluate the whole window root — only the column's
-    /// own `TabColumnFrame` observes it, and the probe publishes only when the
+    /// own `TabColumnSplit` observes it, and the probe publishes only when the
     /// bounds actually change.
     @State private var tabColumnWidth = TabColumnWidthProbe()
+    /// What the LeetCode statement beside the editor reports through
+    /// `ChromeSplitTrailingDemand`, read at the window root so the window's
+    /// floor can hold it (`WindowFloorFrame`). Zero with no statement. Held as
+    /// `@State` for `caretReadout`'s reason: a statement drag changes it on
+    /// every frame, and only `WindowFloorFrame` observes it, so the drag does
+    /// not re-evaluate the whole window root.
+    @State private var statementDemand = StatementDemandProbe()
 
     /// The Pull Requests feature's owner — its model, its `gh` transport, its
     /// refresh triggers and its one checkout site.
@@ -443,6 +450,9 @@ struct ContentView: View {
                 .onChange(of: showsWelcome) { _, shows in
                     if !shows { welcomeState.reset() }
                 }
+                // Read here rather than on `editorSplit`, so the value falls
+                // back to zero when the split (and the statement in it) leaves.
+                .onPreferenceChange(ChromeSplitTrailingDemand.self) { statementDemand.update($0) }
             // No `Divider()` here: the bar draws its own one-point `hairline`
             // along its top edge, so the rule is in the palette's value rather
             // than the platform's (part two's precedent). Keeping a rule at all
@@ -463,9 +473,10 @@ struct ContentView: View {
                 // *under* the bar, never over it. A stack already draws later
                 // children above earlier ones; the explicit order states it.
                 // It is not a clip on `BottomDockColumn`, which is where it
-                // used to be: a clip above the editor's `HSplitView` makes the
+                // used to be: a clip above the editor's platform split made the
                 // split's panes drop the top safe-area inset and slide under
-                // the title bar (`BottomDockColumn`'s doc comment).
+                // the title bar (`BottomDockColumn`'s doc comment), and the
+                // chrome split that replaced it stays unclipped all the same.
                 .zIndex(1)
         }
         // The window's ground: the one value in the window that is *not* a
@@ -497,18 +508,21 @@ struct ContentView: View {
         // own height, and the surplus landing on the bottom bar. At the body root
         // both apply in both branches, and the editor inside the column is free
         // to shrink to what `panelHeightRule` reserved for it. The *height* is
-        // then the same floor either way; the width is not always, and
-        // deliberately is not unified here: without a panel and with *vertical*
-        // tabs the split's own panes (tree 180 + tab list 180 + editor 320,
-        // scaled) compose a larger floor than this 640 and raise the window's,
-        // while with a panel the `GeometryReader` erases them — and with
-        // horizontal tabs there is no tab-list column at all, so the split's
-        // 180 + 320 sits below 640 and this floor is the window's in both
-        // branches. Unifying would mean hard-coding a number that moves with the
-        // orientation and with the panes' own floors. That is why
-        // the column is pinned `.topLeading` — a column wider than a narrow area
-        // is a live case, not a hypothetical one.
-        .frame(minWidth: Self.windowFloor(metrics).width, minHeight: Self.windowFloor(metrics).height)
+        // then the same floor either way, and so is the width: the chrome split
+        // is a `GeometryReader` host that states no minimum of its own, so this
+        // floor is composed here: 640, or the editor row's own floor when that is
+        // wider (`editorRowFloorWidth` — the panes' minimums plus whatever the
+        // statement beside the editor reports), which is what the platform split
+        // did by raising the window's floor itself. Stated at the root, it holds
+        // in both branches, so no pane is squeezed below its minimum and the
+        // editor row never runs past the window's edge. The column is still
+        // pinned `.topLeading`: a column wider than a narrow area is a live case
+        // inside the dock's `GeometryReader`, not a hypothetical one.
+        .modifier(WindowFloorFrame(
+            demand: statementDemand,
+            floor: Self.windowFloor(metrics),
+            editorRowFloorWidth: editorRowFloorWidth
+        ))
         // The bar popovers' one layer: an in-window overlay above the bar's
         // `.zIndex(1)`, inside the theme and scale injections below so it
         // inherits both and adds no root. The named space is the one the
@@ -973,7 +987,22 @@ struct ContentView: View {
     }
 
     private var editorSplit: some View {
-        HSplitView {
+        // The chrome's own split, not the platform's: its divider is a
+        // `hairline` line, where the platform's is a step off it. Three panes
+        // nest two splits — the tree, then (vertical tabs) the tab column and
+        // the editor. Every bound is scaled: at the top of the range the tree's
+        // rows are half again as tall and their names half again as wide, so a
+        // fixed 180pt floor would clip exactly the content the zoom was asked
+        // to enlarge. The tree's trailing minimum is everything right of it at
+        // its floor: the editor's 320, plus the tab column and its strip when
+        // the tabs are vertical.
+        ChromeSplitView(
+            .horizontal,
+            minimum: treeMinimumWidth,
+            ideal: metrics.scaled(240),
+            maximum: metrics.scaled(360),
+            trailingMinimum: treeTrailingMinimumWidth
+        ) {
             // Left zone: the project tree. (Local Changes is now a bottom dock
             // panel, so the old "Project ⇄ Changes" segmented toggle is gone.)
             ProjectTreeView(
@@ -990,38 +1019,31 @@ struct ContentView: View {
                 onShowLocalHistory: onShowLocalHistory,
                 onMove: onMove
             )
-            // Every pane's minimum, ideal and maximum width is scaled: at the top
-            // of the range the tree's rows are half again as tall and their names
-            // half again as wide, so a fixed 180pt floor would clip exactly the
-            // content the zoom was asked to enlarge.
-            .frame(
-                minWidth: metrics.scaled(180),
-                idealWidth: metrics.scaled(240),
-                maxWidth: metrics.scaled(360)
-            )
-
+        } trailing: {
             switch settings.tabOrientation {
             case .vertical:
                 // Middle zone: vertical tab list, as its own resizable column.
                 // Its bounds are `TabColumnWidthRule`'s: the scaled tokens, the
                 // maximum also held to a third of the window.
-                TabColumnFrame(probe: tabColumnWidth) {
+                TabColumnSplit(probe: tabColumnWidth, trailingMinimum: editorZoneMinimumWidth) {
                     TabListView(model: model, onClose: onClose)
+                } trailing: {
+                    // Right zone: the editor zone for the selected tab, with the
+                    // LeetCode statement beside it when there is one.
+                    HStack(spacing: 0) {
+                        // The 320pt floor stays on the *editor*, not on the zone: put
+                        // it on the `HStack` and the pane's width comes out of the
+                        // editor's minimum, so a wide statement can squeeze the text
+                        // view to a sliver. The pane reports its own width to both
+                        // splits above (`ChromeSplitTrailingDemand`), so their
+                        // trailing minimums are editor + pane, which is what they
+                        // should be.
+                        editorZone
+                            .frame(minWidth: editorZoneMinimumWidth, maxWidth: .infinity, maxHeight: .infinity)
+                        descriptionPane
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-
-                // Right zone: the editor zone for the selected tab, with the
-                // LeetCode statement beside it when there is one.
-                HStack(spacing: 0) {
-                    // The 320pt floor stays on the *editor*, not on the zone: put
-                    // it on the `HStack` and the pane's width comes out of the
-                    // editor's minimum, so a wide statement can squeeze the text
-                    // view to a sliver. The zone's own minimum then composes as
-                    // editor + pane, which is what it should be.
-                    editorZone
-                        .frame(minWidth: metrics.scaled(320), maxWidth: .infinity, maxHeight: .infinity)
-                    descriptionPane
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             case .horizontal:
                 // No separate tabs column: a horizontal tab strip is stacked above
@@ -1038,12 +1060,40 @@ struct ContentView: View {
                         TabStripView(model: model, onClose: onClose)
                         editorZone
                     }
-                    .frame(minWidth: metrics.scaled(320), maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: editorZoneMinimumWidth, maxWidth: .infinity, maxHeight: .infinity)
                     descriptionPane
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// The editor's floor, scaled: the one number both the editor's own frame
+    /// and the splits' trailing minimums state.
+    private var editorZoneMinimumWidth: CGFloat { metrics.scaled(320) }
+
+    /// The project tree's floor, scaled.
+    private var treeMinimumWidth: CGFloat { metrics.scaled(180) }
+
+    /// Everything right of the tree at its floor: the editor's 320, plus the
+    /// tab column and its strip when the tabs are vertical. The statement's
+    /// width is not here — the splits read it themselves.
+    private var treeTrailingMinimumWidth: CGFloat {
+        editorZoneMinimumWidth + (settings.tabOrientation == .vertical
+            ? metrics.scaled(TabColumnWidthRule.minimum) + metrics.scaled(ChromeSplitStrip.thickness)
+            : 0)
+    }
+
+    /// The editor row's own floor, scaled: every pane of `editorSplit` at its
+    /// minimum and both strips — the statement's reported width is added by
+    /// `WindowFloorFrame`, its only observer. `nil` while the Welcome screen
+    /// stands in for the split. The window root holds the window to at least
+    /// this, since the chrome split, a `GeometryReader` host, raises no floor of
+    /// its own.
+    private var editorRowFloorWidth: CGFloat? {
+        guard !showsWelcome else { return nil }
+        return treeMinimumWidth + metrics.scaled(ChromeSplitStrip.thickness)
+            + treeTrailingMinimumWidth
     }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —
@@ -1284,8 +1334,8 @@ struct ContentView: View {
         // over the other one. The coordinate space is published on the pinned
         // rect, which cannot move while the divider does. The clip is safe
         // here and was not on the dock column: this one sits *inside* one of
-        // `editorSplit`'s panes, below the `HSplitView`, and only a clip above
-        // that split loses the top safe-area inset (`BottomDockColumn`).
+        // `editorSplit`'s panes, below the split, and only a clip above that
+        // split ever lost the top safe-area inset (`BottomDockColumn`).
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(name: Self.markdownSplitSpace)
         .clipped()
@@ -1723,6 +1773,35 @@ struct CaretReadoutObserver<Content: View>: View {
 
     var body: some View {
         content(model.readout(for: focusedFileID))
+    }
+}
+
+/// The LeetCode statement's reported width (`ChromeSplitTrailingDemand`), held
+/// out of `ContentView`'s own state so a statement drag — which changes it on
+/// every frame — re-evaluates only `WindowFloorFrame`, its one observer, and
+/// not the window root. Publishes only when the value actually changes.
+final class StatementDemandProbe: ObservableObject {
+    @Published private(set) var width: CGFloat = 0
+
+    func update(_ next: CGFloat) {
+        if next != width { width = next }
+    }
+}
+
+/// The window root's minimum content size: `floor`, widened to the editor
+/// row's own floor plus the statement's reported width when the row is shown
+/// (`editorRowFloorWidth` non-`nil`). The statement's probe is observed here
+/// rather than by `ContentView`, for `StatementDemandProbe`'s reason.
+private struct WindowFloorFrame: ViewModifier {
+    @ObservedObject var demand: StatementDemandProbe
+    let floor: CGSize
+    let editorRowFloorWidth: CGFloat?
+
+    func body(content: Content) -> some View {
+        content.frame(
+            minWidth: max(floor.width, editorRowFloorWidth.map { $0 + demand.width } ?? 0),
+            minHeight: floor.height
+        )
     }
 }
 #endif

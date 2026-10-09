@@ -162,12 +162,16 @@ import XCTest
 ///   subclass's designated initializer sets `bgPanel`. Two setters compete
 ///   silently, the later one winning with nothing to say so.
 /// - **The merge wash is Core's one answer.** `mergeWashRole(for:)` is read by
-///   the merge panes alone, `conflictBackground`/`bracketMatch` by no app file
-///   but the palette, `currentLine` by the palette and the current-line
-///   highlight's two painters alone, and no gated file chains an alpha onto a
-///   role's colour — a composed alpha is a second wash nothing re-themes.
-/// - **One primary button, one secondary, one checkbox.** No gated file spells a
-///   platform toggle or button style; the shared controls' callers are pinned;
+///   the merge panes alone, `conflictBackground` by no app file but the
+///   palette, `bracketMatch` by the palette and the matched-pair overlay alone,
+///   `currentLine` by the palette and the current-line highlight's two painters
+///   alone, `SyntaxTheme.swift` spells no pair background of its own, and no
+///   gated file chains an alpha onto a role's colour — a composed alpha is a
+///   second wash nothing re-themes.
+/// - **One primary button, one secondary, one checkbox shape at two zones.** No
+///   gated file spells a platform toggle or button style; the shared controls'
+///   callers are pinned, the checkbox's two entries' included, and the one
+///   shape that draws a box is spelled in `ChromeControls.swift` alone;
 ///   every button in part five (b)'s and part five (c)'s files is styled, by a
 ///   per-file count of constructions against `.buttonStyle(`. A platform control
 ///   compiles and looks plausible in whichever appearance the reviewer is in.
@@ -186,13 +190,15 @@ import XCTest
 ///   font of its own draws at the system default, which follows neither zoom;
 ///   each glyph carries a scaled font of its own, or a scaled frame beside
 ///   `.resizable()` (a frame alone does not size a symbol that is not resizable),
-///   or sits in a pinned declaration whose container font, button style or stated
-///   off-scale reason is re-checked.
+///   or sits in a pinned declaration whose container font, button style or
+///   sizing entries are re-checked.
 /// - **A selectable list yields its selected row's background.** On macOS a row
 ///   background is drawn over the platform's selection box, so every
 ///   `listRowBackground` under a `List` binding `selection:` is pinned, per
 ///   file and per list, by set equality; the rule does not read the
 ///   conditional, so any changed expression fails and a person re-confirms it.
+///   The chrome's own row lists are pinned the same way: every `rowBackground`
+///   a gated file declares, per file, by set equality.
 /// - **No gated file builds a platform form control.** A `Form`, `Picker`,
 ///   `Stepper`, `Toggle` or `TabView` draws in the platform's colours and
 ///   metrics; the chrome draws a replacement for every one.
@@ -269,6 +275,18 @@ import XCTest
 ///   half must show a colour background. The headless `HostedRender` has no
 ///   title bar, so no bitmap sees either; this rule is the only net. Its
 ///   horizon is this one file and arguments spelled as `theme.color(` or `Color.`.
+/// - **No gated file spells a platform split view.** `HSplitView` and
+///   `VSplitView` draw their divider in the platform's separator value, which no
+///   role reaches; every gated split is `ChromeSplitView`, whose divider is the
+///   `hairline` role. Matched as a token against comment- and literal-stripped
+///   text, so a file explaining why it left the platform split may still name it.
+/// - **Every focusable chain disables the platform's focus effect.** In every
+///   gated file the `.focusable(` calls and the `.focusEffectDisabled()` calls
+///   are equal in number, and the files spelling `.focusable(` are a pinned
+///   set. The platform's ring is drawn in the system accent, which no role
+///   reaches, and around the whole focusable container rather than the row or
+///   cell the keyboard is on; the chrome draws its own focus border there
+///   instead, or — on the Welcome root — deliberately none.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -407,6 +425,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The Welcome screen: its header, the two column cards, their rows
         // and the shortcut footer.
         "WelcomeView.swift",
+        // Part five (d): the shared two-pane split, its hairline divider and
+        // its drag strip, which replaces the platform's split views.
+        "ChromeSplitView.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -2227,7 +2248,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // menu only on the rows silently lost both. Whether that menu *appears*
         // is not something a token rule can see; the container spelling one is.
         ("LeetCodeBrowserView.swift", [
-            ControlBuilder(path: ["private struct LeetCodeBrowserRow", "var body: some View"],
+            ControlBuilder(path: ["struct LeetCodeBrowserRow:", "var body: some View"],
                            required: [
                                ".accessibilityElement(children: .combine)",
                                ".accessibilityAddTraits(isSelected ? .isSelected",
@@ -2589,6 +2610,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// equality so a scanner that stopped finding them fails instead of passing
     /// vacuously, and a new hand-rolled divider joins the rule deliberately.
     static let cursorPushingFunctions: Set<String> = [
+        "ChromeSplitView.swift: syncDividerCursor",
         "CommitLogView.swift: syncDivideCursor",
         "ContentView.swift: syncPanelDividerCursor",
         "ContentView.swift: syncMarkdownDividerCursor",
@@ -3155,6 +3177,26 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
+        // The unified diff's per-line checkbox sits on a code-font row, so its
+        // site is sized from the code font and never from the interface metrics:
+        // the box and the context line's placeholder both come from
+        // `CodeZoneCheckboxRule`, which takes the font size alone.
+        let unifiedDiffCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "CommitUnifiedDiffView.swift"))
+        )
+        let checkboxSite = try XCTUnwrap(
+            Self.matchedBody(after: "private func checkbox(for", in: unifiedDiffCode),
+            "CommitUnifiedDiffView.swift's private func checkbox(for is gone or renamed — re-point this rule rather than losing it"
+        )
+        XCTAssertTrue(
+            LSPSourceGatingTests.containsToken("fontSize", in: checkboxSite),
+            "CommitUnifiedDiffView.swift's checkbox site must name fontSize — the box is sized from the code font"
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("metrics", in: checkboxSite),
+            "CommitUnifiedDiffView.swift's checkbox site names metrics — a code row's checkbox is the code zone's, not the interface's"
+        )
+
         for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
                 try Self.read(Self.source(named: name))
@@ -3306,10 +3348,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule twenty-nine: the merge wash is Core's one answer
 
     /// `mergeWashRole(for:)` is read by the merge panes alone; the merge wash's
-    /// own role and the unspent `bracketMatch` are spelled by no app file but the
-    /// palette; `currentLine` — spent by the current-line highlight — by the
-    /// palette and that highlight's two painters exactly, by set equality; and
-    /// no gated file composes an alpha onto a role's colour.
+    /// own role is spelled by no app file but the palette; `bracketMatch` —
+    /// spent by the matched-pair overlay — by the palette and the layout
+    /// manager exactly, by set equality; `currentLine` — spent by the
+    /// current-line highlight — by the palette and that highlight's two
+    /// painters exactly, by set equality; and no gated file composes an alpha
+    /// onto a role's colour.
+    ///
+    /// `SyntaxTheme.swift` additionally spells no pair background — neither
+    /// `pairBackground` nor `matchedPair`, in any case — so the private value the
+    /// role replaced cannot return beside it. That clause reads the stripped
+    /// text as a substring, lowercased, because the former accessors spelled the
+    /// words inside longer identifiers (`nsMatchedPairBackground`).
     ///
     /// The alpha clause is a pattern over a call and the member chained onto it
     /// — `nsColor(…)`, `.color(…)` or `chromeColor(…)`, its brace-matched
@@ -3350,21 +3400,36 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ChromePalette.swift", "BracketOverlayLayoutManager.swift", "LineNumberRulerView.swift",
     ]
 
+    /// The palette, plus the matched-pair overlay's one painter.
+    private static let bracketMatchPainters: Set<String> = [
+        "ChromePalette.swift", "BracketOverlayLayoutManager.swift",
+    ]
+
     func testTheMergeWashIsCoresOneAnswer() throws {
         var readers: Set<String> = []
         var currentLinePainters: Set<String> = []
+        var bracketMatchPainters: Set<String> = []
+        var sawSyntaxTheme = false
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
             let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
             if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
             if LSPSourceGatingTests.containsToken("currentLine", in: code) { currentLinePainters.insert(name) }
-            guard name != "ChromePalette.swift" else { continue }
-            for role in ["conflictBackground", "bracketMatch"] {
-                XCTAssertFalse(
-                    LSPSourceGatingTests.containsToken(role, in: code),
-                    "\(name) names \(role) directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer, bracketMatch is the code zone's"
-                )
+            if LSPSourceGatingTests.containsToken("bracketMatch", in: code) { bracketMatchPainters.insert(name) }
+            if name == "SyntaxTheme.swift" {
+                sawSyntaxTheme = true
+                for word in ["pairbackground", "matchedpair"] {
+                    XCTAssertFalse(
+                        code.lowercased().contains(word),
+                        "SyntaxTheme.swift spells a pair background (\(word)) — the matched pair draws the chrome's bracketMatch role"
+                    )
+                }
             }
+            guard name != "ChromePalette.swift" else { continue }
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("conflictBackground", in: code),
+                "\(name) names conflictBackground directly — the merge wash is ChromeColorRole.mergeWashRole(for:)'s answer"
+            )
         }
         XCTAssertEqual(
             readers, Self.mergeWashReaders,
@@ -3374,6 +3439,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             currentLinePainters, Self.currentLinePainters,
             "the app files naming currentLine must be exactly the palette and the current-line highlight's two painters"
         )
+        XCTAssertEqual(
+            bracketMatchPainters, Self.bracketMatchPainters,
+            "the app files naming bracketMatch must be exactly the palette and the matched-pair overlay"
+        )
+        XCTAssertTrue(sawSyntaxTheme, "SyntaxTheme.swift is gone — re-point the pair-background clause rather than losing it")
 
         let roleColor = try NSRegularExpression(pattern: "(?:\\bnsColor|\\.color|\\bchromeColor)\\s*\\(")
         for (name, code) in try Self.strippedGatedSources() {
@@ -3491,7 +3561,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         return hits
     }
 
-    // MARK: - Rule thirty: one primary button, one secondary, one checkbox
+    // MARK: - Rule thirty: one primary button, one secondary, one checkbox shape at two zones
 
     /// The files spelling each shared control, the defining file included.
     private static let sharedControlCallers: [(token: String, files: Set<String>)] = [
@@ -3513,6 +3583,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
             "NewPullRequestSheet.swift", "LeetCodeBrowserView.swift",
         ]),
+        // The checkbox's code-zone entry, for a row drawn at the code font: the
+        // unified diff's per-line toggle is its one caller.
+        ("ChromeCodeZoneCheckbox", ["ChromeControls.swift", "CommitUnifiedDiffView.swift"]),
+        // The one drawing of a box, which both entries construct: spelled
+        // nowhere else, so a second checkbox drawing has to be a new shape this
+        // pin does not know.
+        ("ChromeCheckboxShape", ["ChromeControls.swift"]),
     ]
 
     /// Each of part five (b)'s ten files: how many `Button` constructions it
@@ -3575,7 +3652,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LeetCodeLoginView.swift": (buttons: 1, styled: 1),
     ]
 
-    func testOnePrimaryButtonOneSecondaryOneCheckbox() throws {
+    func testOnePrimaryButtonOneSecondaryOneCheckboxShapeAtTwoZones() throws {
         XCTAssertEqual(Set(Self.partFiveBButtonCounts.keys), Self.partFiveBFiles)
         XCTAssertTrue(
             Set(Self.partFiveCButtonCounts.keys).isSubset(of: Self.gatedFiles),
@@ -4120,8 +4197,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         /// The glyph is a button label, and the enclosing button's chain names
         /// this shared style, which sets the label's font through the metrics.
         case buttonStyle(String)
-        /// Deliberately on neither scale; the reason is stated at the entry.
-        case offBothScales
+        /// The glyph lives in a shape whose every size is a parameter, and the
+        /// shape is constructed only by the named entries in the same file —
+        /// each constructing it exactly once, and each body naming the token
+        /// that sizes it — so the size is set in exactly those entries.
+        case entryArguments(shape: String, entries: [(declaration: String, sizedBy: String)])
     }
 
     private static let glyphSizeExemptions: [(file: String, declaration: String, count: Int, sizing: GlyphSizing)] = [
@@ -4143,11 +4223,17 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
         // (The tree's rows, their inline draft and both tab orientations draw
         // design glyphs since part eight, sized by the helper.)
-        // The unified diff's per-line checkbox is fixed geometry belonging to a
-        // *code* row, left off both scales on purpose (the file's own `metrics`
-        // comment states it — the Find in Files rows' rule), so neither zone
-        // may size it.
-        ("CommitUnifiedDiffView.swift", "private func checkbox(for", 1, .offBothScales),
+        // The one checkbox shape's check (or dash) is framed by the glyph side
+        // its entry passes: the chrome entry through the interface metrics, the
+        // code-zone entry through `CodeZoneCheckboxRule` — the unified diff's
+        // per-line box, which follows the code font and never the interface.
+        ("ChromeControls.swift", "struct ChromeCheckboxShape", 1, .entryArguments(
+            shape: "ChromeCheckboxShape",
+            entries: [
+                (declaration: "struct ChromeCheckbox", sizedBy: "metrics"),
+                (declaration: "struct ChromeCodeZoneCheckbox", sizedBy: "CodeZoneCheckboxRule"),
+            ]
+        )),
     ]
 
     func testEveryChromeGlyphIsSizedInTheInterfaceZone() throws {
@@ -4206,8 +4292,31 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                         """
                     )
                 }
-            case .offBothScales:
-                break
+            case let .entryArguments(shape, entries):
+                XCTAssertEqual(
+                    Self.callRanges(shape + "(", in: code).count, entries.count,
+                    """
+                    \(exemption.file) constructs \(shape) outside its \(entries.count) pinned entries — a \
+                    construction no entry names sizes its glyph from nowhere the rule re-checks
+                    """
+                )
+                for entry in entries {
+                    let entryBody = try XCTUnwrap(
+                        Self.matchedBody(after: entry.declaration, in: code),
+                        "\(exemption.file)'s \(entry.declaration) is gone or renamed — re-point this exemption"
+                    )
+                    XCTAssertEqual(
+                        Self.callRanges(shape + "(", in: entryBody).count, 1,
+                        "\(exemption.file)'s \(entry.declaration) must construct \(shape) exactly once"
+                    )
+                    XCTAssertTrue(
+                        LSPSourceGatingTests.containsToken(entry.sizedBy, in: entryBody),
+                        """
+                        \(exemption.file)'s \(entry.declaration) no longer names \(entry.sizedBy) — the \
+                        \(shape) it constructs is sized from nowhere the rule re-checks
+                        """
+                    )
+                }
             }
         }
         let helper = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
@@ -4349,9 +4458,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "LocalHistoryView.swift": [
             ["snapshot.fileName == selection.wrappedValue ? Color.clear : chromeColor(.bgPanel)"],
         ],
-        // The dependency list sets no row background at all: the platform draws
-        // the selection, and nothing paints over it.
-        "AcknowledgementsView.swift": [[]],
         // The database viewer's tables-and-views sidebar, the same answer: the
         // platform draws the selection and no row paints a background.
         "DatabaseViewerView.swift": [[]],
@@ -4412,7 +4518,68 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             Color.clear : <background>`), then update selectableListBackgrounds to the new text
             """
         )
+
+        var rows: [String: [String]] = [:]
+        let declaration = try NSRegularExpression(pattern: "(?<![A-Za-z0-9_])var\\s+rowBackground\\s*:")
+        for (name, code) in try Self.strippedGatedSources() {
+            for match in declaration.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                guard let range = Range(match.range, in: code),
+                      let open = code[range.upperBound...].firstIndex(of: "{"),
+                      let close = Self.balancedEnd(from: open, in: code) else { continue }
+                rows[name, default: []].append(
+                    String(code[code.index(after: open)..<code.index(before: close)])
+                        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces)
+                )
+            }
+        }
+        XCTAssertEqual(
+            rows, Self.chromeRowBackgrounds,
+            """
+            a chrome row's rowBackground changed, or a row gained or lost one. This rule cannot read the expression, \
+            so it refuses to guess: confirm by reading the code that a selected row still yields its selection \
+            wash, then update chromeRowBackgrounds to the new text
+            """
+        )
     }
+
+    /// The chrome's own row shape — the rows a gated file lays out itself, in
+    /// place of a platform `List(selection:)` or `Table` — pinned the same way:
+    /// file name → the whitespace-normalized body of every `var rowBackground`
+    /// the file declares, in source order. Set equality in both directions, so
+    /// a row whose background stops yielding its selection wash, a new row
+    /// background and a deleted one all fail until a person reads the code.
+    /// Acknowledgements joined this pin when its dependency list left
+    /// `List(selection:)` for the Log's row shape.
+    private static let chromeRowBackgrounds: [String: [String]] = [
+        "AcknowledgementsView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "CommitLogView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "LeetCodeBrowserView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "LocalChangesView.swift": [
+            "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
+        ],
+        "ProblemsPanelView.swift": [
+            "isHovering ? theme.color(.hoverTint) : .clear",
+        ],
+        "ProjectTreeView.swift": [
+            "let state = TreeRowState.state( isSelected: false, isWindowKey: controlActiveState == .key, "
+                + "isHovering: isHovering, isDropTarget: isDropTarget ) "
+                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+            "let state = TreeRowState.state( isSelected: isSelected, isWindowKey: controlActiveState == .key, "
+                + "isHovering: isHovering, isDropTarget: false ) "
+                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+        ],
+        "TabRowView.swift": [
+            "if !isActive && isHovering { return theme.color(.hoverTint) } return Color.clear",
+        ],
+    ]
 
     /// The top-level, comma-separated arguments of an argument list's inside —
     /// a comma nested in parentheses, brackets or braces does not split. The
@@ -5731,6 +5898,75 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule forty-eight: no gated file spells a platform split view
+
+    /// Rule forty-eight. No gated file spells `HSplitView` or `VSplitView` as a
+    /// token in its code — comments and string literals stripped, so the files
+    /// that explain why they left the platform split may still name it. The
+    /// platform split draws its divider in the platform's separator value, a
+    /// step off the `hairline` role beside it, and offers no way to change it;
+    /// every split in the chrome is `ChromeSplitView` instead. A platform split
+    /// slipped back in compiles and draws, and only its divider's colour —
+    /// a one-point line — says anything is wrong.
+    func testNoGatedFileSpellsAPlatformSplitView() throws {
+        var checked = 0
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            checked += 1
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            for split in ["HSplitView", "VSplitView"] {
+                XCTAssertFalse(
+                    LSPSourceGatingTests.containsToken(split, in: code),
+                    "\(url.lastPathComponent) spells \(split) — use ChromeSplitView, whose divider is the hairline role"
+                )
+            }
+        }
+        XCTAssertEqual(checked, Self.gatedFiles.count, "every gated file must be read; one is missing from Sources/")
+    }
+
+    // MARK: - Rule forty-nine: every focusable chain disables the platform's focus effect
+
+    /// The gated files spelling `.focusable(`, pinned so the per-file count
+    /// equality below cannot go vacuous by the last focusable surface moving
+    /// out from under it. Three draw the chrome's focus border on what holds
+    /// the keyboard — the grid's focused cell, the selected row of the problem
+    /// browser and of the dependency list — and the Welcome root draws none,
+    /// by reason (`app-window.md`).
+    private static let focusableFiles: Set<String> = [
+        "AcknowledgementsView.swift",
+        "DatabaseViewerView.swift",
+        "LeetCodeBrowserView.swift",
+        "WelcomeView.swift",
+    ]
+
+    /// Rule forty-nine. In every gated file, the `.focusable(` calls and the
+    /// `.focusEffectDisabled()` calls — with an empty argument list, since
+    /// `focusEffectDisabled(false)` keeps the ring — are equal in number. A
+    /// count rather than a chain reading, so the rule stays a token rule: a
+    /// chain that forgets the modifier makes the two numbers differ, and the
+    /// shared field's `TextField`, which disables the effect on a control that
+    /// is focusable without asking, is excused by sitting in a file that spells
+    /// no `.focusable(` (rule forty-five pins that one). The files that spell
+    /// `.focusable(` are cross-checked against `focusableFiles`.
+    func testEveryFocusableChainDisablesThePlatformsFocusEffect() throws {
+        var spelling: Set<String> = []
+        for (name, code) in try Self.strippedGatedSources() {
+            let focusable = Self.callCount(".focusable(", in: code)
+            guard focusable > 0 else { continue }
+            spelling.insert(name)
+            XCTAssertEqual(
+                Self.callCount(".focusEffectDisabled()", in: code), focusable,
+                """
+                \(name) spells \(focusable) .focusable( call(s) but a different number of .focusEffectDisabled() — \
+                the platform's ring is back around a focusable surface; draw the chrome's focus border instead
+                """
+            )
+        }
+        XCTAssertEqual(
+            spelling, Self.focusableFiles,
+            "the gated files spelling .focusable( changed — read the new surface, then update focusableFiles"
+        )
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -5795,7 +6031,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - The documented rule count
 
     /// The numbered rules above, counted from their own markers, and the two
-    /// documents that summarise them.
+    /// documents that summarise them — and, beside it, the gated set's size,
+    /// which the same two documents restate.
     ///
     /// This is bookkeeping rather than a rule of its own: it gates no source file. It
     /// exists because the rules above are the kind of thing a reader learns
@@ -5831,7 +6068,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         32: "thirty-two", 33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
-        45: "forty-five", 46: "forty-six", 47: "forty-seven",
+        45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
+        49: "forty-nine", 64: "sixty-four",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
@@ -5851,6 +6089,30 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         XCTAssertTrue(
             index.contains("and its \(word) rules"),
             "CLAUDE.md's chrome-theme invariant must name the suite's own rule count (\(count))"
+        )
+    }
+
+    /// The gated set's size is restated in both summaries too, and nothing held
+    /// it: the prose went on stating sixty-three while the set grew. Spelled
+    /// from the same table as the rule count, in the sentence that names it —
+    /// `core-theme.md`'s running total ends on the bolded "in all today", and
+    /// `CLAUDE.md`'s invariant states it in the parenthesis beside "by set".
+    func testBothSummariesSpellTheGatedSetsOwnSize() throws {
+        let count = Self.gatedFiles.count
+        let word = try XCTUnwrap(Self.spelled[count], "no spelling for \(count) gated files")
+
+        let theme = try Self.read(Self.document("docs/architecture/core-theme.md"))
+        XCTAssertTrue(
+            theme.contains("**\(word)** in all today"),
+            "core-theme.md's gated-file running total must end on the suite's own count (\(count))"
+        )
+
+        let index = try Self.read(Self.document("CLAUDE.md"))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        XCTAssertTrue(
+            index.contains("pins which files obey the rule (\(word), by set equality)"),
+            "CLAUDE.md's chrome-theme invariant must name the gated set's own size (\(count))"
         )
     }
 

@@ -1,7 +1,8 @@
 # Vendored: tree-sitter-make
 
 This directory is a **vendored** copy of a third-party tree-sitter grammar, plus
-files written in this repository. It exists as a local SwiftPM package because
+files written in this repository. One upstream file, `grammar.js`, is **edited**
+here, and the parser is **regenerated** from it (see *The newline edit* below). It exists as a local SwiftPM package because
 upstream ships neither a SwiftPM manifest nor a Swift binding — only a C header
 under `bindings/c/` (`tree-sitter-make.h`, declaring `tree_sitter_make()`).
 
@@ -38,16 +39,9 @@ directory content is the pin either way.
 
 Copied **verbatim** from the commit above:
 
-- `src/parser.c`
 - `src/tree_sitter/parser.h`
 - `src/tree_sitter/array.h`
 - `src/tree_sitter/alloc.h`
-- `src/grammar.json`
-- `src/node-types.json`
-- `grammar.js` — not needed to build, kept deliberately: it documents the node
-  names in readable form, it is the source the keyword list's built-in
-  functions are reconciled against, and it is what the `tree-sitter` CLI needs
-  if the verification below ever has to fall back to `tree-sitter query`.
 - `LICENSE`
 - `queries/injections.scm` — adopted unchanged. It injects `"bash"` into
   `(shell_text)` and `(shell_command)`; the app's
@@ -55,10 +49,45 @@ Copied **verbatim** from the commit above:
   `"bash"` through its extension map to the shell grammar, so recipe lines and
   `$(shell …)` bodies are highlighted as shell with no code of their own.
 
+**Edited** here from the commit above:
+
+- `grammar.js` — the source the parser is generated from, the source the
+  keyword list's built-in functions are reconciled against, and what the
+  `tree-sitter` CLI needs if the verification below ever has to fall back to
+  `tree-sitter query`. Every departure is marked `// EDIT:`; all of them make up
+  the one change described under *The newline edit*.
+
+**Generated** here from the edited `grammar.js`, never hand-edited:
+
+- `src/parser.c`
+- `src/grammar.json`
+- `src/node-types.json` — byte-identical to upstream's, because the edit adds
+  no node and changes no node's children.
+
+The generator is `tree-sitter-cli` **0.26.6**, the version upstream's pinned
+commit regenerated its parser with. ABI 15 needs upstream's `tree-sitter.json`
+for the language metadata, and that file is deliberately not vendored, so
+generation runs in a scratch directory:
+
+```sh
+mkdir /tmp/make-regen && cd /tmp/make-regen
+curl -fL -o tree-sitter.json \
+  https://raw.githubusercontent.com/tree-sitter-grammars/tree-sitter-make/<commit>/tree-sitter.json
+cp <repo>/Vendor/TreeSitterMake/grammar.js .
+npx tree-sitter-cli@0.26.6 generate --abi 15
+cp src/parser.c src/grammar.json src/node-types.json <repo>/Vendor/TreeSitterMake/src/
+```
+
+The pipeline is checked against upstream: run on the **unedited** `grammar.js`
+at the pinned commit, it reproduces upstream's `parser.c`, `grammar.json`,
+`node-types.json` and the three headers byte for byte (2026-10-09). The
+headers it writes are identical to the vendored ones and are not copied back.
+
 Deliberately **not** copied: `queries/folds.scm` (fold regions come from a
 language server or the pure scanner, never from a grammar query), `bindings/c/` (replaced by the Swift
 binding below), `CMakeLists.txt`, `Makefile`, `package.json`,
-`tree-sitter.json`, `README.md` and `test/`.
+`tree-sitter.json` (fetched only into the scratch directory above),
+`README.md` and `test/`.
 
 Upstream ships no `src/scanner.c`, and `grammar.js` declares no `externals`, so
 the parser is the only compiled source.
@@ -114,7 +143,8 @@ Written **in this repository**, not upstream:
     for .RECIPEPREFIX`), so after `.RECIPEPREFIX = >` a `>`-prefixed line is
     not a `recipe_line`, gets no Bash injection and may parse as an `ERROR`.
     The assignment itself is coloured; honouring it needs an external scanner,
-    which this fork deliberately does not add (`src/parser.c` stays verbatim).
+    which this fork deliberately does not add (the newline edit below is the
+    only grammar change made here).
     Likewise `VPATH != …` at a line start lexes `VPATH` as the dedicated
     node's keyword and does not parse as a `shell_assignment`.
   - Added `.NOTINTERMEDIATE` and `.WAIT` to the special-target `#any-of?`, and
@@ -139,6 +169,33 @@ Written **in this repository**, not upstream:
   predicates are implemented by the pinned SwiftTreeSitter.
 - This file.
 
+### The newline edit
+
+Upstream's `shell_text` (a recipe line's text) and the `shell_command` of a
+`NAME != command` assignment end **before** their line's newline, which
+followed as a separate hidden token. `queries/injections.scm` injects bash into
+both, and SwiftTreeSitterLayer parses every bash injection of one file as one
+combined layer whose included ranges are exactly those nodes. With every newline
+outside the ranges, bash's lexer read across the gap, so `exit 1` on one recipe
+line and `echo` on the next became the single word `1\n\techo`, and the next
+line's command name lost its `function` capture. A query cannot reach the
+newline (it is an unnamed hidden token, refused at compile time), and neither
+the layer nor Neon offers a hook to widen a range, so the fix is in the grammar:
+
+- a hidden `_shell_line: seq($._line_text, NL)` is aliased to `shell_text` in
+  `recipe_line` and to `shell_command` in `shell_assignment`, so both nodes end
+  after their newline;
+- `_prefixed_recipe_line` and `_attached_recipe_line` end in either a
+  `recipe_line` or a bare `NL`, so an empty recipe line still parses, and
+  `recipe`'s attached form no longer takes its own `NL`;
+- the `$(shell …)` body keeps `_paren_text`: it ends at its `)`.
+
+Nothing else in the grammar changes. `NL` matches `[\r\n]+`, so a node also
+carries the blank lines after it; bash reads them as separators.
+`VendoredGrammarQueryTests.testMakeShellInjectionTargetsEndAfterTheirNewline`
+pins the edit in the generated `grammar.json`, so a re-copy of upstream's
+`src/` fails `swift test`.
+
 ### Third-party code inside the vendored tree
 
 None beyond the grammar itself. `src/tree_sitter/{parser.h,array.h,alloc.h}`
@@ -149,14 +206,15 @@ notice the app ships; `Resources/Licenses/TreeSitterMake.txt` is therefore
 ### Required-reason audit
 
 `nm -u` on the built object (`parser.o` from
-`swift build --package-path Vendor/TreeSitterMake`, 2026-10-08) lists **zero**
+`swift build --package-path Vendor/TreeSitterMake`, 2026-10-08, re-run on the
+regenerated parser 2026-10-09) lists **zero**
 undefined symbols, and the only defined text symbol is `_tree_sitter_make`: a
 parser-only grammar is static tables plus one accessor and calls nothing,
 required-reason API or otherwise. `PrivacyInfo.xcprivacy` is unchanged.
 
 ## ABI
 
-`grep LANGUAGE_VERSION src/parser.c` reads 15, which is the ceiling of the
+`grep LANGUAGE_VERSION src/parser.c` reads 15 (the regenerated parser too), which is the ceiling of the
 tree-sitter runtime the app pins (15, minimum 13). As for the editorconfig
 grammar, **a runtime downgrade, not an upgrade, is the hazard here**: a runtime
 below 15 refuses this parser at load time and every Makefile falls back to plain
@@ -171,6 +229,19 @@ The query **compiles**: 34 patterns and 12 capture names, of which 11 are
 emitted plus the auxiliary `@_target` that the `.PHONY` pattern's predicate
 reads. The injection query compiles too. Both fixtures parse with no `ERROR`
 node.
+
+Re-run 2026-10-09 after the newline edit, before and after it with one
+harness, and the two outputs diffed. Both queries compile (34 patterns, 12
+capture names); fixtures A and B and the app bundle's `injected-shell.mk` parse
+with no `ERROR` or missing node. **Every Make-side capture and every
+uncaptured-offset count is identical**; the one difference is that each
+injected range now ends after its newline (for example `swiftlint --strict\n`
+where it was `swiftlint --strict`). Through a Make root `LanguageLayer` over
+`injected-shell.mk`, the joined words `1\n\techo` and
+`"swiftlint is not installed"\n\tswiftlint` are gone, and `echo` and the
+second `swiftlint` resolve to `function`. Fixture B has grown since the first
+run below, so its uncaptured count is now 101 rather than 93, the same before
+and after the edit.
 
 Every row of both tables below was witnessed as the **effective** capture at
 that element. The captures added after this run — `vpath`, `undefine` and
@@ -338,7 +409,12 @@ The program does the following:
    outside an injected range.
 
 Compare the output against the tables above, and classify every uncaptured
-offset as one of the deliberately-plain cases listed above.
+offset as one of the deliberately-plain cases listed above. Check that every
+injected range ends after its newline. Then run a Make root `LanguageLayer`
+(Neon and the shell grammar as further dependencies) over
+`Tests/PisakaAppTests/Fixtures/injected-shell.mk` and confirm that no bash
+capture spans a newline, i.e. no recipe line's last word has been joined to the
+next line's first.
 
 Delete the temp package afterwards. `swift test` automates only the static
 half of this procedure.
@@ -356,22 +432,27 @@ files through `#filePath` and asserts:
 ## Update procedure
 
 1. Clone upstream, check out the new commit, and record its SHA and date.
-2. Re-copy **only** these: `src/parser.c`, `src/grammar.json`,
-   `src/node-types.json`, `src/tree_sitter/{parser.h,array.h,alloc.h}`,
-   `grammar.js`, `LICENSE`, `queries/injections.scm`.
-3. **Keep** (do not overwrite): `Package.swift`,
+2. Re-copy **only** these: `src/tree_sitter/{parser.h,array.h,alloc.h}`,
+   `LICENSE`, `queries/injections.scm`.
+3. Take upstream's new `grammar.js` and **re-apply every `// EDIT:`** from the
+   current one (*The newline edit*). Then regenerate `src/parser.c`,
+   `src/grammar.json` and `src/node-types.json` with the scratch-directory
+   recipe above, using the `tree-sitter-cli` version upstream's commit
+   generated with and recording it here. Never copy upstream's `src/` files:
+   they lack the edit.
+4. **Keep** (do not overwrite): `Package.swift`,
    `bindings/swift/TreeSitterMake/make.h`, `queries/highlights.scm`, this file.
-4. Confirm upstream still ships no `src/scanner.c` and `grammar.js` still
+5. Confirm upstream still ships no `src/scanner.c` and `grammar.js` still
    declares no `externals`; if either changed, add the scanner to `sources:`.
-5. Re-read `src/node-types.json` and reconcile `queries/highlights.scm`,
+6. Re-read `src/node-types.json` and reconcile `queries/highlights.scm`,
    `queries/injections.scm` and `Resources/Queries/make/symbols.scm` with it.
    Reconcile the built-in function list in `LanguageKeywords` against
    `grammar.js`.
-6. Check the parser's ABI: `grep LANGUAGE_VERSION src/parser.c` must not exceed
+7. Check the parser's ABI: `grep LANGUAGE_VERSION src/parser.c` must not exceed
    the runtime's ceiling.
-7. `swift build --package-path Vendor/TreeSitterMake`.
-8. **Re-run the verification above.** This step is not optional.
-9. Update the Upstream table at the top of this file, the `revision` in
+8. `swift build --package-path Vendor/TreeSitterMake`.
+9. **Re-run the verification above.** This step is not optional.
+10. Update the Upstream table at the top of this file, the `revision` in
    `Resources/Licenses/licenses.json`, and re-copy `LICENSE` to
    `Resources/Licenses/TreeSitterMake.txt` if it changed.
-10. `swift test` at the repo root, then the macOS and iOS builds.
+11. `swift test` at the repo root, then the macOS and iOS builds.

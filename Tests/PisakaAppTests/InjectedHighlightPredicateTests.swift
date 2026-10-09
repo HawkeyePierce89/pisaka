@@ -41,7 +41,11 @@ import PisakaCore
 /// The fixtures are read through `#filePath`: they are source data about the
 /// queries, not resources the product ships. `injected-shell.sh` holds the shell
 /// lines bare; the `.mk` and `.md` fixtures carry the same lines as a recipe and
-/// as a fence.
+/// as a fence, and `injected-shell-two-fences.md` splits them across two fences
+/// with prose between. A recipe and two fences each paint exactly what the
+/// standalone script paints: the injected ranges include every line's newline,
+/// so bash never reads the end of one line and the start of the next as one
+/// word.
 @MainActor
 final class InjectedHighlightPredicateTests: XCTestCase {
     /// The temporary attribute the recording attribute provider writes: the
@@ -70,22 +74,8 @@ final class InjectedHighlightPredicateTests: XCTestCase {
     func testAMakeRecipePaintsLikeTheStandaloneScript() async throws {
         let text = try fixture("injected-shell.mk")
         let painted = try await paint(text, as: .make)
-        try await assertMatchesStandalone(
-            painted, text: text, label: "Make recipe", combinedLayerLosses: Self.makeCombinedLayerLosses
-        )
+        try await assertMatchesStandalone(painted, text: text, label: "Make recipe")
     }
-
-    /// The one stated difference a Make recipe keeps, and not a predicate one:
-    /// SwiftTreeSitterLayer parses **every** injection of one language as one
-    /// combined layer (`LanguageLayer`'s grouping by name), and a recipe line's
-    /// `shell_text` ends before its newline, so bash reads `exit 1` and the next
-    /// line's `echo` as the single word `1echo`. The first word of each
-    /// continuation line therefore loses its `function` capture. Pinned exactly,
-    /// so a change in either direction fails here instead of hiding.
-    private static let makeCombinedLayerLosses: Set<Capture> = Set(
-        (0..<4).map { Capture(line: 1, column: $0, name: "function") }
-            + (0..<9).map { Capture(line: 2, column: $0, name: "function") }
-    )
 
     // MARK: - Markdown fence
 
@@ -99,6 +89,17 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         let text = try fixture("injected-shell.md")
         let painted = try await paint(text, as: .markdown)
         try await assertMatchesStandalone(painted, text: text, label: "Markdown fence")
+    }
+
+    /// Two `sh` fences splitting the same three lines, prose between them. Both
+    /// land in one combined bash layer, so the first fence's last word would
+    /// join the second fence's first word were the ranges to stop short of
+    /// their newlines; `code_fence_content` includes its line endings, so
+    /// every first word keeps its standalone capture.
+    func testTwoAdjacentShellFencesPaintLikeTheStandaloneScript() async throws {
+        let text = try fixture("injected-shell-two-fences.md")
+        let painted = try await paint(text, as: .markdown)
+        try await assertMatchesStandalone(painted, text: text, label: "two Markdown fences")
     }
 
     // MARK: - Standalone script
@@ -395,8 +396,7 @@ final class InjectedHighlightPredicateTests: XCTestCase {
 
     /// The injected block paints character for character what the standalone
     /// `.sh` paints, once each shell line is offset to where it sits in the
-    /// host (after a recipe's tab and `@`, or at a fence line's start), except
-    /// for `combinedLayerLosses` — captures only the standalone script has.
+    /// host (after a recipe's tab and `@`, or at a fence line's start).
     ///
     /// Names are compared as the editor reads them: through `SyntaxTokenKind`,
     /// with `.plain` counted as uncaptured, so the Markdown host's `@none` over a
@@ -405,7 +405,6 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         _ painted: [String?],
         text: String,
         label: String,
-        combinedLayerLosses: Set<Capture> = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -434,7 +433,6 @@ final class InjectedHighlightPredicateTests: XCTestCase {
         XCTAssertFalse(expected.isEmpty, "the standalone script painted nothing", file: file, line: line)
         // `XCTAssertTrue` rather than `XCTAssertEqual`: the two differences name
         // the failure; the two whole sets would bury it.
-        expected.subtract(combinedLayerLosses)
         XCTAssertTrue(injected == expected,
                       """
                       \(label): the injected shell lines paint differently from the standalone script. \

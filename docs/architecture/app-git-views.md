@@ -555,18 +555,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `settings.fontSize`, so the diff carries `ZoomSurfaceMarker(kind: .code)` and
     a gesture over it grows the code rather than the sheet. The commit **message**
     `TextEditor` in `CommitDialogView` is the same thing for the same reason. The
-    fixed geometry inside a row (the checkbox column, the number gutter's width,
-    the row's own spacing and padding) is deliberately on *neither* scale: it is
-    chrome belonging to a code row, and scaling it with the interface would make
-    the two zones interact (`docs/architecture/core-zoom.md`).
+    per-line checkbox is the shared checkbox shape's code-zone entry,
+    `ChromeCodeZoneCheckbox`, inside the row's borderless button (which keeps
+    its help text, its disabled state and a spoken label), sized from
+    `fontSize` by Core's `CodeZoneCheckboxRule`; a context line reserves the
+    rule's `placeholderWidth`, so its text starts where a changed line's does
+    (`CommitDiffCheckboxLayoutTests`). The rest of the fixed geometry inside a
+    row (the number gutter's width, the row's own spacing and padding) is
+    deliberately on *neither* scale: it is chrome belonging to a code row, and
+    scaling it with the interface would make the two zones interact
+    (`docs/architecture/core-zoom.md`).
     **Colour.** Every colour is a chrome role read through `\.chromeTheme`
     except a context line's text, which stays `SyntaxTheme`'s `.plain`. An added
     line's text is `statusGreen` and a removed line's `statusRed`, Core's
     `ChromeColorRole.diffTextRole(for:)`, drawn on top of the wash. The row wash is Core's
     `ChromeColorRole.diffWashRole(for: UnifiedDiffLine.Kind)` — the same two
     `diffRemovedBackground`/`diffAddedBackground` roles the side-by-side pane
-    spends, a context line drawing none — the checkbox is `accent` when on and
-    `textSecondary` when off, and the line numbers and the placeholder are
+    spends, a context line drawing none — the checkbox is an `accent` box with an
+    `onAccent` check when on and a `textSecondary` stroke when off, and the line numbers and the placeholder are
     `textSecondary`. The dialog around the panel is swept too — its own entry's
     chrome paragraph above.
     **A changed line is washed across the whole pane.** The rows sit in a

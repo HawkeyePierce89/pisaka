@@ -201,7 +201,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     behavior needs; the bottom bar's drawing order — `.zIndex(1)` at the window
     root, on its own opaque ground — is the *guarantee* on top of both. It was a
     `.clipped()` on the column once, and that clip, sitting above the editor's
-    `HSplitView`, is what lost the window's top row under the title bar
+    split when that split was the platform's `HSplitView`, is what lost the window's top row under the title bar
     (`app-window.md`).
     **Why this is Core and not view glue.** Two call sites must agree on every
     number — the divider drag and the rendered `.frame(height:)` — and "what is a
@@ -768,7 +768,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     no advertised title is in it. Covered by `WelcomeScreenTests` and
     `WelcomeShortcutPinTests`.
   - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds
-    in `ContentView.editorSplit`'s `HSplitView`, pure:
+    in `ContentView.editorSplit`'s nested `ChromeSplitView` (`TabColumnSplit`), pure:
     `bounds(metrics:windowWidth:) -> Bounds` scales the three tokens (minimum
     180, ideal 220, maximum 320) through `InterfaceMetrics.pt`, the grid every
     other pane width is on, and holds the maximum to a third of the window
@@ -967,6 +967,9 @@ run in `swift test` rather than needing an Xcode build.
     while `_tree_sitter_make` is defined (`T`), confirming the scanned object is
     the grammar rather than an empty stub. Being a local path package, it ships
     no `.xcprivacy` of its own. `PrivacyInfo.xcprivacy` is unchanged.
+    Re-checked 2026-10-09 after the Make parser was regenerated here from the
+    edited `grammar.js` (`Vendor/TreeSitterMake/VENDORED.md`): still zero
+    undefined symbols; `PrivacyInfo.xcprivacy` unchanged.
     **Previous re-run: 2026-09-21**, after linking the remote `tree-sitter-bash`
     grammar for the shell language. A newly linked dependency compiled from C
     into the app, so the convention above obliges the re-run; the answer is that

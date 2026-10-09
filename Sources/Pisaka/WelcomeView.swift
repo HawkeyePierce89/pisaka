@@ -89,6 +89,11 @@ struct WelcomeView: View {
             }
         }
         .background(theme.color(.bgCanvas))
+        // Focus here exists only so the whole screen receives its key
+        // equivalents; it marks no control. So the root draws no focus border —
+        // one around the whole canvas would suggest a selection that does not
+        // exist, the keyboard selection being the row's `accentTint` — and the
+        // platform's ring is suppressed for the same reason (rule forty-nine).
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)

@@ -55,8 +55,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     its text in the `textPrimary` role over a ground its caller paints; **this
     platform's half is unchanged** — iOS is outside the chrome theme — and its
     `backgroundColor = .clear` is a pinned site of chrome rule thirty-one, while
-    its `textColor = .label` stays an open question of that sweep
-    (`core-theme.md`).
+    its `textColor = .label` is **closed, not open**: iOS is outside the theme,
+    so it is not a theme question and no iOS code changes for it
+    (`core-theme.md`, part five (c)'s decision 13).
   - `Platform/SymbolQueryCatalog.swift` — loads and caches the compiled
     `symbols.scm` query per language: the symbol index's counterpart to
     `SyntaxLanguageConfiguration`, which does the same for the *highlight*

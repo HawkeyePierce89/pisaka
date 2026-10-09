@@ -43,6 +43,10 @@ struct AcknowledgementsView: View {
     /// coming back selects the first bundled entry again (the `.task` below).
     @State private var selection: LicenseDocument.ID?
 
+    /// Whether the dependency list holds the keyboard, which is what draws the
+    /// focus border on its selected row.
+    @FocusState private var isListFocused: Bool
+
     /// The interface zone's metrics, inherited from the `Settings` scene root.
     ///
     /// Reaches the list, the header, the pane's own size — and the license *text*
@@ -73,8 +77,17 @@ struct AcknowledgementsView: View {
                 .padding(metrics.scaled(24))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                HSplitView {
+                // The detail pane states no floor of its own, as it never did:
+                // the page the Preferences host frames is what bounds it.
+                ChromeSplitView(
+                    .horizontal,
+                    minimum: metrics.scaled(180),
+                    ideal: metrics.scaled(200),
+                    maximum: metrics.scaled(280),
+                    trailingMinimum: 0
+                ) {
                     dependencyList
+                } trailing: {
                     detail
                 }
             }
@@ -107,51 +120,78 @@ struct AcknowledgementsView: View {
     /// ever did.
     private var allDocuments: [LicenseDocument] { documents + installed }
 
+    /// The dependency rows: the chrome's own, on the Log's and the problem
+    /// browser's row shape rather than a platform `List(selection:)`, whose
+    /// selection box is the platform's accent and which no role reaches. The
+    /// selected row is `accentTintStrong`, the hovered one `hoverTint`.
+    ///
+    /// **The list is one focusable container**, as the problem browser's is: a
+    /// click selects and takes focus, up and down move the selection across both
+    /// sections (kept on screen by the reader), and while the list holds the
+    /// keyboard the selected row draws the chrome's focus border — the platform's
+    /// ring around the container is disabled, so the border is the one answer.
     private var dependencyList: some View {
-        // The platform draws the selection: no row background is set, so nothing
-        // paints over the selected row's box (rule thirty-five).
-        List(selection: $selection) {
-            Section {
-                ForEach(documents) { row($0) }
-            } header: {
-                sectionHeader("Bundled")
-            }
-            // Present only while something is provisioned: a section listing
-            // nothing would suggest the app ships these, which is the one thing
-            // this screen must not imply.
-            if !installed.isEmpty {
-                Section {
-                    ForEach(installed) { row($0) }
-                } header: {
-                    sectionHeader("Language Servers")
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    sectionHeader("Bundled")
+                    ForEach(documents) { row($0) }
+                    // Present only while something is provisioned: a section
+                    // listing nothing would suggest the app ships these, which is
+                    // the one thing this screen must not imply.
+                    if !installed.isEmpty {
+                        sectionHeader("Language Servers")
+                        ForEach(installed) { row($0) }
+                    }
                 }
             }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isListFocused)
+            .onMoveCommand { direction in
+                moveSelection(direction)
+                if let selection { proxy.scrollTo(selection) }
+            }
         }
-        .scrollContentBackground(.hidden)
         .background(theme.color(.bgPanel))
-        .frame(
-            minWidth: metrics.scaled(180),
-            idealWidth: metrics.scaled(200),
-            maxWidth: metrics.scaled(280)
-        )
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(metrics.scaledFont(.subheadline))
             .foregroundStyle(theme.color(.textSecondary))
+            .padding(.horizontal, metrics.scaled(AcknowledgementsLayout.rowPaddingX))
+            .padding(.top, metrics.scaled(AcknowledgementsLayout.sectionTopPadding))
+            .padding(.bottom, metrics.scaled(AcknowledgementsLayout.sectionBottomPadding))
+            .accessibilityAddTraits(.isHeader)
     }
 
     private func row(_ document: LicenseDocument) -> some View {
-        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-            Text(document.notice.name)
-                .font(metrics.scaledFont(.body))
-                .foregroundStyle(theme.color(.textPrimary))
-            Text(document.notice.spdx)
-                .font(metrics.scaledFont(.caption))
-                .foregroundStyle(theme.color(.textSecondary))
+        AcknowledgementsRow(
+            document: document,
+            isSelected: selection == document.id,
+            showsFocusBorder: selection == document.id && isListFocused,
+            onSelect: {
+                selection = document.id
+                isListFocused = true
+            }
+        )
+        .id(document.id)
+    }
+
+    /// Up and down step through both sections as one list, bundled first; with
+    /// nothing selected either arrow lands on the first row.
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        let ids = allDocuments.map(\.id)
+        guard !ids.isEmpty else { return }
+        let current = selection.flatMap { ids.firstIndex(of: $0) }
+        let next: Int
+        switch direction {
+        case .down: next = current.map { min($0 + 1, ids.count - 1) } ?? 0
+        case .up: next = current.map { max($0 - 1, 0) } ?? 0
+        default: return
         }
-        .padding(.vertical, metrics.scaled(2))
+        selection = ids[next]
     }
 
     @ViewBuilder
@@ -236,6 +276,58 @@ struct AcknowledgementsView: View {
         } else {
             LabeledField(label: "Origin", value: notice.origin)
         }
+    }
+}
+
+/// The dependency list's measurements, bare numbers scaled at the use site.
+enum AcknowledgementsLayout {
+    static let rowPaddingX: Double = 10
+    static let rowPaddingY: Double = 4
+    static let sectionTopPadding: Double = 10
+    static let sectionBottomPadding: Double = 4
+}
+
+/// One dependency row: its name over its SPDX identifier, on the Log's row
+/// shape — `accentTintStrong` when selected whether or not the window is key,
+/// `hoverTint` under the pointer, and the chrome's focus border over the wash
+/// while it is the selection of a focused list. One combined accessibility
+/// element carrying the selected trait.
+struct AcknowledgementsRow: View {
+    let document: LicenseDocument
+    let isSelected: Bool
+    let showsFocusBorder: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovering = false
+
+    @Environment(\.interfaceMetrics) private var metrics
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
+            Text(document.notice.name)
+                .font(metrics.scaledFont(.body))
+                .foregroundStyle(theme.color(.textPrimary))
+            Text(document.notice.spdx)
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(theme.color(.textSecondary))
+        }
+        .padding(.horizontal, metrics.scaled(AcknowledgementsLayout.rowPaddingX))
+        .padding(.vertical, metrics.scaled(AcknowledgementsLayout.rowPaddingY))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground)
+        .chromeFocusBorder(showsFocusBorder)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return theme.color(.accentTintStrong) }
+        if isHovering { return theme.color(.hoverTint) }
+        return .clear
     }
 }
 

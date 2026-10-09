@@ -2198,11 +2198,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     swept** (iOS is outside the chrome theme): its `backgroundColor = .clear` on
     the `UITextView`, so the screen's ground shows through, is the sixth site
     rule thirty-one pins by file and count, and its `textColor = .label` is a
-    UIKit name rule one's AppKit/SwiftUI list does not carry — recorded as an
-    open question, not an exemption.
+    UIKit name rule one's AppKit/SwiftUI list does not carry. That is **closed,
+    not open**: iOS is outside the theme, so neither site is a theme question,
+    rule one's list does not grow, and no iOS code changes for it (part five
+    (c)'s decision 13).
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
-    `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
-    `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
+    `ChromeSplitView` with the dependency list (name + SPDX, 180/200/280 scaled
+    as the split's leading pane, the licence pane stating no floor) beside the selected entry's identity (name, SPDX,
     version/revision, origin) and its full license text, filling the one page
     size the Preferences host frames (`SettingsView`'s 640×420, the size this
     tab always needed; the frame moved there in part five (c)). The
@@ -2241,13 +2243,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     selected page is built, **the list selection resets on each visit**: leaving
     Acknowledgements discards the view and its `@State`, and coming back selects
     the first bundled entry again.
-    **Chrome (part five (c), `core-theme.md`).** The list is a selectable `List`
-    with `.scrollContentBackground(.hidden)` over `bgPanel` and **no row
-    background at all**, so the platform's selection box is never painted over —
-    pinned by rule thirty-five as an empty list of backgrounds; the platform's
-    selection itself stays, an open question. Section headers and SPDX lines are
+    **Chrome (part five (c), `core-theme.md`).** The list is the chrome's own
+    row list, not a platform `List(selection:)`: a `LazyVStack` of the
+    file-scope `AcknowledgementsRow` on `bgPanel`, measured by the private-scope
+    `AcknowledgementsLayout` numbers, the selected row `accentTintStrong` whether
+    or not the window is key and the hovered one `hoverTint` — the Log's and the
+    problem browser's row shape, its selected-row background pinned by rule
+    thirty-five. The list is **one focusable container** with
+    `.focusEffectDisabled()` (rule forty-nine): a click selects and takes focus,
+    `onMoveCommand` steps through both sections as one list and the
+    `ScrollViewReader` keeps the selection visible, and while the list holds the
+    keyboard the selected row draws the chrome's focus border (`accent` at the
+    scaled `fieldFocusedBorderWidth`, `ChromeFocusBorder`). Each row is one
+    combined accessibility element carrying `.isSelected`; the section headers
+    carry `.isHeader`. Section headers and SPDX lines are
     `textSecondary`, names `textPrimary`. The detail stands on a `bgPanel` header
     above a `hairline` rule (a `Rectangle` at `hairlineWidth`, where a
     `Divider()` stood) and the license text on `bgEditor`, painted behind the
     representable. The failure state's glyph and sentence are `textSecondary`.
-    `HSplitView`'s divider stays the platform's, as in three other gated files.
+    The split is the shared `ChromeSplitView`, its divider the `hairline` role
+    (`core-theme.md`, part five (c)'s decision 15).

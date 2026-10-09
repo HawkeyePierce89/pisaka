@@ -155,18 +155,20 @@ struct DatabaseViewerView: View {
                     // pane, so the sidebar keeps its full height: the tables and
                     // the schema are what a reader writes SQL against, and a split
                     // that shortened them would hide the names being typed.
-                    VSplitView {
+                    // The grid is the top pane and opens as tall as the
+                    // console's floor allows: its ideal and maximum are the
+                    // largest finite extent, which the split's rule clamps to
+                    // what is left over the console.
+                    ChromeSplitView(
+                        .vertical,
+                        minimum: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
+                        ideal: .greatestFiniteMagnitude,
+                        maximum: .greatestFiniteMagnitude,
+                        trailingMinimum: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
+                    ) {
                         grid
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: metrics.scaled(DatabaseViewerLayout.gridMinHeight),
-                                maxHeight: .infinity
-                            )
+                    } trailing: {
                         DatabaseConsoleView(console: console, isWriteInFlight: model.isWriteInFlight)
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: metrics.scaled(DatabaseViewerLayout.consoleMinHeight)
-                            )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -610,8 +612,10 @@ struct DatabaseViewerView: View {
     /// One cell's value. NULL is `textSecondary` and italic **as well as**
     /// carrying the marker, which is the only thing that tells it apart from a
     /// text value spelling the same word; an ordinary value is `textPrimary`.
-    /// The cell holding the keyboard draws `accentTintStrong` — the grid's one
-    /// selection-like state.
+    /// The cell holding the keyboard draws `accentTintStrong` under an `accent`
+    /// focus border — the grid's one selection-like state, drawn by
+    /// `DatabaseGridCellFocus` — and the platform's ring is disabled, so the
+    /// border is the only answer to where the keyboard is.
     ///
     /// No longer `.textSelection(.enabled)`: on selectable text a double-click
     /// selects a word, and that is the gesture that now has to open the editor.
@@ -655,10 +659,11 @@ struct DatabaseViewerView: View {
             .padding(.vertical, metrics.scaled(3))
             .frame(width: metrics.scaled(160), alignment: .leading)
             .opacity(refusal == nil ? 1 : Self.refusedCellOpacity)
-            .background(focus == .cell(coordinate) ? theme.color(.accentTintStrong) : Color.clear)
+            .modifier(DatabaseGridCellFocus(isFocused: focus == .cell(coordinate)))
             .contentShape(Rectangle())
             .help(refusal?.message ?? "")
             .focusable(refusal == nil && isGridIdle)
+            .focusEffectDisabled()
             .focused($focus, equals: .cell(coordinate))
             .onTapGesture(count: 2) { beginEditing(value, at: coordinate) }
             // The single click is what makes the Return shortcut reachable at all.
@@ -978,6 +983,23 @@ struct GridRowHover: ViewModifier {
         content
             .background(isHovering ? theme.color(.hoverTint) : Color.clear)
             .onHover { isHovering = $0 }
+    }
+}
+
+/// A grid cell's focus treatment: while the cell holds the keyboard, its
+/// `accentTintStrong` fill and, over it, the chrome's focus border — `accent`
+/// at the scaled `fieldFocusedBorderWidth`, the shared field's own focused
+/// stroke. A type of its own so the app bundle can host the drawing a focused
+/// cell gets without building the grid around it.
+struct DatabaseGridCellFocus: ViewModifier {
+    let isFocused: Bool
+
+    @Environment(\.chromeTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .background(isFocused ? theme.color(.accentTintStrong) : Color.clear)
+            .chromeFocusBorder(isFocused)
     }
 }
 

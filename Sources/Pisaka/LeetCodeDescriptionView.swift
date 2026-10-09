@@ -108,14 +108,26 @@ struct LeetCodeDescriptionPane: View {
                     verticalHairline
                     collapsedStrip
                 }
+                .preference(key: ChromeSplitTrailingDemand.self, value: renderedWidth)
             } else {
                 HStack(spacing: 0) {
                     resizeHandle
                     pane(statement)
                         .frame(width: clamped(width))
                 }
+                .preference(key: ChromeSplitTrailingDemand.self, value: renderedWidth)
             }
         }
+    }
+
+    /// The width this pane takes beside the editor, reported to the main
+    /// window's splits and its root, so the window's floor grows with it rather
+    /// than the editor row running past the window's edge: the platform split
+    /// read it off the content, the chrome split is told.
+    private var renderedWidth: CGFloat {
+        isCollapsed
+            ? metrics.scaled(ChromeGeometry.hairlineWidth) + metrics.scaled(28)
+            : metrics.scaled(5) + clamped(width)
     }
 
     // MARK: - The pane

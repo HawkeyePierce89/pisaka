@@ -1094,6 +1094,11 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// styled range for a Neon write) and `length` its valid extent — a parameter
     /// rather than `storageLength` for the pre-edit reason spelled out on
     /// `clearBackgrounds(storageLength:)`.
+    ///
+    /// The pair is painted in the chrome's `bracketMatch` role, asked for as the
+    /// dynamic colour on every paint and never stored, so an appearance switch
+    /// resolves it afresh — the same reading `paintCurrentLine` makes of
+    /// `currentLine`.
     private func paintBackgrounds(clippedTo clipRange: NSRange, clampingTo length: Int) {
         let clip = clamped(clipRange, to: length)
         guard clip.length > 0 else { return }
@@ -1104,7 +1109,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             let intersection = NSIntersectionRange(pair, clip)
             guard intersection.length > 0 else { continue }
             addTemporaryAttributes(
-                [.backgroundColor: theme.nsMatchedPairBackground],
+                [.backgroundColor: ChromePalette.nsColor(.bracketMatch)],
                 forCharacterRange: intersection
             )
         }

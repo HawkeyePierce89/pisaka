@@ -91,12 +91,12 @@ adds no write of any kind. Its only persisted input is the existing
     `bracketMatch`. The current-line highlight then spends `currentLine` — the
     full-width band the layout manager paints under the caret's line and its
     continuation in the gutter (see *The current-line highlight*, below) — which
-    leaves **one**: `bracketMatch`, deliberately still unused, because it
-    belongs to the *code* zone, whose matched-pair overlay is a temporary text
-    attribute on the editor's own theme (`SyntaxTheme`), so spending it is a
-    decision about where the chrome ends rather than a restyle. It is declared
-    nonetheless, because the table is the design rather than an inventory of
-    today's call sites. The raw values are the stable names the
+    leaves **one**: `bracketMatch`. The matched-pair overlay spends it last —
+    the layout manager's temporary background behind both halves of the
+    caret's pair, which until then drew a private value of the editor's own
+    theme (see *The matched-pair background*, below) — so **no role is
+    unspent**: the table and the call sites agree. The table is still the
+    design rather than an inventory of today's call sites. The raw values are the stable names the
     gating suite and the palette test speak; renaming one is a documentation
     change as much as a code change.
     **`diagnosticRole(for:)` — the chrome's one severity answer**, moved here in
@@ -202,6 +202,46 @@ two new geometry tokens) and each with its readers pinned by a gating
     the chrome draws with — reached through `InterfaceMetrics.font(_:)` /
     `scaledFont(_:)`. A second table of those numbers would be a second opinion
     about them, so `ChromeGeometry` carries none.
+  - `CodeZoneCheckboxRule.swift` — the shared checkbox shape's measurements for
+    a row drawn at the **code** font (part five (b)'s departure six, the unified
+    diff's per-line toggle). `init(fontSize:)` clamps through
+    `ZoomScaleRule.editorFont` and answers four values: `side` =
+    `fontSize × 14 / 13` (the chrome box's 14 against the chrome's 13-pt
+    default text, so a 13-pt line carries exactly `checkboxSide`), `glyphSide` =
+    `side × 10 / 14` (the shape's own glyph proportion), `cornerRadius` =
+    `checkboxCornerRadius × side / 14` and `strokeWidth` =
+    `hairlineWidth × side / 14`, never thinner than 1 pt. Every value is on the
+    half-point grid the chrome's layout metrics use, each derived from the
+    *rounded* side so the four describe one box, and `placeholderWidth` — what a
+    context line reserves in the box's place — is the side. The rule names no
+    interface-zone type and reads no interface scale, because the code zone and
+    the chrome's must not interact (`core-zoom.md`); its tests
+    (`CodeZoneCheckboxRuleTests`) pin the 13-pt reference, the 8- and 32-pt
+    bounds, monotonicity, the glyph proportion within rounding, and that the
+    file never mentions the metrics type at all.
+  - `SplitPaneRule.swift` — the shared split's one sizing decision: the extent
+    of the leading (or top) pane of a two-pane split, from that pane's
+    `minimum`, `ideal` and `maximum`, the trailing pane's `trailingMinimum`, the
+    extent the two panes share (`available`, the divider's strip already
+    deducted by the caller) and a drag translation. The ceiling is
+    `min(maximum, available - trailingMinimum)`; when it falls below `minimum`
+    the **trailing pane's minimum wins** and the leading pane is the one
+    squeezed, collapsing to zero rather than going negative, so the answer
+    always lies in `0...available`. `extent(base:dragTranslation:available:)`
+    adds the translation — the leading pane is before the divider, so rightward
+    or downward grows it — and a zero translation changes nothing, the
+    `BottomPanelHeightRule` shape. Non-finite inputs are guarded the same way
+    as that rule's: an unusable `available` collapses to zero, an unusable
+    translation leaves the base, a non-finite proposal falls back to the ideal,
+    and a non-finite or negative bound contributes nothing. Every value arrives
+    interface-scaled, so Core stays scale-agnostic.
+    `extent(base:adjusting:step:available:)` is the assistive path — VoiceOver's
+    increment/decrement moves one step along the drag's sign convention through
+    the same clamp, so a divider moved without a pointer reaches exactly the
+    extents a drag can, and an unusable step leaves the base. `SplitPaneRuleTests` pin the
+    one-to-one drag, the one-step adjustment, the zero translation, both ends of the clamp, the
+    shortfall, the `0...available` bound over a sweep, and the degenerate
+    inputs.
   - `ChromeAppearance.swift` — `dark` / `light`, and no third value: the palette
     holds one dark and one light entry per role, so this is the whole question a
     colour resolution has to answer. `resolved(_:systemPrefersDark:)` maps a
@@ -525,24 +565,37 @@ prevent. The design's own two lane colours cannot stand in either: two hues cann
 tell several concurrent branches apart, which is the gutter's whole job.
 
 The table is `ChromePalette`'s shape: an exhaustive `switch` over eight `Lane`
-identities with no `default`, each a light/dark `Entry` — blue 0x007AFF /
-0x0A84FF, green 0x28CD41 / 0x32D74B, orange 0xFF9500 / 0xFF9F0A, purple 0xAF52DE /
-0xBF5AF2, red 0xFF3B30 / 0xFF453A, teal 0x30B0C7 / 0x40C8E0, pink 0xFF2D55 /
-0xFF375F, yellow 0xFFCC00 / 0xFFD60A. `nsColor(forLane:)` answers a **dynamic**
+identities with no `default`, each a light/dark `Entry` — blue 0x2F64C8 /
+0x6AA2FF, green 0x2E7D32 / 0x5FC46A, orange 0xB8560A / 0xF0954A, purple 0x8A3FC0 /
+0xC08CF5, red 0xC0392B / 0xF2706A, teal 0x00798A / 0x3FC4D4, pink 0xC2185B /
+0xF27AAE, yellow 0x8A6D00 / 0xE3C449. `nsColor(forLane:)` answers a **dynamic**
 `NSColor` through `PlatformColor.dynamic(light:dark:)`, resolved at draw time, so
 the gutter caches nothing and watches for no appearance change; the index wraps
 modulo eight, negative indices included, as the old palette did.
 `CommitGraphView.swift`, its one reader, spells no colour at all and is gated;
 this file is exempt, and rule three's disjointness assertion is what refuses the
 two sets meeting at that seam. `CommitGraphPaletteTests` (app bundle) restates the
-values, asserts each set of eight pairwise distinct, resolves the dynamic colour
-under both appearances and pins the wrap at -1 and 8.
+values, asserts each set of eight pairwise distinct, measures the table (below),
+resolves the dynamic colour under both appearances and pins the wrap at -1 and 8.
 
-**The eight hues are today's system values, carried over deliberately**, so
-moving the gutter off the system colours changes nothing visually. Nobody chose
-them against the design's ground; **choosing hues that sit on it is an open design
-question**, recorded here and in the file's own comment rather than decided by
-this table.
+**The eight hues are chosen against the gutter's own ground.** The lanes sit on
+`bgPanel` — `0xECECEF` light, `0x2B2D30` dark — the ground the dock sets for
+itself; neither `CommitGraphView` nor an unselected `CommitRow` draws anything
+beneath them. The WCAG ratios against `bgPanel`, in table order (blue, green,
+orange, purple, red, teal, pink, yellow), are light 4.71, 4.35, 4.07, 5.01, 4.61,
+4.34, 4.98, 4.17 and dark 5.41, 6.31, 5.99, 5.47, 4.80, 6.61, 5.37, 8.06, so every
+entry clears 3:1 with no exception. Over a selected row (`accentTintStrong` over
+`bgPanel`: `0xC6D3EC` light, `0x324059` dark) the lowest is 3.19 light and 3.63
+dark — stated for information; the floor is pinned against `bgPanel` only. The
+hue families are light 219, 123, 26, 275, 6, 187, 336, 47° and dark 217, 127, 27,
+270, 3, 186, 334, 48°; the closest pairs are orange–red light (20.6°) and
+orange–yellow dark (20.8°). None of the sixteen values equals `statusRed`,
+`statusGreen`, `statusYellow` or `accent` in either appearance, so no lane can be
+read as a chrome meaning, and the table stays the fourth exemption rather than
+becoming roles. `CommitGraphPaletteTests` pins all three properties through the
+app bundle's `ContrastArithmetic` — the 3:1 floor against `ChromePalette`'s own
+`bgPanel` entry rather than a restated literal, a 20° minimum pairwise hue
+separation per appearance, and inequality with the four roles' resolved values.
 
 ### The SwiftUI path — `ChromeTheme` + `ChromeThemeEnvironment.swift`
 
@@ -659,9 +712,9 @@ disagree.
   - **The vertical tab column** — `TabListView.swift` and `TabRowView.swift`, the
     environment path. The column states the strip's vocabulary turned through a
     right angle: `bgPanel` ground, **no pane-edge rule at all** — its host is the
-    `HSplitView` in `ContentView.editorSplit`, whose splitter already states the
-    column/editor boundary, exactly as the gated `ProjectTreeView` beside it in
-    the same split view leaves its own — a one-point `hairline` rule along every
+    `ChromeSplitView` in `ContentView.editorSplit`, whose `hairline` divider
+    already states the column/editor boundary, exactly as the gated
+    `ProjectTreeView` beside it in the same split leaves its own — a one-point `hairline` rule along every
     row's bottom, the active row's ground **unchanged** (no fill; the design's
     column marks it only by the `accentIndicator`-wide `accent` bar on its
     **leading** edge rather than underneath), `textPrimary` for the active label
@@ -1121,8 +1174,8 @@ a view; rule twenty pins the three panels' accessibility.
 
 **The lane palette is the fourth exemption** (`CommitGraphPalette.swift`, above):
 a lane colour is an identity token, not a chrome meaning. Its eight hues are
-today's system values carried over so the gutter changes nothing visually;
-choosing hues that sit on the design's ground is an open design question.
+chosen against the gutter's ground, `bgPanel`: each clears 3:1 on it, any two
+sit at least 20° apart, and none equals a status role or `accent`.
 
   - **The Log panel** — `CommitLogView.swift`, the environment path. Since the
     design pass it draws no title row: the refresh controls sit at the filter
@@ -1136,8 +1189,8 @@ choosing hues that sit on the design's ground is an open design question.
     with a drag strip rather than an `HSplitView`. Full entry in
     `app-git-views.md`. The database viewer's sidebar divide has since taken the
     same shape — a hand-drawn hairline with a drag strip rather than a platform
-    divider (`core-database-viewer.md`); its `VSplitView` divider stays the named
-    open departure.
+    divider (`core-database-viewer.md`); its grid/console split is the shared
+    `ChromeSplitView` since part five (d)'s decision 11 was settled.
   - **The graph gutter** — `CommitGraphView.swift`, AppKit, reading
     `CommitGraphPalette` and spelling no colour; 2 pt lines, a 6 pt dot, 14 pt
     lanes. Full entry in `app-git-views.md`.
@@ -1255,7 +1308,17 @@ title inside the click target, a `checkboxSide` square at `checkboxCornerRadius`
 speaking "On"/"Off"/"Mixed", dimmed when disabled. The glyph is 10 points, a
 named private constant (`ChromeCheckboxLayout.glyphSide`): the design's check
 inside the 14-point box, taken over Local Changes' former private 8, so the
-revert checkbox's check grew two points. Its first callers are the revert
+revert checkbox's check grew two points. **The box itself is one internal
+view, `ChromeCheckboxShape`**, taking the state, the side, the glyph side, the
+corner radius, the stroke width and the off stroke's role, and reading no zone:
+`ChromeCheckbox` passes the interface-scaled tokens and `hairline`, so it draws
+exactly as before, and `ChromeCodeZoneCheckbox` — the second entry, for a row
+drawn at the code font — passes `CodeZoneCheckboxRule(fontSize:)`'s four values
+and a `textSecondary` off stroke, because a `hairline` box all but vanishes on
+the diff's washes. The code-zone entry is two-state, the box alone (its caller
+owns the click, help and disabled state) and speaks "On"/"Off" as its value.
+One shape at two zones, so there is still exactly one drawing of a checkbox.
+Its first callers are the revert
 checkbox (the private builder and its three `LocalChangesLayout` numbers
 deleted) and the Log filter bar's two date bounds, which replaced a platform
 `Toggle`. Callers: `LogFilterBar.swift` (its text fields and its
@@ -1664,12 +1727,19 @@ search surfaces.
 5. **"Edit…"** on the author line is a `.plain` button with an `accent` label,
    not `.buttonStyle(.link)`, a platform style rule thirty forbids. (The design
    pass folded it into the footer's author control, still a `.plain` button.)
-6. **The unified diff's per-line checkbox keeps its SF Symbol glyph — an open
-   question.** It sits inside a code-font row; the shared checkbox is
-   interface-scaled, and putting it in a code-zoom row is the mixed-zone
-   mistake rule twenty-seven exists to catch. Rule thirty bans platform toggles,
-   and the glyph is neither. Whether that row's checkbox should be a code-zone
-   shape of its own is a design question.
+6. **The unified diff's per-line checkbox — closed: the shared shape at the
+   code zone's size.** It sits inside a code-font row, and the chrome's
+   checkbox is interface-scaled, so dropping it in would be the mixed-zone
+   mistake rule twenty-seven exists to catch; the row kept an SF Symbol glyph
+   while that was open. The decision: the box is the shared checkbox shape,
+   drawn through its code-zone entry `ChromeCodeZoneCheckbox` and sized by
+   Core's `CodeZoneCheckboxRule` from the code font alone (14 pt beside 13-pt
+   text, the chrome box's own proportion), so it grows with the diff and never
+   with the interface. On is the shared `accent` box and `onAccent` check; off
+   is stroked in `textSecondary`, stronger than the chrome's `hairline`, which
+   all but vanishes on the added and removed washes. A context line reserves
+   the rule's `placeholderWidth`, so its text starts where a changed line's
+   does. `CommitDiffCheckboxLayoutTests` measures all three off a bitmap.
 7. **The unified diff's added and removed text — closed by the design pass.**
    This was left open: the design tints a changed line's text as well as its
    ground, and a tinted *text* is a chrome colour on code. The design pass
@@ -1900,13 +1970,28 @@ differed:
 13. **`LicenseTextView.swift` is shared with iOS, and its iOS half is not
     swept.** Its `backgroundColor = .clear` is a sixth pin in rule thirty-one,
     with its reason; its `textColor = .label` is a UIKit name rule one's list
-    does not carry, recorded below as an open question rather than an exemption.
+    does not carry. **Closed**: iOS is outside the theme. A UIKit semantic
+    colour on iOS is therefore not a theme question; rule one's list does not
+    grow, no iOS code changes, and the file's own header says the same.
 14. **The origin link is a button**: a `.plain` button with an `accent` label
     calling `@Environment(\.openURL)`, since `Link` draws the platform's link
     colour — part five (b)'s "Edit…" treatment.
-15. **Three platform pieces stay**, stated as open questions below: the small
-    `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
-    list's platform selection.
+15. **Three platform pieces stayed**, stated as open questions at the time: the
+    small `ProgressView` spinners, `HSplitView`'s divider and the Acknowledgements
+    list's platform selection. All three are now settled. **The selection is
+    the chrome's**: the dependency list left `List(selection:)` for the Log's
+    and the problem browser's row shape — a `LazyVStack` of rows, the selected
+    one `accentTintStrong`, the hovered one `hoverTint`, no platform highlight —
+    as one focusable container (`onMoveCommand` moves the selection, the
+    platform's ring disabled) whose selected row draws the chrome's focus
+    border while the list holds the keyboard; rule thirty-five pins its
+    selected-row background. **The divider is settled**: Acknowledgements'
+    list/licence split is the shared `ChromeSplitView` (180/200/280, scaled, the
+    licence pane stating no floor of its own, as it never did), whose divider is
+    the `hairline` role, and so are the three other platform splits the gated
+    files held — the main window's editor split, Local History's and the
+    database viewer's grid/console split. Rule forty-eight forbids the platform
+    split in every gated file.
 
 **Every departure from the drawing**, stated:
 
@@ -1938,16 +2023,11 @@ since the design pass, about the design's 68), pinned by rule twenty-seven.
 
 - **The tab-placement wording.** The drawing rewords the tab-orientation row;
   the code's words are kept verbatim.
-- **The spinners.** `ProgressView` stays in Language Servers and both sheets;
-  the ticket names no replacement. (Closed by part five (d): every gated site is
-  the shared `ChromeSpinner`.)
-- **`HSplitView`'s divider** in Acknowledgements stays the platform's, as it
-  already is in three gated files.
-- **The iOS half's `.label`** in `LicenseTextView.swift`: a UIKit semantic
-  colour on a platform outside the chrome theme, which rule one's list does not
-  carry.
-- **The Acknowledgements list's platform selection**: the list draws no row
-  background (rule thirty-five), so the selection box is the platform's.
+
+Closed since, and so no longer listed above: the spinners (part five (d): every
+gated site is the shared `ChromeSpinner`), `HSplitView`'s divider and the
+Acknowledgements list's platform selection (decision 15), and the iOS half's
+`.label` (decision 13: iOS is outside the theme).
 
 #### Part five (d) — the database viewer, its SQL console and the problem-catalog surfaces
 
@@ -2105,8 +2185,13 @@ differed:
     `Section { } header: { }` in `textSecondary`; the platform draws the
     selection and no row background is set, so rule thirty-five pins `[[]]`.
     The key glyph takes its own scaled font and keeps its help.
-11. **`VSplitView`'s divider stays**, carried with `HSplitView`'s as one open
-    question.
+11. **`VSplitView`'s divider stayed**, carried with `HSplitView`'s as one open
+    question. **Settled**: the grid/console split is the shared
+    `ChromeSplitView` along the vertical axis — the grid the top pane, floored
+    at `gridMinHeight` and opening as tall as the console's `consoleMinHeight`
+    allows (its ideal and maximum are the largest finite extent, which
+    `SplitPaneRule` clamps) — and rule forty-eight forbids the platform split in
+    every gated file.
 12. **The browser is a window root**, so rule thirty-two applies: it resolves
     colours through a private `chromeColor(_:)` over
     `settings.chromeTheme(systemPrefersDark:)`, its root struct reads no
@@ -2161,11 +2246,20 @@ Every label, sentence, shortcut, disabled rule and generation-token capture is
 verbatim; nothing about the viewer's two writes or the gate they consult
 changed.
 
+**Focus.** The grid's focused cell keeps its `accentTintStrong` fill and adds
+the chrome's focus border over it — `ChromeFocusBorder`, `accent` at the scaled
+`fieldFocusedBorderWidth`, the shared field's own focused stroke, drawn by the
+file-scope `DatabaseGridCellFocus` — and the browser's selected row draws the
+same border over its wash while the list holds focus. Both `.focusable(` chains
+apply `.focusEffectDisabled()` (rule forty-nine), so the platform's ring no
+longer draws around the cell or around the whole list. The Welcome root is
+**closed by reason with no code change**: its focus exists only so the whole
+screen receives key equivalents and marks no control, so a border around the
+whole canvas would suggest a selection that does not exist; its platform ring
+was already suppressed (`app-window.md`).
+
 **Open questions**, deliberately left:
 
-- **`VSplitView`/`HSplitView`'s dividers** stay the platform's.
-- **The platform focus ring** on the grid's focused cell and on the browser's
-  focusable row list.
 - **The two served documents' palette**: the statement page and the sign-in
   page are not chrome; the pane around the first is.
 - **The terminal's ANSI-16** stays `TerminalTheme`'s, as before (its four
@@ -2373,10 +2467,11 @@ now states the bound its measurement has always had.
 colour sweep is closed, in one sense only: every macOS chrome surface draws
 from the roles, which rule forty-three's live half measures rather than asserts.
 It does **not** mean the theme is finished. The open questions stay open and
-stay named under *What is still waiting*: the lane hues, the unified diff's per-line checkbox glyph. (The caret readout, the
-changed-line text tint and the terminal's own palette were waiting here too;
-all are now settled — see the bottom bar's caret readout below, part five
-(b)'s departure seven, and *The dark terminal palette on its ground*.)
+stay named under *What is still waiting*. (The caret readout, the
+changed-line text tint, the terminal's own palette, the lane hues and the unified
+diff's per-line checkbox were waiting here too; all are now settled — see the
+bottom bar's caret readout below, part five (b)'s departures six and seven, and
+*The dark terminal palette on its ground*.)
 
 #### Part five (g) — the project tree's drop-target wash
 
@@ -2759,6 +2854,90 @@ above that say so record their own moment. `ChromePaletteTests` keeps the wash d
 halves, on the caret's line and not its neighbour, and none under a multi-line
 selection.
 
+#### The matched-pair background
+
+The background behind both halves of the caret's matched pair is the
+`bracketMatch` role — light `0xDBE6F5`, dark `0x3D4A5C` — the last role the
+chrome had not spent. It was a private value of `SyntaxTheme` (`0xD0DCEA` /
+`0x3D4B5C`, within a few steps of the role on every channel), and that value,
+its `matchedPairBackground` accessor and its `NSColor` spelling are deleted
+rather than kept beside the role. `BracketOverlayLayoutManager.paintBackgrounds`
+writes `ChromePalette.nsColor(.bracketMatch)` as the pair's temporary
+`.backgroundColor` — the dynamic colour, asked for on every paint and never
+stored, so it resolves in whatever appearance draws it, rule twenty-five's
+footing. The pair is the chrome's even though it sits in the code: it is a
+highlight drawn *around* two glyphs, not a colouring of them. What is drawn on
+it stays code colouring and stays in `SyntaxTheme` — the five rainbow depth
+colours, the unmatched-bracket red and the indentation tints the pair is
+painted over — and `BracketHighlightController`, which only hands those colours
+to the layout manager, stays ungated. The reasoning that chose the old value —
+opaque and neutral, so every rainbow colour stays readable on it, never
+mistaken for the selection, and a background of its own over an indent tint —
+now lives on the role's doc comment. Measured over the role, the five depth
+colours and the unmatched red each clear 3:1: light 3.97, 5.56, 4.14, 3.92,
+4.28 and 4.61; dark 6.41, 4.53, 4.10, 5.16, 5.86 and 3.23.
+
+Rule twenty-nine holds the files spelling `bracketMatch` to the palette and the
+layout manager, by set equality, and refuses a pair background (`pairBackground`
+or `matchedPair`, in any case) in `SyntaxTheme.swift`, so the private value
+cannot come back beside the role. `BracketPairBackgroundTests` reads the
+temporary attribute on both halves under each appearance, samples the open
+bracket's cell off a rendered bitmap, and computes the six contrasts with
+`ContrastArithmetic`.
+
+#### The shared split — `ChromeSplitView.swift`
+
+The chrome's one two-pane split, the shape the four hand-drawn dividers
+already shared — the dock divider, the Markdown preview divider, the Log's
+list/detail divide and the database sidebar divide — stated once as a view,
+so the platform's split views, whose divider is the platform's separator
+colour and cannot be changed, have something to be replaced by. It joins the
+gated set, taking it from sixty-three to **sixty-four**, and spends no new
+role and no new token. Along a horizontal or vertical axis it lays out a
+leading pane, a clear 5-pt drag strip (scaled) with a `hairline` line of the
+scaled `hairlineWidth` centred in it, and a trailing pane taking what is left.
+The caller states the leading pane's minimum, ideal and maximum and the
+trailing pane's minimum, already scaled; every clamp, on screen and during the
+drag, is `SplitPaneRule`'s. The extent lives in `@State`, starting at the
+ideal, and is never re-clamped as the window shrinks, so an extent the window
+cannot grant comes back when it grows. The drag is measured in the window's
+space, captures the rendered extent as its base and writes nothing on its
+zero-translation opening frame — the dock divider's reasons. One flag drives
+the resize cursor's push and pop through `syncDividerCursor()`, and
+`.onDisappear` clears hover and drag state and calls it, so the file is the
+seventh entry in rule twenty-two's pinned set. The host applies no
+`.clipped()`, `.clipShape` or `.mask`: a clip is what cost the platform split's
+panes the window's top safe-area inset (`BottomDockColumn`). The strip is
+one adjustable accessibility element — the platform split's divider was an
+`AXSplitter`, so a hand-drawn strip that stayed a bare gesture would have cost
+VoiceOver and switch-control users every resize — labelled by axis, valued as
+the leading pane's share of the panes' extent, and each increment or decrement
+moves it one scaled 10-pt `ChromeSplitStrip.adjustmentStep` through
+`SplitPaneRule`. A three-pane
+layout nests a second split as the trailing pane — the main window's tree,
+tab column and editor do. A pane inside the trailing side whose width the
+caller cannot see reports it through `ChromeSplitTrailingDemand`, and every
+horizontal split it sits under adds it to its trailing minimum: the LeetCode
+statement beside the editor does. A `GeometryReader` host raises no window
+floor, so the main window's root composes one from the same bounds plus that
+preference (`app-window.md`), which is what the platform split did by reading
+its panes' minimums off their content. It replaced all four platform splits the gated files
+held: `ContentView.editorSplit` (the tree at 180/240/360, then — vertical tabs
+— `TabColumnSplit` within `TabColumnWidthRule`'s bounds, the editor floored at
+320 in both), Local History (220/260/380 against 360), Acknowledgements
+(180/200/280) and the database viewer's vertical grid/console split
+(`gridMinHeight` against `consoleMinHeight`); rule forty-eight keeps the
+platform split out. **What the safe-area guard does not see**: the clip trap
+`BottomDockColumn` records belongs to the platform split and may not apply to
+this host at all, and `BottomDockLayoutTests` hosts the dock column with stub
+panes around a platform split of its own, so it cannot see the main window's
+real split being replaced; the main window's top row is checked live.
+`ChromeSplitLayoutTests`
+renders both axes in both appearances and measures one `hairline` line of one
+hairline width between the panes, the leading pane at its ideal and the 5-pt
+strip, and at narrow widths the panes keeping their minimums and, when both
+cannot fit, the trailing pane's minimum winning.
+
 #### The terminal's ground and inset
 
 The design sets the terminal into its panel rather than edge to edge: a
@@ -2874,17 +3053,19 @@ and `secondaryButtonHeight` are spent on the shared field. The **caret
 readout** is **no longer deferred**: it sits after the bar's toggles (see *The
 bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
 **no longer deferred** either: the design pass drew it (part five (b)'s
-departure seven). What stays deferred: the **lane hues**, and the unified
-diff's **per-line checkbox glyph** (part five (b)'s departure six), both open
-design questions. The terminal's own palette is **no longer
+departure seven). The **lane hues** are **no longer deferred**: they are
+chosen against `bgPanel` and measured (*The fourth exemption*, above). The
+unified diff's **per-line checkbox** is **no longer deferred**: it is the shared
+checkbox shape at the code zone's size (part five (b)'s departure six). The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — and
 the item that took its place, **tuning the dark ANSI-16 set**, is closed too:
 on the terminal's ground, `bgPanel` dark `0x2B2D30`, nine entries were
 brightened along SwiftTerm's own hues so every entry but black clears 4.5:1
 (see *The dark terminal palette on its ground*). Each deferred item follows the
-six-step guide at the end of this document, on its own. One role remains unspent — `bracketMatch`, code
-zone — after the current-line highlight spent `currentLine`, the same one role
-`ChromeColorRole.swift`'s own doc comment names.
+six-step guide at the end of this document, on its own. **No role remains
+unspent**: the matched-pair overlay spent `bracketMatch`, the last of them (see
+*The matched-pair background*), which is what `ChromeColorRole.swift`'s own doc
+comment now states.
 
 ### The monochrome-icon decision
 
@@ -2928,7 +3109,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — and the Welcome screen, `WelcomeView.swift`, one more: **sixty-three** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more: **sixty-four** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -2936,7 +3117,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-seven rules, each invisible to the compiler:
+The forty-nine rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -2972,7 +3153,7 @@ The forty-seven rules, each invisible to the compiler:
    paints, so it cannot move behind a macOS-only palette) and, since part four
    (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
    line is the same branch as that one" — not a chrome meaning; its eight hues
-   are the former system values carried over as light/dark pairs and pinned by
+   are light/dark pairs chosen against `bgPanel` and measured by
    `CommitGraphPaletteTests`). `CommitGraphView.swift`, which asks that table
    for every lane and spells no colour itself, is *gated*, so the two sets
    meeting at that seam is exactly what the disjointness assertion refuses.
@@ -3487,7 +3668,11 @@ The forty-seven rules, each invisible to the compiler:
    `CommitDialogView.swift`'s `private var messageBox` body (found through the
    call matcher, so a wrapped call counts) names `messageLineHeight` and none
    names `metrics` — the message box is counted in lines of the code font it
-   draws at, and at least one such frame must exist.
+   draws at, and at least one such frame must exist. Part C of the open-items
+   plan adds a fourth: `CommitUnifiedDiffView.swift`'s `private func
+   checkbox(for` body names `fontSize` and never `metrics` — the per-line box
+   and the context line's placeholder are sized from the code font through
+   `CodeZoneCheckboxRule`.
 28. **A secondary window's ground is set in the window subclass.** The files
     constructing `EscClosableWindow` (a call: the token then its argument list)
     equal the six secondary-window controllers, by set equality; none of them
@@ -3496,7 +3681,13 @@ The forty-seven rules, each invisible to the compiler:
     designated initializer assigns `backgroundColor` and names `bgPanel`.
 29. **The merge wash is Core's one answer.** The `mergeWashRole` token is read
     by `MergeView.swift` alone among the app files; no app file other than
-    `ChromePalette.swift` spells `conflictBackground` or `bracketMatch`; the app
+    `ChromePalette.swift` spells `conflictBackground`; the app files spelling
+    `bracketMatch` are exactly `ChromePalette.swift` and
+    `BracketOverlayLayoutManager.swift` (the matched-pair overlay's one
+    painter), by set equality; `SyntaxTheme.swift` spells no pair background —
+    neither `pairBackground` nor `matchedPair`, a lowercased substring of the
+    stripped text, since the former accessors carried the words inside longer
+    identifiers; the app
     files spelling `currentLine` are exactly `ChromePalette.swift`,
     `BracketOverlayLayoutManager.swift` and `LineNumberRulerView.swift` (the
     current-line highlight's two painters), by set equality; no gated file chains `.withAlphaComponent`/`.opacity` onto a
@@ -3525,15 +3716,17 @@ The forty-seven rules, each invisible to the compiler:
     fold placeholder's former `color.withAlphaComponent(0.5)`, removed in part
     five (f) rather than caught): following a value through a `let` needs data
     flow, which a text scan does not have.
-30. **One primary button, one secondary, one checkbox.** No gated file spells the
+30. **One primary button, one secondary, one checkbox shape at two zones.** No gated file spells the
     tokens `Toggle`, `toggleStyle` (bare, because `containsToken` rejects a dotted
     needle after an identifier character; the token match is also what keeps
     `ChromeQueryToggle(` from being a hit), `BorderedButtonStyle`,
     `BorderedProminentButtonStyle`, `LinkButtonStyle` or `DefaultButtonStyle`;
     no `.buttonStyle(` argument names `bordered`, `borderedProminent`, `link` or
     `automatic` (scoped to the argument; `plain` and `borderless` stay allowed);
-    the files spelling `chromePrimary`, `chromeSecondary` and `ChromeCheckbox`
-    are pinned by set equality, the defining file included; no gated file but
+    the files spelling `chromePrimary`, `chromeSecondary`, `ChromeCheckbox`,
+    `ChromeCodeZoneCheckbox` (the code-zone entry: `CommitUnifiedDiffView.swift`)
+    and `ChromeCheckboxShape` (the one drawing of a box: `ChromeControls.swift`
+    alone) are pinned by set equality, the defining file included; no gated file but
     `ChromeControls.swift` declares a checkbox or checkmark measurement; and in
     each of part five (b)'s ten files and part five (c)'s seven the `Button`
     count equals the `buttonStyle` count, each file's number stated
@@ -3615,13 +3808,17 @@ The forty-seven rules, each invisible to the compiler:
     re-checks: a container font (some enclosing block's chain sets `.font(`
     through `metrics`), a use-site font (every use of the declaration is under
     one — the tree draft's icon column), a button style (the enclosing button's
-    chain names `chromeSecondary` — the merge strip's chevrons), or
-    deliberately off both scales (the unified diff's per-line checkbox, a code
-    row's fixed geometry). Re-checking the source is the half that matters: an
+    chain names `chromeSecondary` — the merge strip's chevrons), or entry
+    arguments (the glyph lives in a shape whose sizes are all parameters, the
+    shape is constructed only by the named entries, once each, and each entry's
+    body names what sizes it — `ChromeCheckboxShape`'s check, sized through
+    `metrics` by `ChromeCheckbox` and through `CodeZoneCheckboxRule` by
+    `ChromeCodeZoneCheckbox`). The off-both-scales exemption the unified diff's
+    per-line checkbox held is gone: its site holds no glyph since it draws the
+    shared shape. Re-checking the source is the half that matters: an
     exemption that only counted its glyphs would stay green through the very
     regression — a removed container font — that the rule was written for. The
-    shared checkbox's glyph needs no entry; it is resizable and sizes itself by
-    frame. The switcher popovers' rows carry no exemption: since both moved
+    switcher popovers' rows carry no exemption: since both moved
     onto `ChromePopover`'s pieces they draw design glyphs through
     `DesignGlyphImage`, sized by construction, and the three container-font
     entries that pinned their old SF Symbol icon column (`branchRow`,
@@ -3650,15 +3847,24 @@ The forty-seven rules, each invisible to the compiler:
     and a person confirms the selected row still yields its background before
     updating the pin. Today the pin holds two lists: `LocalHistoryView.swift`'s,
     whose one background is `snapshot.fileName == selection.wrappedValue ?
-    Color.clear : chromeColor(.bgPanel)`, and — since part five (c) —
-    `AcknowledgementsView.swift`'s, pinned with an **empty** list of
-    backgrounds: it sets no row background at all, so nothing paints over the
-    platform's selection, and a `listRowBackground` added there is red — and,
-    since part five (d), `DatabaseViewerView.swift`'s tables-and-views sidebar,
-    pinned `[[]]` on the same footing. On macOS a row background is drawn
+    Color.clear : chromeColor(.bgPanel)`, and, since part five (d),
+    `DatabaseViewerView.swift`'s tables-and-views sidebar, pinned with an
+    **empty** list of backgrounds (`[[]]`): it sets no row background at all,
+    so nothing paints over the platform's selection, and a
+    `listRowBackground` added there is red. On macOS a row background is drawn
     over the platform's selection box, so an unconditional one hides the
     selection outright — the Local History revisions list shipped that way,
-    and its selected row is the one Restore applies.
+    and its selected row is the one Restore applies. **The chrome's own row
+    lists are pinned the same way**: `chromeRowBackgrounds` maps each gated
+    file to the whitespace-normalized body of every `var rowBackground` it
+    declares, in source order, compared in both directions — today the Log's
+    two, the problem browser's, Local Changes', the Problems panel's, the
+    tree's two, the vertical tab row's and Acknowledgements'. The last moved
+    there from the platform pin, where it had stood as `[[]]`, when its list
+    left `List(selection:)` for the Log's row shape (part five (c)'s decision
+    15): its selected-row background is `if isSelected { return
+    theme.color(.accentTintStrong) } …`, so the selection is now the chrome's
+    wash rather than the platform's box.
 36. **No gated file builds a platform form control.** No gated file spells the
     tokens `Form`, `Picker`, `pickerStyle`, `Stepper`, `Toggle`, `TabView` or
     `tabItem` (matched through `containsToken`, so `ChromeStepper(` is not a
@@ -3884,6 +4090,33 @@ The forty-seven rules, each invisible to the compiler:
     neither the climb nor the two-toning can be seen off a bitmap and this rule
     is the only net. **Its horizon**: this one file, and only arguments spelled
     as `theme.color(` or `Color.`.
+48. **No gated file spells a platform split view.** No gated file spells
+    `HSplitView` or `VSplitView` as a token, matched against comment- and
+    literal-stripped text, so a file explaining why it left the platform split
+    may still name it. The platform split draws its divider in the platform's
+    separator value — a step off the `hairline` role beside it — and offers no
+    way to change it; every gated split is `ChromeSplitView`, whose divider is
+    the `hairline` role at the scaled `hairlineWidth`. A platform split slipped
+    back in compiles and draws, and only a one-point line's colour says
+    anything is wrong. The rule also asserts it read every gated file, so a
+    renamed one cannot drop out of the sweep silently.
+49. **Every focusable chain disables the platform's focus effect.** In every
+    gated file the `.focusable(` calls and the `.focusEffectDisabled()` calls
+    (empty argument list, since `focusEffectDisabled(false)` keeps the ring)
+    are equal in number, counted through the suite's call matcher against
+    comment- and literal-stripped text; the files spelling `.focusable(` are
+    cross-checked against the pinned `focusableFiles` — Acknowledgements, the
+    database viewer, the problem browser and the Welcome screen. The
+    platform's ring is the system accent, which no role reaches, drawn around
+    the whole focusable container rather than the cell or row the keyboard is
+    on. The chrome draws its own focus border there instead —
+    `ChromeFocusBorder`, `accent` at the scaled `fieldFocusedBorderWidth`, the
+    shared field's focused stroke — on the grid's focused cell and on the
+    selected row of the two focusable row lists; the Welcome root draws none,
+    by reason (part five (d)'s *Focus*, below). A count rather than a chain
+    reading keeps it a token rule; the shared field's `TextField`, which
+    disables the effect without being `.focusable(`, sits in a file spelling
+    no `.focusable(` and is rule forty-five's.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
@@ -3932,7 +4165,13 @@ declared: nothing read it while both documents were checked. It gates no source 
 drifted, each correct on the day it was written, and a count that drifts tells a
 reader the sweep is smaller than it is while omitting the newest rules. Same
 shape as `LintConfigurationTests`' style-version pair: one source of truth, every
-document spelling it checked against that.
+document spelling it checked against that. The gated set's size is held the
+same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
+`gatedFiles.count`, spelled from the same `spelled` table, must appear in both
+summaries in the sentence naming it — the running total in the gated-files
+entry above, ending on "**sixty-four** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-four, by set equality)". Before it only prose
+stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'
 numbers, and those drifted exactly as the count once did — rule thirty's part
