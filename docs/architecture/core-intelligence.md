@@ -85,24 +85,50 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `quality(of:matching:)` answers `nil` in exactly three cases and no others —
     an empty query, not a case-insensitive subsequence, or a first character that
     occurs only off a boundary — and otherwise a `Quality`, the ranking's first
-    key, ordered best-first on `tier` (0 case-sensitive prefix, 1
-    case-insensitive prefix, 2 fuzzy), then `offBoundary` (how many matched
-    characters missed a boundary: `aBu` → `ArrayBuffer` hits two humps and reads
-    as intentional, the same three characters scattered mid-name do not), then
-    `span` (tighter over looser), then `start` (earlier over later). **For a
-    prefix match the three fuzzy sub-keys are pinned to zero rather than
+    key, ordered best-first on six keys. `caseMismatches` comes first: the
+    matched positions where the query character is uppercase and the
+    candidate's is not. A capital the user typed is a deliberate signal (`aBu`
+    names a hump), so `abuse` — a case-insensitive prefix carrying one mismatch at
+    `B` — ranks below `ArrayBuffer`, which honours it. **A query without
+    uppercase always carries zero**, which is why a lowercase query ranks exactly
+    as it did before the key existed. Then `tier` (0 case-sensitive prefix, 1
+    case-insensitive prefix, 2 **boundary** — every contiguous matched run starts
+    on a word boundary — 3 subsequence; the constants are `boundaryTier` and
+    `subsequenceTier`, and `isPrefixMatch` is `tier < boundaryTier`), then
+    `fragments` (the number of contiguous matched runs: `buf` is one run in
+    `ArrayBuffer` and three in `bigUnderFlow`, both tier 2), then `offBoundary`
+    (how many matched characters missed a boundary), then `span` (tighter over
+    looser), then `start` (earlier over later). **For a prefix match
+    `fragments`/`offBoundary`/`span`/`start` are pinned to constants rather than
     computed**, and that is what keeps the pre-existing ranking intact
-    bit-for-bit: with a literal prefix the whole key collapses to the two-valued
-    case rank the provider ranked on before fuzzy matching existed, so every
-    candidate that tied then still ties now and the later tie-breaks decide
-    exactly as before. The walk itself is greedy, left-to-right and deliberately
-    deterministic rather than optimal — for each query character it takes the next
-    *boundary* occurrence if there is one and the next occurrence otherwise, and
-    retries taking the leftmost throughout if that pass runs out of candidate.
-    Two passes rather than a search because the candidate set is scanned once per
-    keystroke: the pair answers "is this a subsequence at all" exactly, and only
-    the *quality* of a pathological name (`abC_bx` against `abc`, where the
-    boundary-preferring pass has to back off) depends on which pass succeeded.
+    bit-for-bit: with a literal prefix the key collapses to the case rank the
+    provider ranked on before fuzzy matching existed (plus the mismatch count,
+    zero for every lowercase query), so every candidate that tied then still ties
+    now and the later tie-breaks decide exactly as before.
+    **Placement tries one contiguous run first.** If the whole query occurs
+    case-insensitively as one contiguous run starting on one of the first
+    `maximumInitials` boundaries, the first such run is taken; only otherwise do
+    the two walks run. Without it the boundary-preferring walk splits a query it
+    could have matched whole (`buf` hopping humps instead of taking `Buf`), and
+    the split is what `fragments` would then charge. The walk itself is greedy,
+    left-to-right and deliberately deterministic rather than optimal — for each
+    query character it takes the next *boundary* occurrence if there is one and
+    the next occurrence otherwise, and retries taking the leftmost throughout if
+    that pass runs out of candidate. Two passes rather than a search because the
+    candidate set is scanned once per keystroke: the pair answers "is this a
+    subsequence at all" exactly, and only the *quality* of a pathological name
+    (`abC_bx` against `abc`, where the boundary-preferring pass has to back off)
+    depends on which pass succeeded. The allocation gate, the start-on-boundary
+    rule and the `maximumInitials` cap are the same for all three placements.
+    **`Partition` is the closed class a caller orders by *above* its own key**,
+    built from a `Quality?` and the query by `partition(of:matching:)` so no caller
+    recomputes it: the four tiers mismatch-free, then the same four with at least
+    one case mismatch, then `noMatch` — nine `Comparable` values. An empty query
+    maps every candidate to one partition. It exists for the LSP provider, whose
+    own order is the server's `sortText` and which needs the matcher's judgement
+    as a coarse class rather than as a full key that would override the server
+    within a class (`core-lsp.md`, D6); the index provider keeps ranking on the
+    full `Quality`.
     **Answering "no" must not cost an allocation**, and that is a stated
     requirement rather than a tuning detail: this function is asked about every
     harvested buffer word (up to 5 000), every keyword and — in member position —
@@ -896,6 +922,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     buffer by the fallback path is not a completion, it is damage. The two
     providers that compose these answers, and the rules they follow, are in
     `core-lsp.md`.
+    `detail` is a fourth defaulted field, on `displayText`'s principle: the
+    server's `detail` (a signature, a type, a module), drawn dimmed and
+    right-aligned beside the row on macOS. **It is display-only in the strict
+    sense** — never part of dedup (which stays keyed by inserted text), matching,
+    ranking or any edit, never synthesized when the server sent none, and never
+    rewritten by the resolve path. Tree-sitter and iOS construction sites pass
+    nothing, so their items carry `nil` and draw exactly as before.
+    `completionAnswer(for:)` and `narrow(_:for:)` are the **local-narrowing pair**
+    (`core-lsp.md`, D40), both defaulted so that no provider but the LSP one ever
+    narrows: the first wraps `completions(for:)` in a `CompletionAnswer` whose
+    `retained` is `nil`, the second answers `nil` ("make an ordinary request").
+    `RetainedCompletionList` is the editor's handle on a list the provider kept —
+    an opaque `handle` on `resolveHandle`'s principle, plus the typed word's start
+    and the typed word as answered, the two facts `CompletionNarrowingRule`
+    decides by. It is non-`nil` only for a complete server answer that lost no
+    item to the list-time drop and came from the live session.
     `hover(for:)` is the **third question**, added for the macOS type/signature
     popover and defaulted to `nil` on exactly `resolveEdits`' principle: it is
     meaningful to one implementation only, so the tree-sitter provider and both iOS
@@ -1023,10 +1065,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     sites and not at the index.
     **Completions** merge three sources — the index's matches,
     the language's keywords and the buffer's harvested words — and rank by
-    (1) **match quality**, `FuzzyMatch.Quality`, which is itself ordered
-    case-sensitive prefix, then case-insensitive prefix, then fuzzy, and within
-    fuzzy prefers a match landing on word boundaries, then a tighter span, then an
-    earlier start: typing `arr` still surfaces `ArrayBuffer` but never above
+    (1) **match quality**, `FuzzyMatch.Quality`, which is itself ordered by
+    case mismatches (always zero for a lowercase query), then case-sensitive
+    prefix, case-insensitive prefix, boundary and subsequence tiers, and within
+    those prefers fewer contiguous runs, then matches landing on word boundaries,
+    then a tighter span, then an earlier start: typing `arr` still surfaces `ArrayBuffer` but never above
     `arrayCount`, and a literal prefix always beats a scattered subsequence
     however short the scattered candidate is. For a literal prefix that key
     *collapses* to exactly the two-valued case rank this method ranked on before

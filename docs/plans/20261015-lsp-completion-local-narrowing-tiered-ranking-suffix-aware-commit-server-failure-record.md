@@ -442,7 +442,7 @@ kind, snippet support, code action or inlay hint.
 
 ### Task 9: Update documentation
 
-- [ ] `docs/architecture/core-lsp.md`:
+- [x] `docs/architecture/core-lsp.md`:
   - D6 gains the tiered partition and its "a partition, not a filter" reasoning.
   - New decisions:
     - D40, local narrowing and the retained list;
@@ -451,20 +451,23 @@ kind, snippet support, code action or inlay hint.
     - D43, the shutdown sequence and the polite concurrent quit;
     - D44, the failure record and its passive display.
   - Entries for the new and changed files.
-- [ ] `docs/architecture/core-intelligence.md`: the `FuzzyMatch` keys, contiguous
+- [x] `docs/architecture/core-intelligence.md`: the `FuzzyMatch` keys, contiguous
   placement, `Partition`, and `CompletionItem.detail`.
-- [ ] `docs/architecture/app-editor.md`: the controller's narrowing path (including
+- [x] `docs/architecture/app-editor.md`: the controller's narrowing path (including
   `.dropRetained` only forgetting the list before today's empty-word path) and the
   panel's detail column.
-- [ ] `docs/architecture/core-provisioning.md`: the failure status on settings rows
+- [x] `docs/architecture/core-provisioning.md`: the failure status on settings rows
   and the status-only row.
-- [ ] `docs/architecture/app-shell.md`: `applicationShouldTerminate` →
+- [x] `docs/architecture/app-shell.md`: `applicationShouldTerminate` →
   `.terminateLater`.
-- [ ] `docs/FEATURES.md`: update Known limitations that describe the commit-time
+- [x] `docs/FEATURES.md`: update Known limitations that describe the commit-time
   degradation or the silent retirement.
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - Extend the LSP decision range to "D1–D10 + D17–D44".
   - Add `CompletionNarrowingRule.swift` and `LSPServerFailureRecord.swift` to the
     core-lsp index.
   - Keep the file under the 60,000-character limit (`LintConfigurationTests`).
-- [ ] Re-run `swift test` (doc-reading suites).
+- [x] Re-run `swift test` (doc-reading suites). (6336 tests green;
+  `swiftlint --strict` 0 violations. `app-shell.md`'s `AppDelegate` entry was
+  already written in Task 6. Row derivation lives in `LSPServerFailureRecord.swift`
+  (`LSPServerFailureModel`), documented there and in `core-provisioning.md`.)

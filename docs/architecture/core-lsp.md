@@ -162,6 +162,18 @@ and read by three macOS surfaces.
 The decisions D1–D10 the ticket delegated are written out at the end of this
 document, together with the limits they carry.
 
+**What the completion and lifecycle work added (D40–D44).** A complete server
+answer is kept and narrowed locally while the user types on inside the same word
+(D40, `CompletionNarrowingRule.swift`); an item whose edit cannot be applied to
+the request text is dropped when the list is built, and the list is then not kept
+(D41); the replace range reaches past the caret only for a suffix the completion
+writes back anyway, and `insertReplaceSupport` is advertised (D42). On the
+lifecycle side, `exit` is given time to work and a quit waits for every server's
+goodbye at once (D43), and each `(server, root)` keeps a bounded stderr tail and
+its last exit code, shown passively on the settings page and nowhere else (D44,
+`LSPServerFailureRecord.swift`). No new request kind, completion source or
+capability beyond `insertReplaceSupport` came with any of it.
+
 ## Files
 
   - `LSPMessage.swift` — JSON-RPC 2.0 envelopes, and the *only* thing in the
@@ -280,7 +292,8 @@ document, together with the limits they carry.
     with snippet syntax in its buffer. It states full text sync only, `utf-16`
     positions (the default, but said out loud because a server that supports utf-8
     will happily switch if asked), definition with `linkSupport`, completion with
-    `contextSupport` and `resolveSupport` for `additionalTextEdits`/`detail`,
+    `contextSupport`, `resolveSupport` for `additionalTextEdits`/`detail` and
+`insertReplaceSupport: true` (D42 — there is code for both ranges now),
     hover with `dynamicRegistration: false` and `contentFormat: ["markdown",
     "plaintext"]`, and **no** `snippetSupport` (D5). Both hover formats are asked
     for on purpose and in that order: markdown is the only way a server marks a
@@ -509,6 +522,14 @@ document, together with the limits they carry.
     (`Diagnostic.make`, `DiagnosticShift.updated`,
     `DiagnosticStore.worstSeverityPerLine`) reuses exactly this offset→line
     search against this table rather than growing copies that could drift.
+    **`exactOffset`/`exactRange` are the one non-clamping pair** (D41):
+    `nil` when a position's line is past the line table, its character is past
+    that line's content end (compared before adding, for the overflow reason
+    above), or a range's end precedes its start. A completion edit is the one
+    place a server's numbers are *written* rather than jumped to, and a clamped
+    range there is a guessed edit; so the provider maps completion ranges through
+    this pair and drops the item on `nil`. Every other caller keeps the clamping
+    forms, unchanged.
 
   - `LSPTransport.swift` — the whole macOS/Core boundary, and deliberately tiny:
     bytes out (`send`), bytes in (`incomingBytes`), stop (`terminate`). The
@@ -528,6 +549,16 @@ document, together with the limits they carry.
     `writeFailed`); `notReady` is not one — it says the factory declined to answer
     *yet* rather than block the main-actor turn it was called on, and `LSPWorkspace`
     spends no restart budget on it (see `LSPToolchain`).
+    Two members came with D43/D44. `closeInput()` closes the server's stdin and
+    does nothing else — no signal, no stream finish — so a server that reads to
+    EOF can leave on its own after `exit`; it must be idempotent and must not
+    overtake a write already handed to `send` (the `exit` it follows), and a
+    `send` after it throws `notRunning`. `errorOutput` is an
+    `AsyncStream<LSPErrorOutputEvent>` of `.bytes(Data)` stderr chunks and one
+    `.exited(code:)` (negative for a signal), consumed once by `LSPWorkspace` for
+    the failure record and never interpreted; it is **defaulted to an empty,
+    already-finished stream**, so a transport with no process behind it — every
+    scripted one that does not opt in — owes nothing.
 
   - `LSPWriteBudget.swift` — how many bytes may sit unwritten in one server's
     outgoing queue before the backlog itself is read as that server's death
@@ -645,6 +676,18 @@ document, together with the limits they carry.
     the two are different facts and a caller deciding whether to fall back cares
     about the difference — `MethodNotFound` says this server will never answer this
     question, `timedOut` says nothing about the next request.
+    **`shutdown()` gives `exit` time to work** (D43): the `shutdown` request on its
+    own budget, then `exit`, then `transport.closeInput()`, then the read loop's end
+    of stream raced against `budgets.exitGrace` (2 s), then `close(reason:)`, which
+    calls `transport.terminate()` regardless. The race is one parked continuation
+    resumed exactly once — by `close` when the stream ends inside the grace (the
+    grace task is cancelled), or by the grace task — so a server whose stream has
+    already ended costs no wait at all, and pending requests are still failed once,
+    through the idempotent `close`. The wait itself is the injectable
+    `exitGraceWait` (`LSPSession.sleep` in the app, a `Gate` in the tests), so
+    "terminated only after the grace" is asserted causally. A stream that ends
+    while shutting down closes as `.notRunning`, not `.connectionClosed`: it is the
+    server doing what `exit` asked, not a crash.
 
   - `LSPServerDescription.swift` — everything the app needs to *start* one server,
     and nothing about how to talk to it (D9). The whole point is that adding a
@@ -927,10 +970,18 @@ document, together with the limits they carry.
     a `shutdownAll()` in the same turn would invalidate the very token the caller had
     just pinned.
     **Two teardowns, because a quit cannot `await`.** `shutdownAll()` is the polite
-    path a folder switch uses: `didClose` every open document, then
-    `shutdown`→`exit` each session, then await any launch still in flight so
-    "nothing outlives this call" is true rather than likely. `terminateNow()` is the
-    quit path — `willTerminateNotification` is the last thing AppKit posts, so a
+    path a folder switch uses — and, since D43, the quit too, held by
+    `applicationShouldTerminate` → `.terminateLater` (`app-shell.md`): `didClose`
+    every open document, then `shutdown`→`exit` each session, then await any launch
+    still in flight so "nothing outlives this call" is true rather than likely.
+    **The sessions are torn down concurrently**, one task-group child per key, each
+    keeping its own `didClose` → `shutdown` → `forget` order: each goodbye may now
+    cost a whole exit grace, and paying them in turn would make a quit with three
+    servers wait three of them. The children run on the main actor and interleave
+    only at their `await`s, so `forget`'s identity guard reads exactly as before.
+    `hasLiveServers` (`!transports.isEmpty`) is what the delegate asks to decide
+    whether a quit waits at all. `terminateNow()` is the
+    fallback quit path — `willTerminateNotification` is the last thing AppKit posts, so a
     `Task` wrapping an async teardown would compile, never be picked up, and leave
     exactly the orphan `pgrep -fl sourcekit-lsp` checks for. It therefore reaches
     past the sessions (actors, hence unreachable without a hop) to the transports,
@@ -1108,7 +1159,46 @@ document, together with the limits they carry.
     consumer first; see D33's reachability note). The sink is called synchronously
     on the main actor; what accepts or drops the event next is `DiagnosticsModel`'s
     gate, below.
+    **The failure records** (D44) are the fourth thing it keeps per key:
+    `[ServerKey: LSPServerFailureRecord]`, in memory only, **kept across restarts**
+    so the fourth failure's record still holds what the first three said. Each
+    launched transport's `errorOutput` is read by a task holding the workspace
+    weakly and appended to its key's record **only while that transport is the
+    key's newest** (`errorSources`, an `ObjectIdentifier` per key) — a superseded
+    process's exit status lands after the restart is under way and must not write
+    into its successor's record. A factory that throws writes its reason as the
+    record's text, since no process ever spoke. `noteFailure` updates the count
+    and the retired flag at the same place D7 counts; a successful handshake
+    **removes** the record; `updateRegistry(_:)` drops the records of servers it
+    replaced, because a fresh budget is a fresh record. Changes are published
+    through `onFailureRecordsChange` in `onDiagnostics`' mould, and **only when a
+    record that is about a failure (`hasFailed`) changes or goes away** — a healthy
+    server's log lines accumulate unannounced and are never shown.
     **A reader, never a writer** (D10).
+
+  - `LSPServerFailureRecord.swift` — one `(server, root)`'s failure history for the
+    app run, in memory only (D44), and the settings page's view of all of them.
+    `LSPServerFailureRecord` is a value the workspace mutates in place: `tail`, a
+    byte ring bounded at `capacity` (32 KiB) that **keeps the newest bytes** — the
+    panic, the "could not find toolchain", are the last lines a server writes —
+    `lastExitCode` (negative for a signal, so one integer carries both endings),
+    D7's `failureCount`, `isRetired`, and a workspace-wide monotonic `sequence`
+    so "newest" is a comparison rather than a clock. Bytes stay raw and are decoded
+    **lossily, for display only** (`text`): the ring can cut a UTF-8 sequence at
+    its front edge, and decoding on every append would pay for a string nobody may
+    read. `hasFailed` (`failureCount > 0`) is what makes a record *about* anything;
+    `statusSentence` is the row's one line — "Restarted after 2 failures · exit
+    code 1", "Stopped after 4 failures · signal 9". `LSPErrorOutputEvent` is the
+    transport's stderr vocabulary. `LSPServerFailureModel` (`@MainActor`,
+    `ObservableObject`) receives the workspace's published set and keeps only
+    failed records; `status(forServerID:)` resolves several roots for one server to
+    the newest record, and `statusOnlyRows(excludingServerIDs:)` names the servers
+    no row on the page owns — sourcekit-lsp today — one status-only row each,
+    present only while a record exists. Both are pure static functions of the
+    records, so the view decides nothing (`core-provisioning.md`). **Never an
+    alert**: `LSPSourceGatingTests` holds this file, the workspace and
+    `LSPServerSettingsView.swift` clear of `NSAlert`, `.alert(`,
+    `UNUserNotificationCenter` and `NSUserNotification`, on stripped text.
 
   - `CompletionEditPlan.swift` — the pure rule auto-import is applied by, so the
     editor's job shrinks to "raise the programmatic-edit flag, open one undo group,
@@ -1193,6 +1283,18 @@ document, together with the limits they carry.
     word's start, the sourcekit-lsp member shape) leaves the string untouched.
     **Only the primary edit is ever a row** — an accompanying `import` is inserted
     whole and never displayed — so a non-primary edit answers `newText` unchanged.
+    `primaryRange(insert:replace:caret:newText:in:)` is the third question (D42):
+    which of a server's two candidate ranges the primary edit replaces. The
+    `replace` range wins **only when `newText` ends, case-insensitively, with the
+    buffer's `[caret, replace.end)`** — `foo|Baz` + `fooBaz` replaces (inserting
+    would leave `fooBazBaz`), `foo|Bar` + `fooBaz` inserts (the user is typing a
+    word in front of one that stands, and replacing would delete `Bar`). The
+    case-insensitive comparison lets a completion that also corrects a capital
+    still replace. A plain `TextEdit` reaching past the caret is the same question
+    with the insert range derived — its own range trimmed at the caret — and a
+    range ending at or before the caret is returned unchanged. The rule neither
+    validates nor clamps; the provider does that first (D41), and `make`'s
+    commit-time refusal stays as the last line.
 
   - `HoverContent.swift` — everything a hover popover draws, and the one place
     LSP's markup is interpreted (D25). Two value types and a reader, in one file
@@ -1607,20 +1709,24 @@ document, together with the limits they carry.
     the item identical to what was typed, collapse
     duplicates by inserted text (first wins), cap at
     `SymbolIntelligenceProvider.defaultCompletionLimit`.
-    **The prefix match decides one thing: which half the cap reaches first.**
+    **The match decides one thing: which partition the cap reaches first.**
     sourcekit-lsp, tsserver and pyright answer a prefix with the items that answer
     it, so this loop asked nothing for four phases; `yaml-language-server` answers
     the caret's entire schema property set regardless of the prefix (93 items in a
     compose service, identical to the empty-prefix answer), so the cap alone
     decides what is seen and `image` falls below an alphabetical 30. The one
-    matcher every other candidate source uses — `FuzzyMatch.matches(_:query:)` over
-    `filterText ?? label`, the spec's own filtering key, never the inserted text
-    (a YAML object property inserts `services:\n  `) — now partitions the list ahead of the
-    sort. It is neither a filter nor a ranking: nothing the server sent is dropped
-    for failing it (its own matching may legitimately be looser — the recorded
-    transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`), and inside
-    each half `sortText` and the server's array order still decide. An empty prefix
-    (the bare-dot member case) puts everything in one half.
+    matcher every other candidate source uses —
+    `FuzzyMatch.partition(of:matching:)` over `filterText ?? label`, the spec's own
+    filtering key, never the inserted text (a YAML object property inserts
+    `services:\n  `) — is the first sort key: the four match tiers mismatch-free,
+    the same four with a case mismatch, then `noMatch` (D6). **A partition, not a
+    filter**: nothing the server sent is dropped for failing it (its own matching
+    may legitimately be looser — the recorded transcript answers `Gree` with
+    `VM_MEMORY_MALLOC_LARGE_REUSED`), and inside each partition `sortText` and the
+    server's array order still decide. An empty prefix (the bare-dot member case)
+    puts everything in one partition. The server's `detail` is passed through to
+    `CompletionItem.detail` untouched — display-only, never part of dedup,
+    matching, ranking or an edit, and never rewritten by resolve.
     **The snippet drop is enforcement, not tidiness.** D5 advertises
     `snippetSupport: false`, but a client capability is a *request*: a server that
     ignores it answers with `insertTextFormat: 2` and a `newText` full of
@@ -1926,6 +2032,32 @@ document, together with the limits they carry.
     request rather than before the dialog. It is named separately from `canServe`
     rather than spelled at the call site because the two are the same answer *today*
     and need not stay so.
+    **An item whose primary edit cannot be applied is dropped while the list is
+    built** (D41): either range not mapping exactly (`LSPPositionMap.exactRange`),
+    a range spanning lines, or the range `CompletionEditPlan.primaryRange` chose
+    not containing both the typed word's start and the caret. Dropping anything
+    sets `trimmed`, and a trimmed list is never retained. `additionalTextEdits` are
+    untouched, and `make`'s commit-time refusal stays.
+    **The last complete list is retained** (D40): a response with
+    `isIncomplete == false`, not trimmed, from the session that answered, is kept
+    whole — raw items, the request text, the typed word's range, the session,
+    `serverResolves`, the request generation — under the request's list token,
+    and a newer answer replaces it (with `nil` when it may not be kept) while an
+    older one landing late does not. `completionAnswer(for:)` hands the editor a
+    `RetainedCompletionList` naming it; `completions(for:)` is that call's
+    `items`. `narrow(_:for:)` re-runs **the same `publish`** over the kept items
+    with the new prefix — partition, order, dedup, cap, resolve registration — so
+    a row the cap cut from the first answer can be the best match of the second;
+    every offset is computed against the retained request text and re-expressed
+    for the new word's length through
+    `CompletionEdit.shifted(afterReplacingTypedWord:withLength:)`, and a resolve on
+    a narrowed row is re-expressed the same way (`narrowedLength`). It answers
+    `nil` — "make an ordinary request" — when the handle is not the current list's,
+    the word no longer starts where it did, the session is no longer live (both
+    `workspace.isLive` and `session.isRunning`, because a crash is only noticed by
+    the next request), or nothing matches the new word at all: a complete answer
+    for `fo` holding nothing for `fox` is worth asking again, not an empty popup.
+    The retained raw items are never mutated.
 
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the
     editor surfaces hold, and the whole of phase 2a's user-visible contract.
@@ -2041,6 +2173,30 @@ document, together with the limits they carry.
     whole-attempt `withBudget` race the other two run — 1.5 s, beside them — and
     `nil` for every other outcome: no server, no capability, a timeout, an answer
     that normalized to nothing. Silently, like every fallback in this file.
+    **`completionAnswer(for:)` and `narrow(_:for:)`** (D40) follow the completion
+    shape with one asymmetry each. The answer is the server's — retained list and
+    all — or the index's, which **always carries `retained: nil`**: a tree-sitter
+    list is rebuilt from the buffer on every keystroke anyway, and narrowing it
+    would answer from a stale buffer. `narrow` is raced on the completion budget
+    and has **no `canServe` gate and no fallback**: a retained list only ever came
+    from the server, and the fallback is the ordinary request its `nil` leads to.
+
+  - `CompletionNarrowingRule.swift` — whether the next keystroke's completion
+    narrows the retained list, asks again, or only forgets the list (D40). One
+    pure function, `decide(retained:wordStart:typed:explicit:typedTriggerCharacter:insertedNewline:caretJumped:)`,
+    returning `.narrow`, `.request` or `.dropRetained`. An emptied word is
+    `.dropRetained`; no retained list is `.request`; an explicit invocation, a
+    trigger character, an inserted newline or a caret that jumped is `.request`; a
+    moved word start is `.request`; otherwise the new word narrows when it extends
+    the answered one **or is a non-empty prefix of it** (a backspace inside the
+    word — the server's matching for the longer word was at least as loose), and
+    anything else is `.request`. Words compare in UTF-16 units, the coordinates
+    every offset here is in, so a composed and a decomposed spelling never read as
+    the same word. **`.dropRetained` means only "forget the retained list"** and
+    carries no instruction about the popup: the caller then follows the path it
+    already takes for an empty typed word, unchanged (`app-editor.md`). The rule
+    narrows nothing itself and knows nothing about the provider; whether a narrow
+    *succeeds* is the provider's `nil`.
 
 ### gopls (D17–D20)
 
@@ -2624,17 +2780,24 @@ the typed token, dedup by inserted text, cap
 at `SymbolIntelligenceProvider.defaultCompletionLimit`). No name heuristics on
 top. The recorded transcript is what pins this rather than a constructed example:
 sourcekit-lsp put `Greeter` *last* in the array with the *lowest* `sortText`.
-**One key sits above `sortText`, and it is not a ranking** (added with the YAML
-server): the spec makes matching the client's job and `yaml-language-server`
-leaves it entirely — it answers the caret's whole schema property set, the same 93
-items for `ima` as for an empty prefix — so ranked on `label` and cut at the cap
-the popup is an alphabetical slice of the schema with `image` below the cut.
-`FuzzyMatch.matches(_:query:)` over `filterText ?? label` therefore partitions the
-list into "answers what was typed" and "does not", and the cap reaches the first
-half first. Deliberately **not a filter**: a server's matching may be looser than
-this one's boundary rule (the recorded transcript answers `Gree` with
-`VM_MEMORY_MALLOC_LARGE_REUSED`) and nothing it sent is discarded. Within each
-half D6 is untouched, and an empty prefix is one half.
+**One key sits above `sortText`, and it is a partition, not a filter** (added
+with the YAML server, tiered with D40–D42): the spec makes matching the client's
+job and `yaml-language-server` leaves it entirely — it answers the caret's whole
+schema property set, the same 93 items for `ima` as for an empty prefix — so
+ranked on `label` and cut at the cap the popup is an alphabetical slice of the
+schema with `image` below the cut. `FuzzyMatch.partition(of:matching:)` over
+`filterText ?? label` therefore sorts the list into a closed, ordered set of
+classes — case-sensitive prefix, case-insensitive prefix, boundary match,
+subsequence, the same four again with a case mismatch, then no match — and the cap
+reaches them in order. It is a *partition* rather than `FuzzyMatch.Quality`'s full
+key because within a class the server's `sortText` is still the better judge:
+the server knows types and scope, the matcher knows spelling, and the full key
+would let `span`/`start` override the server's own order. It is *not a filter*
+because a server's matching may be looser than this one's boundary rule (the
+recorded transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`) and
+nothing it sent is discarded — the non-matching items sit below. The mismatch half
+is why `aBu` puts `ArrayBuffer` above `abuse` whatever their `sortText`. Within
+each partition D6 is untouched, and an empty prefix is one partition.
 
 **D7 — Budgets.** Per request: completion 1.5 s, definition 3 s (the 150 ms
 completion debounce has already elapsed, and a jump is a deliberate act worth
@@ -3329,6 +3492,80 @@ Live evidence — a scratch server that answers `initialize` and then stops read
 its stdin, driven past the ceiling — is a reviewer's step, recorded as observed
 rather than inferred.
 
+**D40 — A complete answer is narrowed locally while the user types on in the same
+word.** Every keystroke used to cost a debounce and a round trip, and the popup
+re-drew from scratch each time. A server that answered with `isIncomplete ==
+false` has said its list holds everything a longer spelling of the same word can
+match, so asking it again is pure latency. The provider keeps that list whole
+(raw items, request text, typed word, session, generation) and `narrow` re-runs
+the ordinary `publish` over it — the same partition, order, dedup, cap and resolve
+table a fresh answer gets, which is the property the tests pin: a narrowed `foob`
+equals a fresh `foob` answer from the same items. Whether a keystroke narrows is
+`CompletionNarrowingRule`'s pure decision, never the controller's: same word
+start, a non-empty word that extends the answered one or is a prefix of it (a
+backspace), and nothing that makes the situation new — an explicit invocation, a
+trigger character, a newline, a caret that jumped. Those are exactly the cases in
+which a server may answer differently from the same items. A narrow skips the
+debounce but answers to the same generation token; `nil` (replaced handle, dead
+or replaced session, nothing matching) falls through to an ordinary request. An
+emptied word only *forgets* the list (`.dropRetained`), so the popup's existing
+empty-word behaviour is unchanged. Only a complete, untrimmed answer from the live
+session is retained, and never a fallback answer; the tree-sitter provider and iOS
+inherit defaults that retain nothing and narrow nothing.
+
+**D41 — An item that cannot be applied is dropped when the list is built, and
+dropping anything makes the answer incomplete.** The commit-time refusal in
+`CompletionEditPlan.make` used to be the only check: a row the user picked could
+then degrade to AppKit's plain-text insertion, losing its edit. A server range
+that lies outside the request text, spans a line, or does not cover both the
+typed word's start and the caret describes an edit this editor will not make, so
+the row is not offered. Mapping is **exact** (`LSPPositionMap.exactRange`), not
+the clamping form every jump uses: a clamped completion range is a guessed edit.
+The drop is recorded as `trimmed`, and a trimmed list is never retained — what
+was dropped was dropped *for this request text*, and it may be exactly the item a
+longer prefix wants. `make`'s refusal stays as the last line.
+
+**D42 — The replace range reaches past the caret only for a suffix the
+completion writes back; `insertReplaceSupport` is advertised.** Completing
+`foo|Bar` to `fooBaz` must leave `fooBaz|Bar`, and completing `foo|Baz` to
+`fooBaz` must leave `fooBaz|` — the same server range is right for one and wrong
+for the other, and only the buffer text past the caret tells them apart. So the
+replace range is chosen exactly when `newText` ends, case-insensitively, with that
+text (`CompletionEditPlan.primaryRange`), and the insert range otherwise. With
+both ranges handled there is code for an `InsertReplaceEdit`, so the closed
+capability tree advertises it; a plain `textEdit` reaching past the caret is the
+same question with the insert range derived. `LSPCompletionEdit` re-encodes in the
+spelling it arrived in, so a `completionItem/resolve` echo is faithful.
+
+**D43 — Shutdown gives `exit` time, and a quit waits for every goodbye at once.**
+`exit` used to be followed in the same turn by SIGTERM, so a well-behaved server
+never got to end with status 0. `LSPSession.shutdown()` now sends `shutdown`,
+then `exit`, closes stdin (`LSPTransport.closeInput()`), and races the read loop's
+end of stream against one `exitGrace` (2 s) before `terminate()`; the process
+transport's own SIGTERM→SIGKILL grace (2 s) follows that. A server whose stream
+has ended costs no wait. `shutdownAll()` runs the sessions concurrently, so the
+grace is paid once per quit, not once per server. The quit uses it:
+`applicationShouldTerminate` answers `.terminateLater` while the workspace holds a
+live server, awaits `shutdownAll()` and replies `true` (`app-shell.md`), and
+`terminateNow()` stays the `willTerminate` fallback for a quit that never asked
+the delegate. Both graces reach Core through injectable waits, so the tests are
+causal.
+
+**D44 — A server's failures leave a record, shown passively and nowhere else.**
+D7 retires a server silently and that stays true. What was missing was somewhere
+to *look*: "Swift completion stopped working" had no answer for someone who went
+looking. Each `(server, root)` now keeps an `LSPServerFailureRecord` — the newest
+32 KiB of stderr, the last exit code, the failure count, retirement — in memory
+only, kept across restarts and cleared by the next successful handshake. stderr
+is still always drained; what it says now goes to the record. The settings page
+shows the record's one-line status on the server's row and the captured text
+behind a disclosure; sourcekit-lsp, which has no row, gets a status-only row while
+a record exists. **There is no alert, banner, toast or notification**, and a
+gating suite holds the three files the record passes through to that. A record
+is only *about* anything once D7 has counted a failure, so a healthy server's log
+lines are never shown. Consequence, accepted: a crash is counted by the next
+request that notices it, not at the moment the process dies.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -3349,6 +3586,14 @@ rather than inferred.
   faster than the session drains it therefore still costs memory.
 - **Late auto-import is a second undo step** (D4), and is skipped entirely if the
   buffer changed between the insertion and the resolve landing.
+- **Local narrowing trusts `isIncomplete`** (D40). A server that answers
+  `false` for a list it actually truncated will narrow to fewer items than a fresh
+  request would have offered, until something the rule treats as new — a moved
+  word start, a trigger character, an explicit invocation — asks it again.
+- **The failure record lives for the app run only** (D44). It is never written to
+  disk or the session, so a server that failed before a relaunch shows nothing
+  after it until it fails again; and a crash is counted when the next request
+  notices it, not when the process dies.
 - **D4's auto-import was unobservable in 2a, and is not any more.**
   sourcekit-lsp offers no unimported symbols, so nothing it sends — resolved or
   not — has ever carried `additionalTextEdits` (recorded in the fixtures'

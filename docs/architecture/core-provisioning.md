@@ -841,6 +841,23 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     A thin view in the `GeneralSettingsView` mould — every rule (which actions
     apply, what the state is, what it costs) is a property of `LSPServerRow` and
     is unit-tested in Core.
+    **Every row can also carry a server's failure status** (`core-lsp.md`, D44),
+    read from `LSPServerFailureModel` — Core's view of the workspace's in-memory
+    failure records, passed in by `SettingsView` — and never from the row models:
+    a failure is a fact about a running `(server, root)`, not about an install.
+    The downloadable, Go and Rust rows each ask `status(forServerID:)` by their
+    component id (several roots resolve to the newest record, Core's rule) and,
+    when there is one, print its `statusSentence` in `statusRed` and a "Server
+    output" disclosure holding the captured stderr in a height-bounded,
+    scrollable, selectable monospaced area in `textSecondary`. **A server with no
+    row of its own** — sourcekit-lsp, which ships with Xcode and has nothing to
+    install or remove — gets a **status-only row with no actions**, from
+    `statusOnlyRows(excludingServerIDs:)` with every id the page already names;
+    it appears only while a record exists and goes when the next successful
+    handshake clears it. Only failed records are ever published, so a healthy
+    server's log lines never reach this page. **Passive by design**: no alert,
+    banner, toast or notification, which `LSPSourceGatingTests` pins for this
+    file on stripped text; the roles are the ones the page already used.
     **Its chrome comes wholly from the colour roles** (part five (c) of the
     chrome sweep, `core-theme.md`). The page owns no frame: the Preferences host
     frames every page at one size, and this one's `ScrollView` fills it — it
