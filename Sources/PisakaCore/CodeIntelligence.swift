@@ -41,6 +41,28 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// Defaulted to `nil`, for `completionAnswer`'s reason: a provider that never
     /// retains a list has nothing to narrow.
     func narrow(_ retained: RetainedCompletionList, for request: CompletionRequest) async -> [CompletionItem]?
+    /// Every completion question asked before this call is superseded: none of
+    /// their answers may replace state the provider keeps for the list on screen.
+    ///
+    /// Synchronous on purpose, so the editor calls it at the very moment it
+    /// cancels a request — not when the replacement is finally asked, a debounce
+    /// later. Cancelling a request is itself forwarded asynchronously, so an
+    /// answer can still land in that window, and without this it would replace
+    /// the shown rows' resolve handles (and D4's auto-import with them).
+    ///
+    /// Defaulted to nothing, for `resolveEdits`' reason: only a provider that
+    /// keeps per-list state has anything to protect.
+    func supersedeCompletionRequests()
+    /// The editor has just put `items` on screen as the completion list.
+    ///
+    /// Synchronous, and called only once the editor has decided to show an
+    /// answer — after every staleness check it applies — so a provider keeping
+    /// per-list state learns which list the visible rows came from rather than
+    /// guessing it from which answer it computed last. An answer the editor
+    /// discards never reaches this, so it cannot displace the rows still shown.
+    ///
+    /// Defaulted to nothing, for `supersedeCompletionRequests`' reason.
+    func showCompletionList(_ items: [CompletionItem])
     /// The buffer edits `item` performs, for an item the provider deferred to a
     /// second round trip (`CompletionItem.resolveHandle`).
     ///
@@ -120,6 +142,8 @@ public extension CodeIntelligenceProviding {
         nil
     }
 
+    func supersedeCompletionRequests() {}
+    func showCompletionList(_ items: [CompletionItem]) {}
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
     func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
     func references(for request: UsagesRequest) async -> [UsageResult] { [] }

@@ -221,6 +221,11 @@ final class CompletionController {
     /// The in-flight debounce/provider task; cancelled when a newer request lands.
     private var pendingTask: Task<Void, Never>?
 
+    /// The prefix `pendingTask` asks about, read only while that task is set:
+    /// the same-word caret-move path retires the request when the word under
+    /// the caret no longer reads this way.
+    private var pendingPrefix: String?
+
     /// Monotonic token guarding an answer against a newer request that landed
     /// while the provider was being awaited.
     private var generation = 0
@@ -268,8 +273,9 @@ final class CompletionController {
     /// word — most importantly onto the far side of a just-typed `.`, whose old
     /// snapshot answers the pre-dot word — legitimately starts a *new* question:
     /// the stale list is dropped and the fresh request still goes out. A caret
-    /// move that stays inside the same word start invalidates nothing either:
-    /// the early return below it leaves the visible rows standing untouched.
+    /// move that stays inside the same word start leaves the visible rows
+    /// standing untouched, retiring only an in-flight request whose prefix the
+    /// move has made false.
     ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
@@ -283,8 +289,9 @@ final class CompletionController {
         caretMove: Bool
     ) {
         // A bare caret move that stays inside the very word the list serves
-        // supersedes *nothing*: the rows stay committable and any answer still
-        // travelling behind its debounce belongs to exactly that word. The full
+        // supersedes nothing *shown*: the rows stay committable, and an answer
+        // still travelling behind its debounce for the prefix now under the
+        // caret belongs to exactly that word. The full
         // entry below would strand the panel on its stale list until the next
         // keystroke (the narrowed answer cancelled) and kill the standing
         // rows' prefetched resolves — the same D4 damage `invalidatePendingRequest`
@@ -304,12 +311,38 @@ final class CompletionController {
             let member = IdentifierScanner.memberContext(in: nsText, at: location)
             let prefixLocation = member?.prefixRange.location
                 ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location).location
-            if prefixLocation == snap.prefixLocation { return }
+            if prefixLocation == snap.prefixLocation {
+                // The one thing this path must still retire: a request whose
+                // prefix the move has just made false. `apply` would refuse its
+                // answer, so its debounce and its round trip are spent for
+                // nothing, and it would still reach the provider's ordering
+                // tokens ahead of the next real question. (The visible rows'
+                // resolve handles are safe either way: a provider adopts a new
+                // table only through `showCompletionList`, which a refused
+                // answer never reaches.)
+                // Compared as text rather than refused outright, because typing
+                // reaches here too, and its selection change must not cancel the
+                // request that very keystroke sent for the same prefix.
+                let typed = nsText.substring(
+                    with: NSRange(location: prefixLocation, length: location - prefixLocation)
+                )
+                if pendingTask != nil, typed != pendingPrefix {
+                    pendingTask?.cancel()
+                    pendingTask = nil
+                    provider?.supersedeCompletionRequests()
+                }
+                return
+            }
         }
 
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        // Retire the cancelled request in the provider too, *now*: the
+        // replacement may not ask for a debounce, and an answer landing in
+        // between must not replace the resolve handles of the rows still shown
+        // — which live with `resolveSource`, the provider that issued them.
+        resolveSource?.supersedeCompletionRequests()
         let token = generation
         // A keystroke ends the previous completion session: its previews are
         // history, its prefetched imports answer a word that is no longer being
@@ -470,6 +503,7 @@ final class CompletionController {
         provider: CodeIntelligenceProviding,
         token: Int
     ) {
+        pendingPrefix = request.prefix
         pendingTask = Task { [weak self] in
             let items = await provider.narrow(list, for: request)
             guard let self, !Task.isCancelled, token == self.generation else { return }
@@ -501,6 +535,7 @@ final class CompletionController {
         explicit: Bool,
         token: Int
     ) {
+        pendingPrefix = request.prefix
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
             if !explicit {
@@ -582,6 +617,9 @@ final class CompletionController {
                 == request.member.map(\.receiver)
         else { return }
 
+        // Shown from here on: only now may the provider let these rows' resolve
+        // table displace the one the previous rows' handles live in.
+        provider.showCompletionList(rows.map { $0.item })
         prefetchResolves(for: rows.map { $0.item }, provider: provider, token: token)
 
         retained = list.map {
@@ -763,6 +801,7 @@ final class CompletionController {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        resolveSource?.supersedeCompletionRequests()
         snapshot = nil
         retained = nil
         presentationBaseline = nil
@@ -1090,6 +1129,7 @@ final class CompletionController {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        resolveSource?.supersedeCompletionRequests()
     }
 
     /// Forget everything that belongs to the currently-offered list: its

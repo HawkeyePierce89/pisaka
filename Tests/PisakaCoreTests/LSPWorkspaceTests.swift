@@ -1490,6 +1490,159 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertFalse(workspace.hasLiveServers)
     }
 
+    /// A quit landing inside a folder switch's teardown finds `hasLiveServers`
+    /// true and nothing of its own to stop. It must still wait for the servers
+    /// that teardown is saying goodbye to, or AppKit proceeds to `terminateNow()`
+    /// and signals them inside their grace.
+    func testAShutdownAllDuringAnotherWaitsForItsTeardown() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(harness: harness, exitGraceWait: graces.wait)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let transport = harness.latest
+
+        let folderSwitch = Task { await workspace.shutdownAll() }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        XCTAssertTrue(workspace.hasLiveServers, "a quit now would hold for a teardown")
+
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit's teardown to wait on the switch's") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned)
+        XCTAssertFalse(transport.isTerminated, "nothing is signalled inside its grace")
+
+        graces.release()
+        await quit.value
+        await folderSwitch.value
+
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// The last teardown's resume is scheduled, not run: a third call starting
+    /// before the parked one gets the actor back is a teardown in flight, and
+    /// the parked call must wait it out too rather than return on a stale wake.
+    func testAParkedShutdownAllWaitsOutATeardownStartedBeforeItWakes() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let first = GraceGate()
+        let third = GraceGate()
+        defer { first.release(); third.release() }
+        // The first grace is the folder switch's; every later one is the third call's.
+        let workspace = makeWorkspace(harness: harness, exitGraceWait: { grace in
+            if first.started.isEmpty {
+                await first.wait(grace)
+            } else {
+                await third.wait(grace)
+            }
+        })
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+
+        let folderSwitch = Task { await workspace.shutdownAll() }
+        await waitFor("the first exit grace to start") { first.started.count == 1 }
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit to park") { workspace.parkedShutdownCount == 1 }
+
+        // A server the third call will be saying goodbye to.
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let survivor = harness.latest
+        var thirdCall: Task<Void, Never>?
+        workspace.willResumeShutdownWaiters = {
+            workspace.willResumeShutdownWaiters = nil
+            thirdCall = Task { await workspace.shutdownAll() }
+        }
+
+        first.release()
+        await folderSwitch.value
+        await waitFor("the third call's grace to start") { third.started.count == 1 }
+        await waitFor("the woken quit to park again") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned, "the quit returned inside the third call's teardown")
+        XCTAssertFalse(survivor.isTerminated)
+
+        third.release()
+        await quit.value
+        await thirdCall?.value
+        XCTAssertTrue(survivor.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// A registry swap's teardown is a teardown too: it empties the maps a quit
+    /// reads its own share off and leaves the retiring process in `transports`, so
+    /// a quit landing inside its grace must wait it out like any other.
+    func testAShutdownAllDuringARegistryTeardownWaitsForIt() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()]),
+            exitGraceWait: graces.wait
+        )
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        let removal = Task { await workspace.updateRegistry(.standard) }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        XCTAssertTrue(workspace.hasLiveServers, "a quit now would hold for a teardown")
+
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit to wait on the registry's teardown") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned)
+        XCTAssertFalse(transport.isTerminated, "nothing is signalled inside its grace")
+
+        graces.release()
+        await quit.value
+        await removal.value
+
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// Stopping a relaunch mid-handshake is Pisaka's signal, not the server's
+    /// failure: the record keeps the exit code of the crash it is about.
+    func testAKilledRelaunchDoesNotOverwriteTheCrashsExitCode() async {
+        let harness = ServerHarness()
+        let patient = LSPSession.Budgets(handshake: 60, definition: 1, completion: 1, resolve: 1, shutdown: 1)
+        let workspace = makeWorkspace(harness: harness, budgets: patient)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let crashed = harness.latest
+        crashed.reportExit(code: 1)
+        await waitFor("the exit to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.lastExitCode == 1
+        }
+        await crash(crashed)
+
+        harness.initializeDelay = 30
+        let relaunch = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the relaunch to start") { harness.launches.count == 2 }
+        let handshaking = harness.latest
+        XCTAssertTrue(workspace.feedsFailureRecord(handshaking))
+
+        await workspace.shutdownAll()
+        _ = await relaunch.value
+
+        XCTAssertTrue(handshaking.isTerminated)
+        XCTAssertFalse(workspace.feedsFailureRecord(handshaking), "its teardown signal would reach the record")
+        let record = workspace.failureRecord(serverID: "sourcekit-lsp")
+        XCTAssertEqual(record?.lastExitCode, 1)
+        XCTAssertEqual(record?.failureCount, 1)
+    }
+
     /// Un-registering is not forgetting: the process has to stop, or it outlives the
     /// feature that started it and shows up in `pgrep` after the app quits.
     func testARemovedServerIsShutDownAndItsDocumentsForgotten() async throws {

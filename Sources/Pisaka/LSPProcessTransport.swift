@@ -40,12 +40,11 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     let incomingBytes: AsyncStream<Data>
     private let continuation: AsyncStream<Data>.Continuation
 
-    /// stderr chunks and the exit status (D44), for `LSPWorkspace`'s failure
-    /// record. Bounded to the newest chunks: unlike stdout, losing an old log
-    /// line costs nothing — the record keeps only a tail anyway — and a server
-    /// logging faster than the main actor reads must not grow this without end.
+    /// stderr and the exit status (D44), for `LSPWorkspace`'s failure record —
+    /// pulled out of `errorDrain`, which owns both and outlives this transport
+    /// until it has them.
     let errorOutput: AsyncStream<LSPErrorOutputEvent>
-    private let errorContinuation: AsyncStream<LSPErrorOutputEvent>.Continuation
+    private let errorDrain: ErrorDrain
 
     private let process: Process
     private let input: Pipe
@@ -69,12 +68,6 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     private var isStopped = false
     private var isInputClosed = false
     private var streamIsFinished = false
-    /// The two halves `errorOutput` finishes after: stderr reached EOF, and the
-    /// exit status was reported. Both, so a crash's
-    /// last lines — readable a moment after the process is reaped — still land
-    /// before the stream ends.
-    private var errorReadingEnded = false
-    private var exitReported = false
 
     /// What is queued but not yet written, bounded (D39). Guarded by `lock`, like
     /// every other piece of state here: `send` admits from the session's actor and
@@ -102,15 +95,19 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // actually matters is `Content-Length`'s cap, which Core already enforces.
         incomingBytes = AsyncStream(bufferingPolicy: .unbounded) { escaped = $0 }
         continuation = escaped
-        var escapedErrors: AsyncStream<LSPErrorOutputEvent>.Continuation!
-        errorOutput = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { escapedErrors = $0 }
-        errorContinuation = escapedErrors
 
         process = Process()
         input = Pipe()
         output = Pipe()
         errors = Pipe()
         writeQueue = DispatchQueue(label: "LSPProcessTransport.write")
+        let drain = ErrorDrain(
+            handle: errors.fileHandleForReading,
+            process: process,
+            grace: terminationGrace
+        )
+        errorDrain = drain
+        errorOutput = AsyncStream { await drain.next() }
 
         process.executableURL = executable
         process.arguments = arguments
@@ -146,7 +143,7 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             try process.run()
         } catch {
             continuation.finish()
-            errorContinuation.finish()
+            errorDrain.abandon()
             throw LSPTransportError.launchFailed(
                 "\(executable.path): \(error.localizedDescription)"
             )
@@ -161,11 +158,11 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // quit — but a transport that is simply dropped (a launch superseded
         // between `run()` and the handshake) must not leave a `sourcekit-lsp`
         // behind either.
+        // stderr is left to `errorDrain`, which holds what it reads from until
+        // the process has exited and stderr has ended — a launch whose handshake
+        // failed is dropped here the moment it gives up, often before the last
+        // lines and the exit status D44 keeps have arrived.
         stop()
-        // A grandchild that inherited stderr can hold it open past the server's
-        // own exit; the record's reader must not outlive the transport for it.
-        errors.fileHandleForReading.readabilityHandler = nil
-        errorContinuation.finish()
     }
 
     /// The server's pid — read by the app-layer shutdown test, which has to see
@@ -202,19 +199,19 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // line*, wedging the whole server behind an output nobody reads. What it
         // says is handed to `errorOutput` and nowhere else — the workspace keeps a
         // bounded tail for the settings row (D44), and nothing on this path is ever
-        // an alert (D7). `weak self` for the stdout handler's reason.
-        errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        // an alert (D7). The handler holds `errorDrain`, never `self`: the drain
+        // references neither the transport nor the pipe's write end, so there is
+        // no cycle through `self`, and reading goes on past this transport's
+        // release until the drain says it is done.
+        let drain = errorDrain
+        errors.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
-            guard let self else {
-                handle.readabilityHandler = nil
-                return
-            }
             guard !chunk.isEmpty else {
                 handle.readabilityHandler = nil
-                self.endErrorOutput(exitCode: nil)
+                drain.readingDidEnd()
                 return
             }
-            self.errorContinuation.yield(.bytes(chunk))
+            drain.append(chunk)
         }
 
         // The backstop for an EOF that never comes: a server whose child inherited
@@ -232,25 +229,8 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             // A signal is reported negated, so one integer carries both endings
             // (`LSPServerFailureRecord.lastExitCode`).
             let status = process.terminationStatus
-            self?.endErrorOutput(exitCode: process.terminationReason == .uncaughtSignal ? -status : status)
+            drain.processDidExit(code: process.terminationReason == .uncaughtSignal ? -status : status)
         }
-    }
-
-    /// Record one of `errorOutput`'s two endings — the exit status when
-    /// `exitCode` is given, stderr's end otherwise — and finish the stream once
-    /// both have happened.
-    ///
-    /// The exit status is yielded *before* its ending is recorded: stderr's end
-    /// arrives on another thread at nearly the same moment, and recording first
-    /// would let that thread finish the stream between the two, dropping the
-    /// exit status into an already-finished stream.
-    private func endErrorOutput(exitCode: Int32?) {
-        if let exitCode { errorContinuation.yield(.exited(code: exitCode)) }
-        lock.lock()
-        if exitCode == nil { errorReadingEnded = true } else { exitReported = true }
-        let done = errorReadingEnded && exitReported
-        lock.unlock()
-        if done { errorContinuation.finish() }
     }
 
     private func yield(_ chunk: Data) {
@@ -366,9 +346,9 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // stderr is deliberately *not* detached: a crash ends stdout, and this
         // runs from the session's reaction to that, while the server's last
         // lines — the panic, the missing toolchain, exactly what D44 keeps — may
-        // still sit unread in the stderr pipe. Its handler reads on to EOF and
-        // ends that half of `errorOutput` itself; `deinit` is the backstop for a
-        // grandchild that holds the pipe open.
+        // still sit unread in the stderr pipe. `errorDrain` reads on to EOF, and
+        // stops on its own grace after the exit for a grandchild that holds the
+        // pipe open.
         // Stdin is closed here too, for the paths that never said goodbye (a
         // crash, a superseded launch, `terminateNow()`); the polite path has
         // already closed it through `closeInput()` and given the server its exit
@@ -433,6 +413,140 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             directory: root,
             environment: description.environment
         )
+    }
+}
+
+/// The stderr side of one transport (D44): what the server wrote, and how its
+/// process ended, held until `LSPWorkspace` pulls them through `errorOutput`.
+///
+/// **Its own object, so it outlives the transport.** A launch whose handshake
+/// fails is dropped the moment it gives up — which is exactly when its last
+/// lines and its exit status are still on their way — so the drain is held by
+/// the stderr handler and the termination handler instead, and itself holds the
+/// read handle and the `Process` until each has delivered its half. Those two
+/// cycles are the point: each is broken by the event it waits for.
+///
+/// **Bounded by bytes, with the exit status beside the bytes rather than among
+/// them.** What the consumer has not pulled yet is coalesced into one buffer
+/// that keeps the newest `LSPServerFailureRecord.capacity` bytes — the record's
+/// own bound, so a burst the main actor is slow to read loses nothing the
+/// record would have kept — and the exit status sits in a slot no amount of
+/// logging can evict.
+///
+/// Finished once stderr has reached EOF and the exit status is in, or `grace`
+/// after the exit when a grandchild that inherited stderr holds it open past
+/// the server's own end — whose output is not the server's to record.
+private final class ErrorDrain: @unchecked Sendable {
+    private let lock = NSLock()
+    private let grace: TimeInterval
+    private var handle: FileHandle?
+    private var process: Process?
+    private var pending = Data()
+    private var exitCode: Int32?
+    private var exitDelivered = false
+    private var readingEnded = false
+    private var finished = false
+    /// The consumer's pull, parked until there is something to hand it. One
+    /// consumer only, like `errorOutput` itself.
+    private var waiter: CheckedContinuation<LSPErrorOutputEvent?, Never>?
+
+    init(handle: FileHandle, process: Process, grace: TimeInterval) {
+        self.handle = handle
+        self.process = process
+        self.grace = grace
+    }
+
+    /// The next event, or `nil` once finished and empty — `errorOutput`'s
+    /// unfolding.
+    func next() async -> LSPErrorOutputEvent? {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let event = takeLocked() {
+                lock.unlock()
+                continuation.resume(returning: event)
+            } else if finished {
+                lock.unlock()
+                continuation.resume(returning: nil)
+            } else {
+                waiter = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func append(_ chunk: Data) {
+        update {
+            pending.append(chunk)
+            let overflow = pending.count - LSPServerFailureRecord.capacity
+            if overflow > 0 { pending = Data(pending.dropFirst(overflow)) }
+        }
+    }
+
+    func readingDidEnd() {
+        update {
+            readingEnded = true
+            handle = nil
+            if exitCode != nil { finished = true }
+        }
+    }
+
+    func processDidExit(code: Int32) {
+        var waitsForReading = false
+        update {
+            exitCode = code
+            process = nil
+            if readingEnded { finished = true }
+            waitsForReading = !finished
+        }
+        guard waitsForReading else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + grace) { [self] in
+            update {
+                handle?.readabilityHandler = nil
+                handle = nil
+                finished = true
+            }
+        }
+    }
+
+    /// The process never ran: nothing will ever arrive.
+    func abandon() {
+        update {
+            handle = nil
+            process = nil
+            finished = true
+        }
+    }
+
+    /// Apply `change` under the lock, then hand the parked consumer whatever it
+    /// can now have — resumed outside the lock.
+    private func update(_ change: () -> Void) {
+        lock.lock()
+        change()
+        var resume: (CheckedContinuation<LSPErrorOutputEvent?, Never>, LSPErrorOutputEvent?)?
+        if let waiter {
+            if let event = takeLocked() {
+                resume = (waiter, event)
+            } else if finished {
+                resume = (waiter, nil)
+            }
+            if resume != nil { self.waiter = nil }
+        }
+        lock.unlock()
+        if let resume { resume.0.resume(returning: resume.1) }
+    }
+
+    /// The bytes before the exit status, so a crash's last lines precede the
+    /// code they explain.
+    private func takeLocked() -> LSPErrorOutputEvent? {
+        if !pending.isEmpty {
+            defer { pending = Data() }
+            return .bytes(pending)
+        }
+        if let exitCode, !exitDelivered {
+            exitDelivered = true
+            return .exited(code: exitCode)
+        }
+        return nil
     }
 }
 

@@ -980,7 +980,17 @@ capability beyond `insertReplaceSupport` came with any of it.
     servers wait three of them. The children run on the main actor and interleave
     only at their `await`s, so `forget`'s identity guard reads exactly as before.
     `hasLiveServers` (`!transports.isEmpty`) is what the delegate asks to decide
-    whether a quit waits at all. `terminateNow()` is the
+    whether a quit waits at all. **No `shutdownAll()` returns while another
+    polite teardown is still running** — another `shutdownAll()`, or an
+    `updateRegistry` retiring a stale server: both count themselves into one
+    in-flight tally, each `shutdownAll()` does its own share, and it then parks
+    until the tally reaches zero — re-checking on waking, since another teardown
+    may start and suspend before the woken one gets the actor back. A quit landing
+    inside a folder switch's or a registry swap's teardown finds `hasLiveServers`
+    true (the dying processes are still in `transports`) and nothing of its own to
+    stop; returning then would let AppKit reach `terminateNow()` and signal
+    servers still inside their exit grace.
+    `terminateNow()` is the
     fallback quit path — `willTerminateNotification` is the last thing AppKit posts, so a
     `Task` wrapping an async teardown would compile, never be picked up, and leave
     exactly the orphan `pgrep -fl sourcekit-lsp` checks for. It therefore reaches
@@ -1166,7 +1176,11 @@ capability beyond `insertReplaceSupport` came with any of it.
     weakly and appended to its key's record **only while that transport is the
     key's newest** (`errorSources`, an `ObjectIdentifier` per key) — a superseded
     process's exit status lands after the restart is under way and must not write
-    into its successor's record. A factory that throws writes its reason as the
+    into its successor's record. A transport Pisaka stops **on purpose** — a
+    launch `shutdownAll()` kills mid-handshake, or one that finished its handshake
+    into a stale epoch — is unhooked from its key first (`silenceErrorOutput`), so
+    the teardown's signal cannot overwrite the exit code of the crash the record
+    is about. A factory that throws writes its reason as the
     record's text, since no process ever spoke. `noteFailure` updates the count
     and the retired flag at the same place D7 counts; a successful handshake
     **removes** the record; `updateRegistry(_:)` drops the records of servers it
@@ -1927,15 +1941,38 @@ capability beyond `insertReplaceSupport` came with any of it.
     would get `Greeter(name:)`. Pinned by `LSPIntelligenceProviderTests`
     `.testAResolveThatDropsTheItemsOwnTextDoesNotChangeWhatIsInserted`.
     **The table is ordered by request, not by arrival.** Every `completions(for:)`
-    claims a monotonic list token synchronously, before its first hop, and a publish
-    whose token is older than the one already published keeps its items but does not
-    touch the table — the generation-token discipline, applied to the one piece of
-    state a completion leaves behind. Two completion requests overlap as a matter of
+    claims a monotonic list token synchronously, before its first hop, and the claim
+    *reserves* the table for that token there and then — the table itself stays as
+    it is — so a publish whose token is older than the newest one asked keeps its
+    items but does not touch the table — the generation-token discipline, applied to
+    the one piece of state a completion leaves behind. Two completion requests overlap as a matter of
     course (the router abandons one at its deadline and it keeps running; the next
     keystroke asks again), and without the order the table belongs to whichever
     *finished* last: an older answer landing late would wipe the displayed list's
     handles and take D4's auto-import with them, silently, because a missing handle
     reads exactly like a superseded one.
+    **A cancellation retires too, before anything is asked.** The editor's debounce
+    means the replacement claims its token 150 ms after the old request was
+    cancelled, and a cancellation reaches the session asynchronously, so an answer
+    can still land in that window with the newest token. `supersedeCompletionRequests()`
+    — synchronous, called by the controller at the moment it cancels — moves both
+    watermarks (the table's and the retained list's) past every token handed out
+    without claiming one, leaving the table and the retained list as they are for the
+    rows still on screen. Pinned by
+    `.testAnAnswerLandingAfterSupersedeKeepsTheVisibleListsHandlesAndRetainedList`.
+    **A published table is staged, and only showing it makes it the shown one.**
+    The provider keeps two tables: the newest answer's, *staged* (replaced
+    wholesale by every newer answer, under the ordering above), and the *shown*
+    one, which changes only when the editor calls `showCompletionList(_:)` — the
+    seam's defaulted, synchronous hook, called from `apply` after every staleness
+    check has passed — and then holds exactly the handles of the rows put on screen,
+    each looked up in either table. A lookup consults both. Neither ordering nor
+    supersession can close the reverse window on its own: an answer that installs
+    its table *before* the cancellation reaches it, and is then discarded by the
+    controller's continuation, would otherwise have wiped the visible rows' handles
+    — as would an Enter pressed between the install and that continuation. Both
+    tables are bounded by one list each. Pinned by
+    `.testAnAnswerStagedButNeverShownKeepsTheVisibleListsHandles`.
     `LSPCompletionItemKind.symbolKind` maps to the editor's closed `SymbolKind` and
     answers `nil` where there is no honest equivalent (`.module`, `.snippet`,
     `.color`): `SymbolKind` is pinned by set equality against the shipped
@@ -2058,6 +2095,15 @@ capability beyond `insertReplaceSupport` came with any of it.
     `workspace.isLive` and `session.isRunning`, because a crash is only noticed by
     the next request), or nothing matches the new word at all: a complete answer
     for `fo` holding nothing for `fox` is worth asking again, not an empty popup.
+    `publish` hands its resolve table back rather than installing it, and a narrow
+    stages it only once it has decided to answer: a discarded narrow leaves the
+    popup showing the previous rows while the ordinary request runs, and
+    committing one of those must still find its handle or its auto-import is lost.
+    The narrow reserves the table's ordering token at its claim, before its first
+    suspension, so an older answer or narrow landing at any point after that —
+    while the narrow is still deciding, or after it refused; rows the controller
+    discards either way — cannot replace the table those visible rows' handles live
+    in either.
     The retained raw items are never mutated.
 
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the

@@ -244,6 +244,17 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         }) ?? nil
     }
 
+    /// Forwarded to the server side, the only one that keeps per-list state.
+    public func supersedeCompletionRequests() {
+        lsp.supersedeCompletionRequests()
+    }
+
+    /// Forwarded to the server side for the same reason. A list the fallback
+    /// answered carries no handles, which leaves the server nothing shown.
+    public func showCompletionList(_ items: [CompletionItem]) {
+        lsp.showCompletionList(items)
+    }
+
     /// D4's second round trip, routed to whichever provider issued the item.
     ///
     /// Neither side is asked whether it recognises the handle first: an item from

@@ -118,13 +118,24 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
 
     private let lock = NSLock()
     private var nextResolveHandle = 1
-    /// The current list's deferred items, replaced wholesale when a new list is
-    /// published — so a handle can only ever name an item from the list the popup
-    /// is actually showing, and the table cannot grow with the session.
-    private var pendingResolves: [Int: PendingResolve] = [:]
-    /// The request-ordering token of the list `pendingResolves` belongs to, and
-    /// the one behind the next request — the generation-token discipline, applied
-    /// to the one piece of state a completion leaves behind.
+    /// Two tables of deferred items, so a handle can only ever name an item from
+    /// the list the popup shows or the newest answer it has not yet decided on,
+    /// and neither table can grow with the session.
+    ///
+    /// The newest answer's table is *staged*, replaced wholesale by every newer
+    /// answer; it becomes the *shown* table only when the editor says it put
+    /// those rows on screen (`showCompletionList`). Publishing straight into the
+    /// one table the shown rows resolve through would let an answer the editor
+    /// goes on to discard — its request cancelled after the answer was computed
+    /// but before the editor's continuation ran — wipe those rows' handles, and
+    /// with them D4's auto-import: the provider cannot tell from here whether
+    /// its answer will be shown.
+    private var stagedResolves: [Int: PendingResolve] = [:]
+    private var shownResolves: [Int: PendingResolve] = [:]
+    /// The newest request-ordering token *asked* — reserved at claim, so only that
+    /// request may still replace `stagedResolves` — and the one behind the next
+    /// request: the generation-token discipline, applied to the one piece of state
+    /// a completion leaves behind.
     ///
     /// Two completion requests overlap as a matter of course: the router abandons
     /// one at its deadline and it keeps running, the next keystroke asks again.
@@ -730,9 +741,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             typedWord: typedWord,
             in: source,
             session: prepared.session,
-            serverResolves: resolves,
-            listToken: listToken
+            serverResolves: resolves
         )
+        stageResolves(published.deferred, listToken: listToken)
         let retained = retain(
             response.isIncomplete || published.trimmed ? nil : RetainedList(
                 handle: listToken,
@@ -778,7 +789,36 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         _ retained: RetainedCompletionList,
         for request: CompletionRequest
     ) async -> [CompletionItem]? {
+        // Claimed — and so reserved — before the first hop: the popup keeps the
+        // previous rows while this runs, and on a refusal while the ordinary
+        // request runs, so an older answer landing at any point after this line
+        // must not replace the table those rows' handles live in.
         let listToken = claimListToken()
+        guard let published = await narrowedList(retained, for: request) else { return nil }
+        stageResolves(published.deferred, listToken: listToken)
+        return published.items
+    }
+
+    /// Retire every request asked so far without claiming one: the editor
+    /// cancelled them, but an answer can still be on its way and reach
+    /// `stageResolves` or `retain` before the replacement request
+    /// claims its token a debounce later. Moving both watermarks here refuses
+    /// those answers, and leaves the table and the retained list untouched for
+    /// the rows still on screen.
+    public func supersedeCompletionRequests() {
+        lock.lock()
+        defer { lock.unlock() }
+        nextListToken += 1
+        publishedListToken = nextListToken
+        retainedListToken = nextListToken
+    }
+
+    /// `narrow`'s list, or `nil` for every reason it gives one — before the
+    /// resolve table is touched.
+    private func narrowedList(
+        _ retained: RetainedCompletionList,
+        for request: CompletionRequest
+    ) async -> PublishedList? {
         guard let offset = request.offset, let list = retainedList(retained.handle) else { return nil }
         let length = (request.prefix as NSString).length
         guard length > 0, offset - length == list.typedWord.location else { return nil }
@@ -796,11 +836,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             in: list.text as NSString,
             session: list.session,
             serverResolves: list.serverResolves,
-            listToken: listToken,
             narrowedLength: length
         )
+        // Refused before the table is touched: a `nil` leaves the popup showing
+        // the previous rows while the ordinary request runs, and committing one
+        // of those must still find its handle — or its auto-import is lost.
         guard published.matched else { return nil }
-        return published.items
+        return published
     }
 
     /// What `publish` built: the rows, and whether any item the server sent was
@@ -812,6 +854,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         /// Whether any item the server sent matched the typed word at all — in a
         /// partition above `noMatch`, whether or not it was then published.
         let matched: Bool
+        /// The resolve table for `items`, which the caller installs only once it
+        /// has decided to show them.
+        let deferred: [Int: PendingResolve]
     }
 
     /// D6's order, D6's hygiene, and the resolve bookkeeping — the whole of what
@@ -823,7 +868,6 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         in text: NSString,
         session: LSPSession,
         serverResolves: Bool,
-        listToken: Int,
         narrowedLength: Int? = nil
     ) -> PublishedList {
         // **Matching is the client's job, and a server is not required to have
@@ -1006,14 +1050,16 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             }
         }
 
-        // The items are returned either way — a superseded list still answers the
-        // caller that asked for it, and that caller discards it on its own
-        // generation token. Only the *shared* table is refused to an older list.
-        replacePendingResolves(with: deferred, listToken: listToken)
+        // The table is handed back rather than installed here: a narrow that
+        // matched nothing is discarded, and must not take the visible list's
+        // handles with it. Installing it is `stageResolves`, which
+        // refuses an older list — the items still answer the caller that asked,
+        // and that caller discards them on its own generation token.
         return PublishedList(
             items: results,
             trimmed: trimmed,
-            matched: partition.contains { $0 != .noMatch }
+            matched: partition.contains { $0 != .noMatch },
+            deferred: deferred
         )
     }
 
@@ -1294,17 +1340,33 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     private func pendingResolve(_ handle: Int) -> PendingResolve? {
         lock.lock()
         defer { lock.unlock() }
-        return pendingResolves[handle]
+        return stagedResolves[handle] ?? shownResolves[handle]
     }
 
-    /// Hand the table to `listToken`'s list, unless a *newer* request has already
-    /// published over it — see `publishedListToken`.
-    private func replacePendingResolves(with deferred: [Int: PendingResolve], listToken: Int) {
+    /// Stage the table of `listToken`'s list, unless a *newer* request has been
+    /// asked since — see `publishedListToken`. Equality is this request's own
+    /// reservation: `claimListToken` moved the watermark to it. The shown table
+    /// is left alone; see `stagedResolves`.
+    private func stageResolves(_ deferred: [Int: PendingResolve], listToken: Int) {
         lock.lock()
         defer { lock.unlock() }
-        guard listToken > publishedListToken else { return }
+        guard listToken >= publishedListToken else { return }
         publishedListToken = listToken
-        pendingResolves = deferred
+        stagedResolves = deferred
+    }
+
+    /// The editor put `items` on screen: from now on their handles, and only
+    /// theirs, are the shown table. Each is looked up in both tables — the rows
+    /// are the staged answer's, or (a re-presentation) the shown one's — so a
+    /// handle neither holds stays unresolvable.
+    public func showCompletionList(_ items: [CompletionItem]) {
+        lock.lock()
+        defer { lock.unlock() }
+        var shown: [Int: PendingResolve] = [:]
+        for handle in items.compactMap(\.resolveHandle) {
+            shown[handle] = stagedResolves[handle] ?? shownResolves[handle]
+        }
+        shownResolves = shown
     }
 
     /// Hand the retained slot to `listToken`'s answer — `list`, or `nil` when it
@@ -1333,6 +1395,11 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         lock.lock()
         defer { lock.unlock() }
         nextListToken += 1
+        // Reserved as it is claimed, with the table left in place: every older
+        // answer still in flight is one the controller will discard, so none of
+        // them may replace the handles of the rows shown until this one decides —
+        // and a refusal or a failure decides to keep them.
+        publishedListToken = nextListToken
         return nextListToken
     }
 

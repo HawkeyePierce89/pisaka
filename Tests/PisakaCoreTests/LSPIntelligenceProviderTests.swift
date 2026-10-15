@@ -3064,6 +3064,142 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertNil(narrowed)
     }
 
+    /// A discarded narrow leaves the visible list's handles alone: the popup
+    /// keeps showing those rows while the ordinary request runs, and committing
+    /// one must still resolve its auto-import.
+    func testANarrowMatchingNothingKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the discarded narrow took the visible list's handle")
+    }
+
+    /// A refused narrow still orders the table: an older answer landing after it
+    /// is one the controller discards, so it must not take the handles of the rows
+    /// the popup keeps showing while the ordinary request runs.
+    func testAnOlderAnswerLandingAfterARefusedNarrowKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let older = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the older request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+
+        let pending = try XCTUnwrap(transport.requests(for: LSPMethod.completion).last)
+        transport.emit(.response(LSPResponseMessage(id: pending.id, result: narrowingItems())))
+        let late = await older.value
+        XCTAssertFalse(late.items.isEmpty, "the older answer was not staged")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the older answer took the visible list's handle")
+    }
+
+    /// The table is reserved when a request is *asked*, not when it decides: an
+    /// older answer landing while a newer question is still in flight — a narrow
+    /// still checking its session, or an ordinary request still at the server — is
+    /// one the controller discards, so it must not take the handles of the rows
+    /// the popup keeps showing meanwhile.
+    func testAnOlderAnswerLandingWhileANewerRequestIsInFlightKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop, .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let older = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the older request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        // The same text, so the older answer is not refused as stale on arrival.
+        let newer = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the newer request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 3
+        }
+
+        let requests = transport.requests(for: LSPMethod.completion)
+        transport.emit(.response(LSPResponseMessage(id: requests[1].id, result: narrowingItems())))
+        let late = await older.value
+
+        XCTAssertFalse(late.items.isEmpty, "the older answer was not staged")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the older answer took the visible list's handle")
+
+        transport.emit(.response(LSPResponseMessage(id: requests[2].id, result: narrowingItems())))
+        _ = await newer.value
+    }
+
+    /// A request the editor cancelled is retired when it is cancelled, not when
+    /// the replacement is asked a debounce later: its answer landing in between
+    /// is one the controller discards, so it must take neither the handles nor
+    /// the retained list of the rows the popup keeps showing meanwhile.
+    func testAnAnswerLandingAfterSupersedeKeepsTheVisibleListsHandlesAndRetainedList() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let cancelled = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the cancelled request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        provider.supersedeCompletionRequests()
+
+        let pending = try XCTUnwrap(transport.requests(for: LSPMethod.completion).last)
+        transport.emit(.response(LSPResponseMessage(id: pending.id, result: narrowingItems())))
+        let late = await cancelled.value
+        XCTAssertFalse(late.items.isEmpty, "the cancelled answer was not staged")
+        XCTAssertNil(late.retained, "the cancelled answer replaced the retained list")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the cancelled answer took the visible list's handle")
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNotNil(narrowed, "the cancelled answer took the retained list")
+    }
+
+    /// The reverse of the window above: the newer answer stages its table before
+    /// any cancellation reaches it, and the editor then discards it — or commits a
+    /// visible row before its continuation runs. Until the editor shows the newer
+    /// rows, the visible ones keep resolving; once it does, only the shown rows'
+    /// handles do.
+    func testAnAnswerStagedButNeverShownKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let first = await provider.completionAnswer(for: narrowingRequest("fo"))
+        provider.showCompletionList(first.items)
+        let visible = try XCTUnwrap(first.items.first { $0.resolveHandle != nil })
+
+        let discarded = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let staged = try XCTUnwrap(discarded.items.first { $0.resolveHandle != nil })
+        XCTAssertNotEqual(staged.resolveHandle, visible.resolveHandle)
+        let kept = await provider.resolveEdits(for: visible)
+        XCTAssertFalse(kept.isEmpty, "an answer never shown took the visible list's handle")
+
+        provider.showCompletionList(discarded.items)
+        let adopted = await provider.resolveEdits(for: staged)
+        XCTAssertFalse(adopted.isEmpty, "showing the staged answer lost its handles")
+        let retired = await provider.resolveEdits(for: visible)
+        XCTAssertTrue(retired.isEmpty, "a list no longer shown still resolves")
+    }
+
     /// One `yaml-language-server` property completion, as that server really
     /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
     /// that carries no snippet syntax, and a value the schema wants indented

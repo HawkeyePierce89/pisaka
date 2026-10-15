@@ -184,6 +184,15 @@ public final class LSPWorkspace {
     private var errorSources: [ServerKey: ObjectIdentifier] = [:]
     /// Orders the records across keys — see `LSPServerFailureRecord.sequence`.
     private var recordSequence = 0
+    /// How many polite teardowns are running right now — every `shutdownAll()`
+    /// and every `updateRegistry` that found something stale — and the
+    /// `shutdownAll()` calls that finished their own share and wait for the rest:
+    /// see `shutdownAll()`.
+    private var teardownsInFlight = 0
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Called just before the last teardown wakes the parked calls — the test
+    /// seam a call starting inside that window is staged through.
+    var willResumeShutdownWaiters: (@MainActor () -> Void)?
 
     private var currentRoot: URL?
     /// The public ordering token, bumped only when the opened folder actually
@@ -289,7 +298,44 @@ public final class LSPWorkspace {
     /// and terminates the transport regardless. **The sessions are torn down
     /// concurrently** (D43): each goodbye may now cost a whole grace, and paying
     /// them in turn would make a quit with three servers wait three of them.
+    ///
+    /// **No call returns while another teardown is still running** — another
+    /// `shutdownAll()`, or an `updateRegistry` retiring a stale server. Either
+    /// empties `sessions` and `pendingLaunches` at once but leaves its processes in
+    /// `transports` until each is dead, so a quit landing inside a folder switch's
+    /// or a registry swap's teardown finds `hasLiveServers` true and nothing of its
+    /// own to stop. Returning then would let AppKit proceed to `terminateNow()` and
+    /// signal the very servers still saying their polite goodbye.
     public func shutdownAll() async {
+        beginTeardown()
+        await tearDownAll()
+        endTeardown()
+        // A loop, not one park: the resume that wakes this call is scheduled, not
+        // run, and another teardown may start — and suspend — before this
+        // continuation gets the actor back.
+        while teardownsInFlight > 0 {
+            await withCheckedContinuation { shutdownWaiters.append($0) }
+        }
+    }
+
+    /// Count one polite teardown in — see `shutdownAll()`.
+    private func beginTeardown() {
+        teardownsInFlight += 1
+    }
+
+    /// Count one out, and when it was the last, wake every parked `shutdownAll()`
+    /// to re-check.
+    private func endTeardown() {
+        teardownsInFlight -= 1
+        guard teardownsInFlight == 0, !shutdownWaiters.isEmpty else { return }
+        let waiters = shutdownWaiters
+        shutdownWaiters = []
+        willResumeShutdownWaiters?()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// One `shutdownAll()`'s own share: everything filed when it was called.
+    private func tearDownAll() async {
         // Bumped first: a launch still in flight will see the mismatch after its
         // handshake and terminate itself instead of registering into the maps this
         // method just emptied.
@@ -331,7 +377,9 @@ public final class LSPWorkspace {
         // `applicationShouldTerminate` (D43) would spend frozen. Killing it ends
         // the handshake at once; the launch sees the stale epoch and books nothing.
         for key in inflight.keys where live[key] == nil {
-            liveTransports[key]?.terminate()
+            guard let transport = liveTransports[key] else { continue }
+            silenceErrorOutput(of: transport, for: key)
+            transport.terminate()
         }
 
         // One child per server, each keeping its own `didClose` → `shutdown` →
@@ -467,6 +515,10 @@ public final class LSPWorkspace {
 
         let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
         guard !dead.isEmpty else { return }
+        // Counted from the moment the maps are emptied until the last process is
+        // dead: a quit inside that window must wait it out (`shutdownAll()`).
+        // Nothing below throws or returns early, so the two calls stay paired.
+        beginTeardown()
 
         // D33, for the registry's half of it: a stale server's diagnostics die
         // with it, before any goodbye — both halves below tear something down
@@ -571,6 +623,7 @@ public final class LSPWorkspace {
             await orphan.shutdown()
             forget(orphan.transport, for: key)
         }
+        endTeardown()
     }
 
     /// The descriptions a registry can actually route to, by id.
@@ -1141,6 +1194,7 @@ public final class LSPWorkspace {
                 // The folder changed (or everything was shut down) while this
                 // server was starting. Not a failure — nothing went wrong — so it
                 // costs no restart budget, but the process must not survive it.
+                silenceErrorOutput(of: transport, for: key)
                 await session.terminate()
                 forget(transport, for: key)
                 return nil
@@ -1191,11 +1245,13 @@ public final class LSPWorkspace {
             attachNotificationConsumer(for: key)
             return session
         } catch {
-            await session.terminate()
-            forget(transport, for: key)
             // A handshake cut short by `shutdownAll()` stopping a superseded
             // launch is not a failure, exactly as a superseded success is not.
-            guard token == epoch else { return nil }
+            let superseded = token != epoch
+            if superseded { silenceErrorOutput(of: transport, for: key) }
+            await session.terminate()
+            forget(transport, for: key)
+            guard !superseded else { return nil }
             _ = noteFailure(of: key)
             return nil
         }
@@ -1287,6 +1343,13 @@ public final class LSPWorkspace {
                 }
             }
         }
+    }
+
+    /// Stop `transport` feeding `key`'s record, before Pisaka stops it on
+    /// purpose: the signal that ends it is this app's, not the server's, and
+    /// must not overwrite the exit code of the failure the record is about.
+    private func silenceErrorOutput(of transport: LSPTransport, for key: ServerKey) {
+        if errorSources[key] == ObjectIdentifier(transport) { errorSources[key] = nil }
     }
 
     /// Mutate (creating if absent) `key`'s record, and publish when the change is
@@ -1462,6 +1525,16 @@ public final class LSPWorkspace {
 
     /// Every document some server currently holds open.
     var openDocumentURIs: Set<String> { Set(documents.keys) }
+
+    /// Whether `transport`'s stderr side still feeds a record — `false` once
+    /// Pisaka has stopped it on purpose.
+    func feedsFailureRecord(_ transport: LSPTransport) -> Bool {
+        errorSources.values.contains(ObjectIdentifier(transport))
+    }
+
+    /// The `shutdownAll()` calls that have finished their own share and are
+    /// waiting on another's.
+    var parkedShutdownCount: Int { shutdownWaiters.count }
 }
 
 /// What the diagnostics channel says, in one value: an accepted push, or the

@@ -20,6 +20,10 @@ import PisakaCore
 /// so "no signal inside the first grace" is asserted causally; the transport's
 /// grace is a real (small) one, because it lives on a reap queue that has no
 /// seam, and only its far side — the process gone — is waited for.
+///
+/// It also holds D44's one process-only fact: a transport dropped the moment
+/// its server's stdout ends still delivers that server's last stderr lines and
+/// exit code, which only a real `Process` can deliver late.
 final class LSPProcessShutdownTests: XCTestCase {
     /// The session's exit grace, parked until the test lets it go.
     private final class GraceGate: @unchecked Sendable {
@@ -130,6 +134,40 @@ final class LSPProcessShutdownTests: XCTestCase {
         }
         // …until the transport's own grace runs out and SIGKILL ends it.
         await waitFor("the server to be killed") { !isAlive(pid) }
+    }
+
+    /// D44 against a real process: a server that dies on its own is noticed by
+    /// stdout's end, and a launch whose handshake failed drops its transport at
+    /// that moment — often before the exit status and the last stderr lines
+    /// arrive. Both must still reach `errorOutput`.
+    func testADroppedTransportStillDeliversItsLastLinesAndExitCode() async throws {
+        var transport: LSPProcessTransport? = try LSPProcessTransport(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            // stdout ends first, the last line and the exit a moment later —
+            // the order in which the dropped transport would lose both. TERM is
+            // ignored and the kill is a grace away, so the server ends on its
+            // own and the code is its own rather than the teardown's.
+            arguments: ["-c", "trap '' TERM; exec 1>&-; sleep 0.3; echo 'fatal: last words' >&2; exit 3"],
+            directory: FileManager.default.temporaryDirectory,
+            terminationGrace: 10
+        )
+        let errors = try XCTUnwrap(transport).errorOutput
+        let stdout = try XCTUnwrap(transport).incomingBytes
+        // The crash, as the session notices it.
+        for await _ in stdout {}
+        transport?.terminate()
+        transport = nil
+
+        var text = Data()
+        var exitCode: Int32?
+        for await event in errors {
+            switch event {
+            case .bytes(let bytes): text.append(bytes)
+            case .exited(let code): exitCode = code
+            }
+        }
+        XCTAssertEqual(String(decoding: text, as: UTF8.self), "fatal: last words\n")
+        XCTAssertEqual(exitCode, 3)
     }
 }
 #endif
