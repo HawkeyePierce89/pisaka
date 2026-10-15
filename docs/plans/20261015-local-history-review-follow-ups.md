@@ -110,12 +110,12 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run `swift test`; the full suite passes, including `LintConfigurationTests` and `LocalHistorySourceGatingTests` with the existing restore pin unedited.
-- [ ] Run `swiftlint --strict` from the repository root; clean.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`; the app-layer bundle passes.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`; both succeed.
-- [ ] Run `grep -n -i "stops silently\|does nothing" docs/architecture/core-local-history.md docs/FEATURES.md` and confirm no hit describes the gated restore.
-- [ ] Confirm `git diff --stat` touches only the files named in Tasks 1–2, with no Core source file and no code line of `PisakaApp.swift` changed.
+- [x] Run `swift test`; the full suite passes, including `LintConfigurationTests` and `LocalHistorySourceGatingTests` with the existing restore pin unedited.
+- [x] Run `swiftlint --strict` from the repository root; clean.
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`; the app-layer bundle passes.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`; both succeed.
+- [x] Run `grep -n -i "stops silently\|does nothing" docs/architecture/core-local-history.md docs/FEATURES.md` and confirm no hit describes the gated restore.
+- [x] Confirm `git diff --stat` touches only the files named in Tasks 1–2, with no Core source file and no code line of `PisakaApp.swift` changed.
 
 ### Task 4: Update documentation
 
