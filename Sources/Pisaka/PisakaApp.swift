@@ -2946,12 +2946,12 @@ struct PisakaApp: App {
     /// exactly what it exists to keep. It is also the case the window renders
     /// least honestly: the same ceiling makes `currentTextForLocalHistory` answer
     /// the empty string, so the diff showed the revision as wholly added.
-    /// `latestHash: nil` asks the one question that matters here — *may* these
-    /// bytes be stored — rather than whether they would be deduplicated, which is
-    /// a skip that loses nothing.
+    /// `latestHash` left at its `nil` default asks the one question that matters
+    /// here — *may* these bytes be stored — rather than whether they would be
+    /// deduplicated, which is a skip that loses nothing.
     private func localHistoryRestoreRefused(displacing displaced: String, _ plan: LocalHistoryRestore) -> Bool {
         if (displaced as NSString).isEqual(to: plan.text) { return true }
-        return localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil).hash == nil
+        return localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, event: .restore).hash == nil
     }
 
     /// The selected tab's url, or `nil` — what **File ▸ Local History…** acts on,

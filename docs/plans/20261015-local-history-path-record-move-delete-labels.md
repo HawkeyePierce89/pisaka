@@ -113,15 +113,15 @@ Three claims bend, and each is stated where it bends:
 - Modify: `Sources/PisakaCore/LocalHistorySnapshot.swift`, `Sources/PisakaCore/LocalHistoryLayout.swift`, `Sources/PisakaCore/LocalHistoryPolicy.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistorySnapshotTests.swift`, `LocalHistoryLayoutTests.swift`, `LocalHistoryPolicyTests.swift`
 
-- [ ] Add `.delete` ("Before Delete") and `.label` ("Label") to `LocalHistoryEvent`, both lowercase ASCII tags without a dash. Update the enum's doc to cover them.
-- [ ] In `LocalHistoryLayout`, add the following. The layout stays pure path math with no file system access.
+- [x] Add `.delete` ("Before Delete") and `.label` ("Label") to `LocalHistoryEvent`, both lowercase ASCII tags without a dash. Update the enum's doc to cover them.
+- [x] In `LocalHistoryLayout`, add the following. The layout stays pure path math with no file system access.
   - the public relative-path normaliser (the one `fileDirectory` already applies);
   - the record name `path` and its encode;
   - the verifying decode, which answers the path only when the digest matches the directory name and the text is non-empty, normalised and relative;
   - the label sidecar name codec (snapshot name ↔ `<name>.label`);
   - one predicate for this feature's own temporaries: a parseable snapshot name plus `.partial`, `path.partial`, or a valid sidecar name plus `.partial`.
-- [ ] In `LocalHistoryPolicy`, add `maxLabelLength = 100` and `label(from:)`. Make `event` a required input of `capture(...)`, with `.label` never answering `.unchanged`. Update every caller, including `PisakaApp`'s restore preflight (`.restore`).
-- [ ] Tests:
+- [x] In `LocalHistoryPolicy`, add `maxLabelLength = 100` and `label(from:)`. Make `event` a required input of `capture(...)`, with `.label` never answering `.unchanged`. Update every caller, including `PisakaApp`'s restore preflight (`.restore`).
+- [x] Tests:
   - the tag vocabulary by set equality, including `delete` and `label`, and every tag round-tripping through the name codec;
   - the "Before" title rule restated as every event except `.save` and `.label`;
   - neither `path`, `path.partial`, a sidecar name nor a sidecar temporary parses as a snapshot;
@@ -129,7 +129,7 @@ Three claims bend, and each is stated where it bends:
   - the record verifies only against its own digest directory, and a mismatched, empty, absolute or non-normalised text decodes to `nil`;
   - the label rule: trimming, empty or whitespace-only refused, exactly 100 accepted, 101 refused, interior line break refused;
   - `.label` with `latestHash` equal to the content hash still captures, while every other event (set over `allCases` minus `.label`) skips as `.unchanged`.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Store: path record on capture, labelled capture, record-aware sweep, path listing
 

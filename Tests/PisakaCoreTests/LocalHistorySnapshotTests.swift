@@ -22,6 +22,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
             [
                 "save", "replace", "revert", "merge", "branch",
                 "commit", "restore", "rename", "pullrequest", "pull",
+                "delete", "label",
             ]
         )
     }
@@ -70,13 +71,21 @@ final class LocalHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(LocalHistoryEvent.rename.title, "Before Rename")
         XCTAssertEqual(LocalHistoryEvent.pullRequest.title, "Before Pull Request Checkout")
         XCTAssertEqual(LocalHistoryEvent.pull.title, "Before Pull")
+        XCTAssertEqual(LocalHistoryEvent.delete.title, "Before Delete")
+        XCTAssertEqual(LocalHistoryEvent.label.title, "Label")
     }
 
-    /// Only `save` records something that happened; every other event records
-    /// what a file looked like *before* something else ran.
-    func testEveryPreOperationEventSaysBefore() {
-        for event in LocalHistoryEvent.allCases where event != .save {
-            XCTAssertTrue(event.title.hasPrefix("Before "), "\(event.tag) titled \(event.title)")
+    /// Only `save` and `label` record a moment; every other event records what a
+    /// file looked like *before* something else ran — and the two that record a
+    /// moment say so by *not* reading "Before".
+    func testEveryPreOperationEventSaysBeforeAndOnlyThose() {
+        let moments: Set<LocalHistoryEvent> = [.save, .label]
+        for event in LocalHistoryEvent.allCases {
+            XCTAssertEqual(
+                event.title.hasPrefix("Before "),
+                !moments.contains(event),
+                "\(event.tag) titled \(event.title)"
+            )
         }
     }
 

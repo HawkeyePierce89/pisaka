@@ -16,11 +16,14 @@ import Foundation
 /// <base>/                                   ~/Library/Application Support/Pisaka/LocalHistory
 ///   <rootName>-<16 hex of sha256(root path)>/          one per project root
 ///     <32 hex of sha256(project-relative path)>/       one per file
+///       path                                           the readable path record
 ///       0000001772345678901-save-3f8a1c04b7e29d16.snapshot
 ///       0000001772345699999-commit-9b1d0e6a5c74f382.snapshot
+///       0000001772345700000-label-9b1d0e6a5c74f382.snapshot
+///       0000001772345700000-label-9b1d0e6a5c74f382.snapshot.label   its label text
 /// ```
 ///
-/// Three properties carry the design.
+/// Three properties carry the design, and one record makes the third reversible.
 ///
 /// **The snapshot file *is* the content.** Its exact UTF-8 text, nothing
 /// prepended and nothing wrapped — so a revision can be read with one `read` and
@@ -37,12 +40,19 @@ import Foundation
 /// `/`, may be arbitrarily deep, and can exceed a file name's length on its own;
 /// mirroring the tree would also make the store's layout leak the project's
 /// structure into a directory anyone can list. One 32-hex digest is a legal,
-/// fixed-width, flat component. The cost is that the store cannot be read
-/// backwards — given a snapshot directory you cannot say which file it belongs
-/// to — which is acceptable because every reader arrives holding the file it is
-/// asking about. The project directory keeps a *readable* prefix (the root's own
-/// name) in front of its digest purely so a human deleting one project's history
-/// by hand can find it; the digest alone is the identity.
+/// fixed-width, flat component. A digest cannot be read backwards, so each file
+/// directory carries a **path record**: a file named `path` holding exactly the
+/// digest's input — the normalised project-relative path in UTF-8, no newline.
+/// It is the inverse of the hash and nothing more. A reader trusts it only after
+/// re-deriving the digest from it and finding the directory's own name
+/// (`relativePath(fromPathRecord:fileDirectoryName:)`), so a wrong record makes
+/// its directory record-less rather than misleading anything. The project
+/// directory keeps a *readable* prefix (the root's own name) in front of its
+/// digest purely so a human deleting one project's history by hand can find it;
+/// the digest alone is the identity.
+///
+/// Neither the record nor a label sidecar parses as a snapshot, so listing, dedup
+/// and retention look straight through both.
 public struct LocalHistoryLayout: Equatable, Sendable {
     /// The store root — `…/Application Support/Pisaka/LocalHistory` in the app, a
     /// temporary directory in the tests.
@@ -128,9 +138,22 @@ public struct LocalHistoryLayout: Equatable, Sendable {
     /// codebase — and is normalised here the same way the roots are, so
     /// `a/./b.swift` and `a/b.swift` are one file rather than two histories.
     public func fileDirectory(forRoot root: URL, relativePath: String) -> URL {
-        let normalised = Self.pathComponents(of: relativePath).joined(separator: "/")
-        let digest = Self.digest(of: normalised, length: Self.fileHashLength)
-        return projectDirectory(forRoot: root).appendingPathComponent(digest, isDirectory: true)
+        projectDirectory(forRoot: root)
+            .appendingPathComponent(Self.fileDirectoryName(forRelativePath: relativePath), isDirectory: true)
+    }
+
+    /// The lexical normalisation `fileDirectory(forRoot:relativePath:)` applies
+    /// before digesting: `.` and empty components dropped, `..` popped, no
+    /// leading `/`. Public so the path record, the digest and migration's prefix
+    /// comparison share one spelling — a record written in another spelling
+    /// would fail its own verification.
+    public static func normalisedRelativePath(_ relativePath: String) -> String {
+        pathComponents(of: relativePath).joined(separator: "/")
+    }
+
+    /// The 32-hex name of the directory holding `relativePath`'s revisions.
+    private static func fileDirectoryName(forRelativePath relativePath: String) -> String {
+        digest(of: normalisedRelativePath(relativePath), length: fileHashLength)
     }
 
     /// Whether `url` is inside the store — the assertion that this layer only
@@ -210,6 +233,81 @@ public struct LocalHistoryLayout: Equatable, Sendable {
             event: event,
             contentHash: hash
         )
+    }
+
+    // MARK: - The path record
+
+    /// The path record's file name inside a file directory. No extension, so it
+    /// can never parse as a snapshot.
+    public static let pathRecordName = "path"
+
+    /// What the store's half-written files are called while they are written: a
+    /// snapshot, a path record and a label sidecar all go to their own name plus
+    /// this suffix first and are renamed into place.
+    ///
+    /// Derived from the destination name rather than randomised so that a second
+    /// attempt at the *same* file reuses (and overwrites) the same temporary
+    /// rather than accumulating debris — and so a test can name the file it wants
+    /// to fail.
+    public static let temporarySuffix = ".partial"
+
+    /// The record's text for `relativePath`: exactly the digest's input — the
+    /// normalised path, no newline — so a reader can re-derive the directory's
+    /// name from it.
+    public static func pathRecordText(forRelativePath relativePath: String) -> String {
+        normalisedRelativePath(relativePath)
+    }
+
+    /// The verifying decode: the relative path `text` records, or `nil` unless
+    /// it is non-empty, already normalised, relative, and digests to
+    /// `fileDirectoryName` — the directory the record was read out of.
+    ///
+    /// **Verification is the reader's whole defence.** Capture writes a record
+    /// only where none exists and never reads one back, so a record that is
+    /// wrong — a crash between moving a directory and rewriting its record, a
+    /// stray hand edit — stays wrong until a migration rewrites it. Every reader
+    /// asks this, and treats a `nil` as "no record": the directory stays readable
+    /// forwards, the way a directory written before records existed is, and no
+    /// listing or migration is ever misled by it.
+    public static func relativePath(fromPathRecord text: String, fileDirectoryName: String) -> String? {
+        guard !text.isEmpty, !text.hasPrefix("/") else { return nil }
+        guard normalisedRelativePath(text) == text else { return nil }
+        guard Self.fileDirectoryName(forRelativePath: text) == fileDirectoryName else { return nil }
+        return text
+    }
+
+    // MARK: - Label sidecars
+
+    /// The extension a label sidecar adds to its snapshot's full file name.
+    public static let labelExtension = "label"
+
+    /// The sidecar holding the user's label text for the snapshot named
+    /// `snapshotFileName`: `<snapshot file name>.label`, beside it in the same
+    /// file directory. The snapshot name codec is unchanged; the sidecar ends in
+    /// `.label`, not `.snapshot`, so it never parses as a revision.
+    public static func labelFileName(forSnapshotFileName snapshotFileName: String) -> String {
+        "\(snapshotFileName).\(labelExtension)"
+    }
+
+    /// The inverse: the snapshot file name a sidecar belongs to, or `nil` when
+    /// `name` is not `<a parseable snapshot name>.label`.
+    public static func snapshotFileName(fromLabelFileName name: String) -> String? {
+        let suffix = ".\(labelExtension)"
+        guard name.hasSuffix(suffix) else { return nil }
+        let stem = String(name.dropLast(suffix.count))
+        return snapshot(fromFileName: stem) == nil ? nil : stem
+    }
+
+    /// Whether `name` is one of this feature's own temporaries, and so safe for
+    /// the sweep to reclaim: a parseable snapshot name, the path record's name, or
+    /// a valid sidecar name — each followed by `temporarySuffix`. A foreign file
+    /// that merely ends in `.partial` is not ours and is left where it is.
+    public static func isOwnTemporary(_ name: String) -> Bool {
+        guard name.hasSuffix(temporarySuffix) else { return false }
+        let stem = String(name.dropLast(temporarySuffix.count))
+        return stem == pathRecordName
+            || snapshot(fromFileName: stem) != nil
+            || snapshotFileName(fromLabelFileName: stem) != nil
     }
 
     // MARK: - Private

@@ -56,8 +56,10 @@ public enum LocalHistoryCaptureDecision: Equatable, Sendable {
 /// Two questions, both answered here so neither the store, the capture model nor
 /// the window can grow a second opinion:
 ///
-/// - **Capture**: `capture(of:relativePath:latestHash:)` — the whole skip rule,
-///   in one precedence order.
+/// - **Capture**: `capture(of:relativePath:latestHash:event:)` — the whole skip
+///   rule, in one precedence order.
+/// - **Label text**: `label(from:)` — what a user's label may say, asked by the
+///   prompt's button and by the sidecar reader alike.
 /// - **Retention**: `prune(_:now:)` — what a file's directory should still hold,
 ///   decided on snapshot *names* alone (which is what makes retention one
 ///   directory read; see `LocalHistoryLayout`).
@@ -98,6 +100,10 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     /// what the user is actually editing, and are captured in full.
     public static let defaultMaxPreOperationFiles = 200
 
+    /// The longest label a user may put, in characters — 100. A label is a row
+    /// title, not a note: it has to fit beside a timestamp in the window's list.
+    public static let maxLabelLength = 100
+
     public let maxContentBytes: Int
     public let maxAge: TimeInterval
     public let revisionsPerFile: Int
@@ -123,13 +129,22 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     /// untitled buffer, or no project root open. `latestHash` is the
     /// `contentHash` of that file's newest stored revision, or `nil` when the
     /// file has no history yet; it is a *name* the caller already had in hand
-    /// from a directory listing, never a content read.
+    /// from a directory listing, never a content read. Its `nil` default is for
+    /// the caller asking only whether the bytes *may* be stored — the restore's
+    /// preflight — never for one that holds a listing.
     ///
     /// The precedence is deliberate and is what the tests pin: identity first
     /// (there is nowhere to write), then containment, then size, then sameness.
     /// The digest is computed last, so the two cheap refusals never pay for one,
     /// and a 1 MiB ceiling is checked before hashing a file that could be far
     /// larger.
+    ///
+    /// `event` is a required input because sameness depends on it: a `.label`
+    /// capture is **never** `.unchanged`. A label marks a moment the user chose,
+    /// and an unchanged buffer at that moment is exactly what they asked to mark —
+    /// deduplicating it would leave the label with no row to stand on. Every
+    /// other skip applies to a label as to anything else. The store passes its
+    /// event straight through and decides nothing of its own.
     ///
     /// One skip listed in the design does **not** appear here: content that is
     /// not decodable UTF-8. It cannot be — this takes a `String`. It is reachable
@@ -140,7 +155,8 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     public func capture(
         of text: String,
         relativePath: String?,
-        latestHash: String?
+        latestHash: String? = nil,
+        event: LocalHistoryEvent
     ) -> LocalHistoryCaptureDecision {
         guard let relativePath, !relativePath.isEmpty else { return .skip(.untitled) }
         guard Self.isInsideProject(relativePath) else { return .skip(.outsideProject) }
@@ -149,8 +165,26 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
         guard bytes <= maxContentBytes else { return .skip(.tooLarge(bytes: bytes)) }
 
         let hash = LocalHistoryLayout.contentHash(of: text)
-        guard hash != latestHash else { return .skip(.unchanged) }
+        guard event == .label || hash != latestHash else { return .skip(.unchanged) }
         return .capture(hash: hash)
+    }
+
+    // MARK: - Label text
+
+    /// The label `text` makes, or `nil` when it makes none.
+    ///
+    /// Whitespace and newlines are trimmed from both ends; what is left is
+    /// refused when it is empty, longer than `maxLabelLength` characters, or
+    /// still holds a line break — a label is one line of a row title. The one
+    /// rule in both directions: the prompt's button is enabled only while this
+    /// answers, and a sidecar read back from disk is displayed only if it does,
+    /// so a hand-edited or truncated sidecar shows the plain event title rather
+    /// than something the prompt could never have produced.
+    public static func label(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= maxLabelLength else { return nil }
+        guard !trimmed.contains(where: \.isNewline) else { return nil }
+        return trimmed
     }
 
     /// Whether a project-relative path stays inside the project.

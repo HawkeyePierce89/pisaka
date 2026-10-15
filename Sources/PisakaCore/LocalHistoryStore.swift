@@ -50,13 +50,9 @@ public struct LocalHistoryStore {
     /// What a half-written snapshot is called while it is being written. It ends
     /// in something other than `LocalHistoryLayout.snapshotExtension`, which is
     /// the whole mechanism: `snapshot(fromFileName:)` refuses it, so listing and
-    /// retention both look straight through it.
-    ///
-    /// Derived from the destination name rather than randomised so that a second
-    /// attempt at the *same* revision reuses (and overwrites) the same temporary
-    /// rather than accumulating debris — and so a test can name the file it wants
-    /// to fail.
-    static let temporarySuffix = ".partial"
+    /// retention both look straight through it. Spelled once, in the layout
+    /// (`LocalHistoryLayout.temporarySuffix`), which owns every on-disk name.
+    static let temporarySuffix = LocalHistoryLayout.temporarySuffix
 
     // MARK: - Reading
 
@@ -117,7 +113,12 @@ public struct LocalHistoryStore {
     ) -> LocalHistorySnapshot? {
         let directory = layout.fileDirectory(forRoot: root, relativePath: relativePath)
         let existing = LocalHistorySnapshot.sortedNewestFirst(snapshots(in: directory))
-        let decision = policy.capture(of: text, relativePath: relativePath, latestHash: existing.first?.contentHash)
+        let decision = policy.capture(
+            of: text,
+            relativePath: relativePath,
+            latestHash: existing.first?.contentHash,
+            event: event
+        )
         guard let hash = decision.hash else { return nil }
 
         let fileName = LocalHistoryLayout.snapshotFileName(timestamp: now, event: event, contentHash: hash)

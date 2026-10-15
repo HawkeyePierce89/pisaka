@@ -297,6 +297,146 @@ final class LocalHistoryLayoutTests: XCTestCase {
         }
     }
 
+    // MARK: - Names that are not snapshots
+
+    /// The record, a sidecar and their temporaries share a directory with the
+    /// snapshots; listing, dedup and retention look straight through them only
+    /// because none of them parses.
+    func testNeitherTheRecordNorASidecarNorTheirTemporariesParseAsASnapshot() {
+        let snapshotName = LocalHistoryLayout.snapshotFileName(
+            timestamp: Date(timeIntervalSince1970: 1_772_345_678.901),
+            event: .label,
+            contentHash: "0123456789abcdef"
+        )
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshotName)
+        let names = [
+            LocalHistoryLayout.pathRecordName,
+            LocalHistoryLayout.pathRecordName + LocalHistoryLayout.temporarySuffix,
+            sidecar,
+            sidecar + LocalHistoryLayout.temporarySuffix,
+        ]
+        for name in names {
+            XCTAssertNil(LocalHistoryLayout.snapshot(fromFileName: name), "parsed \(name)")
+        }
+    }
+
+    // MARK: - Label sidecars
+
+    func testASidecarIsTheSnapshotsNameWithTheLabelExtensionAndRoundTrips() {
+        let snapshotName = "0000001772345678901-label-0123456789abcdef.snapshot"
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshotName)
+        XCTAssertEqual(sidecar, "0000001772345678901-label-0123456789abcdef.snapshot.label")
+        XCTAssertEqual(LocalHistoryLayout.snapshotFileName(fromLabelFileName: sidecar), snapshotName)
+    }
+
+    func testOnlyAParseableSnapshotNamePlusTheExtensionIsASidecar() {
+        let refused = [
+            "",
+            ".label",
+            "notes.label",
+            "path.label",
+            "0000001772345678901-label-0123456789abcdef.label",           // no snapshot extension
+            "0000001772345678901-rebase-0123456789abcdef.snapshot.label", // unknown tag
+            "0000001772345678901-label-0123456789abcdef.snapshot",        // the snapshot itself
+            "0000001772345678901-label-0123456789abcdef.snapshot.label.partial",
+            "0000001772345678901-label-0123456789abcdef.snapshot.Label",
+        ]
+        for name in refused {
+            XCTAssertNil(LocalHistoryLayout.snapshotFileName(fromLabelFileName: name), "accepted \(name)")
+        }
+    }
+
+    // MARK: - Own temporaries
+
+    func testTheTemporariesPredicateAcceptsExactlyTheThreeOwnShapes() {
+        let snapshotName = "0000001772345678901-save-0123456789abcdef.snapshot"
+        let suffix = LocalHistoryLayout.temporarySuffix
+        XCTAssertEqual(suffix, ".partial")
+        let own = [
+            snapshotName + suffix,
+            LocalHistoryLayout.pathRecordName + suffix,
+            LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshotName) + suffix,
+        ]
+        for name in own {
+            XCTAssertTrue(LocalHistoryLayout.isOwnTemporary(name), "refused \(name)")
+        }
+    }
+
+    func testTheTemporariesPredicateRefusesAForeignPartialAndTheFinishedNames() {
+        let snapshotName = "0000001772345678901-save-0123456789abcdef.snapshot"
+        let foreign = [
+            "notes.txt.partial",
+            ".partial",
+            "paths.partial",
+            "Path.partial",
+            "0000001772345678901-rebase-0123456789abcdef.snapshot.partial",
+            "notes.label.partial",
+            snapshotName + ".partial.partial",
+            snapshotName,
+            LocalHistoryLayout.pathRecordName,
+            LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshotName),
+        ]
+        for name in foreign {
+            XCTAssertFalse(LocalHistoryLayout.isOwnTemporary(name), "accepted \(name)")
+        }
+    }
+
+    // MARK: - The path record
+
+    func testTheRecordIsNamedPathAndHoldsTheNormalisedRelativePath() {
+        XCTAssertEqual(LocalHistoryLayout.pathRecordName, "path")
+        XCTAssertEqual(LocalHistoryLayout.pathRecordText(forRelativePath: "Sources/A.swift"), "Sources/A.swift")
+        XCTAssertEqual(LocalHistoryLayout.pathRecordText(forRelativePath: "./Sources//x/../A.swift"), "Sources/A.swift")
+    }
+
+    /// The record and the digest share one spelling: the record's text is the
+    /// digest's input, so two spellings of one path name one directory *and*
+    /// one record.
+    func testTheNormaliserIsTheDigestsOwnSpelling() {
+        XCTAssertEqual(LocalHistoryLayout.normalisedRelativePath("a/./b//c/../D.swift"), "a/b/D.swift")
+        XCTAssertEqual(LocalHistoryLayout.normalisedRelativePath("/a/b"), "a/b")
+        XCTAssertEqual(LocalHistoryLayout.normalisedRelativePath("a/"), "a")
+        XCTAssertEqual(
+            layout.fileDirectory(forRoot: root, relativePath: "a/./b//c/../D.swift"),
+            layout.fileDirectory(forRoot: root, relativePath: LocalHistoryLayout.normalisedRelativePath("a/./b//c/../D.swift"))
+        )
+    }
+
+    func testTheRecordVerifiesAgainstItsOwnDigestDirectory() {
+        let path = "Sources/Feature/A.swift"
+        let directoryName = layout.fileDirectory(forRoot: root, relativePath: path).lastPathComponent
+        let text = LocalHistoryLayout.pathRecordText(forRelativePath: path)
+        XCTAssertEqual(LocalHistoryLayout.relativePath(fromPathRecord: text, fileDirectoryName: directoryName), path)
+
+        let otherDirectory = layout.fileDirectory(forRoot: root, relativePath: "Sources/Feature/B.swift").lastPathComponent
+        XCTAssertNil(LocalHistoryLayout.relativePath(fromPathRecord: text, fileDirectoryName: otherDirectory))
+    }
+
+    /// Each of these digests to *some* directory — the check is not only the
+    /// digest: a text that is not already in the record's own spelling is
+    /// refused even against the directory its normalised form would name.
+    func testAMismatchedEmptyAbsoluteOrNonNormalisedRecordDecodesToNil() {
+        let path = "Sources/A.swift"
+        let directoryName = layout.fileDirectory(forRoot: root, relativePath: path).lastPathComponent
+        let refused = [
+            "",
+            "Sources/B.swift",
+            "/Sources/A.swift",
+            "./Sources/A.swift",
+            "Sources//A.swift",
+            "Sources/x/../A.swift",
+            "Sources/A.swift/",
+            "Sources/A.swift\n",
+            "../Sources/A.swift",
+        ]
+        for text in refused {
+            XCTAssertNil(
+                LocalHistoryLayout.relativePath(fromPathRecord: text, fileDirectoryName: directoryName),
+                "verified \(text.debugDescription)"
+            )
+        }
+    }
+
     /// An arabic-numeral look-alike is not an ASCII digit; `Int64` would happily
     /// take some of them, so the width check alone is not the gate.
     func testANonASCIIDigitIsNotADigit() {

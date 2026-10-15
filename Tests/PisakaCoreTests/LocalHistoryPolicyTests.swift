@@ -33,32 +33,32 @@ final class LocalHistoryPolicyTests: XCTestCase {
     // MARK: - Capture: the happy answer
 
     func testACaptureAnswersTheHashTheFileNameWillCarry() {
-        let decision = policy.capture(of: "let x = 1\n", relativePath: "Sources/A.swift", latestHash: nil)
+        let decision = policy.capture(of: "let x = 1\n", relativePath: "Sources/A.swift", latestHash: nil, event: .save)
         XCTAssertEqual(decision, .capture(hash: LocalHistoryLayout.contentHash(of: "let x = 1\n")))
         XCTAssertEqual(decision.hash?.count, LocalHistoryLayout.contentHashLength)
     }
 
     func testEmptyContentIsCapturedRatherThanTreatedAsAbsent() {
         // Emptying a file is exactly the edit a safety net is for.
-        XCTAssertNotNil(policy.capture(of: "", relativePath: "A.swift", latestHash: nil).hash)
+        XCTAssertNotNil(policy.capture(of: "", relativePath: "A.swift", latestHash: nil, event: .save).hash)
     }
 
     func testANestedPathIsInsideTheProject() {
-        XCTAssertNotNil(policy.capture(of: "x", relativePath: "a/b/c/D.swift", latestHash: nil).hash)
-        XCTAssertNotNil(policy.capture(of: "x", relativePath: "./a/../b/C.swift", latestHash: nil).hash)
+        XCTAssertNotNil(policy.capture(of: "x", relativePath: "a/b/c/D.swift", latestHash: nil, event: .save).hash)
+        XCTAssertNotNil(policy.capture(of: "x", relativePath: "./a/../b/C.swift", latestHash: nil, event: .save).hash)
     }
 
     // MARK: - Capture: each skip in isolation
 
     func testNoRelativePathIsUntitled() {
-        XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil), .skip(.untitled))
-        XCTAssertEqual(policy.capture(of: "x", relativePath: "", latestHash: nil), .skip(.untitled))
+        XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil, event: .save), .skip(.untitled))
+        XCTAssertEqual(policy.capture(of: "x", relativePath: "", latestHash: nil, event: .save), .skip(.untitled))
     }
 
     func testAnAbsoluteOrEscapingPathIsOutsideTheProject() {
         for path in ["/etc/hosts", "../elsewhere/A.swift", "a/../../B.swift", "..", "."] {
             XCTAssertEqual(
-                policy.capture(of: "x", relativePath: path, latestHash: nil),
+                policy.capture(of: "x", relativePath: path, latestHash: nil, event: .save),
                 .skip(.outsideProject),
                 path
             )
@@ -67,11 +67,11 @@ final class LocalHistoryPolicyTests: XCTestCase {
 
     func testExactlyTheCeilingIsCapturedAndOneByteMoreIsNot() {
         let atCeiling = String(repeating: "a", count: policy.maxContentBytes)
-        XCTAssertNotNil(policy.capture(of: atCeiling, relativePath: "A.txt", latestHash: nil).hash)
+        XCTAssertNotNil(policy.capture(of: atCeiling, relativePath: "A.txt", latestHash: nil, event: .save).hash)
 
         let overCeiling = atCeiling + "a"
         XCTAssertEqual(
-            policy.capture(of: overCeiling, relativePath: "A.txt", latestHash: nil),
+            policy.capture(of: overCeiling, relativePath: "A.txt", latestHash: nil, event: .save),
             .skip(.tooLarge(bytes: policy.maxContentBytes + 1))
         )
     }
@@ -81,12 +81,12 @@ final class LocalHistoryPolicyTests: XCTestCase {
         let small = LocalHistoryPolicy(maxContentBytes: 10)
         let fiveTwoByteCharacters = String(repeating: "é", count: 5)
         XCTAssertEqual(fiveTwoByteCharacters.count, 5)
-        XCTAssertNotNil(small.capture(of: fiveTwoByteCharacters, relativePath: "A.txt", latestHash: nil).hash)
+        XCTAssertNotNil(small.capture(of: fiveTwoByteCharacters, relativePath: "A.txt", latestHash: nil, event: .save).hash)
 
         let sixTwoByteCharacters = String(repeating: "é", count: 6)
         XCTAssertEqual(sixTwoByteCharacters.count, 6)
         XCTAssertEqual(
-            small.capture(of: sixTwoByteCharacters, relativePath: "A.txt", latestHash: nil),
+            small.capture(of: sixTwoByteCharacters, relativePath: "A.txt", latestHash: nil, event: .save),
             .skip(.tooLarge(bytes: 12))
         )
     }
@@ -94,48 +94,127 @@ final class LocalHistoryPolicyTests: XCTestCase {
     func testIdenticalContentSkipsAndOneChangedByteDoesNot() {
         let text = "let x = 1\n"
         let hash = LocalHistoryLayout.contentHash(of: text)
-        XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: hash), .skip(.unchanged))
+        XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: hash, event: .save), .skip(.unchanged))
 
         let changed = "let x = 2\n"
         XCTAssertEqual(
-            policy.capture(of: changed, relativePath: "A.swift", latestHash: hash),
+            policy.capture(of: changed, relativePath: "A.swift", latestHash: hash, event: .save),
             .capture(hash: LocalHistoryLayout.contentHash(of: changed))
         )
         // A trailing newline is a change like any other.
-        XCTAssertNotNil(policy.capture(of: "let x = 1", relativePath: "A.swift", latestHash: hash).hash)
+        XCTAssertNotNil(policy.capture(of: "let x = 1", relativePath: "A.swift", latestHash: hash, event: .save).hash)
     }
 
     func testAnotherFilesHashDoesNotSuppressThisFile() {
         let hash = LocalHistoryLayout.contentHash(of: "something else entirely")
-        XCTAssertNotNil(policy.capture(of: "let x = 1\n", relativePath: "A.swift", latestHash: hash).hash)
+        XCTAssertNotNil(policy.capture(of: "let x = 1\n", relativePath: "A.swift", latestHash: hash, event: .save).hash)
     }
 
     // MARK: - Capture: precedence between the skips
 
     func testPathRefusalsOutrankSizeAndSameness() {
         let oversized = String(repeating: "a", count: policy.maxContentBytes + 1)
-        XCTAssertEqual(policy.capture(of: oversized, relativePath: nil, latestHash: nil), .skip(.untitled))
+        XCTAssertEqual(policy.capture(of: oversized, relativePath: nil, latestHash: nil, event: .save), .skip(.untitled))
         XCTAssertEqual(
-            policy.capture(of: oversized, relativePath: "/tmp/A.txt", latestHash: nil),
+            policy.capture(of: oversized, relativePath: "/tmp/A.txt", latestHash: nil, event: .save),
             .skip(.outsideProject)
         )
 
         let text = "let x = 1\n"
         let hash = LocalHistoryLayout.contentHash(of: text)
-        XCTAssertEqual(policy.capture(of: text, relativePath: nil, latestHash: hash), .skip(.untitled))
-        XCTAssertEqual(policy.capture(of: text, relativePath: "../A.swift", latestHash: hash), .skip(.outsideProject))
+        XCTAssertEqual(policy.capture(of: text, relativePath: nil, latestHash: hash, event: .save), .skip(.untitled))
+        XCTAssertEqual(policy.capture(of: text, relativePath: "../A.swift", latestHash: hash, event: .save), .skip(.outsideProject))
     }
 
     func testSizeOutranksSameness() {
         let oversized = String(repeating: "a", count: policy.maxContentBytes + 1)
         XCTAssertEqual(
-            policy.capture(of: oversized, relativePath: "A.txt", latestHash: LocalHistoryLayout.contentHash(of: oversized)),
+            policy.capture(of: oversized, relativePath: "A.txt", latestHash: LocalHistoryLayout.contentHash(of: oversized), event: .save),
             .skip(.tooLarge(bytes: policy.maxContentBytes + 1))
         )
     }
 
     func testUntitledOutranksOutsideTheProject() {
-        XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil), .skip(.untitled))
+        XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil, event: .save), .skip(.untitled))
+    }
+
+    // MARK: - Capture: the label's dedup exemption
+
+    /// A label marks a moment the user chose, so the same bytes as the newest
+    /// revision are still a revision under `.label` — and under nothing else.
+    func testALabelCapturesUnchangedContentWhileEveryOtherEventSkipsIt() {
+        let text = "let x = 1\n"
+        let hash = LocalHistoryLayout.contentHash(of: text)
+        XCTAssertEqual(
+            policy.capture(of: text, relativePath: "A.swift", latestHash: hash, event: .label),
+            .capture(hash: hash)
+        )
+        let others = Set(LocalHistoryEvent.allCases).subtracting([.label])
+        XCTAssertFalse(others.isEmpty)
+        for event in others {
+            XCTAssertEqual(
+                policy.capture(of: text, relativePath: "A.swift", latestHash: hash, event: event),
+                .skip(.unchanged),
+                "\(event.tag) did not deduplicate"
+            )
+        }
+    }
+
+    /// The exemption is from sameness alone; a label is refused on every other
+    /// ground exactly as a save is.
+    func testALabelIsStillRefusedOnEveryOtherGround() {
+        XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil, event: .label), .skip(.untitled))
+        XCTAssertEqual(
+            policy.capture(of: "x", relativePath: "../A.swift", latestHash: nil, event: .label),
+            .skip(.outsideProject)
+        )
+        let oversized = String(repeating: "a", count: policy.maxContentBytes + 1)
+        XCTAssertEqual(
+            policy.capture(of: oversized, relativePath: "A.txt", latestHash: nil, event: .label),
+            .skip(.tooLarge(bytes: policy.maxContentBytes + 1))
+        )
+    }
+
+    /// The restore's preflight omits `latestHash`: it asks whether the bytes may
+    /// be stored at all, which the `nil` default answers for every event.
+    func testTheLatestHashDefaultsToNoHistory() {
+        XCTAssertEqual(
+            policy.capture(of: "x", relativePath: "A.swift", event: .restore),
+            policy.capture(of: "x", relativePath: "A.swift", latestHash: nil, event: .restore)
+        )
+    }
+
+    // MARK: - Label text
+
+    func testTheLabelCeilingIsTheDocumentedNumber() {
+        XCTAssertEqual(LocalHistoryPolicy.maxLabelLength, 100)
+    }
+
+    func testALabelIsTrimmedOfSurroundingWhitespaceAndNewlines() {
+        XCTAssertEqual(LocalHistoryPolicy.label(from: "  before refactor \n"), "before refactor")
+        XCTAssertEqual(LocalHistoryPolicy.label(from: "\t\r\nok\n\n"), "ok")
+        XCTAssertEqual(LocalHistoryPolicy.label(from: "two  spaces inside"), "two  spaces inside")
+    }
+
+    func testAnEmptyOrWhitespaceOnlyLabelIsRefused() {
+        for text in ["", " ", "\n", " \t \r\n "] {
+            XCTAssertNil(LocalHistoryPolicy.label(from: text), "accepted \(text.debugDescription)")
+        }
+    }
+
+    /// Counted in characters after trimming, so surrounding whitespace never
+    /// pushes an acceptable label over the line.
+    func testExactlyTheLabelCeilingIsAcceptedAndOneCharacterMoreIsNot() {
+        let atCeiling = String(repeating: "é", count: LocalHistoryPolicy.maxLabelLength)
+        XCTAssertEqual(LocalHistoryPolicy.label(from: atCeiling), atCeiling)
+        XCTAssertEqual(LocalHistoryPolicy.label(from: "  \(atCeiling)  "), atCeiling)
+        XCTAssertNil(LocalHistoryPolicy.label(from: atCeiling + "é"))
+    }
+
+    func testALabelStillHoldingALineBreakIsRefused() {
+        for text in ["one\ntwo", "one\r\ntwo", "one\rtwo", "one\u{2028}two", "one\u{0085}two"] {
+            XCTAssertNil(LocalHistoryPolicy.label(from: text), "accepted \(text.debugDescription)")
+        }
     }
 
     // MARK: - Retention
