@@ -325,6 +325,311 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertTrue(tree.writtenPaths.isEmpty)
     }
 
+    // MARK: - Before the project tree's delete
+
+    /// Hold the chain on the store sweep's first listing, so the main actor can
+    /// mutate the stub tree while nothing on the chain is touching it.
+    /// Where a listing started on the main actor has got to.
+    @MainActor
+    private final class ListingProgress {
+        var started = false
+        var finished = false
+    }
+
+    private func holdChain(_ model: LocalHistoryModel, _ tree: StubFileTree) async -> Gate {
+        let gate = Gate()
+        tree.listingGate = gate
+        model.pruneStore()
+        await gate.waitUntilReached()
+        return gate
+    }
+
+    /// The reads of the user's files — the store's own reads (records, snapshot
+    /// contents) live under `LocalHistory/` and are not what a delete capture is
+    /// asserted on.
+    private func projectReads(_ tree: StubFileTree) -> [String] {
+        tree.readPaths.filter { $0.hasPrefix("project/") }
+    }
+
+    /// The whole point of the synchronous shape: by the time the call returns,
+    /// every disk byte is in hand, so the removal right after it cannot outrun
+    /// the capture.
+    func testCaptureBeforeDeleteHasReadEveryDiskTargetByTheTimeItReturns() async {
+        let tree = makeTree(files: [
+            "project/dir/a.swift": "alpha",
+            "project/dir/sub/b.swift": "beta",
+            "project/other.swift": "untouched",
+        ])
+        let model = makeModel(tree)
+        let gate = await holdChain(model, tree)
+
+        model.captureBeforeDelete(of: projectFile("dir"), root: projectRoot, bufferTexts: [:])
+
+        XCTAssertEqual(Set(projectReads(tree)), ["project/dir/a.swift", "project/dir/sub/b.swift"])
+        // The delete the capture stands in front of.
+        tree.files["project/dir/a.swift"] = nil
+        tree.files["project/dir/sub/b.swift"] = nil
+        gate.release()
+        await drain(model)
+
+        XCTAssertEqual(contents(model, "dir/a.swift"), ["alpha"])
+        XCTAssertEqual(contents(model, "dir/sub/b.swift"), ["beta"])
+        XCTAssertEqual(revisions(model, "dir/a.swift").map(\.event), [.delete])
+        XCTAssertTrue(revisions(model, "other.swift").isEmpty)
+    }
+
+    /// "Deleted Files…" right after a delete: while the delete's capture is
+    /// still queued the store has nothing to list, and awaiting the capture
+    /// model's queued writes is what makes the just-deleted file appear on the
+    /// first try.
+    func testWaitingForQueuedWritesListsAFileDeletedJustBefore() async {
+        let tree = makeTree(files: ["project/gone.swift": "last words"])
+        let model = makeModel(tree)
+        let browser = LocalHistoryBrowserModel(store: model.store)
+        let gate = await holdChain(model, tree)
+
+        model.captureBeforeDelete(of: projectFile("gone.swift"), root: projectRoot, bufferTexts: [:])
+        tree.files["project/gone.swift"] = nil
+        let early = await browser.deletedPaths(root: projectRoot)
+        XCTAssertEqual(early, [], "The capture is held on the chain, so the store has nothing yet.")
+
+        let progress = ListingProgress()
+        let listing = Task { @MainActor in
+            progress.started = true
+            let paths = await browser.deletedPaths(root: projectRoot, awaiting: model)
+            progress.finished = true
+            return paths
+        }
+        while !progress.started { await Task.yield() }
+        // The listing has started and the capture is still held. A listing that
+        // did not wait would run off-main against a store with nothing in it and
+        // finish well inside this window; one that waits cannot finish at all, so
+        // the window costs a passing run its length and never fails it.
+        let deadline = Date().addingTimeInterval(0.2)
+        while !progress.finished, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(progress.finished, "The listing must wait for the held capture.")
+        gate.release()
+        let deleted = await listing.value
+
+        XCTAssertEqual(deleted, ["gone.swift"])
+    }
+
+    func testCaptureBeforeDeletePrefersABufferToItsDiskCopy() async {
+        let tree = makeTree(files: ["project/dir/a.swift": "on disk", "project/dir/b.swift": "b on disk"])
+        let model = makeModel(tree)
+
+        model.captureBeforeDelete(
+            of: projectFile("dir"),
+            root: projectRoot,
+            bufferTexts: [projectFile("dir/a.swift"): "in the buffer"]
+        )
+
+        XCTAssertEqual(projectReads(tree), ["project/dir/b.swift"])
+        await drain(model)
+        XCTAssertEqual(contents(model, "dir/a.swift"), ["in the buffer"])
+        XCTAssertEqual(contents(model, "dir/b.swift"), ["b on disk"])
+    }
+
+    /// Depth-first in listing order, stopping at the cap: the stub lists
+    /// directories first, then names, so `deep/z` is met before `a` and `b`.
+    func testCaptureBeforeDeleteOfAFolderIsCappedAtTheDiskTargetLimit() async {
+        let tree = makeTree(files: [
+            "project/dir/a.swift": "a",
+            "project/dir/b.swift": "b",
+            "project/dir/c.swift": "c",
+            "project/dir/deep/z.swift": "z",
+        ])
+        let model = makeModel(tree, policy: LocalHistoryPolicy(maxPreOperationFiles: 2))
+
+        model.captureBeforeDelete(of: projectFile("dir"), root: projectRoot, bufferTexts: [:])
+        await drain(model)
+
+        XCTAssertEqual(projectReads(tree), ["project/dir/deep/z.swift", "project/dir/a.swift"])
+        XCTAssertEqual(Set(model.store.recordedPaths(root: projectRoot)), ["dir/deep/z.swift", "dir/a.swift"])
+    }
+
+    /// A file a buffer already holds is not a disk target, so it neither spends
+    /// the cap nor is read: with a cap of two, the two files no buffer holds are
+    /// both read, and all three files are captured.
+    func testCaptureBeforeDeleteDoesNotChargeABufferHeldFileToTheDiskTargetLimit() async {
+        let tree = makeTree(files: [
+            "project/dir/a.swift": "a on disk",
+            "project/dir/b.swift": "b",
+            "project/dir/c.swift": "c",
+        ])
+        let model = makeModel(tree, policy: LocalHistoryPolicy(maxPreOperationFiles: 2))
+
+        model.captureBeforeDelete(
+            of: projectFile("dir"),
+            root: projectRoot,
+            bufferTexts: [projectFile("dir/a.swift"): "a in the buffer"]
+        )
+        await drain(model)
+
+        XCTAssertEqual(Set(projectReads(tree)), ["project/dir/b.swift", "project/dir/c.swift"])
+        XCTAssertEqual(Set(model.store.recordedPaths(root: projectRoot)), ["dir/a.swift", "dir/b.swift", "dir/c.swift"])
+        XCTAssertEqual(contents(model, "dir/a.swift"), ["a in the buffer"])
+    }
+
+    func testCaptureBeforeDeleteSkipsBinariesSymlinksAndExcludedEntries() async {
+        let tree = makeTree(files: [
+            "project/dir/image.png": "\u{0}binary",
+            "project/dir/link.swift": "the link's target text",
+            "project/dir/linked/inside.swift": "behind a directory link",
+            "project/dir/.git/config": "ignored by the tree",
+            "project/dir/.DS_Store": "finder",
+            "project/dir/.env": "SECRET=1",
+        ])
+        tree.skippedFiles = ["project/dir/image.png"]
+        tree.symlinks = ["project/dir/link.swift", "project/dir/linked"]
+        let model = makeModel(tree)
+
+        model.captureBeforeDelete(of: projectFile("dir"), root: projectRoot, bufferTexts: [:])
+        await drain(model)
+
+        // The binary was offered to the reader and declined; nothing behind a
+        // link and nothing the tree hides was even read.
+        XCTAssertEqual(model.store.recordedPaths(root: projectRoot), ["dir/.env"])
+        XCTAssertEqual(contents(model, "dir/.env"), ["SECRET=1"])
+        XCTAssertEqual(projectReads(tree), ["project/dir/.env"])
+    }
+
+    func testCaptureBeforeDeleteOfASingleFileCapturesThatFile() async {
+        let tree = makeTree(files: ["project/a.swift": "one file", "project/b.swift": "a neighbour"])
+        let model = makeModel(tree)
+
+        model.captureBeforeDelete(of: projectFile("a.swift"), root: projectRoot, bufferTexts: [:])
+        await drain(model)
+
+        XCTAssertEqual(model.store.recordedPaths(root: projectRoot), ["a.swift"])
+        XCTAssertEqual(contents(model, "a.swift"), ["one file"])
+    }
+
+    func testCaptureBeforeDeleteWithNothingToStoreDoesNotTouchTheChain() {
+        let tree = makeTree(files: ["project/dir/.DS_Store": "finder", "project/real.swift": "x"])
+        tree.directories = ["project/empty"]
+        tree.symlinks = ["project/link"]
+        let model = makeModel(tree)
+
+        model.captureBeforeDelete(of: projectFile("empty"), root: projectRoot, bufferTexts: [:])
+        model.captureBeforeDelete(of: projectFile("dir"), root: projectRoot, bufferTexts: [:])
+        model.captureBeforeDelete(of: projectFile("link"), root: projectRoot, bufferTexts: [:])
+        model.captureBeforeDelete(of: projectFile("real.swift"), root: nil, bufferTexts: [:])
+
+        XCTAssertNil(model.chain)
+        XCTAssertTrue(tree.readPaths.isEmpty)
+    }
+
+    /// Ordered by the chain: the save appended after the delete capture dedups
+    /// against the `.delete` revision, which it could only do if that one landed
+    /// first.
+    func testACaptureAppendedAfterTheDeleteCaptureLandsAfterIt() async {
+        let tree = makeTree(files: ["project/a.swift": "same text"])
+        let model = makeModel(tree)
+        let url = projectFile("a.swift")
+
+        model.captureBeforeDelete(of: url, root: projectRoot, bufferTexts: [:])
+        model.captureSaves(urls: [url], root: projectRoot, texts: [url: "same text"])
+        model.captureSaves(urls: [url], root: projectRoot, texts: [url: "newer"])
+        await drain(model)
+
+        XCTAssertEqual(revisions(model, "a.swift").map(\.event), [.save, .delete])
+        XCTAssertEqual(contents(model, "a.swift"), ["newer", "same text"])
+    }
+
+    // MARK: - A user label
+
+    func testALabelSnapshotsEveryBufferIncludingAnUntouchedOneEveryTime() async {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let a = projectFile("a.swift"), b = projectFile("b.swift"), c = projectFile("c.swift")
+        model.captureSaves(urls: [c], root: projectRoot, texts: [c: "untouched"])
+        let texts = [a: "edited a", b: "edited b", c: "untouched"]
+
+        model.captureLabel("  Before the refactor \n", root: projectRoot, texts: texts)
+        model.captureLabel("Before the refactor", root: projectRoot, texts: texts)
+        await drain(model)
+
+        for path in ["a.swift", "b.swift", "c.swift"] {
+            let labelled = revisions(model, path).filter { $0.event == .label }
+            XCTAssertEqual(labelled.count, 2, path)
+            XCTAssertEqual(
+                labelled.map { model.store.labelText(of: $0, root: projectRoot, relativePath: path) },
+                ["Before the refactor", "Before the refactor"],
+                path
+            )
+        }
+    }
+
+    func testARefusedLabelWritesNothing() {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let a = projectFile("a.swift")
+
+        model.captureLabel("   \n", root: projectRoot, texts: [a: "text"])
+        model.captureLabel(String(repeating: "x", count: LocalHistoryPolicy.maxLabelLength + 1), root: projectRoot, texts: [a: "text"])
+        model.captureLabel("two\nlines", root: projectRoot, texts: [a: "text"])
+        model.captureLabel("fine", root: nil, texts: [a: "text"])
+
+        XCTAssertNil(model.chain)
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    func testPutLabelIsEnabledOnlyForAKeyableTabUrl() {
+        let outside = URL(fileURLWithPath: "/elsewhere/a.swift")
+        let inside = projectFile("a.swift")
+
+        XCTAssertFalse(LocalHistoryModel.canPutLabel(tabURLs: [inside], root: nil))
+        // Untitled tabs have no url, so the app's list of them is empty.
+        XCTAssertFalse(LocalHistoryModel.canPutLabel(tabURLs: [], root: projectRoot))
+        XCTAssertFalse(LocalHistoryModel.canPutLabel(tabURLs: [outside], root: projectRoot))
+        XCTAssertTrue(LocalHistoryModel.canPutLabel(tabURLs: [outside, inside], root: projectRoot))
+    }
+
+    // MARK: - After a rename or move
+
+    /// The chain is what orders a move against the captures around it: the one
+    /// queued before lands under the old key and is carried, the one queued
+    /// after lands under the new key beside it.
+    func testACaptureQueuedBeforeAMoveIsCarriedAndOneQueuedAfterLandsUnderTheNewKey() async {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let old = projectFile("a.swift")
+        let new = projectFile("moved/b.swift")
+
+        // The first capture is held on its very first listing, so the move and
+        // the second capture are both queued behind it, in that order.
+        let gate = Gate()
+        tree.listingGate = gate
+        model.captureSaves(urls: [old], root: projectRoot, texts: [old: "before"])
+        await gate.waitUntilReached()
+        model.followMove(from: old, to: new, root: projectRoot)
+        model.captureSaves(urls: [new], root: projectRoot, texts: [new: "after"])
+
+        gate.release()
+        await drain(model)
+
+        XCTAssertEqual(contents(model, "moved/b.swift"), ["after", "before"])
+        XCTAssertEqual(revisions(model, "a.swift"), [])
+        XCTAssertEqual(model.store.recordedPaths(root: projectRoot), ["moved/b.swift"])
+    }
+
+    func testFollowMoveThatCannotKeyBothSidesDoesNotExtendTheChain() {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let inside = projectFile("a.swift")
+        let outside = URL(fileURLWithPath: "/elsewhere/a.swift")
+
+        model.followMove(from: outside, to: inside, root: projectRoot)
+        model.followMove(from: inside, to: outside, root: projectRoot)
+        model.followMove(from: inside, to: projectFile("b.swift"), root: nil)
+        model.followMove(from: inside, to: projectFile("./a.swift"), root: projectRoot)
+
+        XCTAssertNil(model.chain)
+    }
+
     // MARK: - Saves
 
     func testTwoOverlappingSaveCapturesOfOneFileStoreOneRevisionForIdenticalText() async {

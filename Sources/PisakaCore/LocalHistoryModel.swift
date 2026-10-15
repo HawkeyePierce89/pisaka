@@ -260,6 +260,117 @@ public final class LocalHistoryModel {
         }.value
     }
 
+    // MARK: - Before the project tree's delete
+
+    /// Capture the item the project tree is about to delete — a file, or a folder
+    /// and everything under it — **reading every byte before this returns** and
+    /// leaving only the store writes to the chain.
+    ///
+    /// **Synchronous on purpose, and that is what makes it pre-delete.** The tree's
+    /// delete raises no writer bracket and has no `Task` hop to put an `await` in
+    /// front of: it removes the item on the main actor right after this returns. A
+    /// fire-and-forget unit would read the files one hop later, after the removal,
+    /// and find nothing. So the reads happen here, in the main-thread stretch
+    /// between the confirmation and `removeItem`, and are bounded the way
+    /// `captureBeforeOperation(event:root:bufferTexts:diskTargets:)` bounds its
+    /// own: at most `LocalHistoryPolicy.maxPreOperationFiles` disk targets, each
+    /// under the 1 MiB ceiling, binary skipped. The delete waits on those reads and
+    /// never on the chain or a running sweep — the writes join the chain like any
+    /// other capture and land whenever it reaches them.
+    ///
+    /// What is read is decided by `deleteTargets(of:root:claimed:limit:fileService:)`:
+    /// the item's own tree through the file service, **not** `ProjectFileWalk`,
+    /// because a `.gitignore`d `.env` is exactly what a user regrets deleting.
+    /// **Buffers win**, as in the pre-operation capture: a file with an open tab is
+    /// captured from its buffer and not read from disk.
+    ///
+    /// The clock is read at entry, and nothing to store returns without touching
+    /// the chain.
+    public func captureBeforeDelete(of item: URL, root: URL?, bufferTexts: [URL: String]) {
+        guard let root else { return }
+        let now = clock()
+        let units = Self.bufferUnits(urls: bufferTexts.keys.sorted { $0.path < $1.path }, root: root, texts: bufferTexts)
+        let targets = Self.deleteTargets(
+            of: item,
+            root: root,
+            claimed: Set(units.map(\.relativePath)),
+            limit: store.policy.maxPreOperationFiles,
+            fileService: fileService
+        )
+        let maxBytes = store.policy.maxContentBytes
+        let read = targets.compactMap { target -> CaptureUnit? in
+            guard let text = try? fileService.readTextIfNotBinary(url: target.url, maxBytes: maxBytes) else { return nil }
+            return CaptureUnit(relativePath: target.relativePath, text: text)
+        }
+        let all = units + read
+        guard !all.isEmpty else { return }
+        let store = self.store
+        append { Self.write(all, to: store, root: root, event: .delete, now: now) }
+    }
+
+    // MARK: - A user label
+
+    /// Snapshot every keyed buffer in `texts` under `.label`, all carrying the one
+    /// label text the user typed.
+    ///
+    /// The text is normalised through `LocalHistoryPolicy.label(from:)` — the same
+    /// rule the prompt's button asks — and a refusal does nothing at all. A label
+    /// is **exempt from dedup** (the policy's rule, not this model's), so an
+    /// untouched buffer still gets a revision: the user is marking *this moment*
+    /// across every open file, and a label that silently skipped the unchanged ones
+    /// would mark only some of it. One text for every sidecar of the capture, so one
+    /// labelled moment resolves to one label wherever it is read.
+    ///
+    /// Fire-and-forget on the chain, with the clock read at entry.
+    public func captureLabel(_ text: String, root: URL?, texts: [URL: String]) {
+        guard let label = LocalHistoryPolicy.label(from: text), let root else { return }
+        let units = Self.bufferUnits(urls: texts.keys.sorted { $0.path < $1.path }, root: root, texts: texts)
+        guard !units.isEmpty else { return }
+        let store = self.store
+        let now = clock()
+        append { Self.write(units, to: store, root: root, event: .label, label: label, now: now) }
+    }
+
+    /// Whether Put Label has anything to snapshot: whether any of the open text
+    /// tabs' `urls` keys under `root`. Always `false` with no root.
+    ///
+    /// **Urls, never buffer texts**, because the menu asks this on every
+    /// validation pass: copying every open buffer to answer a yes/no would be a
+    /// cost paid on each menu open for a question the urls alone settle. Only the
+    /// action itself collects the texts. An untitled tab has no url and so
+    /// contributes nothing.
+    public nonisolated static func canPutLabel(tabURLs: [URL], root: URL?) -> Bool {
+        guard let root else { return false }
+        return tabURLs.contains { relativePath(of: $0, under: root) != nil }
+    }
+
+    // MARK: - After a rename or move
+
+    /// Carry the history of `source` — a file, or a folder and everything under
+    /// it — to `destination`, after the project tree has moved it.
+    ///
+    /// Fire-and-forget on the chain, and **ordered by it, which is the whole
+    /// correctness argument**: a capture appended before this lands under the old
+    /// key and is carried with the rest, and one appended after lands under the
+    /// new key and finds the carried history there to dedup against. Nothing else
+    /// coordinates the two, and nothing else needs to.
+    ///
+    /// Both urls are keyed by `relativePath(of:under:)`, the one rule every
+    /// capture keys by; a side that cannot be keyed, or a move that keys both
+    /// sides alike, returns without touching the chain. The clock is read here,
+    /// in the entry point, for the merge's prune. It takes no gate: the move is
+    /// the user's, already done, and this writes only the store.
+    public func followMove(from source: URL, to destination: URL, root: URL?) {
+        guard let root,
+              let from = Self.relativePath(of: source, under: root),
+              let to = Self.relativePath(of: destination, under: root),
+              LocalHistoryLayout.normalisedRelativePath(from) != LocalHistoryLayout.normalisedRelativePath(to)
+        else { return }
+        let store = self.store
+        let now = clock()
+        append { store.migrate(root: root, from: from, to: to, now: now) }
+    }
+
     // MARK: - Retention
 
     /// Apply retention to the whole store — the once-per-folder-open sweep,
@@ -286,6 +397,15 @@ public final class LocalHistoryModel {
     }
 
     // MARK: - The chain
+
+    /// Wait until every unit already on the chain has landed — for a reader of
+    /// the store on another queue whose answer must include the writes the user
+    /// just caused (`LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`).
+    /// Units appended afterwards are not waited for; a folder-open sweep already
+    /// queued is, the price of an answer that agrees with the store.
+    func waitForQueuedWrites() async {
+        await chain?.value
+    }
 
     /// Append one unit of work to the serial chain and answer the task that will
     /// have finished it.
@@ -315,10 +435,11 @@ public final class LocalHistoryModel {
 
     // MARK: - Pure helpers
 
-    /// One buffer to capture: where it goes in the store, and the text already in
-    /// hand. A disk target is *not* one of these — it is a `(relativePath, url)`
-    /// pair whose text does not exist until it is read, on the chain, one hop
-    /// later.
+    /// One text to capture: where it goes in the store, and the text already in
+    /// hand. A pre-operation disk target is *not* one of these — it is a
+    /// `(relativePath, url)` pair whose text does not exist until it is read, on
+    /// the chain, one hop later. A delete's disk target *becomes* one, because
+    /// that capture reads before it returns.
     private struct CaptureUnit {
         let relativePath: String
         let text: String
@@ -361,6 +482,7 @@ public final class LocalHistoryModel {
         to store: LocalHistoryStore,
         root: URL,
         event: LocalHistoryEvent,
+        label: String? = nil,
         now: Date
     ) {
         for unit in units {
@@ -369,9 +491,67 @@ public final class LocalHistoryModel {
                 root: root,
                 relativePath: unit.relativePath,
                 event: event,
+                label: label,
                 now: now
             )
         }
+    }
+
+    /// The disk files a delete of `item` would take with it, in the order a
+    /// depth-first walk of the listings meets them, keyed under `root` and capped
+    /// at `limit`.
+    ///
+    /// Four rules, each the decision's:
+    ///
+    /// - **A symlink is neither read nor descended**, the item itself included:
+    ///   deleting a link leaves its target intact, so there is nothing of the
+    ///   user's to keep.
+    /// - **A url that cannot be listed as a directory is the single file** — which
+    ///   is how a file item is recognised without a second question to the file
+    ///   service.
+    /// - **`FileService.isExcludedEntryName` entries are skipped**, the tree's own
+    ///   rule; `.gitignore` is deliberately not consulted.
+    /// - **The walk stops as soon as `limit` targets are collected.** A path already
+    ///   `claimed` by a buffer is not a disk target and does not count.
+    private nonisolated static func deleteTargets(
+        of item: URL,
+        root: URL,
+        claimed: Set<String>,
+        limit: Int,
+        fileService: FileServicing
+    ) -> [(relativePath: String, url: URL)] {
+        var targets: [(relativePath: String, url: URL)] = []
+        var claimed = claimed
+
+        func collect(_ url: URL) {
+            guard targets.count < limit,
+                  let relativePath = relativePath(of: url, under: root),
+                  claimed.insert(relativePath).inserted
+            else { return }
+            targets.append((relativePath: relativePath, url: url))
+        }
+
+        func walk(_ entries: [DirectoryEntry]) {
+            for entry in entries {
+                guard targets.count < limit else { return }
+                guard !FileService.isExcludedEntryName(entry.name),
+                      fileService.symbolicLinkDestination(at: entry.url) == nil
+                else { continue }
+                if entry.isDirectory {
+                    walk((try? fileService.contentsOfDirectory(at: entry.url)) ?? [])
+                } else {
+                    collect(entry.url)
+                }
+            }
+        }
+
+        guard limit > 0, fileService.symbolicLinkDestination(at: item) == nil else { return [] }
+        if let entries = try? fileService.contentsOfDirectory(at: item) {
+            walk(entries)
+        } else {
+            collect(item)
+        }
+        return targets
     }
 
     /// `url`'s path under `root`, or `nil` when it is not a file under `root`.

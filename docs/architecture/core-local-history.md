@@ -2,8 +2,11 @@
 
 Design documentation for the layer that keeps local, per-file copies of every
 buffer the app writes, labeled copies of every file nine worktree-mutating
-operations are about to overwrite, and a macOS window that lists those revisions,
-diffs one against what the file holds now, and restores it. Each entry records a
+operations are about to overwrite or the project tree is about to delete, copies
+of the open buffers under a label the user names, and a macOS window that lists
+those revisions, diffs one against what the file holds now, and restores it —
+recreating the file when it is gone. A history follows its file through the
+tree's rename and move. Each entry records a
 file's contract, invariants and the reasoning behind non-obvious decisions —
 read the relevant entry before modifying that file, and update it when behavior
 changes.
@@ -13,10 +16,12 @@ what the user is about to lose regardless of whether the file is tracked, staged
 committed or ignored, and regardless of whether git is what is doing the
 overwriting. Six Foundation-only Core files — the vocabulary, the path math, the
 policy, the `FileServicing` engine and two `@MainActor` observable models — plus
-three macOS app files (the support directory, the window controller, the view)
-and capture calls at three save sites and seven gated-operation brackets (which
-carry nine operations — `gh pr checkout` and the post-merge tail's two steps all
-ride the branch operations' bracket). **Nothing
+four macOS app files (the support directory, the window controller, the view and
+the two File-menu prompts) and capture calls at three save sites, seven
+gated-operation brackets (which carry nine operations — `gh pr checkout` and the
+post-merge tail's two steps all ride the branch operations' bracket), the project
+tree's delete and the user's own **Put Label…**; the tree's rename and
+drag-and-drop move carry a file's history to its new path. **Nothing
 new compiles on iOS**: there is no iOS window to browse a history in and no iOS
 caller of the capture model, so building the store on that destination would
 create a directory nothing ever writes to.
@@ -25,7 +30,10 @@ create a directory nothing ever writes to.
 snapshot is a file whose *name* carries its timestamp, its event label and its
 content hash, and whose *bytes are exactly the revision's text*. Listing a
 file's history is one directory read and no content reads; dedup is a string
-comparison; retention prunes on names alone. Deleting
+comparison; retention prunes on names alone. What a file directory belongs to is
+recorded *in* that directory (its `path` record), and a label's text beside its
+snapshot (a sidecar), so each file directory is self-contained and there is still
+no project-level index to keep in step. Deleting
 `~/Library/Application Support/Pisaka/LocalHistory` forgets the whole feature and
 breaks nothing else.
 
@@ -39,7 +47,11 @@ behind the operations it is protecting the user from. What it *does* take from
 the nine gated operations is **timing**, and only that; see "The pre-operation
 capture is race-free by construction" below. The one write it causes to a user's
 file is a **restore**, which is a buffer edit through the live text view — the
-ordinary save funnel puts it on disk when the user saves or the autosave fires.
+ordinary save funnel puts it on disk when the user saves or the autosave fires —
+**except that a restore into a path with no file first creates an empty file,
+under `revertInFlight()`**: the one worktree create this feature makes, and the
+reason a deleted file can come back from its own revisions. It *consults* the
+writer gate the way the tree's own create does and never raises it.
 
 **Every failure is silent, all the way down.** A listing that cannot be read is
 an empty history; a write that cannot land loses one revision; a delete that
@@ -55,8 +67,9 @@ vocabulary) → `LocalHistoryLayout` (where things go, and the name↔snapshot c
 → `LocalHistoryPolicy` (whether they go there at all, and what stays) →
 `LocalHistoryStore` (the one type that touches `FileServicing`) →
 `LocalHistoryModel` (the capture side: the serial write chain, the three save
-sites, the pre-operation capture, the store sweep) + `LocalHistoryBrowserModel`
-(the window's companion reader, and the restore *plan*) → the three macOS app
+sites, the pre-operation capture, the delete and label captures, the move
+follow, the store sweep) + `LocalHistoryBrowserModel` (the window's companion
+reader, the deleted-file listing, and the restore *plan*) → the four macOS app
 files.
 
 **Nothing new is bundled and nothing new is linked.** `project.yml`,
@@ -72,8 +85,11 @@ changes.)
 ~/Library/Application Support/Pisaka/LocalHistory/     the base (the app's half)
   pisaka-4f2c9a1b3d7e0865/                             one per project root
     3f8a1c04b7e29d165b0e7a2c94d1f680/                  one per file
+      path                                             the readable path record
       0000001772345678901-save-3f8a1c04b7e29d16.snapshot
       0000001772345699999-commit-9b1d0e6a5c74f382.snapshot
+      0000001772345700000-label-9b1d0e6a5c74f382.snapshot
+      0000001772345700000-label-9b1d0e6a5c74f382.snapshot.label   its label text
 ```
 
 - A **project directory** is the root's own (sanitised, truncated) name, a `-`,
@@ -87,9 +103,49 @@ changes.)
   project-relative path, and nothing else. Directories are hashed rather than
   spelled because a relative path contains `/`, can be deeper than one component
   and can exceed a file name's length on its own — and because mirroring the tree
-  would leak the project's structure into a directory anyone can list. The cost:
-  the store cannot be read backwards, which is acceptable because every reader
-  arrives holding the file it is asking about.
+  would leak the project's structure into a directory anyone can list. A digest
+  cannot be read backwards on its own, and three things need to: a rename or move
+  has to find every history under the old path, Deleted Files… has to name files
+  that no longer exist, and a restore has to know where to recreate one. The
+  **path record** below is what answers them.
+- The **path record** is a file named `path` (no extension) in each file
+  directory. Its bytes are the lexically normalised project-relative path in
+  UTF-8 — **exactly the digest's input, no newline** — so it is **the inverse of
+  the hash and nothing more**: no timestamp, no version field, nothing a reader
+  could disagree with the directory name about except the path itself. It is
+  written as `path.partial` and renamed into place like every other write here.
+  - **Capture writes, readers verify.** `capture(...)` writes the record only
+    when the directory listing it already holds shows **no `path` entry**, and it
+    never reads the record's content, so a dedup'd capture stays **one directory
+    read and no content read** — the property the layout exists to buy is not
+    spent on the record. A dedup'd capture into a directory that already holds
+    snapshots but no record still writes one: that is how a directory written
+    before records existed gets one, on its file's first capture after the
+    upgrade.
+  - **Verification is on the read side only.** Every reader — `recordedPaths`,
+    `migrate`, and through them Deleted Files… — accepts a record only when its
+    text is non-empty, already normalised, does not start with `/`, and digests
+    to the directory's own name; a record that fails is treated exactly as no
+    record. A **record-less** directory stays readable *forwards* (a reader that
+    arrives holding the file finds it by digest, as before) and is reached by
+    nothing that reads backwards.
+  - **A present-but-wrong record is corrected only by migration's own
+    rewrite** of the directories it moves or merges into; capture leaves any
+    present record alone. The reachable way to get one is a crash between a
+    migration's directory `move` and its record rewrite. That is acceptable
+    because the wrong record misleads nothing — every reader verifies — so the
+    directory is merely in the position a pre-upgrade directory is in, and
+    correcting it from capture would cost every capture a content read to catch
+    a crash-only state.
+- A **label sidecar** holds the user's text for one `.label` snapshot, beside it
+  in the same file directory, named `<snapshot file name>.label` (temporary:
+  `<snapshot file name>.label.partial`). The snapshot name codec is unchanged —
+  its grammar has no room for free text — and the sidecar ends in `.label`, so
+  neither it nor the record parses as a snapshot and listing, dedup and
+  retention look straight through both. Keeping it per file directory is what
+  lets retention delete a label with its snapshot and migration carry both,
+  with no project-level index. One Put Label writes the same normalised text into
+  every sidecar of that capture.
 - A **snapshot file name** is `<19 digits of ms>-<event tag>-<16 hex>.snapshot`.
   Nineteen zero-padded digits is the width of `Int64.max`, so every representable
   timestamp encodes to the same width and **lexical order over names is
@@ -103,8 +159,9 @@ changes.)
 ### `PisakaCore`
 
   - `LocalHistorySnapshot.swift` — the vocabulary. `LocalHistoryEvent` is a
-    **closed** enum of ten cases (`save`, `replace`, `revert`, `merge`,
-    `branch`, `commit`, `restore`, `rename`, `pullRequest`, `pull`) with a stable lowercase
+    **closed** enum of twelve cases (`save`, `replace`, `revert`, `merge`,
+    `branch`, `commit`, `restore`, `rename`, `pullRequest`, `pull`, `delete`,
+    `label`) with a stable lowercase
     `tag`, an `init?(tag:)`
     inverse and a display `title`. The tag is not a display detail: it is one of
     the three fields encoded into a snapshot's file name, so it is **on-disk
@@ -113,10 +170,12 @@ changes.)
     reclaims it). Add cases freely; change a tag only with that consequence in
     hand. `init?(tag:)` answering `nil` for an unknown tag is also how a snapshot
     written by a *future* version is ignored rather than mis-read. Every title but
-    `save`'s reads "Before …", because a pre-operation snapshot holds what the
-    file looked like *before* the operation ran — that is the whole promise of the
-    label, and phrasing it in the enum keeps the window from inventing a second
-    wording. Both branch operations (switch and checkout-remote) share `branch`:
+    `save`'s and `label`'s reads "Before …", because a pre-operation snapshot holds
+    what the file looked like *before* the operation ran — that is the whole
+    promise of the title, and phrasing it in the enum keeps the window from
+    inventing a second wording. The two exceptions record a moment rather than
+    pre-empt an operation: `save` is the buffer the app just wrote, `label` the
+    buffer at the instant the user named it. Both branch operations (switch and checkout-remote) share `branch`:
     two call sites and two writer brackets, but from a file's point of view one
     event, and a user restoring a revision does not care which menu item moved the
     worktree. `rename` is the newest case and the one whose snapshots are the
@@ -129,13 +188,22 @@ changes.)
     is "Before Pull Request Checkout" — a separate case from `branch` even though
     it shares that operation's bracket, because from a file's point of view "the
     branch was switched" and "a pull request was checked out" are different
-    answers to "why did this revision get taken" (`core-github.md`). `pull` is the
-    newest, and it is `pullRequest`'s argument applied once more: the post-merge
+    answers to "why did this revision get taken" (`core-github.md`). `pull` came
+    next, and it is `pullRequest`'s argument applied once more: the post-merge
     tail's second step is a `pull --ff-only`, and a file it overwrites was
     overwritten by *the remote's* work rather than by anything done on this
     machine — "what did this file look like before I took everyone else's
     changes?" is not the question "Before Branch Change" answers, so its title is
-    "Before Pull" (`core-github.md`). Every tag
+    "Before Pull" (`core-github.md`). `delete` ("Before Delete") is the project
+    tree's delete, and the one event whose operation removes the file outright, so
+    its snapshot is not a second copy of something the worktree still holds but
+    the only copy left — it is what Deleted Files… finds and what a restore into
+    the missing path recreates the file from. `label` ("Label") is **Put Label…**:
+    not a pre-emption, nothing runs after it; the user's own text lives in a
+    sidecar rather than in the name, and this title is what a row shows until — or
+    unless — that text is read. It is also the one event exempt from dedup (see
+    the policy). **No event exists for a move**: a move carries revisions, it does
+    not take one. Every tag
     round-trips through `LocalHistoryLayout`'s name
     codec under test, because a tag *is* on-disk data. `LocalHistorySnapshot` is the `Equatable, Sendable` row —
     `fileName`, `timestamp`, `event`, `contentHash` — every field of which is
@@ -188,10 +256,30 @@ changes.)
     that would break both the field split and the lexical ordering (unreachable —
     a snapshot is stamped when it is taken — and a clamp keeps the invariant
     total).
+    **Every other on-disk name is spelled here too**, so the store composes none:
+    - `normalisedRelativePath(_:)` — public, and the very normalisation
+      `fileDirectory` applies before digesting (`.` and empty components dropped,
+      `..` popped, no leading `/`). The record, the digest and migration's prefix
+      comparison share this one spelling; a record written in another would fail
+      its own verification.
+    - `pathRecordName` (`path`), `pathRecordText(forRelativePath:)` (the encode:
+      the normalised path) and `relativePath(fromPathRecord:fileDirectoryName:)`,
+      the **verifying decode** — the path only when the text is non-empty,
+      normalised, relative and digests to the directory name it was read out of,
+      `nil` otherwise. That decode is every reader's whole defence, which is why
+      it lives beside the digest rather than in the store.
+    - `labelFileName(forSnapshotFileName:)` and its inverse
+      `snapshotFileName(fromLabelFileName:)`, which answers only for
+      `<a parseable snapshot name>.label`.
+    - `temporarySuffix` (`.partial`, moved here from the store) and
+      `isOwnTemporary(_:)`, the one predicate for this feature's own debris:
+      a parseable snapshot name, `path`, or a valid sidecar name, each plus the
+      suffix — exactly three shapes, so a foreign `.partial` is never ours.
   - `LocalHistoryPolicy.swift` — the one place that decides *whether* to keep
-    bytes and *which* bytes to keep. Two questions, both answered here so neither
+    bytes and *which* bytes to keep. Three questions, all answered here so neither
     the store, the capture model nor the window can grow a second opinion:
-    `capture(of:relativePath:latestHash:)` (the whole skip rule) and
+    `capture(of:relativePath:latestHash:event:)` (the whole skip rule),
+    `label(from:)` (what a user's label may say) and
     `prune(_:now:)` (retention, decided on snapshot *names* alone). The ceilings
     are instance properties with stated defaults rather than bare constants,
     because the store holds a policy *value*: the app builds the default one and
@@ -214,7 +302,12 @@ changes.)
       one: that capture is awaited in front of a git command the user asked for,
       so a worktree with thousands of changed files must not put an unbounded read
       pass between the click and the operation. **Buffers are never capped** —
-      they are already in memory and are what the user is actually editing.
+      they are already in memory and are what the user is actually editing. The
+      tree's delete capture is bounded by the same number, for the same reason
+      and more so: its reads run on the main thread in front of the removal.
+    - `maxLabelLength` = **100** characters, a static rather than an instance
+      property because nothing varies it: a label is a row title, not a note,
+      and has to fit beside a timestamp.
 
     The **skip precedence** is deliberate and is what the tests pin: identity
     first (`.untitled` — no url, or no project root: there is nowhere in the store
@@ -222,7 +315,16 @@ changes.)
     anyway), then containment (`.outsideProject`), then size (`.tooLarge`), then
     sameness (`.unchanged`). The digest is computed **last**, so the two cheap
     refusals never pay for one and a 1 MiB ceiling is checked before hashing a
-    file that could be far larger. `.outsideProject` is load-bearing rather than
+    file that could be far larger. **`event` is a required input because sameness
+    depends on it: a `.label` capture is never `.unchanged`.** A label marks a
+    moment the user chose, and an unchanged buffer at that moment is exactly what
+    they asked to mark — deduplicating it would leave the label with no row to
+    stand on, and a Put Label over five tabs would silently label only the edited
+    ones. Every other skip applies to a label as to anything else. The store
+    passes its event straight through and decides nothing; every caller states
+    one, including the restore's preflight in `PisakaApp` (`.restore`), which
+    leaves `latestHash` at its `nil` default to ask only whether the bytes *may*
+    be stored. `.outsideProject` is load-bearing rather than
     defensive: `ProjectFileWalk.relativePath(of:under:)` *degrades* an outside url
     to its bare file name rather than answering `nil`, so without this guard a
     file opened from elsewhere would share a history with the project file that
@@ -232,6 +334,15 @@ changes.)
     `FileServicing.readTextIfNotBinary(url:maxBytes:)` is the gate for both binary
     content and the byte ceiling, checked there before a big file is pulled into
     memory at all.
+
+    **The label rule is one function asked from both sides.** `label(from:)`
+    trims whitespace and newlines from both ends and answers `nil` for an empty
+    result, for more than `maxLabelLength` characters, or for text still holding
+    a line break (a label is one line of a row title). The prompt's Put Label
+    button is enabled only while it answers, the model normalises through it
+    before capturing, and a sidecar read back from disk is displayed only if it
+    still passes — so a hand-edited or truncated sidecar shows the plain "Label"
+    title rather than something the prompt could never have produced.
 
     **Retention is three rules in order**: age, then the count cap over what
     survived it, then the **unconditional reinstatement of the newest revision**.
@@ -243,7 +354,9 @@ changes.)
     snapshot age out on identical terms, because a label describes *why* a
     revision was taken rather than how much it is worth, and privileging labeled
     ones would quietly make a busy repository's history mostly pre-operation
-    snapshots of files nobody edited. `now` is a parameter, so retention is a pure
+    snapshots of files nobody edited. A **`.label` revision is no exception**: a
+    user's label names a moment, it does not pin one, and the store deletes its
+    sidecar together with it. `now` is a parameter, so retention is a pure
     function of its inputs and every boundary case is testable without waiting.
   - `LocalHistoryStore.swift` — the disk half: the one type that lists, reads,
     writes and prunes, expressed entirely in terms of `FileServicing`, the layout
@@ -261,8 +374,8 @@ changes.)
     an unreadable one. `content(of:root:relativePath:)` answers `nil` for a
     revision that is no longer there, which is genuinely reachable: retention can
     delete one between the listing the window is showing and the row the user
-    clicks. `capture(text:root:relativePath:event:now:)` is a fixed sequence —
-    **list, ask, write, rename, prune** — where the listing is what supplies the
+    clicks. `capture(text:root:relativePath:event:label:now:)` is a fixed sequence —
+    **list, ask, write, rename, record, prune** — where the listing is what supplies the
     newest revision's hash, so dedup (by far the most common outcome on an
     aggressive autosave) costs one directory read and no content read at all; the
     name it is about to write is **parsed back** before use, so what it returns is
@@ -271,14 +384,38 @@ changes.)
     under a `.partial` name that deliberately does not parse and are renamed into
     place, so a listing never sees a half-written revision and an interrupted
     capture leaves debris that listing ignores and retention ignores —
-    `LSPInstallEngine`'s atomicity rule at the scale of one file. **The sweep is
+    `LSPInstallEngine`'s atomicity rule at the scale of one file. Snapshots,
+    sidecars and records all go through one `writeInPlace`, so they share that
+    discipline and the retry below.
+    **The record step is driven by the same listing**: when the directory holds a
+    snapshot — already, or after this write — and the listing shows no `path`
+    entry, the record is written; a present one is never read and never
+    rewritten (see *The store, on disk*). A capture the policy refuses outright
+    into an empty directory writes no record, because a record with no revision
+    beside it describes no history.
+    **A labelled capture** takes `label:` alongside `.label`, normalised through
+    `LocalHistoryPolicy.label(from:)` again so no text the reader would refuse
+    reaches the disk. Its sidecar is written **before** the snapshot, so a
+    listing never shows the row ahead of its text, and a sidecar that cannot be
+    written loses the revision rather than leaving a labelled capture without its
+    label; a snapshot write failing after the sidecar landed leaves an orphan the
+    sweep reclaims. When retention deletes a `.label` snapshot — at capture, at
+    the sweep, after a merge — its sidecar goes with it. **The sweep is
     what reclaims that debris**, and nothing else can: everything else looks
     through a `.partial` by design, so an unreclaimed one would sit there for the
     life of the store and keep its directory from ever counting as empty. Only a
-    name this feature could itself have written is removed — a parseable snapshot
-    name plus the suffix — so a foreign file that happens to end in `.partial` is
-    left alone like any other foreign entry, and a directory holding nothing but
-    debris is removed wholesale. The temporary is derived from the destination name
+    name this feature could itself have written is removed —
+    `LocalHistoryLayout.isOwnTemporary`'s three shapes — so a foreign file that
+    happens to end in `.partial` is left alone like any other foreign entry. An
+    **orphan sidecar** (one whose snapshot is not in the listing) is debris of
+    the same kind and is reclaimed with it. A directory then holding **no
+    snapshot and nothing foreign** — only its record, or nothing — counts as
+    empty: the record is removed first, the directory is re-listed, and it is
+    removed only if the re-list is empty (the quit-capture guard below). A
+    directory holding a foreign entry is still left alone, record included. A
+    quit-time capture landing in that window may find the record still listed and
+    not write one; the next capture's listing shows it gone and writes it then.
+    The temporary is derived from the destination name
     rather than randomised precisely so a retry reuses it instead of accumulating.
     **The create-write-rename is attempted twice**, and the second attempt is not
     optimism about a failing disk: the sweep above reclaims a file directory it
@@ -304,15 +441,17 @@ changes.)
     one still holding something foreign is left exactly as it is, because this
     feature deletes only what it wrote. Retention alone never empties a directory
     holding a real snapshot, so those two branches in practice reclaim a directory
-    left with nothing but `.partial` debris. **The sweep is asked of the store,
+    left with nothing but debris — a `.partial`, an orphan sidecar, a record with
+    no revision beside it. **The sweep is asked of the store,
     not of a root**, and that is load-bearing: retention is the only thing that
     bounds a store kept outside every project, and a sweep keyed to whichever
     project is being opened bounds nothing at all for a project cloned, edited
     once and never opened again — its whole history would sit there for the life
     of the machine. **What no sweep reclaims**, by design, is the newest revision
     of every path ever captured (policy rule 3), including paths whose file was
-    since renamed, moved or deleted: the store settles at one revision per such
-    path rather than at nothing, which is what the newest-survives guarantee costs
+    since deleted, or renamed or moved while its directory was record-less: the
+    store settles at one revision per such path rather than at nothing, which is
+    what the newest-survives guarantee costs
     and why both user-facing docs state the retention numbers with that rule
     beside them instead of promising unconditional reclamation.
     Every deletion goes through one `discard(_:)` that asserts
@@ -322,6 +461,61 @@ changes.)
     listing's spelling has the parent's symlinks resolved into it by
     `FileManager` (`StubFileTree.listingSpelling` stages exactly that), so every
     read and delete re-derives its URL from the layout.
+
+    **The readers that read backwards**, each silent on failure:
+    - `recordedPaths(root:)` — every verified record under one project area,
+      sorted: **one directory read of the area plus one record read per file
+      directory**, the file directories themselves never listed. An absent or
+      failing record skips its directory; an unreadable area is `[]`.
+    - `isMissing(root:relativePath:)` — `fileStamp(at:) == nil` on the file the
+      path names. **"Missing on disk" is this one question**, asked by Deleted
+      Files… and by the restore's recreate branch alike, so the store stays the
+      only Local History type that asks the file service anything.
+    - `labelText(of:root:relativePath:)` — the sidecar's text, only if
+      `LocalHistoryPolicy.label(from:)` still accepts it; any non-`.label`
+      snapshot answers `nil` without a read.
+
+    **`migrate(root:from:to:now:)` carries a history after a rename or move —
+    records only, for files and folders alike.** The affected set is every
+    verified `recordedPaths` entry equal to the old path or under it **at a `/`
+    boundary** (so `a` never takes `ab/x`), compared in the normaliser's
+    spelling and re-keyed under the new prefix; it is read once, before anything
+    moves, so a directory just re-keyed is never visited twice. A directory with
+    no verified record does not move — a file never captured since the upgrade
+    keeps its history under the old key. Per directory: **one directory `move`,
+    then a record rewrite** (`replaceRecord`, which leaves a record that already
+    verifies as the new path alone and otherwise removes and rewrites it — a
+    `move` into place refuses an existing name). A `move` fails in practice
+    because the destination exists — a file moved onto a path that has history of
+    its own (one deleted earlier), a folder moved onto a folder — and that falls
+    back to an **entry-by-entry merge**: sidecars then snapshots are carried, the
+    order a capture writes them in; a name present on both sides keeps the
+    destination's copy and discards the source's (a snapshot name *is* its
+    timestamp, event and hash, so the two are one revision) — and a source copy
+    that cannot be removed counts as an entry that did not move, stranding with
+    its sidecar and its record rather than being taken for carried; the source's own
+    temporaries are discarded; the source's record and its emptied directory are
+    then removed through `discard` (the directory only on an empty re-list); the
+    destination's record is made correct, which also corrects a wrong one; and
+    the merged list is pruned by the ordinary per-file rule, sidecars with their
+    snapshots. **A labelled snapshot and its sidecar move as a pair**: the
+    sidecar goes ahead as a *copy* and the source's original is removed only
+    once the snapshot has moved, so a sidecar that cannot be copied keeps its
+    snapshot at the source, a snapshot that cannot move has the copy discarded
+    (a discard that fails leaves a spare orphan the sweep reclaims, never the
+    only label on the wrong side), and a sidecar the destination already holds is
+    discarded only once its snapshot has gone — so no failure at any step leaves
+    a label-less row on one side and its only label on the other. A destination
+    that is **empty** — what a capture that failed after its `ensureDirectory`
+    leaves — is no history to merge into but no reason to stay behind either: it
+    is merged into like any other, entry by entry, and never removed, since
+    nothing would migrate the source again. Only a listing that *succeeded* says
+    what a destination holds: one that cannot be listed — absent, a file, an
+    unreadable directory — leaves the source where it was and the destination
+    untouched. A foreign entry, or an entry whose
+    `move` fails, strands the source directory under a record that still names
+    it. **Each directory fails silently on its own**, so one stuck directory
+    strands one file's history and nothing more.
   - `LocalHistoryModel.swift` — the capture side, and the object the app holds for
     the whole session. `@MainActor final class … ObservableObject` that
     **publishes nothing**: it owns the store (built over the base the app
@@ -336,6 +530,9 @@ changes.)
     one lane is cheaper to reason about than a map of them. `append(_:)` captures
     no `self` — the work already holds the store it needs — so a model released
     mid-flight still finishes what it promised rather than dropping a revision.
+    `waitForQueuedWrites() async` (internal) awaits the chain's current tail —
+    the one way for a reader on another queue to see the writes already queued;
+    units appended later are not waited for.
     The entry points:
     - `captureSaves(urls:root:texts:)` — fire-and-forget: a save must not wait on
       a safety net. A url with no entry in `texts` is skipped rather than read
@@ -396,6 +593,53 @@ changes.)
       project that is not opened again. No generation token, deliberately: it
       publishes nothing and reads nothing anyone displays, so there is no
       superseded state it could write over.
+    - `followMove(from:to:root:)` — the tree's rename and drag-and-drop move,
+      fire-and-forget. Both urls are keyed by `relativePath(of:under:)`; a side
+      that cannot be keyed, or two sides that normalise alike, returns without
+      touching the chain. Otherwise `store.migrate` is appended, with the clock
+      read at entry for the merge's prune. **The ordering argument is the chain
+      and nothing else**: the call is enqueued *after* the disk move and after
+      `applyRenamePlan` has retargeted the tabs, so a capture appended before it
+      (keyed under the old path) lands under the old key and is carried with the
+      rest, and one appended after (keyed under the new path, because the tab
+      already names it) lands under the new key and finds the carried history
+      there to dedup against. No gate: the move is the user's and already done,
+      and this writes only the store.
+    - `captureBeforeDelete(of:root:bufferTexts:)` — the project tree's delete,
+      and **synchronous, not `async`, because that is what makes it pre-delete.**
+      The tree's delete raises no writer bracket and has no `Task` hop to put an
+      `await` in front of: it removes the item on the main actor right after this
+      returns, so a fire-and-forget unit would read the files one hop later,
+      after the removal, and find nothing. The reads therefore happen here, in the
+      main-thread stretch between the confirmation and `removeItem`, bounded the
+      way the pre-operation capture bounds its own — at most
+      `maxPreOperationFiles` disk targets, each through `readTextIfNotBinary`
+      under the 1 MiB ceiling, binary skipped — and **only the store writes**
+      are appended to the chain under `.delete`, with the clock read at entry.
+      The delete waits on its own bounded reads and **never on the chain or a
+      running sweep**. Buffers win, as in `captureBeforeOperation`. The disk
+      targets come from a walk of the item **through `FileServicing`, not
+      `ProjectFileWalk`**: no `.gitignore` is honoured, because an ignored
+      `.env` is exactly what a user regrets deleting; it descends depth-first in
+      listing order and stops at the cap; it skips
+      `FileService.isExcludedEntryName` entries, the tree's own rule; it neither
+      reads nor descends a symlink (`symbolicLinkDestination(at:) != nil`, the
+      item itself included), because deleting a link leaves its target intact;
+      and a url that cannot be listed as a directory is the single file. Nothing
+      to store returns without touching the chain.
+    - `captureLabel(_:root:texts:)` — **Put Label…**, fire-and-forget. The text
+      is normalised through `LocalHistoryPolicy.label(from:)` and a refusal does
+      nothing at all; otherwise one unit per keyed buffer is appended under
+      `.label` with the shared text, so one labelled moment resolves to one label
+      wherever it is read. Untouched buffers included — the policy's exemption,
+      not this model's — so the label marks the whole moment rather than the
+      edited part of it.
+    - `canPutLabel(tabURLs:root:)` — the menu's enablement, a `nonisolated
+      static` predicate over **urls, never buffer texts**: whether any open text
+      tab keys under the root, `false` with no root. The menu asks it on every
+      validation pass, and copying every open buffer to answer a yes/no would be
+      paid on each menu open for a question the urls alone settle; only the
+      action collects texts.
 
     `relativePath(of:under:)` is the one keying rule, and it is two questions that
     must both answer yes: `LSPInstallLayout.directory(_:contains:)` for
@@ -491,7 +735,7 @@ changes.)
     spinner off. The token is shared by listing and selection rather than split in
     two, because the two are one conversation: a selection only exists against a
     listing, and a retarget must cancel an in-flight content load as surely as an
-    in-flight listing. **Retargeting clears before it loads** — `open(file:root:)`
+    in-flight listing. **Retargeting clears before it loads** — `open(file:root:restorable:)`
     empties the rows, the selection and the diff synchronously, so the window
     never shows one file's revisions, or one file's content diffed against
     another's buffer, while the new listing is in flight. A url that is not a file
@@ -528,18 +772,29 @@ changes.)
     agree with the diff pane it sits under — the previous rule, armed by the
     loaded content and refused at click time by a `restore(currentText:)` that
     re-read the current text, could show an armed button whose click did nothing.
-    The plan is `nil` in the three cases where a restore would be a no-op the user
+    The plan is `nil` in the four cases where a restore would be a no-op the user
     could not tell from a bug: nothing selected, its content not in hand (a
-    revision reclaimed between the listing and the click), and a revision whose
-    text the buffer already holds; refusing the identical case is what keeps a
+    revision reclaimed between the listing and the click), a target opened with
+    `restorable: false`, and a revision whose text the buffer already holds. The
+    app opens a path non-restorable when `WorkspaceModel.opensAsViewer(_:)` says
+    it is — or would open as — a **viewer** tab: a restore is a buffer edit, a
+    viewer holds none, and a `.db` reached through the tree's context menu or
+    Deleted Files (history carried there by a move, or captured while it was a
+    text tab) would otherwise be recreated as an empty file and left that way.
+    The listing and the diff still show, so the bytes stay readable; refusing the identical case is what keeps a
     restore from marking a clean tab dirty and writing a `.restore` snapshot of
-    bytes that are already the newest revision. It is cleared wherever the
-    selection is — `open(file:root:)` and a `nil` selection — and a superseded
+    bytes that are already the newest revision. **A file missing from disk is
+    never the identical case**: the hop that resolves the current text also asks
+    `store.isMissing(root:relativePath:)`, and a missing file's current text is
+    the empty string, so without that answer an empty revision — a file deleted
+    while empty — would be the one revision of a deleted file Restore could not
+    bring back. It is cleared wherever the
+    selection is — `open(file:root:restorable:)` and a `nil` selection — and a superseded
     selection publishes no plan, like everything else the generation token
     guards.
 
     **The plan is re-asked when the window becomes key**
-    (`refreshSelection(currentText:)`, driven by the window controller's
+    (`refreshSelection(currentText:restorable:)`, driven by the window controller's
     `windowDidBecomeKey`). Moving the question off the click is what buys the
     agreement above, and the price is that it can go stale — and a stale
     *refusal* is worse than a stale pane. Left alone, a window held open across
@@ -561,14 +816,33 @@ changes.)
     and a whole-document `LineDiff` and sets `isLoading`, so the footer's spinner
     flashes on an event carrying no news — the very flicker the refresh avoids by
     not blanking the panes, reappearing in the one place it could. `.deferred`
-    cannot be settled without the read it defers and so always re-asks. That
+    cannot be settled without the read it defers and so always re-asks. **The
+    short-circuit skips the text, not the disk**: the plan also rests on whether
+    the file still exists, and a clean tab whose file is deleted (or recreated)
+    behind it holds the same text either way, so a short-circuited refresh still
+    re-asks `store.isMissing(root:relativePath:)` off the main actor — one stat,
+    no `isLoading`, no token of its own — and re-plans only when that answer
+    moved and nothing has taken the token since. Because a load in flight and
+    every short-circuited focus ask that existence question under **one**
+    generation, its answers carry a **token of their own** (`missingCheck`,
+    bumped as each is asked): only the newest publishes the missing flag, and a
+    load whose answer was overtaken publishes the rest and plans from the newer
+    one — the serial queue lands them in order today, and the token makes that
+    the rule rather than an accident of the queue. That
     sameness test is `NSString`'s, not Swift's:
     `==` on `String` compares by canonical equivalence, while a revision is
     identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
     precomposed spelling are two real revisions the store keeps apart — and a
     canonical comparison would arm Restore and then plan nothing, which is the
     one no-op that *is* a bug (`SaveTransformController.applyRestore` guards the
-    same hazard one layer up). `LocalHistoryRestore` is **a plan, not an
+    same hazard one layer up). **Restorability is re-asked on the same occasion**
+    (the refresh's optional `restorable`, applied before anything else): the answer `open`
+    was given is the tab kind the path had *then*, and a text tab renamed to
+    `.db` that closes while the window stays open hands the path to the viewer.
+    A moved answer re-plans synchronously from the landed selection — the
+    missing-file answer is kept beside the resolved text for this — so the click
+    that made the window key reads a corrected plan, and the app's viewer
+    refusal stays the backstop rather than the thing a user meets. `LocalHistoryRestore` is **a plan, not an
     action** — the `SaveTransformPlan` / `PushPlan` shape — because only the app
     layer can replace a buffer through the live text view. It carries *both* texts
     on purpose: `text` is what the buffer becomes and `captureText` is what the
@@ -583,6 +857,28 @@ changes.)
     open can hold text the window could only show as the empty string, and
     snapshotting the window's answer would file an empty `Before Restore` revision
     for a megabyte of text.
+
+    **Labels and deleted files.** Published `labelTexts` maps a snapshot file
+    name to its loaded label text and is cleared on every `open(file:root:restorable:)`.
+    `loadLabel(for:)` fills it one row at a time with an off-main
+    `store.labelText` read, and **does not take the generation token**: a label
+    is decoration on a row the listing already published, and a row appearing
+    must never cancel the listing or content load in flight. What it checks
+    instead is narrower and sufficient — the browser still targets the same root
+    and relative path when the read lands — so a label read for one file never
+    decorates another file's row of the same name. It is a no-op for a
+    non-`.label` row and for one already asked about (an unreadable sidecar
+    included, so it is read once per targeting rather than on every appear).
+    `title(for:)` answers `"Label: <text>"` once the text is loaded and the
+    event's own title otherwise — the one place a row's title is decided.
+    `deletedPaths(root:awaiting:) async` is what Deleted Files… offers: it first
+    awaits the capture model's queued writes (`waitForQueuedWrites()`), so a
+    delete's capture — and, for a file never captured before, its path record —
+    has landed and the file just deleted is listed on the first try rather than
+    the next; then, off the main
+    actor, `store.recordedPaths` filtered by `store.isMissing`, sorted by path,
+    `[]` with no root or an unreadable store — computed on demand and **never
+    stored**, because it is one answer to one menu command, not window state.
 
 ### `Pisaka` (app layer — macOS only, every file inside `#if os(macOS)`)
 
@@ -639,11 +935,15 @@ changes.)
     is itself deferred and this window never reads a file on the main actor;
     which shape it answers with is `PisakaApp`'s decision, not the view's. Each
     row shows
-    the event title and the timestamp **twice** — relative ("2 hours ago") is how
+    its title and the timestamp **twice** — relative ("2 hours ago") is how
     a user finds the edit they remember making, absolute is how they tell two of
     them apart. **The relative reading is measured against one date the window
     owns**, held as `@State`, refreshed on a 60 s timer and passed into every
-    `RevisionRow`, whose `body` therefore reads no clock. A `body` that calls
+    `RevisionRow`, whose `body` therefore reads no clock. A row's **title is
+    `browser.title(for:)`**, handed down like `now`, and each row calls
+    `browser.loadLabel(for:)` when it appears, so a `.label` row's sidecar is read
+    only once that row is on screen and its title becomes "Label: <text>" when the
+    read lands. A `body` that calls
     `Date()` is only correct at the instant SwiftUI happens to evaluate it — rows
     re-render when the model publishes, not when time passes, so a window left
     open goes on reading "just now" about an edit made an hour ago, and two rows
@@ -691,6 +991,20 @@ changes.)
     *The shared split*): the revisions list is the leading pane at 220/260/380,
     scaled, against the detail's scaled floor of 360, and the divider is the
     `hairline` role; chrome rule forty-eight keeps the platform split out.
+  - `LocalHistoryPrompts.swift` — the two modal questions the File menu's new
+    commands ask, `NSAlert`-based the way `FilePanels` hosts the delete
+    confirmation, and **deciding nothing of their own beyond asking
+    `LocalHistoryPolicy.label(from:)`**. `askLabel()` has a text-field accessory
+    whose "Put Label" button is enabled only while that function accepts the
+    field's text (a small `NSTextFieldDelegate` keeps the two in step), so a
+    confirmed answer is always one the capture will take; Cancel answers `nil`.
+    `chooseDeletedPath(from:)` shows the paths it is handed — already sorted by
+    the browser model — in a pop-up accessory, and answers the chosen one or
+    `nil`; an empty list is a fact rather than a choice, so it shows a short
+    informational alert ("No deleted files with history in this project.") and
+    opens nothing. Neither prompt writes anything; the caller acts on the
+    answer. The file carries the `LocalHistory` prefix so the gating suite
+    covers it by name, and it names no writer gate and no `revertInFlight`.
 
 ### The wiring in `PisakaApp` and `AutosaveController`
 
@@ -779,7 +1093,39 @@ changes.)
     outside the opened folder — and would file the `.restore` capture under the
     old root while every later save of that buffer keys to nothing, making the
     restore the one edit in that file with no history behind it. So it beeps and
-    stops, like the two refusals below. Then: open a tab
+    stops, like the two refusals below; the same first step refuses a path that
+    `model.opensAsViewer(_:)` answers for, the backstop behind the window's
+    non-restorable open. **Then the recreate exception: a restore
+    is a buffer edit, except that a restore into a path with no file first
+    creates an empty file, under `revertInFlight()`.** The action asks
+    `localHistory.store.isMissing(root:relativePath:)` first, and the preflight's
+    two refusals are asked **before** anything is created — against the empty
+    file the create would make (`localHistoryTextToDisplace(_:missing:)` answers
+    `""` for a missing path no tab holds, and the buffer when one does) — so a
+    refused restore creates nothing. When the path is missing and the preflight
+    passes, the action consults `revertInFlight()` and stops silently if a gated
+    operation holds the gate — the create is an ordinary project-tree write, so it
+    obeys the gate the way the tree's own create does, and *consults* it without
+    raising it — then `ensureDirectory`s the parent and `createFile`s through the
+    file service (beeping and stopping on failure) and bumps the tree either way,
+    since `ensureDirectory` does not roll back the parents it built. Everything
+    after runs unchanged against the empty file: the open, the re-asked refusal, a
+    "Before Restore" capture of the empty text it displaces, and `applyRestore`.
+    Both refusals are asked with `recreating:` set for a missing path, which
+    exempts them from the sameness half only (the policy half still applies) —
+    the plan's own exemption, so an **empty revision recreates the empty file**
+    rather than being refused as identical to the empty text it displaces. A
+    clean tab outlives its file's out-of-band delete, and when it already holds
+    a non-empty revision the restore changes nothing in it and would leave it
+    clean over the empty file just created — so a recreating restore that leaves
+    its tab clean and non-empty **saves that tab** through `save(id:)`, the same
+    funnel a dirty tab's autosave takes. When that save fails (it has beeped) the
+    tab's baseline is re-read from the empty file with `reconcileSavedBaseline`,
+    so the tab turns dirty and the autosave or ⌘S retries the write, rather than
+    a clean tab claiming bytes the disk does not hold. This is the feature's **one worktree create**;
+    without it a `.delete` revision — and the `Before Revert` / `Before Branch
+    Change` revision of a file the operation removed — could be listed and never
+    brought back. Then: open a tab
     if none holds the file (`model.open` re-selects an existing one, so it is also
     the right call when one is there; an unreadable file beeps and stops, since
     there is nothing to restore *into*), capture the displaced text under
@@ -806,14 +1152,14 @@ changes.)
     feature a capture could lose what it exists to keep — then
     `saveTransform.applyRestore(…)`. **A restore the policy would refuse to
     capture does not happen at all**: the displaced text is put to
-    `store.policy.capture(of:relativePath:latestHash: nil)` first, and a refusal
+    `store.policy.capture(of:relativePath:latestHash: nil, event: .restore)` first, and a refusal
     beeps and stops exactly as an unreadable file does. Reading the buffer back
     fixes *what* is snapshotted, not whether it can be — a file that had history
     when it was small and has since grown past `maxContentBytes` is captured by
     nothing, so going ahead would replace megabytes with one ⌘Z as the only copy,
     and it is also the case the window renders least honestly (the same ceiling
     makes the current side of the diff the empty string, so the revision showed
-    as wholly added). `latestHash: nil` asks the one question that matters —
+    as wholly added). `latestHash` left at its `nil` default asks the one question that matters —
     *may* these bytes be stored — rather than whether they would be
     deduplicated, which is a skip that loses nothing. **Both refusals are asked
     twice, and the first ask comes before the open**
@@ -838,7 +1184,7 @@ changes.)
     left **dirty**: the ordinary save funnel puts the restored text on disk when
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
-  - **Two open sites, one window.** File ▸ Local History… (⌘⇧H), disabled without
+  - **Three open sites, one window.** File ▸ Local History… (⌘⇧H), disabled without
     a *titled, text* selected tab — stricter than every other item in that group
     on purpose, because an enabled item over an untitled buffer would open a
     window saying the file has no history when what is true is that it has no
@@ -850,10 +1196,41 @@ changes.)
     a `.db` that is not SQLite was an ordinary text tab before the viewer existed
     and can carry real revisions. Alongside it,
     a "Local History" item on a project-tree file row's context menu, threaded
-    from `ContentView` as `onShowLocalHistory`. Both go through one
+    from `ContentView` as `onShowLocalHistory`; and File ▸ **Deleted Files…**
+    (below). All three go through one
     `showLocalHistory(for:)`, which starts the listing *before* showing the window
     (one directory read on a background queue) so an already-open window never
     shows the previous file's revisions for a frame.
+  - **Two flat File-menu items directly below Local History…, with no
+    shortcuts** — the existing item and its ⌘⇧H are untouched and no submenu is
+    introduced. **Deleted Files…**, disabled without a project, awaits
+    `localHistoryBrowser.deletedPaths(root:awaiting: localHistory)`, drops the answer if the folder was
+    switched meanwhile (it names files of the previous project), asks
+    `LocalHistoryPrompts.chooseDeletedPath(from:)` and opens the window on
+    `root.appendingPathComponent(choice)` — a file that does not exist, which the
+    window handles like any other target, and which Restore then recreates.
+    **Put Label…** is enabled by `LocalHistoryModel.canPutLabel(tabURLs:root:)`
+    fed the urls of `model.openFiles`' text-kind tabs — **never
+    `openBufferTexts()`, so validating the menu copies no buffer** — and its
+    action asks `LocalHistoryPrompts.askLabel()` and hands the answer to
+    `localHistory.captureLabel(_:root:texts: openBufferTexts())`, the only place
+    the label feature collects buffer texts.
+  - **The project tree's delete is a capture site.** In `deleteItem`, after the
+    confirmation and the affected-tab collection and **before
+    `fileService.removeItem`**, `localHistory.captureBeforeDelete(of:root:
+    bufferTexts:)` is called — not awaited — with `openBufferTexts()` restricted
+    to the affected tabs' urls. It reads synchronously and writes in the
+    background (the model entry says why), and the delete still raises no gate
+    of its own. The site is named rather than numbered: three save sites plus
+    seven brackets already make ten, so "the tenth capture site" would be a
+    count that does not add up.
+  - **The project tree's move carries the history.** In `performMove` — the one
+    funnel for both the rename and the drag-and-drop — after `fileService.move`
+    has succeeded and `applyRenamePlan` and the database viewers' retargets have
+    run, `localHistory.followMove(from: source, to: destination, root:)` is
+    called. That position is the model's ordering argument: the tabs already
+    name their destinations, so every capture enqueued after it keys to the new
+    path.
   - **The store sweep** runs from the folder-open path (`pruneStore()`),
     fire-and-forget: capture already prunes the one file it just wrote, and
     without this a project abandoned for a month would keep every snapshot
@@ -916,24 +1293,38 @@ history, just not the newest one.
 
 ## Tests
 
-133 tests across seven suites in `Tests/PisakaCoreTests/`, all against
+220 tests across seven suites in `Tests/PisakaCoreTests/`, all against
 `StubFileTree` or pure values — no temporary directories and no real clock:
 
   - `LocalHistorySnapshotTests` — the tag vocabulary by set equality, every event
-    round-tripping through its tag, every pre-operation title saying "Before",
-    newest-first ordering including the same-millisecond tie-break.
+    round-tripping through its tag (`delete` and `label` included), the "Before"
+    title rule restated as every event except `.save` and `.label`, newest-first
+    ordering including the same-millisecond tie-break.
   - `LocalHistoryLayoutTests` — name round-trips for every event; lexical name
     order equal to chronological order across millisecond, second and day
     boundaries; every malformed-name shape parsing to `nil`; two roots and two
     relative paths giving different directories while one input gives the same
     directory twice; `contains` accepting everything the layout produces; the
     readable project-name prefix bounded in **bytes** rather than characters (an
-    emoji and a ZWJ-sequence root name).
+    emoji and a ZWJ-sequence root name); the record named `path` holding the
+    normalised path, and the normaliser being the digest's own spelling; the
+    record verifying only against its own digest directory, a mismatched, empty,
+    absolute or non-normalised text decoding to `nil`; the sidecar name codec
+    round-tripping and accepting only a parseable snapshot name plus `.label`;
+    neither `path`, `path.partial`, a sidecar nor a sidecar temporary parsing as
+    a snapshot; the temporaries predicate accepting exactly the three own shapes
+    and refusing a foreign `.partial` and the finished names.
   - `LocalHistoryPolicyTests` — each skip reason in isolation and every
     precedence pair between them; exactly 1 MiB captured and one byte more
     refused, counted in UTF-8 bytes (a multi-byte case included); the retention
     rules including "the newest survives even when it is itself expired" and "age
-    is applied before the count cap"; the stated defaults as documented numbers.
+    is applied before the count cap"; the stated defaults as documented numbers;
+    a `.label` capture of content equal to `latestHash` still captured while
+    every other event (set over `allCases` minus `.label`) skips as
+    `.unchanged`, and a label still refused on every other ground; the label
+    rule — trimming, empty and whitespace-only refused, exactly 100 characters
+    accepted and 101 refused, an interior line break refused — and its ceiling
+    as the documented number.
   - `LocalHistoryStoreTests` — capture/list/read round-trip; a second identical
     capture writing nothing (asserted on `writtenPaths`); one changed byte being a
     new revision; the write going through a temporary name and exactly one `move`;
@@ -946,7 +1337,42 @@ history, just not the newest one.
     area left empty and leaving one holding a foreign entry alone; a never-captured
     file listing `[]`; a foreign file ignored by listing and left alone by pruning;
     the sweep reclaiming an interrupted write nothing else can see, and removing a
-    directory that holds nothing but such debris.
+    directory that holds nothing but such debris. The path record: the first
+    capture writing it through a temporary and one extra `move`, a second
+    capture writing nothing and reading no record (`readPaths` excludes `path`);
+    a dedup'd capture into a record-less directory writing it, a refused
+    capture into an empty one not; a present-but-wrong record left byte-for-byte
+    by capture and skipped by `recordedPaths`. Labels: the sidecar written
+    before the snapshot (the order of `moves`), the same text labelled twice
+    being two revisions, only text the policy accepts reaching the disk, a
+    sidecar that cannot be written losing the revision, and retention — at
+    capture and at the sweep — taking a sidecar with its snapshot. The sweep
+    reclaiming a record-only directory, orphan sidecars and every own temporary
+    (`path.partial` and a sidecar `.partial` included) while leaving a record
+    beside a foreign file alone. The readers: `recordedPaths` listing only
+    verified records and `[]` for an unreadable or absent area; `isMissing`
+    true for an absent file and false for a present one; `labelText` `nil` for
+    a missing or invalid sidecar and reading nothing for other events.
+    Migration: a file rename carrying every revision with its name, timestamp
+    and event and rewriting the record; a folder move re-keying every recorded
+    descendant while a record-less one stays under its old key; prefix `a` not
+    moving `ab/x`; a merge into an existing history keeping the destination's
+    copy on a name clash and pruning the merged list by the per-file rule; a
+    merge into a destination holding a wrong record leaving a correct one;
+    sidecars carried ahead of their snapshots; an injected `move` failure
+    leaving the source intact and listable under its old key, and a merged
+    entry that cannot move staying behind under its record; a foreign file in the
+    source keeping its record and directory while the merge's own debris is
+    discarded; an empty directory under the new key merged into, the whole
+    history carried into it, label included; a file or an unreadable directory
+    under the new key left untouched with the source still under its old key; a
+    labelled pair stranded together at the source when either its sidecar or its
+    snapshot cannot move, still labelled at the source when the copy's cleanup
+    and every way back fail too, and a stranded snapshot keeping its own sidecar
+    over a destination copy; a
+    move onto itself doing nothing. A quit-time capture landing as the
+    sweep removes a record-only directory's record keeping its snapshot, and the
+    next capture writing the record again.
   - `LocalHistoryModelTests` — `captureBeforeOperation` returning only once every
     byte is stored (a causal wait through `Gate`, never a delay); a file with both
     a buffer and a disk target captured once, from the buffer; a binary target
@@ -962,6 +1388,23 @@ history, just not the newest one.
     refused rather than keyed by its bare name (the re-join guard); and a capture
     with nothing to store returning while the sweep is demonstrably mid-read —
     asserted with a deadline, so joining the chain fails instead of hanging.
+    A delete capture held on the chain is not yet listed by `deletedPaths`, and
+    is listed by `deletedPaths(root:awaiting:)` once the chain is released.
+    `followMove`: a capture queued before it carried and one queued after landing
+    under the new key (a `Gate` on a listing as the causal rendezvous, then
+    `chain?.value`), and an unkeyable side not extending the chain.
+    `captureBeforeDelete`: every disk target read by the time it returns
+    (`readPaths`), the `.delete` snapshots holding the pre-delete text after the
+    files are removed from the stub; a buffer beating its disk copy; a folder
+    capped at a small `maxPreOperationFiles`, a buffer-held file spending none of
+    that cap and read from nowhere; binaries, symlinks and excluded
+    entries skipped; a single-file url captured; nothing to store leaving the
+    chain untouched; a capture appended after it landing after it.
+    `captureLabel`: three buffers (two edited, one untouched) giving three
+    `.label` revisions each with a sidecar of the same text, and a second
+    identical call three more; a refused label writing nothing. The enablement
+    predicate, fed urls only: false with no root and for only untitled or
+    outside-root urls, true for one project file.
   - `LocalHistoryBrowserModelTests` — a stale listing unable to publish over a
     newer one (two loads staged with `Gate`, the older released last); a stale
     content load discarded even when it finishes last (the signal waited on is a
@@ -970,12 +1413,20 @@ history, just not the newest one.
     outside the root targeted but unkeyed (`isUnsupportedTarget`); clearing an
     already-clear selection unable to cancel the listing in flight; the diff
     rows for a selection; the restore plan carrying both texts, `nil` for no
-    selection and for an identical revision, and a revision differing from the
-    buffer only by Unicode normalization still planning a restore (the store keys
+    selection and for an identical revision of a file on disk, an empty revision
+    of a missing file still planned (and disarmed once the file exists), and a
+    revision differing from the buffer only by Unicode normalization still planning a restore (the store keys
     on UTF-8 bytes, so canonical equivalence is the wrong question).
+    `deletedPaths` sorted, excluding existing files and record-less directories
+    (a wrong record included), and `[]` for no root and for an unreadable store; a loaded label
+    titling its row "Label: …" while an unreadable one — its read observed
+    through `Gate` — keeps "Label"; a label read once per targeting, not on every
+    appear; a label
+    read landing after a retarget discarded (`Gate` rendezvous); a label load
+    not cancelling the listing in flight; a retarget clearing the loaded labels.
   - `LocalHistorySourceGatingTests` — the app layer's architectural rules, matched
     against comment- and literal-stripped source the way every sibling suite does:
-    every app-side file inside `#if os(macOS)`; the store base spelled in exactly
+    every app-side file, the prompts file included, inside `#if os(macOS)`; the store base spelled in exactly
     one place; **`captureBeforeOperation` named exactly seven times against
     `autosave.suspend()` and `localChanges.beginRevert()` also seven times each** —
     count equality over the bracket, so a new gated *bracket* cannot be added
@@ -990,16 +1441,27 @@ history, just not the newest one.
     routed through `SaveTransformController` with no second file naming
     `beginSaveTransformRewrite`/`replaceCharacters`; the restore asking
     `policy.capture(` exactly once, so it cannot replace a buffer the store would
-    refuse to snapshot; both open sites present; the
-    window declaring no zoom surface; the window closed at termination; and Local
-    History never naming `autosave.suspend`/`beginRevert` anywhere.
+    refuse to snapshot; all three open sites present (the File menu item, the
+    tree's row and Deleted Files…); the project tree's delete capture,
+    `captureBeforeDelete(` named at exactly one site, inside `deleteItem`, before
+    that body's `removeItem(` and never awaited or handed to a `Task` or a queue
+    ahead of it — that number pinned cross-file against this sentence; the
+    restore's recreate asking `isMissing(` before its refusal, and both the
+    refusal and `revertInFlight()` ahead of its one `createFile(`; `followMove(` named once, inside `performMove`, after
+    its `fileService.move(`; the window declaring no zoom surface; the window
+    closed at termination; and Local History — the prompts file included, by name —
+    never naming `autosave.suspend`/`beginRevert`/`revertInFlight` anywhere.
 
 ## Known limits
 
-- **Only what this app writes is captured.** A save through the app's own funnel
-  and the nine worktree operations are the whole capture surface: an edit made in
-  another editor, a `git checkout` run in the embedded terminal or in another
-  window, or any other out-of-band write is not seen and leaves no revision. The
+- **Only what this app writes is captured.** A save through the app's own funnel,
+  the nine worktree operations, the project tree's delete and Put Label… are the
+  whole capture surface: an edit made in another editor, a `git checkout` run in
+  the embedded terminal or in another window, or any other out-of-band write is
+  not seen and leaves no revision. Likewise only the project tree's own rename
+  and drag-and-drop move carry a history; a file moved or deleted anywhere else
+  (Finder, `git mv`, the terminal) leaves its history under the old path, where
+  Deleted Files… still finds it if its record is there. The
   FSEvents watcher exists to keep the *tree* current and is deliberately not
   wired to this — snapshotting every external write would turn a safety net for
   the user's own edits into a mirror of the filesystem.
@@ -1015,7 +1477,10 @@ history, just not the newest one.
 - **A pre-operation capture reads at most 200 files from disk.** Open buffers are
   never capped, but in a worktree with more than 200 changed files the disk half
   is truncated, and which 200 is the order the caller handed them in. The bound is
-  latency in front of an operation the user asked for, not storage.
+  latency in front of an operation the user asked for, not storage. The tree's
+  delete capture shares it: deleting a folder holding more than 200 files
+  snapshots the first 200 a depth-first walk in listing order meets, and the
+  rest are deleted with no "Before Delete" revision.
 - **Files over 1 MiB and files that are not decodable UTF-8 are never captured**,
   silently, under the same ceiling Find in Files uses.
 - **Untitled buffers have no history and can have none**, and neither does a file
@@ -1030,32 +1495,26 @@ history, just not the newest one.
   SwiftUI has not moved the editor yet in that same turn) falls through to
   `WorkspaceModel.replaceText(_:for:)`, which costs that tab its undo stack and
   its remembered viewport. The common path — ⌘⇧H on the tab you are looking at —
-  is the through-the-view one.
-- **A file the operation deleted cannot be restored from its own labelled
-  snapshot.** A restore is a buffer edit, and `restoreFromLocalHistory` opens the
-  file first; a revert of an untracked file, or a branch switch that removes one,
-  deletes it and force-closes its tab, so the `Before Revert` / `Before Branch
-  Change` revision taken for exactly that case is still *listed* (the window can
-  outlive the file) but Restore beeps rather than recreating it. Recovering it
-  means creating the file again and restoring into it.
-- **Renaming, moving or deleting a file leaves its history behind.** The store
-  is keyed by a digest of the (root, project-relative path) pair, and the digest
-  is not invertible, so the project tree's rename, drag-and-drop move and delete
-  carry nothing with them: the renamed file starts an empty history under its new
-  path, and the revisions taken under the old one stay in the store, unreachable
-  from the window; retention thins them to the newest, which then survives for
-  good like every other newest revision. Migrating them would mean
-  moving one directory for a file move and re-deriving a digest per descendant
-  for a folder move — a second path-keying rule beside the one the layout states
-  — and a delete has no destination to migrate to at all.
+  is the through-the-view one. A restore that **recreates** a deleted file is
+  always the fallback path — the file has no tab until the restore opens one —
+  so there is no ⌘Z step back to the empty file; `applyRestore` is unchanged by
+  decision, and the "Before Restore" revision of the empty text is the way back.
+- **A record-less directory neither follows a move nor appears under Deleted
+  Files….** A file directory written by an earlier version and not captured since
+  the upgrade has no `path` record, and one holding a **wrong** record (a crash
+  between a migration's directory move and its record rewrite) is treated
+  exactly as if it had none. Either stays readable forwards — ⌘⇧H on that path
+  still lists it — but a rename or move leaves it under the old key, and a
+  deleted file whose history is only there is not offered. A file's first capture
+  after the upgrade writes its record; only a migration corrects a wrong one.
 - **The revisions *list* does not refresh itself.** `revisions` is listed once, by
-  `open(file:root:)`; a revision written while the window is open — an autosave,
+  `open(file:root:restorable:)`; a revision written while the window is open — an autosave,
   a gated operation, or the `Before Restore` snapshot the Restore button itself
   takes — is in the store but not in the list until ⌘⇧H retargets the window.
   The *selection* is a different matter and does refresh, on becoming key: its
   right-hand side is the live buffer, and the Restore button's enablement is
   computed from it, so that one is an action going stale rather than a listing
-  (see the `refreshSelection(currentText:)` note above).
+  (see the `refreshSelection(currentText:restorable:)` note above).
   Re-listing after a restore would additionally race the capture, which is
   fire-and-forget on the chain, so a reload issued in the same turn could show
   the row or not depending on timing — less truthful than a list that plainly

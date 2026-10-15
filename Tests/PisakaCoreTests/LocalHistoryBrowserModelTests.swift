@@ -49,6 +49,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         _ text: String,
         _ relativePath: String,
         event: LocalHistoryEvent = .save,
+        label: String? = nil,
         at seconds: Double
     ) -> LocalHistorySnapshot {
         let snapshot = store.capture(
@@ -56,6 +57,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
             root: projectRoot,
             relativePath: relativePath,
             event: event,
+            label: label,
             now: Date(timeIntervalSince1970: seconds)
         )
         guard let snapshot else {
@@ -70,6 +72,13 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     private func storagePath(of snapshot: LocalHistorySnapshot, _ relativePath: String) -> String {
         let directory = store.layout.fileDirectory(forRoot: projectRoot, relativePath: relativePath)
         return tree.relativePath(of: directory.appendingPathComponent(snapshot.fileName))
+    }
+
+    /// Give `relativePath` a file on disk. The plan refuses an identical revision
+    /// only for a file that exists — restoring any revision of a missing one,
+    /// an empty one included, is what recreates it.
+    private func putOnDisk(_ relativePath: String) {
+        tree.files["project/\(relativePath)"] = "on disk"
     }
 
     /// Spin the main actor until `condition` holds, failing loudly rather than
@@ -225,6 +234,155 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertTrue(published.allSatisfy { $0.count != 2 }, "the stale listing published \(published)")
     }
 
+    // MARK: - Deleted files
+
+    /// Where the stub keeps one file directory's path record.
+    private func recordPath(_ relativePath: String) -> String {
+        let directory = store.layout.fileDirectory(forRoot: projectRoot, relativePath: relativePath)
+        return tree.relativePath(of: directory.appendingPathComponent(LocalHistoryLayout.pathRecordName))
+    }
+
+    func testDeletedPathsListsOnlyVerifiedRecordsOfMissingFilesSorted() async {
+        capture("b", "z/b.swift", at: 1)
+        capture("a", "a.swift", at: 2)
+        capture("here", "here.swift", at: 3)
+        capture("no record", "record-less.swift", at: 4)
+        capture("wrong", "wrong.swift", at: 5)
+        tree.files["project/here.swift"] = "still on disk"
+        tree.files[recordPath("record-less.swift")] = nil
+        tree.files[recordPath("wrong.swift")] = "a.swift"
+        let model = makeModel()
+
+        let deleted = await model.deletedPaths(root: projectRoot)
+        let none = await model.deletedPaths(root: nil)
+
+        XCTAssertEqual(deleted, ["a.swift", "z/b.swift"])
+        XCTAssertEqual(none, [])
+    }
+
+    func testDeletedPathsOfAnUnreadableStoreIsEmpty() async {
+        capture("a", "a.swift", at: 1)
+        tree.unreadableDirectories = [
+            tree.relativePath(of: store.layout.projectDirectory(forRoot: projectRoot))
+        ]
+        let model = makeModel()
+
+        let deleted = await model.deletedPaths(root: projectRoot)
+        XCTAssertEqual(deleted, [])
+    }
+
+    // MARK: - Labels
+
+    /// Where the stub keeps one `.label` row's sidecar.
+    private func sidecarPath(of snapshot: LocalHistorySnapshot, _ relativePath: String) -> String {
+        let directory = store.layout.fileDirectory(forRoot: projectRoot, relativePath: relativePath)
+        let name = LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshot.fileName)
+        return tree.relativePath(of: directory.appendingPathComponent(name))
+    }
+
+    func testALoadedLabelTitlesItsRowAndAnUnreadableOneKeepsThePlainTitle() async {
+        let unreadable = capture("one", "a.swift", event: .label, label: "Lost", at: 1)
+        let readable = capture("two", "a.swift", event: .label, label: "Release", at: 2)
+        let save = capture("three", "a.swift", at: 3)
+        tree.unreadableFiles = [sidecarPath(of: unreadable, "a.swift")]
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+
+        // The unreadable read is observed reaching the file service and released
+        // before the readable one is asked; the queue is serial, so once the
+        // readable label has published the unreadable one has answered.
+        let gate = Gate()
+        tree.readGate = (path: sidecarPath(of: unreadable, "a.swift"), gate: gate)
+        model.loadLabel(for: unreadable)
+        await gate.waitUntilReached()
+        gate.release()
+        model.loadLabel(for: save)
+        model.loadLabel(for: readable)
+        await waitUntil("the readable label to land") { model.labelTexts[readable.fileName] != nil }
+
+        XCTAssertEqual(model.title(for: readable), "Label: Release")
+        XCTAssertEqual(model.title(for: unreadable), "Label")
+        XCTAssertEqual(model.title(for: save), LocalHistoryEvent.save.title)
+        XCTAssertEqual(Set(model.labelTexts.keys), [readable.fileName])
+    }
+
+    func testALabelIsReadOncePerTargetingNotOnEveryAppear() async {
+        let first = capture("one", "a.swift", event: .label, label: "First", at: 1)
+        let second = capture("two", "a.swift", event: .label, label: "Second", at: 2)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+
+        model.loadLabel(for: first)
+        await waitUntil("the first label to land") { model.labelTexts[first.fileName] != nil }
+        model.loadLabel(for: first)
+        // Asked after the repeat, on the same serial queue: once it has landed, a
+        // second read of the first sidecar would have happened too.
+        model.loadLabel(for: second)
+        await waitUntil("the second label to land") { model.labelTexts[second.fileName] != nil }
+
+        XCTAssertEqual(tree.readPaths.filter { $0 == sidecarPath(of: first, "a.swift") }.count, 1)
+    }
+
+    func testALabelReadLandingAfterARetargetIsDiscarded() async {
+        let first = capture("a", "a.swift", event: .label, label: "For a", at: 1)
+        let second = capture("b", "b.swift", event: .label, label: "For b", at: 2)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the first listing to land") { !model.isLoading }
+
+        var published: [[String: String]] = []
+        let subscription = model.$labelTexts.sink { published.append($0) }
+        defer { subscription.cancel() }
+
+        let gate = Gate()
+        tree.readGate = (path: sidecarPath(of: first, "a.swift"), gate: gate)
+        model.loadLabel(for: first)
+        await gate.waitUntilReached()
+        model.open(file: projectFile("b.swift"), root: projectRoot)
+        model.loadLabel(for: second)
+        gate.release()
+
+        await waitUntil("the second file's label to land") { model.labelTexts[second.fileName] != nil }
+        XCTAssertEqual(model.title(for: second), "Label: For b")
+        XCTAssertFalse(
+            published.contains { $0[first.fileName] != nil },
+            "the first file's label reached the second file's window: \(published)"
+        )
+    }
+
+    func testALabelLoadDoesNotCancelTheListingInFlight() async {
+        let labelled = capture("a", "a.swift", event: .label, label: "Checkpoint", at: 1)
+        capture("b", "a.swift", at: 2)
+        let model = makeModel()
+
+        let gate = Gate()
+        tree.listingGate = gate
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await gate.waitUntilReached()
+        model.loadLabel(for: labelled)
+        gate.release()
+
+        await waitUntil("the listing to land") { !model.isLoading }
+        await waitUntil("the label to land") { model.labelTexts[labelled.fileName] != nil }
+        XCTAssertEqual(model.revisions.map(\.event), [.save, .label])
+        XCTAssertEqual(model.title(for: labelled), "Label: Checkpoint")
+    }
+
+    func testRetargetingClearsTheLoadedLabels() async {
+        let labelled = capture("a", "a.swift", event: .label, label: "Checkpoint", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+        model.loadLabel(for: labelled)
+        await waitUntil("the label to land") { !model.labelTexts.isEmpty }
+
+        model.open(file: projectFile("b.swift"), root: projectRoot)
+
+        XCTAssertTrue(model.labelTexts.isEmpty)
+    }
+
     // MARK: - Selection
 
     func testSelectingARevisionProducesTheDiffAgainstTheCurrentText() async {
@@ -334,6 +492,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
 
     func testTheRestorePlanIsNilWithNoSelectionAndForAnIdenticalRevision() async {
         capture("identical", "a.swift", at: 1)
+        putOnDisk("a.swift")
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 1 }
@@ -350,6 +509,76 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         model.select(model.revisions[0], currentText: .text("edited since"))
         await waitUntil("the second content load to land") { !model.isLoading }
         XCTAssertNotNil(model.restorePlan)
+    }
+
+    /// A file deleted while empty: its current text resolves to the empty
+    /// string, exactly the revision's bytes, and Restore must still be armed —
+    /// recreating the file is the whole restore. The same empty revision of a
+    /// file that exists plans nothing.
+    func testAnEmptyRevisionOfAMissingFileIsStillRestorable() async {
+        capture("", "gone.swift", event: .delete, at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("gone.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .deferred { "" })
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        XCTAssertEqual(model.restorePlan?.text, "")
+        XCTAssertEqual(model.restorePlan?.captureText, "")
+
+        tree.files["project/gone.swift"] = ""
+        model.refreshSelection(currentText: .deferred { "" })
+        await waitUntil("the refresh to land") { model.restorePlan == nil }
+    }
+
+    /// A target opened as not restorable — a path that opens as a viewer tab,
+    /// which holds no buffer a restore could edit — lists and diffs as usual and
+    /// never plans a restore, missing or not; the next ordinary open arms it again.
+    func testATargetOpenedAsNotRestorableShowsItsDiffButPlansNothing() async {
+        capture("rows", "data.db", event: .delete, at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("data.db"), root: projectRoot, restorable: false)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .deferred { "" })
+        await waitUntil("the content to land") { model.selectedContent != nil }
+
+        XCTAssertEqual(model.selectedContent, "rows")
+        XCTAssertFalse(model.diffRows.isEmpty)
+        XCTAssertNil(model.restorePlan, "a recreated viewer path would stay an empty file")
+
+        model.open(file: projectFile("data.db"), root: projectRoot)
+        await waitUntil("the listing to land again") { model.revisions.count == 1 }
+        model.select(model.revisions[0], currentText: .deferred { "" })
+        await waitUntil("the plan to land") { model.restorePlan != nil }
+    }
+
+    /// The tab kind a path opens as can change under an open window — a text
+    /// tab renamed to `.db` closes and the path now opens as a viewer — so the
+    /// refresh's re-asked answer re-plans at once, with no hop, in both
+    /// directions — even when the current text short-circuits; an unchanged or
+    /// omitted answer leaves the plan alone.
+    func testARefreshReAskingRestorableReplansTheLandedSelectionSynchronously() async {
+        capture("rows", "data.db", event: .delete, at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("data.db"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+        model.select(model.revisions[0], currentText: .deferred { "" })
+        await waitUntil("the plan to land") { model.restorePlan != nil }
+
+        model.refreshSelection(currentText: .text(""), restorable: true)
+        XCTAssertNotNil(model.restorePlan, "an unchanged answer keeps the plan")
+
+        model.refreshSelection(currentText: .text(""), restorable: false)
+        XCTAssertNil(model.restorePlan, "a path that now opens as a viewer must disarm Restore at once")
+        XCTAssertEqual(model.selectedContent, "rows", "the diff stays readable")
+
+        model.refreshSelection(currentText: .text(""))
+        XCTAssertNil(model.restorePlan, "an omitted answer keeps the refusal")
+
+        model.refreshSelection(currentText: .text(""), restorable: true)
+        XCTAssertEqual(model.restorePlan?.text, "rows", "re-armed from the landed selection, missing file included")
     }
 
     /// The sameness test is over bytes, not over canonical equivalence.
@@ -395,6 +624,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     /// it.
     func testRefreshingRearmsAPlanTheBufferHasSinceDivergedFrom() async {
         capture("identical", "a.swift", at: 1)
+        putOnDisk("a.swift")
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 1 }
@@ -416,6 +646,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     /// rather than leaving an armed one whose click does nothing.
     func testRefreshingDisarmsAPlanTheBufferHasComeToMatch() async {
         capture("the old text", "a.swift", at: 1)
+        putOnDisk("a.swift")
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 1 }
@@ -459,7 +690,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     ///
     /// `isLoading` is the assertion because `load` raises it *synchronously*: a
     /// refresh that took the hop would leave it true on the very next line.
-    func testRefreshingWithAnUnchangedBufferTakesNoHopAtAll() async {
+    func testRefreshingWithAnUnchangedBufferTakesNoLoadHop() async {
         capture("the old text", "a.swift", at: 1)
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
@@ -475,6 +706,88 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         XCTAssertFalse(model.isLoading, "an unchanged current text must not re-enter the hop")
         XCTAssertEqual(model.restorePlan, plan, "and must leave the standing plan exactly as it was")
         XCTAssertEqual(model.selectedContent, "the old text")
+    }
+
+    /// The short-circuit skips the text, not the disk. A clean tab holding the
+    /// selected revision's bytes refuses Restore while its file is there — and
+    /// once the file is deleted behind it, the very same buffer must arm Restore,
+    /// because restoring now recreates the file. Nothing about the text moved,
+    /// so only the existence re-ask can notice.
+    func testRefreshingWithAnUnchangedBufferArmsRestoreOnceTheFileIsDeleted() async {
+        capture("the old text", "a.swift", at: 1)
+        putOnDisk("a.swift")
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("the old text"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNil(model.restorePlan, "the buffer holds these bytes and the file is there")
+
+        tree.files.removeValue(forKey: "project/a.swift")
+        model.refreshSelection(currentText: .text("the old text"))
+        XCTAssertFalse(model.isLoading, "an existence re-ask is not a load and must not flash the spinner")
+
+        await waitUntil("the recreating plan to land") { model.restorePlan != nil }
+        XCTAssertEqual(model.restorePlan?.text, "the old text")
+    }
+
+    /// The mirror transition: a file recreated behind an unchanged buffer that
+    /// holds the selected revision is the identical case again, so the plan the
+    /// missing file armed must be withdrawn.
+    func testRefreshingWithAnUnchangedBufferDisarmsRestoreOnceTheFileReturns() async {
+        capture("the old text", "a.swift", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(model.revisions[0], currentText: .text("the old text"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNotNil(model.restorePlan, "a missing file is never the identical case")
+
+        putOnDisk("a.swift")
+        model.refreshSelection(currentText: .text("the old text"))
+        XCTAssertFalse(model.isLoading)
+
+        await waitUntil("the plan to be withdrawn") { model.restorePlan == nil }
+    }
+
+    /// Two existence re-asks overlapping under one generation: the first answers
+    /// "missing" and is held, the file returns, and the second answers "there".
+    /// The generation cannot order them — neither takes it — so the older answer
+    /// must be discarded by the existence check's own token, or it arms Restore
+    /// for a file that is back. The label read is the sentinel: it runs on the
+    /// same serial queue after both, so once its title lands both have landed,
+    /// and the sink is what tells a discarded publish from an overwritten one.
+    func testAnOverlappedExistenceReAskCannotPublishOverANewerOne() async {
+        let snapshot = capture("the old text", "a.swift", event: .label, label: "kept", at: 1)
+        putOnDisk("a.swift")
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { model.revisions.count == 1 }
+
+        model.select(snapshot, currentText: .text("the old text"))
+        await waitUntil("the content to land") { model.selectedContent != nil }
+        XCTAssertNil(model.restorePlan, "the buffer holds these bytes and the file is there")
+
+        var published: [LocalHistoryRestore?] = []
+        let subscription = model.$restorePlan.sink { published.append($0) }
+        defer { subscription.cancel() }
+
+        let gate = Gate()
+        tree.stampGate = (path: "project/a.swift", gate: gate)
+        tree.files.removeValue(forKey: "project/a.swift")
+        model.refreshSelection(currentText: .text("the old text"))
+        await gate.waitUntilReached()
+
+        putOnDisk("a.swift")
+        model.refreshSelection(currentText: .text("the old text"))
+        model.loadLabel(for: snapshot)
+        gate.release()
+
+        await waitUntil("the sentinel label to land") { model.title(for: snapshot) == "Label: kept" }
+        XCTAssertTrue(published.allSatisfy { $0 == nil }, "the overtaken re-ask published \(published)")
+        XCTAssertNil(model.restorePlan)
     }
 
     /// The short-circuit is the `.text(_:)` case's alone: `.deferred(_:)` cannot
@@ -509,6 +822,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         let precomposed = "caf\u{00E9}"
         let decomposed = "cafe\u{0301}"
         capture(precomposed, "a.swift", at: 1)
+        putOnDisk("a.swift")
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 1 }
@@ -583,6 +897,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
     /// would be armed under a pane showing no differences.
     func testADeferredCurrentTextMatchingTheRevisionPlansNothing() async {
         capture("on disk", "a.swift", at: 1)
+        putOnDisk("a.swift")
         let model = makeModel()
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { model.revisions.count == 1 }

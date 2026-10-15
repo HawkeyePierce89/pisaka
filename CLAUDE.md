@@ -163,7 +163,7 @@ headlessly in `Tests/PisakaAppTests`.
   `Platform/LeetCodeURLSessionTransport.swift` / `LeetCodeKeychainStore.swift` / `LeetCodeSupportDirectory.swift`, `Platform/LeetCodeWebSession.swift`, `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift`, `LeetCodeOpenProblemSheet.swift`, `LeetCodeDescriptionView.swift`, `iOS/LeetCodeRoute_iOS.swift`, `iOS/LeetCodeDescriptionView_iOS.swift`, `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift`, `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift`, `iOS/LeetCodeBrowserView_iOS.swift`
 
 `docs/architecture/core-local-history.md` — the Local History app surfaces (same doc as the Core half):
-  `LocalHistorySupportDirectory.swift`, `LocalHistoryWindowController.swift`, `LocalHistoryView.swift`
+  `LocalHistorySupportDirectory.swift`, `LocalHistoryWindowController.swift`, `LocalHistoryView.swift`, `LocalHistoryPrompts.swift`
 
 `docs/architecture/core-zoom.md` — the zoom app surfaces (same doc as the Core half):
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
@@ -211,8 +211,8 @@ because nothing else states them.
   `localChanges.beginRevert()` synchronously before its first `await`, balanced by
   `defer`. The bracket raises the flag without reading it, which is why the operations
   that must not run under it refuse for themselves: the project-tree file ops, ⌘S, the
-  run/test saves, the three branch-checkout entry points, and the database viewer's two
-  writes, which only *consult* it.
+  run/test saves, the three branch-checkout entry points, the database viewer's two
+  writes and Local History's recreate-on-restore, which only *consult* it.
 - **Readers do not take the writer gate**: the symbol index only *reads*, so it neither
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
@@ -261,8 +261,11 @@ because nothing else states them.
   it; its **restore is a buffer edit** through the ordinary save funnel, not a disk write.
   Each pre-operation capture is the **first `await` inside the operation's bracket**, which
   is what makes it pre-operation by construction, and the **quit flush is the one place it
-  writes on the main thread**. Every skip and every failure is silent; retention is 14 days
-  / 30 revisions with the newest always surviving.
+  writes on the main thread**. The **project tree's delete is a capture site** too: it reads
+  the doomed files synchronously before `removeItem`, leaves only the store writes to the
+  chain, and takes no gate. Its **one worktree create** is a restore into a missing path,
+  which first creates an empty file under `revertInFlight()`. Every skip and every failure
+  is silent; retention is 14 days / 30 revisions with the newest always surviving.
 - **The database viewer is a reader with two writes, whose tab kind can never be dirty**
   (macOS only, `core-database-viewer.md`): a recognized database file opens as the **second
   kind of `OpenFile`** — `.viewer`, carrying no text, with `isDirty` `false` *by

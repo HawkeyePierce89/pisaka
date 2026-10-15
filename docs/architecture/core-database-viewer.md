@@ -1270,6 +1270,10 @@ only *consults* one, before each of its two writes.
     database's path before an `applyRestore` that is a no-op for the kind restores
     nothing. It is reachable, because a `.db` that is not SQLite was an ordinary
     text tab before this feature existed and can carry real revisions.
+  - **File ▸ Put Label…** — its enablement hands
+    `LocalHistoryModel.canPutLabel(tabURLs:root:)` the urls of `openFiles`'
+    text-kind tabs only: a viewer tab holds no buffer to snapshot, so it must not
+    enable a command that would then find nothing to label.
   - the **write wiring**, part 2a's one addition and four lines in the scene's
     existing start-once block: `databaseViewers.start(isWriteBlocked:didWrite:)`,
     with the gate question wired to `localChanges.isReverting` and the hook to

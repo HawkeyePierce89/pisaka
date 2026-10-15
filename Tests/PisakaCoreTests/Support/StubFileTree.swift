@@ -130,6 +130,10 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
+    /// Held on the stamp of this exact root-relative path, once — *after* the
+    /// answer is computed, so the held call returns what the tree held when it
+    /// was asked, whatever the test changes while it waits.
+    var stampGate: (path: String, gate: Gate)?
 
     /// One completed rename, as root-relative paths.
     struct Move: Equatable {
@@ -249,6 +253,17 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         }
         let relativePath = relative(url)
         guard !unreadableDirectories.contains(relativePath) else { throw StubError.missing }
+        // A file is not a directory, and listing one throws on a real volume —
+        // the signal `LocalHistoryModel.captureBeforeDelete` reads "this item is
+        // a single file" off. Without this the stub would answer an empty listing
+        // for any file path, indistinguishable from an empty folder.
+        if !relativePath.isEmpty, files[relativePath] != nil {
+            throw FileServiceError.notADirectory(name: (relativePath as NSString).lastPathComponent)
+        }
+        // Nor is an absent path an empty directory: the real listing throws for
+        // one, and `LocalHistoryStore`'s merge tells "nothing there" from "an
+        // empty directory there" by exactly that.
+        guard hasDirectory(relativePath) else { throw StubError.missing }
         let prefix = relativePath.isEmpty ? [] : relativePath.split(separator: "/").map(String.init)
 
         var names: [String: Bool] = [:]
@@ -408,6 +423,15 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         lock.lock()
         stampPathsStorage.append(path)
         lock.unlock()
+        let stamp = answerStamp(path)
+        if let stampGate, stampGate.path == path {
+            self.stampGate = nil
+            stampGate.gate.wait()
+        }
+        return stamp
+    }
+
+    private func answerStamp(_ path: String) -> FileStamp? {
         guard !stampsAreUnavailable else { return nil }
         if let override = stampOverrides[path] { return override }
         guard let contents = files[path] else { return nil }

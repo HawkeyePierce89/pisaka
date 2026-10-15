@@ -50,6 +50,7 @@ final class WelcomeShortcutPinTests: XCTestCase {
     private static let folderRequiredTitles: Set<String> = [
         "Find in Files…",
         "Commit…",
+        "Deleted Files…",
     ]
 
     /// One `Button(` call: its argument's string literals, its chord and

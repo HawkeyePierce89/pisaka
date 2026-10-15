@@ -936,6 +936,22 @@ public final class WorkspaceModel: ObservableObject {
         return openFiles.first { canonicalURL(of: $0) == canonical }?.id
     }
 
+    /// Whether `url` is — or `open(url:)` would make it — a **viewer** tab, the
+    /// kind that holds no buffer and therefore can take no buffer edit.
+    ///
+    /// The tab already holding the file answers first, by its kind, because the
+    /// open's dedup runs first and is kind-blind; with none, it is the open's own
+    /// routing question, asked without opening anything (and without probing
+    /// disk: the routing is by name, the probe only decides whether the open
+    /// throws). Always `false` with `viewerTabsEnabled` off and no viewer tab.
+    public func opensAsViewer(_ url: URL) -> Bool {
+        let canonical = canonicalURL(url)
+        if let existing = openFiles.first(where: { canonicalURL(of: $0) == canonical }) {
+            return existing.kind == .viewer
+        }
+        return viewerTabsEnabled && DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent)
+    }
+
     /// Canonical form of a url for identity comparison: resolves symlinks and
     /// standardizes the path so `/tmp` vs `/private/tmp`, trailing slashes, and
     /// `.`/`..` components all compare equal.

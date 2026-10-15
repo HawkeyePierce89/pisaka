@@ -72,8 +72,12 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   worktree-rewriting operations (including Rename, a pull request checkout and a
   post-merge pull)
   is about to overwrite, is snapshotted locally; browse a file's revisions, diff
-  them against what it holds now and restore one (Cmd+Shift+H). 14 days or 30
-  revisions per file, independent of git.
+  them against what it holds now and restore one (Cmd+Shift+H). A history follows
+  its file through a rename or move in the project tree; deleting from the tree
+  takes a "Before Delete" copy first, **Deleted Files…** reaches the history of a
+  file that is gone, and restoring it recreates the file. **Put Label…** snapshots
+  every open project file under a label of your own. 14 days or 30 revisions per
+  file, independent of git.
 - **Database viewer (macOS)** — open a `.sqlite`, `.sqlite3` or `.db` file from
   the project tree and get a tab that lists its tables and views, shows the
   selected one's schema, and pages through its rows with click-to-sort headers.

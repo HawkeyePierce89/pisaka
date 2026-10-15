@@ -9,10 +9,13 @@ import Foundation
 /// refuses it, the listing drops it, and retention never reclaims it. Add cases
 /// freely; change a `tag` only with that consequence in hand.
 ///
-/// The titles are the window's row labels. Every one but `save` reads "Before …"
-/// because a pre-operation snapshot holds what the file looked like *before* the
-/// operation ran — that is the whole promise of the label, and phrasing it in the
-/// enum keeps the window from inventing a second wording.
+/// The titles are the window's row labels. Every one but `save` and `label` reads
+/// "Before …" because a pre-operation snapshot holds what the file looked like
+/// *before* the operation ran — that is the whole promise of the title, and
+/// phrasing it in the enum keeps the window from inventing a second wording. The
+/// two exceptions record a moment rather than pre-empt an operation: `save` is the
+/// buffer the app just wrote, and `label` is the buffer at the instant the user
+/// named it.
 ///
 /// Both branch operations (switch and checkout-remote) share `branch`: they are
 /// two call sites with two writer brackets, but from a file's point of view they
@@ -75,6 +78,25 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
     /// different one.
     case pull
 
+    /// Before the project tree's delete removed the file — or, for a folder, each
+    /// file under it the bounded walk reached.
+    ///
+    /// The one event whose operation removes the file outright, so the snapshot
+    /// is not a second copy of something the worktree still holds but the only
+    /// copy left; it is what **Deleted Files…** finds and what a restore into the
+    /// missing path recreates the file from.
+    case delete
+
+    /// The user put a label on the project's open buffers with **Put Label…**.
+    ///
+    /// Not a pre-emption: nothing runs after it. The user's own text lives beside
+    /// the snapshot in a sidecar (`LocalHistoryLayout.labelFileName(forSnapshotFileName:)`)
+    /// rather than in the name, whose grammar has no room for free text, and this
+    /// title is what a row shows until — or unless — that text is read. It is also
+    /// the one event exempt from dedup (`LocalHistoryPolicy.capture(of:relativePath:latestHash:event:)`):
+    /// a label put on an unchanged buffer still marks a moment the user chose.
+    case label
+
     /// The on-disk token. Lowercase ASCII with no `-`, because `-` is the file
     /// name's field separator.
     public var tag: String { rawValue }
@@ -99,6 +121,8 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
         case .rename: return "Before Rename"
         case .pullRequest: return "Before Pull Request Checkout"
         case .pull: return "Before Pull"
+        case .delete: return "Before Delete"
+        case .label: return "Label"
         }
     }
 }

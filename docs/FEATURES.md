@@ -936,6 +936,27 @@ user sees it.
   file is not in the open project, so it has no history." rather than showing an
   empty window. There is one window, and opening history for another file
   retargets it.
+  **A history follows its file.** Renaming a file in the project tree, or moving
+  it (or the folder holding it) by drag and drop, carries its revisions to the
+  new path, so Cmd+Shift+H on the renamed file shows everything taken under the
+  old name. Moving a file onto a path that already has history — say, the name of
+  a file you deleted earlier — merges the two into one list.
+  **Deleting is captured too.** Deleting a file or folder from the project tree
+  first takes a **"Before Delete"** copy of what is about to go — the open
+  buffer, unsaved edits included, for a file with a tab, and the file on disk
+  otherwise (ignored files such as `.env` included). The delete itself stays
+  immediate. **File ▸ Deleted Files…** lists the files in the project that have
+  history and are no longer on disk; pick one and its history opens. **Restore**
+  on a file that no longer exists **recreates it** — an empty file is created
+  first and the revision is restored into it, in a new tab — so a deleted file
+  comes back from its own history. A restore that would recreate a file while a
+  git operation is running does nothing.
+  **Put a label of your own.** **File ▸ Put Label…** asks for a short label (one
+  line, up to 100 characters) and snapshots **every open project file** under
+  it, edited or not, so the label marks the whole moment. Those rows read
+  **"Label: <your text>"**, survive a relaunch, and putting the same label again
+  adds another set. Put Label is disabled with no project open, or when no open
+  tab is a file in the project.
 - Closing a file with unsaved changes shows a Save / Don't Save / Cancel dialog.
 - Local Changes: a collapsible bottom panel (toggle with "Show/Hide Local
   Changes" in the View menu, the Local Changes button on the bottom bar, or
@@ -1606,7 +1627,8 @@ and iPhone. The feature scope landed so far:
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
-  save funnel and its nine worktree operations are not captured and leave no
+  save funnel, its nine worktree operations, the project tree's delete and Put
+  Label… are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
@@ -1631,18 +1653,18 @@ and iPhone. The feature scope landed so far:
   The single-Cmd+Z guarantee applies to the tab you are **looking at**: restoring
   into a file with no tab open (one is opened) or into an open background tab
   costs that tab its undo history and its remembered scroll position, because the
-  editor has not moved to it yet when the restore runs. A file one of the seven
-  operations *deleted* — a reverted untracked file, a file a branch switch removes
-  — can no longer be restored from its own "Before …" revision: the revision is
-  still listed, but Restore replaces a buffer and there is none, so it beeps;
-  re-create the file first. Two revisions of one file taken within the same
-  millisecond are listed in a stable but non-chronological order (by event name,
-  then content hash). Renaming, moving or deleting a file does **not**
-  carry its history along: the store is keyed by the file's path inside the
-  project, so a renamed or moved file starts an empty history and the revisions
-  taken under its old path stay in the store, no longer reachable from any
-  window; retention thins them to the newest one, which then stays for good like
-  every other newest revision. The revisions *list* also does not refresh itself
+  editor has not moved to it yet when the restore runs. A restore that recreates a
+  deleted file is always that case, so Cmd+Z cannot take it back to the empty
+  file; the "Before Restore" revision is the way back. Two revisions of one file
+  taken within the same millisecond are listed in a stable but non-chronological
+  order (by event name, then content hash). Only the project tree's own rename
+  and move carry a history along: a file moved or renamed in Finder, with
+  `git mv`, or in the terminal starts an empty history at its new path. History
+  written by an earlier version of Pisaka, for a file Pisaka has not saved or
+  captured since, does not follow a rename and is not listed under Deleted Files…
+  — the first capture after the upgrade fixes that file. Deleting a folder
+  snapshots at most **200** of its files from disk, the same bound as above. The
+  revisions *list* also does not refresh itself
   — a revision taken while the window is open (an autosave, an operation, or the
   copy Restore makes of what it replaced) shows up only after you open the
   history again. The diff and the **Restore** button do refresh, but only when

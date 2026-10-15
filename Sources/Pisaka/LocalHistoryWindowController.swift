@@ -45,7 +45,7 @@ final class LocalHistoryWindowController {
     ///
     /// `onBecomeKey` is what keeps the one part of this window that is an
     /// *action* from going stale with the rest of it: see
-    /// `LocalHistoryBrowserModel.refreshSelection(currentText:)`. It is re-supplied
+    /// `LocalHistoryBrowserModel.refreshSelection(currentText:restorable:)`. It is re-supplied
     /// on every retarget for the same reason the content is.
     func show(title: String, content: LocalHistoryView, onBecomeKey: @escaping () -> Void) {
         self.onBecomeKey = onBecomeKey

@@ -424,7 +424,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the id of the open tab targeting a url, matched by *canonical* url — same
     rule as `open(url:)` — so a lookup built from a different-but-equivalent path
     form, e.g. a repo-root-relative revert url vs a tab opened via `projectRoot`,
-    still resolves; `nil` when no tab targets it), and `replaceText(_:for:)` — the
+    still resolves; `nil` when no tab targets it), `opensAsViewer(_:)` (whether
+    a url is — by an open tab's kind, found the same canonical way — or would
+    be, by `open(url:)`'s own name routing, a viewer tab; asked without opening
+    or probing anything, so Local History can refuse a restore no buffer could
+    take), and `replaceText(_:for:)` — the
     text-mutating counterpart of `updateText(_:for:)` for a writer that is *not*
     the user's typing (the project-wide Replace All's `applyBufferText`, and the
     on-save transform's off-screen path: the macOS funnel's fallback for a buffer
