@@ -950,7 +950,8 @@ user sees it.
   on a file that no longer exists **recreates it** — an empty file is created
   first and the revision is restored into it, in a new tab — so a deleted file
   comes back from its own history. A restore that would recreate a file while a
-  git operation is running does nothing.
+  git operation is running is refused with the same "Git operation in progress"
+  notice (and its beep) as the other gated file operations, and creates nothing.
   **Put a label of your own.** **File ▸ Put Label…** asks for a short label (one
   line, up to 100 characters) and snapshots **every open project file** under
   it, edited or not, so the label marks the whole moment. Those rows read

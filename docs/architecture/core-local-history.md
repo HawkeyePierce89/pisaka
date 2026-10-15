@@ -1103,10 +1103,12 @@ changes.)
     file the create would make (`localHistoryTextToDisplace(_:missing:)` answers
     `""` for a missing path no tab holds, and the buffer when one does) — so a
     refused restore creates nothing. When the path is missing and the preflight
-    passes, the action consults `revertInFlight()` and stops silently if a gated
-    operation holds the gate — the create is an ordinary project-tree write, so it
-    obeys the gate the way the tree's own create does, and *consults* it without
-    raising it — then `ensureDirectory`s the parent and `createFile`s through the
+    passes, the action consults `revertInFlight()` — the create is an ordinary
+    project-tree write, so it obeys the gate the way the tree's own create does,
+    and *consults* it without raising it. If a gated operation holds the gate,
+    that consult beeps and shows the "Git operation in progress" notice, the same
+    refusal every gated operation gives, and the action stops, creating nothing
+    and opening nothing. Otherwise it `ensureDirectory`s the parent and `createFile`s through the
     file service (beeping and stopping on failure) and bumps the tree either way,
     since `ensureDirectory` does not roll back the parents it built. Everything
     after runs unchanged against the empty file: the open, the re-asked refusal, a
@@ -1447,7 +1449,11 @@ history, just not the newest one.
     that body's `removeItem(` and never awaited or handed to a `Task` or a queue
     ahead of it — that number pinned cross-file against this sentence; the
     restore's recreate asking `isMissing(` before its refusal, and both the
-    refusal and `revertInFlight()` ahead of its one `createFile(`; `followMove(` named once, inside `performMove`, after
+    refusal and `revertInFlight()` ahead of its one `createFile(`; the gate it
+    consults being `revertInFlight()`, whose body beeps and runs the notice, with
+    the restore never reading `localChanges.isReverting` itself and no
+    `PlatformFeedback.warning()` between that consult and the create, so nothing
+    beeps twice; `followMove(` named once, inside `performMove`, after
     its `fileService.move(`; the window declaring no zoom surface; the window
     closed at termination; and Local History — the prompts file included, by name —
     never naming `autosave.suspend`/`beginRevert`/`revertInFlight` anywhere.
