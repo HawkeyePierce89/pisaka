@@ -258,7 +258,7 @@ Three claims bend, and each is stated where it bends:
 **Files:**
 - Modify: `docs/architecture/core-local-history.md`, `CLAUDE.md`, `docs/FEATURES.md`, `README.md`
 
-- [ ] **`core-local-history.md`:**
+- [x] **`core-local-history.md`:**
   - The store diagram and bullets gain the `path` record and the label sidecar. For the record, state: the codec; "the inverse of the hash and nothing more"; that capture writes it only when the listing shows no `path` entry and never reads it, so a dedup'd capture stays one directory read and no content read; and that verification is on the read side only, a reader treating a wrong record as record-less.
   - State that a present-but-wrong record is corrected only by migration's own rewrite, and why that is acceptable.
   - Replace the "cannot be read backwards" cost with the record's story.
@@ -274,12 +274,12 @@ Three claims bend, and each is stated where it bends:
     - drop the three closed ones (rename leaves history behind; a deleted file cannot be restored from its own snapshot; the store cannot be read backwards);
     - add to the ⌘Z limit that a recreated file's restore has no undo step back to empty;
     - add that a directory never captured since the upgrade, or holding a wrong record, is record-less: it neither follows a move nor appears under Deleted Files.
-- [ ] **`CLAUDE.md`:**
+- [x] **`CLAUDE.md`:**
   - In the Local History invariant bullet, add one sentence naming the project tree's delete as a capture site (synchronous reads, background writes, no gate) and one sentence stating the one worktree create (a restore into a missing path creates an empty file under `revertInFlight()`).
   - Add `LocalHistoryPrompts.swift` to the `core-local-history.md` app index line.
   - Nothing else grows; the file stays under 60,000 characters.
-- [ ] **`docs/FEATURES.md` and `README.md`:** a user-facing description of history following a rename or move, Before Delete, Deleted Files…, Put Label…, and recreate-on-restore.
-- [ ] Run `swift test` (the `LintConfigurationTests` size rule and the cross-file pin); it must pass before Task 7.
+- [x] **`docs/FEATURES.md` and `README.md`:** a user-facing description of history following a rename or move, Before Delete, Deleted Files…, Put Label…, and recreate-on-restore.
+- [x] Run `swift test` (the `LintConfigurationTests` size rule and the cross-file pin); it must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
 
