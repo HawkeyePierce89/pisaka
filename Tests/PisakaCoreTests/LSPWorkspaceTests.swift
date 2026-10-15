@@ -1086,6 +1086,87 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.launches.count, 4)
     }
 
+    // MARK: - Failure records (D44)
+
+    func testAfterFourFailuresTheRecordHoldsTheExitCodeAndTheBoundedTail() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        for attempt in 1...4 {
+            let transport = harness.latest
+            if attempt == 4 {
+                // Past the ring's bound, so the record must have dropped the
+                // first three lives' lines and kept this one's newest bytes.
+                transport.writeError(Data(repeating: UInt8(ascii: "x"), count: LSPServerFailureRecord.capacity))
+                transport.writeError("fatal: last words\n")
+            } else {
+                transport.writeError("crash \(attempt)\n")
+            }
+            transport.reportExit(code: Int32(attempt))
+            await waitFor("life \(attempt)'s exit to reach the record") {
+                workspace.failureRecord(serverID: "sourcekit-lsp")?.lastExitCode == Int32(attempt)
+            }
+            await crash(transport)
+            _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        }
+
+        XCTAssertTrue(workspace.isUnavailable(.swift))
+        let record = workspace.failureRecordList.first
+        XCTAssertEqual(workspace.failureRecordList.count, 1)
+        XCTAssertEqual(record?.serverID, "sourcekit-lsp")
+        XCTAssertEqual(record?.failureCount, 4)
+        XCTAssertEqual(record?.isRetired, true)
+        XCTAssertEqual(record?.lastExitCode, 4)
+        XCTAssertEqual(record?.tail.count, LSPServerFailureRecord.capacity)
+        XCTAssertEqual(record?.text.hasSuffix("fatal: last words\n"), true)
+        XCTAssertEqual(record?.text.contains("crash 1"), false)
+        XCTAssertEqual(record?.statusSentence, "Stopped after 4 failures · exit code 4")
+        XCTAssertEqual(published.last, workspace.failureRecordList, "the sink saw the final state")
+    }
+
+    func testASuccessfulRestartClearsTheRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        harness.latest.writeError("boom\n")
+        await waitFor("the stderr line to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.text == "boom\n"
+        }
+        XCTAssertTrue(published.isEmpty, "a healthy server's log is not announced")
+
+        await crash(harness.latest)
+        // The crash is counted by the request that notices it, and the record
+        // is read inside that request's backoff — after the count, before the
+        // handshake that clears it.
+        var duringBackoff: [LSPServerFailureRecord] = []
+        onDelay = { duringBackoff = workspace.failureRecordList }
+
+        let restarted = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertNotNil(restarted)
+        XCTAssertEqual(duringBackoff.first?.text, "boom\n")
+        XCTAssertEqual(duringBackoff.first?.failureCount, 1)
+        XCTAssertTrue(workspace.failureRecordList.isEmpty)
+        XCTAssertEqual(published.last, [], "the clear is published so the row goes quiet")
+    }
+
+    func testALaunchFailureRecordsTheFactorysReason() async {
+        let harness = ServerHarness()
+        harness.launchError = .launchFailed("sourcekit-lsp not found")
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+
+        let record = workspace.failureRecordList.first
+        XCTAssertEqual(record?.failureCount, 1)
+        XCTAssertEqual(record?.text.contains("sourcekit-lsp not found"), true)
+    }
+
     /// Two requests in flight over one crash cost **one** restart between them.
     ///
     /// Both read the same live session and both suspend on `isRunning`, so both

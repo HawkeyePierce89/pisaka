@@ -193,6 +193,11 @@ struct PisakaApp: App {
     /// surfaces that show diagnostics observe it themselves.
     private let diagnostics: DiagnosticsModel
 
+    /// Each language server's stderr tail and last exit (D44), shown passively on
+    /// the Language Servers settings page and nowhere else. A plain stored
+    /// reference for `diagnostics`' reason: the settings page observes it itself.
+    private let lspFailures: LSPServerFailureModel
+
     /// Schedules the push channel's sync (D30): every open buffer of a served
     /// language is flushed to its server behind a 400 ms debounce, and
     /// immediately on a tab open/switch, so the server re-diagnoses without
@@ -433,6 +438,12 @@ struct PisakaApp: App {
         lspWorkspace.onDiagnostics = { [diagnostics] event in
             diagnostics.receive(event)
         }
+        // D44's sink, in the same mould: a record changes, the settings row
+        // re-derives its sentence. No alert, banner or notification is reachable
+        // from here — the model's only reader is that row.
+        let lspFailures = LSPServerFailureModel()
+        self.lspFailures = lspFailures
+        lspWorkspace.onFailureRecordsChange = { [lspFailures] in lspFailures.receive($0) }
         let lspDocumentSync = LSPDocumentSyncController(
             model: diagnostics,
             workspace: lspWorkspace
@@ -1647,6 +1658,7 @@ struct PisakaApp: App {
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
+                failures: lspFailures,
                 installEngine: lspInstallEngine,
                 leetCode: leetCode
             )

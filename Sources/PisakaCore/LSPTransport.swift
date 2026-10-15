@@ -50,6 +50,21 @@ public protocol LSPTransport: AnyObject, Sendable {
     /// session calls it on every terminal path) and must finish `incomingBytes`,
     /// because a stream that never ends is a read task that never exits.
     func terminate()
+
+    /// What the server wrote to stderr, and how its process ended (D44) — read
+    /// only to fill `LSPServerFailureRecord`, never interpreted and never shown
+    /// except passively on the settings page.
+    ///
+    /// Consumed once, by `LSPWorkspace`, like `incomingBytes`. The stream should
+    /// finish once the process is gone; a transport with no process behind it
+    /// keeps the default, an empty stream that is already finished.
+    var errorOutput: AsyncStream<LSPErrorOutputEvent> { get }
+}
+
+public extension LSPTransport {
+    var errorOutput: AsyncStream<LSPErrorOutputEvent> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 /// Why bytes could not move.

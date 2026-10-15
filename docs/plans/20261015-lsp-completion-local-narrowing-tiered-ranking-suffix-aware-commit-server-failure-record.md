@@ -378,33 +378,33 @@ kind, snippet support, code action or inlay hint.
   `ChromeThemeSourceGatingTests.swift` (pinned inventories)
 - Create: `Tests/PisakaCoreTests/LSPServerFailureRecordTests.swift`
 
-- [ ] Add `LSPServerFailureRecord` to Core:
+- [x] Add `LSPServerFailureRecord` to Core:
   - a byte ring bounded at a stated size (32 KiB) that keeps the newest bytes;
   - the last exit code;
   - the failure count and whether the key is retired;
   - the status sentence (e.g. "stopped after 4 failures, exit code 1").
 
   Text is decoded lossily for display only.
-- [ ] `LSPTransport` gains an `errorOutput` stream of `.bytes(Data)` /
+- [x] `LSPTransport` gains an `errorOutput` stream of `.bytes(Data)` /
   `.exited(code:)`, defaulted to an empty, finished stream. `LSPProcessTransport`
   yields stderr chunks (still always drained) and the termination status from its
   termination handler.
-- [ ] `LSPWorkspace` keeps `[ServerKey: LSPServerFailureRecord]` across restarts, in
+- [x] `LSPWorkspace` keeps `[ServerKey: LSPServerFailureRecord]` across restarts, in
   memory only.
   - Each launched transport's `errorOutput` is appended to its key's record.
   - A failure and a retirement update it.
   - A successful handshake removes it.
   - Changes are published through a callback in the `onDiagnostics` mould.
-- [ ] Core row derivation:
+- [x] Core row derivation:
   - Each settings row (downloadable, Go, Rust) gets an optional failure status.
   - A server without a row of its own (sourcekit-lsp) gets a status-only row with no
     actions, present only while a record exists.
   - Multiple roots for one server resolve to the newest record.
-- [ ] `LSPServerSettingsView` shows the status sentence plus a disclosure with the
+- [x] `LSPServerSettingsView` shows the status sentence plus a disclosure with the
   captured text in a scrollable, selectable monospaced area. Colour comes only from
   the roles already used on the page. There is no alert, banner, toast or
   notification.
-- [ ] Tests:
+- [x] Tests:
   - The ring keeps the newest bytes at exactly its bound.
   - After four scripted failures the record holds the exit code and the bounded
     tail.
@@ -415,8 +415,11 @@ kind, snippet support, code action or inlay hint.
     (`NSAlert`, `.alert(`, `UNUserNotificationCenter`, `NSUserNotification`),
     matched against comment- and literal-stripped text.
   - The new Core file is added to `LSPSourceGatingTests`' set.
-- [ ] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
-  Task 8.
+- [x] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
+  Task 8. (`swift test` green, 6336 tests; the bundle's only failures are
+  the same 8 scale-1.8 layout assertions Task 6 recorded as environmental.
+  `PisakaApp`'s `type_body_length` ceiling rose 1920 → 1925 for the wiring,
+  recorded in `.swiftlint.yml`, `style-lint.md` and `LintConfigurationTests`.)
 
 ### Task 8: Verify acceptance criteria
 

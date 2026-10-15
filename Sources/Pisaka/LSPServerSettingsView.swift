@@ -38,6 +38,13 @@ struct LSPServerSettingsView: View {
     /// without reusing its row (D21).
     @ObservedObject var rust: LSPRustProvisioningModel
 
+    /// What each server last said on its way out (D44): a sentence on its row and
+    /// the captured stderr behind a disclosure, present only after a failure and
+    /// cleared by the next successful start. Passive by design — this page is the
+    /// only place it is ever shown, and nothing here raises an alert, a banner or
+    /// a notification; D7's silence is unchanged for anyone who does not look.
+    @ObservedObject var failures: LSPServerFailureModel
+
     /// The interface zone's metrics, inherited from the `Settings` scene root.
     @Environment(\.interfaceMetrics) private var metrics
 
@@ -100,6 +107,13 @@ struct LSPServerSettingsView: View {
                 goRow(gopls.row)
                 hairlineRule
                 rustRow(rust.row)
+                // The servers no row above names — sourcekit-lsp, which ships with
+                // Xcode and has nothing to install or remove — get a status-only
+                // row, and only while there is a failure to report.
+                ForEach(statusOnlyRows, id: \.serverID) { record in
+                    hairlineRule
+                    statusOnlyRow(record)
+                }
             }
             .background(theme.color(.bgEditor))
             .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(ChromeGeometry.cornerRadiusMax)))
@@ -209,6 +223,7 @@ struct LSPServerSettingsView: View {
                         .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                serverFailure(row.server.serverID)
             }
 
             Spacer(minLength: metrics.scaled(8))
@@ -271,6 +286,7 @@ struct LSPServerSettingsView: View {
                         .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                serverFailure(LSPGopls.componentID)
             }
 
             Spacer(minLength: metrics.scaled(8))
@@ -332,6 +348,7 @@ struct LSPServerSettingsView: View {
                         .foregroundStyle(theme.color(.statusRed))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                serverFailure(LSPRustAnalyzer.componentID)
             }
 
             Spacer(minLength: metrics.scaled(8))
@@ -362,6 +379,57 @@ struct LSPServerSettingsView: View {
         .padding(.horizontal, metrics.scaled(12))
         .padding(.vertical, metrics.scaled(10))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Every server id a row above already names, so the status-only rows are
+    /// exactly the rest.
+    private var statusOnlyRows: [LSPServerFailureRecord] {
+        let named = Set(provisioning.rows.map(\.server.serverID))
+            .union([LSPGopls.componentID, LSPRustAnalyzer.componentID])
+        return failures.statusOnlyRows(excludingServerIDs: named)
+    }
+
+    /// A server with no row of its own: its name, and its failure — no actions,
+    /// because there is nothing here to install, remove or retry.
+    private func statusOnlyRow(_ record: LSPServerFailureRecord) -> some View {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
+            Text(record.serverID)
+                .foregroundStyle(theme.color(.textPrimary))
+            serverFailure(record.serverID)
+        }
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The failure status for `serverID` (D44), or nothing: the sentence, and the
+    /// captured stderr behind a disclosure in a bounded, scrollable, selectable
+    /// monospaced area. Several roots resolve to the newest record (Core's rule).
+    @ViewBuilder
+    private func serverFailure(_ serverID: String) -> some View {
+        if let record = failures.status(forServerID: serverID) {
+            Text(record.statusSentence)
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(theme.color(.statusRed))
+                .fixedSize(horizontal: false, vertical: true)
+            if !record.tail.isEmpty {
+                DisclosureGroup {
+                    ScrollView {
+                        Text(record.text)
+                            .font(metrics.scaledFont(.caption, design: .monospaced))
+                            .foregroundStyle(theme.color(.textSecondary))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: metrics.scaled(160))
+                } label: {
+                    Text("Server output")
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(theme.color(.textSecondary))
+                }
+            }
+        }
     }
 
     /// The row's state as one sentence.

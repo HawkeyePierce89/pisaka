@@ -57,6 +57,11 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     let incomingBytes: AsyncStream<Data>
     private let continuation: AsyncStream<Data>.Continuation
 
+    /// The stderr side (D44), driven by the test through `writeError(_:)` and
+    /// `reportExit(code:)` — nothing here writes to it on its own.
+    let errorOutput: AsyncStream<LSPErrorOutputEvent>
+    private let errorContinuation: AsyncStream<LSPErrorOutputEvent>.Continuation
+
     private let lock = NSLock()
     private var scripts: [String: [Step]] = [:]
     /// Called from `send`, synchronously, on whatever thread the session writes
@@ -87,6 +92,26 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         var escaped: AsyncStream<Data>.Continuation!
         incomingBytes = AsyncStream { escaped = $0 }
         continuation = escaped
+        var escapedErrors: AsyncStream<LSPErrorOutputEvent>.Continuation!
+        errorOutput = AsyncStream { escapedErrors = $0 }
+        errorContinuation = escapedErrors
+    }
+
+    // MARK: - stderr (D44)
+
+    /// Write `text` to the fake server's stderr.
+    func writeError(_ text: String) {
+        errorContinuation.yield(.bytes(Data(text.utf8)))
+    }
+
+    func writeError(_ bytes: Data) {
+        errorContinuation.yield(.bytes(bytes))
+    }
+
+    /// Report the process's exit status and finish the stderr side.
+    func reportExit(code: Int32) {
+        errorContinuation.yield(.exited(code: code))
+        errorContinuation.finish()
     }
 
     // MARK: - Scripting

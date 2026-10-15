@@ -173,6 +173,17 @@ public final class LSPWorkspace {
     private var flushes: [String: PendingFlush] = [:]
     private var failures: [ServerKey: Int] = [:]
     private var unavailable: Set<ServerKey> = []
+    /// Each key's stderr tail and exit record (D44) — in memory only, kept across
+    /// restarts so the fourth failure's record still holds what the first three
+    /// said, and removed by the next successful handshake.
+    private var failureRecords: [ServerKey: LSPServerFailureRecord] = [:]
+    /// The transport whose stderr feeds each key's record: the most recently
+    /// launched one, dead or alive. A process that has been superseded keeps
+    /// talking for a moment (its exit status arrives after the restart is
+    /// already under way) and must not write into its successor's record.
+    private var errorSources: [ServerKey: ObjectIdentifier] = [:]
+    /// Orders the records across keys — see `LSPServerFailureRecord.sequence`.
+    private var recordSequence = 0
 
     private var currentRoot: URL?
     /// The public ordering token, bumped only when the opened folder actually
@@ -196,6 +207,17 @@ public final class LSPWorkspace {
     /// before this channel existed. Called on the main actor, always — every
     /// emission site is one of this class's own main-actor methods.
     public var onDiagnostics: ((LSPDiagnosticEvent) -> Void)?
+
+    /// The sink for D44's failure records, in `onDiagnostics`' mould —
+    /// `LSPServerFailureModel.receive(_:)` in the composed app. Handed the whole
+    /// published set (`failureRecords`) whenever a record that is about a failure
+    /// changes or goes away. Never an alert: the only reader is a settings row.
+    public var onFailureRecordsChange: (([LSPServerFailureRecord]) -> Void)?
+
+    /// Every record that is about a failure, oldest change first.
+    public var failureRecordList: [LSPServerFailureRecord] {
+        failureRecords.values.filter(\.hasFailed).sorted { $0.sequence < $1.sequence }
+    }
 
     public init(
         registry: LSPServerRegistry = .standard,
@@ -422,6 +444,17 @@ public final class LSPWorkspace {
 
         failures = failures.filter { !isStale($0.key.serverID) }
         unavailable = unavailable.filter { !isStale($0.serverID) }
+        // A fresh budget is a fresh record: what the old install said is about
+        // files the engine is deleting.
+        let staleRecords = failureRecords.keys.filter { isStale($0.serverID) }
+        if !staleRecords.isEmpty {
+            let hadFailed = staleRecords.contains { failureRecords[$0]?.hasFailed == true }
+            for key in staleRecords {
+                failureRecords[key] = nil
+                errorSources[key] = nil
+            }
+            if hadFailed { onFailureRecordsChange?(failureRecordList) }
+        }
 
         let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
         guard !dead.isEmpty else { return }
@@ -1071,6 +1104,12 @@ public final class LSPWorkspace {
         } catch {
             // No toolchain, no executable, no pipe. Counted like a crash: a
             // machine with no Xcode must stop trying, not retry per keystroke.
+            // No process ever wrote a word, so the reason the factory gave is
+            // the record's text (D44).
+            errorSources[key] = nil
+            updateRecord(for: key) { record, sequence in
+                record.append(Data("\(error)\n".utf8), sequence: sequence)
+            }
             _ = noteFailure(of: key)
             return nil
         }
@@ -1078,6 +1117,7 @@ public final class LSPWorkspace {
         // that is still resolving a build system — the case a quit is most likely to
         // land in, since that is also the slowest thing this layer ever does.
         transports[key] = transport
+        attachErrorOutput(of: transport, for: key)
 
         let session = LSPSession(transport: transport, budgets: budgets, exitGraceWait: exitGraceWait)
         do {
@@ -1129,6 +1169,13 @@ public final class LSPWorkspace {
                 return nil
             }
             sessions[key] = session
+            // D44: a server that answered the handshake has recovered, so the
+            // record of what went wrong before it is cleared — the row stops
+            // saying anything. Whatever this process writes from here on starts
+            // a fresh record, which stays silent unless it fails too.
+            if failureRecords.removeValue(forKey: key)?.hasFailed == true {
+                onFailureRecordsChange?(failureRecordList)
+            }
             // The push channel opens with the session, not with the first
             // request: from here on this server may say things nobody asked for,
             // and its consumer must already be listening.
@@ -1190,7 +1237,11 @@ public final class LSPWorkspace {
     private func noteFailure(of key: ServerKey) -> Bool {
         let count = (failures[key] ?? 0) + 1
         failures[key] = count
-        guard count <= LSPWorkspace.backoffDelays.count else {
+        let retired = count > LSPWorkspace.backoffDelays.count
+        updateRecord(for: key) { record, sequence in
+            record.noteFailure(count: count, retired: retired, sequence: sequence)
+        }
+        guard !retired else {
             unavailable.insert(key)
             // D33's last teardown site: a spent budget retires the key, and the
             // key's diagnostics go with it. Usually a duplicate of the clear
@@ -1201,6 +1252,43 @@ public final class LSPWorkspace {
             return false
         }
         return true
+    }
+
+    // MARK: - Failure records (D44)
+
+    /// Feed `transport`'s stderr side into `key`'s record for as long as it is the
+    /// key's newest transport. The task holds the workspace weakly and ends with
+    /// the stream, which a real process finishes when it is reaped.
+    private func attachErrorOutput(of transport: LSPTransport, for key: ServerKey) {
+        let source = ObjectIdentifier(transport)
+        errorSources[key] = source
+        let stream = transport.errorOutput
+        Task { @MainActor [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                guard self.errorSources[key] == source else { continue }
+                self.updateRecord(for: key) { record, sequence in
+                    switch event {
+                    case .bytes(let bytes): record.append(bytes, sequence: sequence)
+                    case .exited(let code): record.noteExit(code: code, sequence: sequence)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Mutate (creating if absent) `key`'s record, and publish when the change is
+    /// about a failure — a healthy server's log lines accumulate unannounced.
+    private func updateRecord(
+        for key: ServerKey,
+        _ change: (inout LSPServerFailureRecord, Int) -> Void
+    ) {
+        recordSequence += 1
+        var record = failureRecords[key]
+            ?? LSPServerFailureRecord(serverID: key.serverID, root: key.root)
+        change(&record, recordSequence)
+        failureRecords[key] = record
+        if record.hasFailed { onFailureRecordsChange?(failureRecordList) }
     }
 
     // MARK: - Notifications (D29)
@@ -1353,6 +1441,12 @@ public final class LSPWorkspace {
     /// The `(server, root)` pairs with a live session — how the tests assert
     /// "started once" and "not started again".
     var liveServerCount: Int { sessions.count }
+
+    /// The newest record for `serverID`, failed or not — the tests' window onto
+    /// the stderr a healthy server has written, which nothing publishes.
+    func failureRecord(serverID: String) -> LSPServerFailureRecord? {
+        failureRecords.values.filter { $0.serverID == serverID }.max { $0.sequence < $1.sequence }
+    }
 
     /// Every document some server currently holds open.
     var openDocumentURIs: Set<String> { Set(documents.keys) }

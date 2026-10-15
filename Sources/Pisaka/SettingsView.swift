@@ -30,6 +30,9 @@ struct SettingsView: View {
     /// Acknowledgements to show (D24). The Rust row's own sentence names its
     /// origin and licence instead.
     @ObservedObject var rust: LSPRustProvisioningModel
+    /// D44's failure records, read by the Language Servers tab alone — a plain
+    /// `let` for `leetCode`'s reason below; that tab observes it itself.
+    let failures: LSPServerFailureModel
     let installEngine: LSPInstallEngine
     /// Who is signed in to LeetCode and where its solution files go. Read by the
     /// LeetCode tab alone, which observes it itself — so this is a plain `let`
@@ -66,7 +69,12 @@ struct SettingsView: View {
         case .general:
             GeneralSettingsView(settings: settings)
         case .languageServers:
-            LSPServerSettingsView(provisioning: provisioning, gopls: gopls, rust: rust)
+            LSPServerSettingsView(
+                provisioning: provisioning,
+                gopls: gopls,
+                rust: rust,
+                failures: failures
+            )
         case .leetCode:
             LeetCodeSettingsView(settings: settings, model: leetCode)
         case .acknowledgements:

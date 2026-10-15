@@ -86,7 +86,14 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the polite quit's (D43, `core-lsp.md`), one line:
+The most recent bump is the server failure record's (D44, `core-lsp.md`), five
+lines: `type_body_length` 1920 → **1925**, for the `LSPServerFailureModel` the
+scene stores, constructs in `init()`, wires to the workspace's
+`onFailureRecordsChange` in one line and hands to the Settings scene.
+`file_length` did not rise: the slack the delegate's move left (below) absorbed
+the five lines.
+
+The bump before it is the polite quit's (D43, `core-lsp.md`), one line:
 `type_body_length` 1919 → **1920**, for the closure the scene's start-once block
 installs on the app delegate so `applicationShouldTerminate` can wait for
 `shutdownAll()`. `file_length` did not rise with it, the one time the two have

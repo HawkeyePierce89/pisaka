@@ -40,6 +40,13 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     let incomingBytes: AsyncStream<Data>
     private let continuation: AsyncStream<Data>.Continuation
 
+    /// stderr chunks and the exit status (D44), for `LSPWorkspace`'s failure
+    /// record. Bounded to the newest chunks: unlike stdout, losing an old log
+    /// line costs nothing — the record keeps only a tail anyway — and a server
+    /// logging faster than the main actor reads must not grow this without end.
+    let errorOutput: AsyncStream<LSPErrorOutputEvent>
+    private let errorContinuation: AsyncStream<LSPErrorOutputEvent>.Continuation
+
     private let process: Process
     private let input: Pipe
     private let output: Pipe
@@ -62,6 +69,12 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     private var isStopped = false
     private var isInputClosed = false
     private var streamIsFinished = false
+    /// The two halves `errorOutput` finishes after: stderr reached EOF (or
+    /// stopped being read), and the exit status was reported. Both, so a crash's
+    /// last lines — readable a moment after the process is reaped — still land
+    /// before the stream ends.
+    private var errorReadingEnded = false
+    private var exitReported = false
 
     /// What is queued but not yet written, bounded (D39). Guarded by `lock`, like
     /// every other piece of state here: `send` admits from the session's actor and
@@ -89,6 +102,9 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // actually matters is `Content-Length`'s cap, which Core already enforces.
         incomingBytes = AsyncStream(bufferingPolicy: .unbounded) { escaped = $0 }
         continuation = escaped
+        var escapedErrors: AsyncStream<LSPErrorOutputEvent>.Continuation!
+        errorOutput = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { escapedErrors = $0 }
+        errorContinuation = escapedErrors
 
         process = Process()
         input = Pipe()
@@ -130,6 +146,7 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             try process.run()
         } catch {
             continuation.finish()
+            errorContinuation.finish()
             throw LSPTransportError.launchFailed(
                 "\(executable.path): \(error.localizedDescription)"
             )
@@ -145,6 +162,9 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // between `run()` and the handshake) must not leave a `sourcekit-lsp`
         // behind either.
         stop()
+        // A grandchild that inherited stderr can hold it open past the server's
+        // own exit; the record's reader must not outlive the transport for it.
+        errorContinuation.finish()
     }
 
     /// The server's pid — read by the app-layer shutdown test, which has to see
@@ -176,15 +196,24 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
             self.yield(chunk)
         }
 
-        // stderr is drained and discarded. Draining is not optional: a server that
-        // logs steadily would otherwise fill the pipe buffer and block *writing a
-        // log line*, wedging the whole server behind an output nobody reads. What
-        // it says is another matter — nothing on this path is ever shown to the
-        // user (D7), and a language server's stderr is its own diagnostics, not a
-        // message about this project. No `self` is captured, so this handler
-        // keeps nothing alive.
-        errors.fileHandleForReading.readabilityHandler = { handle in
-            if handle.availableData.isEmpty { handle.readabilityHandler = nil }
+        // stderr is always drained. Draining is not optional: a server that logs
+        // steadily would otherwise fill the pipe buffer and block *writing a log
+        // line*, wedging the whole server behind an output nobody reads. What it
+        // says is handed to `errorOutput` and nowhere else — the workspace keeps a
+        // bounded tail for the settings row (D44), and nothing on this path is ever
+        // an alert (D7). `weak self` for the stdout handler's reason.
+        errors.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard let self else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                self.endErrorOutput(exitCode: nil)
+                return
+            }
+            self.errorContinuation.yield(.bytes(chunk))
         }
 
         // The backstop for an EOF that never comes: a server whose child inherited
@@ -197,9 +226,25 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // wrote immediately before exiting, and the one response the client ever
         // waits for at shutdown (`shutdown` itself) is answered while the process
         // is still alive.
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] process in
             self?.finishStream()
+            // A signal is reported negated, so one integer carries both endings
+            // (`LSPServerFailureRecord.lastExitCode`).
+            let status = process.terminationStatus
+            self?.endErrorOutput(exitCode: process.terminationReason == .uncaughtSignal ? -status : status)
         }
+    }
+
+    /// Record one of `errorOutput`'s two endings — the exit status when
+    /// `exitCode` is given, stderr's end otherwise — and finish the stream once
+    /// both have happened.
+    private func endErrorOutput(exitCode: Int32?) {
+        lock.lock()
+        if exitCode == nil { errorReadingEnded = true } else { exitReported = true }
+        let done = errorReadingEnded && exitReported
+        lock.unlock()
+        if let exitCode { errorContinuation.yield(.exited(code: exitCode)) }
+        if done { errorContinuation.finish() }
     }
 
     private func yield(_ chunk: Data) {
@@ -313,6 +358,9 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
 
         output.fileHandleForReading.readabilityHandler = nil
         errors.fileHandleForReading.readabilityHandler = nil
+        // Nothing reads stderr from here on, so that half of `errorOutput` is over;
+        // the exit status still arrives through the termination handler.
+        endErrorOutput(exitCode: nil)
         // Stdin is closed here too, for the paths that never said goodbye (a
         // crash, a superseded launch, `terminateNow()`); the polite path has
         // already closed it through `closeInput()` and given the server its exit
