@@ -197,22 +197,22 @@ Three claims bend, and each is stated where it bends:
 - Modify: `Sources/PisakaCore/LocalHistoryModel.swift`, `Sources/PisakaCore/LocalHistoryBrowserModel.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistoryModelTests.swift`, `LocalHistoryBrowserModelTests.swift`
 
-- [ ] **`LocalHistoryModel.captureBeforeDelete(of:root:bufferTexts:)`**, synchronous and not `async`:
+- [x] **`LocalHistoryModel.captureBeforeDelete(of:root:bufferTexts:)`**, synchronous and not `async`:
   - it keys the buffers (buffers win);
   - it walks the item through the file service per the decision above, capped at `maxPreOperationFiles` disk targets;
   - it reads each target with `readTextIfNotBinary(url:maxBytes:)` **before returning**;
   - it appends only the writes under `.delete`, with the clock read at entry;
   - it returns without touching the chain when there is nothing to store.
-- [ ] **`LocalHistoryModel.captureLabel(_:root:texts:)`**:
+- [x] **`LocalHistoryModel.captureLabel(_:root:texts:)`**:
   - it normalises the text through `LocalHistoryPolicy.label(from:)` and does nothing when that refuses;
   - it appends one unit per keyed buffer under `.label`, with the shared label text.
-- [ ] Add a pure predicate the menu uses for enablement. It takes the open tabs' **urls** (`[URL]`, never buffer texts) and answers whether any of them is keyable under the root. It answers false with no root.
-- [ ] **`LocalHistoryBrowserModel`:**
+- [x] Add a pure predicate the menu uses for enablement. It takes the open tabs' **urls** (`[URL]`, never buffer texts) and answers whether any of them is keyable under the root. It answers false with no root.
+- [x] **`LocalHistoryBrowserModel`:**
   - `deletedPaths(root:) async -> [String]`: runs off-main; `recordedPaths` filtered by `isMissing`, sorted by path; `[]` with no root or an unreadable store; computed on demand and never stored.
   - a published `labelTexts`, keyed by snapshot file name and cleared on `open(file:root:)`;
   - `loadLabel(for:)`: an off-main read through `store.labelText`. It does **not** take the generation token, and it publishes only if the browser still targets the same root and relative path. It is a no-op for a non-`.label` row or one already loaded.
   - `title(for:)`: answers `"Label: <text>"` when the text is loaded, and the event's title otherwise.
-- [ ] Tests:
+- [x] Tests:
   - `captureBeforeDelete` has read every disk target by the time it returns (assert `readPaths`). Then remove the files from the stub and await the chain: the `.delete` snapshots hold the pre-delete text.
   - A buffer beats its disk copy; a folder capture is capped at a small `maxPreOperationFiles`; a binary file is absent; a symlink is neither read nor descended; a single-file url is captured; nothing to capture leaves the chain unchanged.
   - A capture appended after the delete capture lands after it.
@@ -221,7 +221,7 @@ Three claims bend, and each is stated where it bends:
   - The enablement predicate, fed urls only, is false for no root and for only untitled (`nil`) or outside-root urls, and true for one project file.
   - `deletedPaths` is sorted, excludes existing files and record-less directories (including one with a wrong record), and is `[]` for no root.
   - `loadLabel` publishes `"Label: …"`, falls back to "Label" for an unreadable sidecar, and is discarded after a retarget to another file (`Gate` rendezvous). A label load does not cancel an in-flight listing.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: App wiring: move, delete, restore recreate, the two menu commands, label titles in the window
 

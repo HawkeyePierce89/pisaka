@@ -202,6 +202,12 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// clear it; see the type's note.
     @Published public private(set) var isLoading = false
 
+    /// The user's label texts loaded so far for the current file's `.label` rows,
+    /// keyed by snapshot file name. Filled one row at a time by
+    /// ``loadLabel(for:)`` and cleared on every ``open(file:root:)``; read through
+    /// ``title(for:)``.
+    @Published public private(set) var labelTexts: [String: String] = [:]
+
     /// Whether the window should show its empty state: a file is targeted, its
     /// listing has landed, and there is nothing in it. True for a refused target
     /// as well — a file the store cannot key has no revisions and never will,
@@ -234,6 +240,11 @@ public final class LocalHistoryBrowserModel: ObservableObject {
 
     /// See the type's note.
     private var generation = 0
+
+    /// The `.label` rows ``loadLabel(for:)`` has already asked about for the
+    /// current file — including the ones whose sidecar answered nothing, so an
+    /// unreadable label is read once per targeting rather than on every appear.
+    private var requestedLabels: Set<String> = []
 
     /// Where the reads run. Serial and utility, the capture model's arrangement
     /// for the same reason: this object stays `@MainActor` and no directory read,
@@ -269,6 +280,8 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         diffRows = []
         restorePlan = nil
         resolvedCurrentText = nil
+        labelTexts = [:]
+        requestedLabels = []
         fileURL = file
 
         guard let root, let relativePath = LocalHistoryModel.relativePath(of: file, under: root) else {
@@ -402,6 +415,59 @@ public final class LocalHistoryBrowserModel: ObservableObject {
             diffRows = loaded.rows
             restorePlan = plannedRestore()
             isLoading = false
+        }
+    }
+
+    // MARK: - Labels
+
+    /// Load the user's label text for one `.label` row, off the main actor.
+    ///
+    /// **It does not take the generation token**, and that is deliberate: a label
+    /// is decoration on a row the listing already published, and a row appearing
+    /// must never cancel the listing or the content load in flight. What it checks
+    /// instead is narrower and sufficient — that the window still targets the same
+    /// root and relative path when the read lands — so a label read for one file
+    /// can never decorate another file's row of the same name.
+    ///
+    /// A no-op for a row that is not `.label` and for one already asked about. A
+    /// sidecar that is missing or that `LocalHistoryPolicy.label(from:)` refuses
+    /// publishes nothing, and the row keeps its plain event title.
+    public func loadLabel(for snapshot: LocalHistorySnapshot) {
+        guard snapshot.event == .label, let root, let relativePath,
+              requestedLabels.insert(snapshot.fileName).inserted
+        else { return }
+        let store = self.store
+        Task {
+            let text = await offMain { store.labelText(of: snapshot, root: root, relativePath: relativePath) }
+            guard let text, self.root == root, self.relativePath == relativePath else { return }
+            labelTexts[snapshot.fileName] = text
+        }
+    }
+
+    /// What a row is titled: `"Label: <text>"` once that row's label has loaded,
+    /// and the event's own title otherwise.
+    public func title(for snapshot: LocalHistorySnapshot) -> String {
+        guard let text = labelTexts[snapshot.fileName] else { return snapshot.event.title }
+        return "Label: \(text)"
+    }
+
+    // MARK: - Deleted files
+
+    /// The project-relative paths of every file under `root` that has a history
+    /// and is no longer on disk, sorted by path — what "Deleted Files…" offers.
+    ///
+    /// Computed on demand, off the main actor, and never stored: it is one answer
+    /// to one menu command. Only directories with a **verified** path record are
+    /// candidates (`LocalHistoryStore.recordedPaths(root:)`), and "missing" is the
+    /// store's one question (`isMissing(root:relativePath:)`). `[]` with no root or
+    /// an unreadable store, silently.
+    public func deletedPaths(root: URL?) async -> [String] {
+        guard let root else { return [] }
+        let store = self.store
+        return await offMain {
+            store.recordedPaths(root: root)
+                .filter { store.isMissing(root: root, relativePath: $0) }
+                .sorted()
         }
     }
 

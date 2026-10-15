@@ -49,6 +49,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         _ text: String,
         _ relativePath: String,
         event: LocalHistoryEvent = .save,
+        label: String? = nil,
         at seconds: Double
     ) -> LocalHistorySnapshot {
         let snapshot = store.capture(
@@ -56,6 +57,7 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
             root: projectRoot,
             relativePath: relativePath,
             event: event,
+            label: label,
             now: Date(timeIntervalSince1970: seconds)
         )
         guard let snapshot else {
@@ -223,6 +225,132 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         // The queue is serial, so the superseded listing finished *before* the
         // one that won: had it published, its two rows would be in the record.
         XCTAssertTrue(published.allSatisfy { $0.count != 2 }, "the stale listing published \(published)")
+    }
+
+    // MARK: - Deleted files
+
+    /// Where the stub keeps one file directory's path record.
+    private func recordPath(_ relativePath: String) -> String {
+        let directory = store.layout.fileDirectory(forRoot: projectRoot, relativePath: relativePath)
+        return tree.relativePath(of: directory.appendingPathComponent(LocalHistoryLayout.pathRecordName))
+    }
+
+    func testDeletedPathsListsOnlyVerifiedRecordsOfMissingFilesSorted() async {
+        capture("b", "z/b.swift", at: 1)
+        capture("a", "a.swift", at: 2)
+        capture("here", "here.swift", at: 3)
+        capture("no record", "record-less.swift", at: 4)
+        capture("wrong", "wrong.swift", at: 5)
+        tree.files["project/here.swift"] = "still on disk"
+        tree.files[recordPath("record-less.swift")] = nil
+        tree.files[recordPath("wrong.swift")] = "a.swift"
+        let model = makeModel()
+
+        let deleted = await model.deletedPaths(root: projectRoot)
+        let none = await model.deletedPaths(root: nil)
+
+        XCTAssertEqual(deleted, ["a.swift", "z/b.swift"])
+        XCTAssertEqual(none, [])
+    }
+
+    func testDeletedPathsOfAnUnreadableStoreIsEmpty() async {
+        capture("a", "a.swift", at: 1)
+        tree.unreadableDirectories = [
+            tree.relativePath(of: store.layout.projectDirectory(forRoot: projectRoot))
+        ]
+        let model = makeModel()
+
+        let deleted = await model.deletedPaths(root: projectRoot)
+        XCTAssertEqual(deleted, [])
+    }
+
+    // MARK: - Labels
+
+    /// Where the stub keeps one `.label` row's sidecar.
+    private func sidecarPath(of snapshot: LocalHistorySnapshot, _ relativePath: String) -> String {
+        let directory = store.layout.fileDirectory(forRoot: projectRoot, relativePath: relativePath)
+        let name = LocalHistoryLayout.labelFileName(forSnapshotFileName: snapshot.fileName)
+        return tree.relativePath(of: directory.appendingPathComponent(name))
+    }
+
+    func testALoadedLabelTitlesItsRowAndAnUnreadableOneKeepsThePlainTitle() async {
+        let unreadable = capture("one", "a.swift", event: .label, label: "Lost", at: 1)
+        let readable = capture("two", "a.swift", event: .label, label: "Release", at: 2)
+        let save = capture("three", "a.swift", at: 3)
+        tree.unreadableFiles = [sidecarPath(of: unreadable, "a.swift")]
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+
+        model.loadLabel(for: unreadable)
+        model.loadLabel(for: save)
+        model.loadLabel(for: readable)
+        // The queue is serial and the unreadable read was asked first, so once
+        // the readable one has published the other has long since answered.
+        await waitUntil("the readable label to land") { model.labelTexts[readable.fileName] != nil }
+
+        XCTAssertEqual(model.title(for: readable), "Label: Release")
+        XCTAssertEqual(model.title(for: unreadable), "Label")
+        XCTAssertEqual(model.title(for: save), LocalHistoryEvent.save.title)
+        XCTAssertEqual(Set(model.labelTexts.keys), [readable.fileName])
+    }
+
+    func testALabelReadLandingAfterARetargetIsDiscarded() async {
+        let first = capture("a", "a.swift", event: .label, label: "For a", at: 1)
+        let second = capture("b", "b.swift", event: .label, label: "For b", at: 2)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the first listing to land") { !model.isLoading }
+
+        var published: [[String: String]] = []
+        let subscription = model.$labelTexts.sink { published.append($0) }
+        defer { subscription.cancel() }
+
+        let gate = Gate()
+        tree.readGate = (path: sidecarPath(of: first, "a.swift"), gate: gate)
+        model.loadLabel(for: first)
+        await gate.waitUntilReached()
+        model.open(file: projectFile("b.swift"), root: projectRoot)
+        model.loadLabel(for: second)
+        gate.release()
+
+        await waitUntil("the second file's label to land") { model.labelTexts[second.fileName] != nil }
+        XCTAssertEqual(model.title(for: second), "Label: For b")
+        XCTAssertFalse(
+            published.contains { $0[first.fileName] != nil },
+            "the first file's label reached the second file's window: \(published)"
+        )
+    }
+
+    func testALabelLoadDoesNotCancelTheListingInFlight() async {
+        let labelled = capture("a", "a.swift", event: .label, label: "Checkpoint", at: 1)
+        capture("b", "a.swift", at: 2)
+        let model = makeModel()
+
+        let gate = Gate()
+        tree.listingGate = gate
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await gate.waitUntilReached()
+        model.loadLabel(for: labelled)
+        gate.release()
+
+        await waitUntil("the listing to land") { !model.isLoading }
+        await waitUntil("the label to land") { model.labelTexts[labelled.fileName] != nil }
+        XCTAssertEqual(model.revisions.map(\.event), [.save, .label])
+        XCTAssertEqual(model.title(for: labelled), "Label: Checkpoint")
+    }
+
+    func testRetargetingClearsTheLoadedLabels() async {
+        let labelled = capture("a", "a.swift", event: .label, label: "Checkpoint", at: 1)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+        model.loadLabel(for: labelled)
+        await waitUntil("the label to land") { !model.labelTexts.isEmpty }
+
+        model.open(file: projectFile("b.swift"), root: projectRoot)
+
+        XCTAssertTrue(model.labelTexts.isEmpty)
     }
 
     // MARK: - Selection
