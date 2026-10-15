@@ -167,18 +167,18 @@ Three claims bend, and each is stated where it bends:
 - Modify: `Sources/PisakaCore/LocalHistoryStore.swift`, `Sources/PisakaCore/LocalHistoryModel.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistoryStoreTests.swift`, `LocalHistoryModelTests.swift`
 
-- [ ] Add `LocalHistoryStore.migrate(root:from:to:now:)` per the decision above:
+- [x] Add `LocalHistoryStore.migrate(root:from:to:now:)` per the decision above:
   - the affected set comes from `recordedPaths` (verified records only), with `/`-boundary prefix matching on normalised paths;
   - per directory: one directory `move`, then a record rewrite;
   - on a failed move, fall back to an entry-by-entry merge: the destination's copy wins a name clash, the source's record and emptied directory are removed through `discard`, the destination record is made correct, and the destination is pruned by the per-file rule together with its sidecars;
   - each directory fails silently on its own.
-- [ ] Add `LocalHistoryModel.followMove(from:to:root:)`:
+- [x] Add `LocalHistoryModel.followMove(from:to:root:)`:
   - it keys both urls with `relativePath(of:under:)`;
   - it returns without touching the chain when either side cannot be keyed or the two paths are equal;
   - otherwise it appends the migration to the serial chain, fire-and-forget;
   - it reads the clock at the entry point for the merge's prune;
   - it takes no gate.
-- [ ] Tests (store):
+- [x] Tests (store):
   - a file rename carries every revision with original names, timestamps and events, and the record now names the new path;
   - a folder move re-keys every recorded descendant, and a record-less descendant stays under its old key;
   - prefix `a` does not move `ab/x`;
@@ -186,10 +186,10 @@ Three claims bend, and each is stated where it bends:
   - a merge into a destination holding a wrong record leaves a correct record;
   - label sidecars travel with their snapshots in both paths;
   - an injected `move` failure (`moveFailures`) leaves the source directory intact and listable under its old key.
-- [ ] Tests (model):
+- [x] Tests (model):
   - A capture appended before `followMove` lands under the old key and is carried; a capture appended after lands under the new key. Stage this with `Gate` on a listing as the causal rendezvous, then await `chain?.value`.
   - `followMove` with an unkeyable side does not extend the chain.
-- [ ] Run `swift test`; it must pass before Task 4.
+- [x] Run `swift test`; it must pass before Task 4.
 
 ### Task 4: Model and browser: delete capture, labelled capture, deleted-path listing, label titles
 

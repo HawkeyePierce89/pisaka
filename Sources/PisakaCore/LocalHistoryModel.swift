@@ -260,6 +260,33 @@ public final class LocalHistoryModel {
         }.value
     }
 
+    // MARK: - After a rename or move
+
+    /// Carry the history of `source` — a file, or a folder and everything under
+    /// it — to `destination`, after the project tree has moved it.
+    ///
+    /// Fire-and-forget on the chain, and **ordered by it, which is the whole
+    /// correctness argument**: a capture appended before this lands under the old
+    /// key and is carried with the rest, and one appended after lands under the
+    /// new key and finds the carried history there to dedup against. Nothing else
+    /// coordinates the two, and nothing else needs to.
+    ///
+    /// Both urls are keyed by `relativePath(of:under:)`, the one rule every
+    /// capture keys by; a side that cannot be keyed, or a move that keys both
+    /// sides alike, returns without touching the chain. The clock is read here,
+    /// in the entry point, for the merge's prune. It takes no gate: the move is
+    /// the user's, already done, and this writes only the store.
+    public func followMove(from source: URL, to destination: URL, root: URL?) {
+        guard let root,
+              let from = Self.relativePath(of: source, under: root),
+              let to = Self.relativePath(of: destination, under: root),
+              LocalHistoryLayout.normalisedRelativePath(from) != LocalHistoryLayout.normalisedRelativePath(to)
+        else { return }
+        let store = self.store
+        let now = clock()
+        append { store.migrate(root: root, from: from, to: to, now: now) }
+    }
+
     // MARK: - Retention
 
     /// Apply retention to the whole store — the once-per-folder-open sweep,

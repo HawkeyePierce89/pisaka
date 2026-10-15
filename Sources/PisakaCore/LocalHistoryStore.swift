@@ -219,6 +219,41 @@ public struct LocalHistoryStore {
         return snapshot
     }
 
+    // MARK: - Migrating
+
+    /// Carry the history of `oldPath` to `newPath` — the rename or move of one
+    /// file, or of a folder and every file under it.
+    ///
+    /// **Records only, for files and folders alike.** The affected set is every
+    /// verified record (`recordedPaths(root:)`) equal to `oldPath` or under it at
+    /// a `/` boundary, so `a` never takes `ab/x` with it; both sides are compared
+    /// in `LocalHistoryLayout.normalisedRelativePath`'s spelling, the one the
+    /// records are written in. A directory without a verified record does not
+    /// move: a file never captured since records existed keeps its history under
+    /// the old key, readable forwards and reached by nothing else.
+    ///
+    /// Each affected directory is carried on its own and fails silently on its
+    /// own (`migrate(_:to:root:now:)`), so one stuck directory strands one file's
+    /// history and nothing more. The set is read once, before anything moves, so a
+    /// directory this call has just re-keyed is never visited twice.
+    public nonisolated func migrate(root: URL, from oldPath: String, to newPath: String, now: Date = Date()) {
+        let old = LocalHistoryLayout.normalisedRelativePath(oldPath)
+        let new = LocalHistoryLayout.normalisedRelativePath(newPath)
+        guard !old.isEmpty, !new.isEmpty, old != new else { return }
+        for recorded in recordedPaths(root: root) {
+            guard let moved = Self.rekeyed(recorded, from: old, to: new) else { continue }
+            migrate(recorded, to: moved, root: root, now: now)
+        }
+    }
+
+    /// `path` re-keyed from under `old` to under `new`, or `nil` when it is
+    /// neither `old` itself nor below it at a component boundary.
+    static func rekeyed(_ path: String, from old: String, to new: String) -> String? {
+        if path == old { return new }
+        guard path.hasPrefix(old + "/") else { return nil }
+        return new + path.dropFirst(old.count)
+    }
+
     // MARK: - Retention
 
     /// Apply retention to **every** project area in the store — the
@@ -404,6 +439,100 @@ public struct LocalHistoryStore {
             named: LocalHistoryLayout.pathRecordName,
             in: directory
         )
+    }
+
+    /// One file directory carried from `oldPath`'s key to `newPath`'s.
+    ///
+    /// **One directory `move`, then the record.** The moved record still names
+    /// the old path, so it is replaced; a crash between the two leaves a wrong
+    /// record, which every reader already treats as none — readable forwards
+    /// under the new key, listed by nothing — and the next capture's listing
+    /// still shows a `path` entry, so only another migration corrects it.
+    ///
+    /// The `move` refuses an existing destination, which in practice is what a
+    /// failure means: the new path already has a history of its own (a file
+    /// moved over one that was deleted, a folder moved onto a folder). That falls
+    /// back to `merge(_:into:relativePath:now:)`. A failure with no destination
+    /// directory to merge into leaves the source exactly where it was.
+    private nonisolated func migrate(_ oldPath: String, to newPath: String, root: URL, now: Date) {
+        let source = layout.fileDirectory(forRoot: root, relativePath: oldPath)
+        let destination = layout.fileDirectory(forRoot: root, relativePath: newPath)
+        if (try? fileService.move(from: source, to: destination)) != nil {
+            replaceRecord(with: newPath, in: destination)
+            return
+        }
+        merge(source, into: destination, relativePath: newPath, now: now)
+    }
+
+    /// Carry `source`'s revisions into the existing `destination` entry by
+    /// entry: the two histories become one list, pruned as one.
+    ///
+    /// - **A name on both sides keeps the destination's copy** and discards the
+    ///   source's. A snapshot name is its timestamp, event and content hash, so
+    ///   the two copies are the same revision; a sidecar follows its snapshot.
+    /// - **Sidecars are carried before snapshots**, the order a capture writes
+    ///   them in, so the destination never lists a labelled row ahead of its text.
+    /// - **Only what this feature wrote is carried.** Its own temporaries are
+    ///   debris and are discarded; a foreign entry stays where it is, and so then
+    ///   do the source's record and directory, because a directory still holding
+    ///   something is not this feature's to remove. An entry whose `move` fails
+    ///   is left the same way, under a record that still names it.
+    /// - **The destination's record is made correct**, which also corrects a
+    ///   wrong one, and the merged list is pruned by the ordinary per-file rule,
+    ///   label sidecars going with their snapshots.
+    private nonisolated func merge(_ source: URL, into destination: URL, relativePath: String, now: Date) {
+        // A destination holding nothing is not a history to merge into: either it
+        // is absent and the `move` failed for some other reason, or it is an
+        // empty directory the sweep reclaims. Both leave the source where it is.
+        guard let incoming = try? fileService.contentsOfDirectory(at: source),
+              let present = try? fileService.contentsOfDirectory(at: destination),
+              !present.isEmpty
+        else { return }
+        let taken = Set(present.map(\.name))
+        let files = incoming.filter { !$0.isDirectory }.map(\.name)
+        let sidecars = files.filter { LocalHistoryLayout.snapshotFileName(fromLabelFileName: $0) != nil }
+        let snapshots = files.filter { LocalHistoryLayout.snapshot(fromFileName: $0) != nil }
+
+        var stranded = incoming.contains { $0.isDirectory }
+        for name in sidecars + snapshots {
+            let from = source.appendingPathComponent(name)
+            if taken.contains(name) {
+                discard(from)
+            } else if (try? fileService.move(from: from, to: destination.appendingPathComponent(name))) == nil {
+                stranded = true
+            }
+        }
+        for name in files where !sidecars.contains(name) && !snapshots.contains(name) {
+            if LocalHistoryLayout.isOwnTemporary(name) {
+                discard(source.appendingPathComponent(name))
+            } else if name != LocalHistoryLayout.pathRecordName {
+                stranded = true
+            }
+        }
+        if !stranded {
+            discard(source.appendingPathComponent(LocalHistoryLayout.pathRecordName))
+            // Re-listed rather than decided on the listing above, as in
+            // `prune(directory:now:)`: a quit-time capture bypasses the chain.
+            if let relisted = try? fileService.contentsOfDirectory(at: source), relisted.isEmpty {
+                discard(source)
+            }
+        }
+
+        replaceRecord(with: relativePath, in: destination)
+        delete(policy.prune(Self.snapshots(in: listing(of: destination)), now: now).delete, in: destination)
+    }
+
+    /// Make `directory`'s record name `relativePath`: left alone when it already
+    /// verifies as exactly that, otherwise removed and written afresh — removed
+    /// first, because a `move` into place refuses an existing destination.
+    private nonisolated func replaceRecord(with relativePath: String, in directory: URL) {
+        let record = directory.appendingPathComponent(LocalHistoryLayout.pathRecordName)
+        let current = (try? fileService.read(url: record)).flatMap {
+            LocalHistoryLayout.relativePath(fromPathRecord: $0, fileDirectoryName: directory.lastPathComponent)
+        }
+        guard current != LocalHistoryLayout.normalisedRelativePath(relativePath) else { return }
+        discard(record)
+        writeRecord(relativePath, in: directory)
     }
 
     /// Delete retention's condemned revisions, each `.label` one with its sidecar

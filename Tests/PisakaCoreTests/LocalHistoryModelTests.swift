@@ -325,6 +325,48 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertTrue(tree.writtenPaths.isEmpty)
     }
 
+    // MARK: - After a rename or move
+
+    /// The chain is what orders a move against the captures around it: the one
+    /// queued before lands under the old key and is carried, the one queued
+    /// after lands under the new key beside it.
+    func testACaptureQueuedBeforeAMoveIsCarriedAndOneQueuedAfterLandsUnderTheNewKey() async {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let old = projectFile("a.swift")
+        let new = projectFile("moved/b.swift")
+
+        // The first capture is held on its very first listing, so the move and
+        // the second capture are both queued behind it, in that order.
+        let gate = Gate()
+        tree.listingGate = gate
+        model.captureSaves(urls: [old], root: projectRoot, texts: [old: "before"])
+        await gate.waitUntilReached()
+        model.followMove(from: old, to: new, root: projectRoot)
+        model.captureSaves(urls: [new], root: projectRoot, texts: [new: "after"])
+
+        gate.release()
+        await drain(model)
+
+        XCTAssertEqual(contents(model, "moved/b.swift"), ["after", "before"])
+        XCTAssertEqual(revisions(model, "a.swift"), [])
+        XCTAssertEqual(model.store.recordedPaths(root: projectRoot), ["moved/b.swift"])
+    }
+
+    func testFollowMoveThatCannotKeyBothSidesDoesNotExtendTheChain() {
+        let tree = makeTree()
+        let model = makeModel(tree)
+        let inside = projectFile("a.swift")
+        let outside = URL(fileURLWithPath: "/elsewhere/a.swift")
+
+        model.followMove(from: outside, to: inside, root: projectRoot)
+        model.followMove(from: inside, to: outside, root: projectRoot)
+        model.followMove(from: inside, to: projectFile("b.swift"), root: nil)
+        model.followMove(from: inside, to: projectFile("./a.swift"), root: projectRoot)
+
+        XCTAssertNil(model.chain)
+    }
+
     // MARK: - Saves
 
     func testTwoOverlappingSaveCapturesOfOneFileStoreOneRevisionForIdenticalText() async {
