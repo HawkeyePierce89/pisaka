@@ -1791,6 +1791,97 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["annotations:\n  ", "attach:\n  ", "image:\n  "])
     }
 
+    /// The recorded `Gree` transcript, whole: the three items that answer `Gree`
+    /// come first — the literal prefix, then the two boundary matches by
+    /// `sortText` — and the seven that answer nothing are all still there below,
+    /// in D6's own order (`sortText`, then the server's array order).
+    func testRecordedGreeAnswerOrdersTheMatchedPartitionsFirstAndKeepsEveryOtherItemBelow() async throws {
+        transport.script(LSPMethod.completion, .reply(try fixtureResult("completion-identifier.json")))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), [
+            "Greeter",
+            "dsGreeting",
+            "kCFStringTransformLatinGreek",
+            "REG_UNGREEDY",
+            "MACH_PORT_STATUS_FLAG_REVIVE",
+            "SADB_EXT_MIGRATE_ADDRESS_DST",
+            "SADB_EXT_MIGRATE_ADDRESS_SRC",
+            "CSSMERR_CSP_MISSING_ATTR_SEED",
+            "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+            "VM_MEMORY_MALLOC_LARGE_REUSED",
+        ])
+        XCTAssertEqual(
+            items.map { FuzzyMatch.partition(of: $0.text, matching: "Gree") },
+            [.caseSensitivePrefix, .boundary, .boundary] + Array(repeating: .noMatch, count: 7)
+        )
+    }
+
+    /// `yaml-language-server`'s real shape at full size: 93 schema properties, no
+    /// `sortText`, the same answer whatever is typed. `image` is alphabetically
+    /// last, yet it is the only item answering `ima`, so it heads the list; the
+    /// rest follow alphabetically, and the cap is reached from the top.
+    func testTheFullYAMLAnswerPutsTheOneMatchingKeyFirstAndCapsFromTheTop() async {
+        let others = (0..<92).map { String(format: "annotation_%02d", $0) }
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array((others + ["image"]).map(schemaPropertyItemJSON(label:))),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        let limit = SymbolIntelligenceProvider.defaultCompletionLimit
+        XCTAssertEqual(items.count, limit)
+        XCTAssertEqual(
+            items.map(\.text),
+            ["image:\n  "] + others.prefix(limit - 1).map { "\($0):\n  " }
+        )
+    }
+
+    /// A capital the user typed and the candidate ignores outranks any
+    /// `sortText`: `aBu` puts `ArrayBuffer` above `abuse` even though the server
+    /// ranked `abuse` first.
+    func testACaseMismatchItemSitsBelowAMismatchFreeOneWhateverItsSortText() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(label: "abuse", sortText: "0"),
+                completionItemJSON(label: "ArrayBuffer", sortText: "9"),
+            ]),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "aBu", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["ArrayBuffer", "abuse"])
+    }
+
+    /// The server's `detail` reaches the item verbatim, and an item without one
+    /// carries `nil` — no synthesized detail.
+    func testDetailRoundTripsFromTheServersItem() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(label: "Greeter", sortText: "0", detail: "struct Greeter"),
+                completionItemJSON(label: "Greeting", sortText: "1"),
+            ]),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["Greeter", "Greeting"])
+        XCTAssertEqual(items.map(\.detail), ["struct Greeter", nil])
+    }
+
     // MARK: - Multi-line insertion
 
     /// `yaml-language-server` spells the lines after the first **relative to the

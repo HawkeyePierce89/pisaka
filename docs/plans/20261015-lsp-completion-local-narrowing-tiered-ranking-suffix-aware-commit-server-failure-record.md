@@ -144,18 +144,18 @@ kind, snippet support, code action or inlay hint.
 - Modify: `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`,
   `CompletionPopupTests.swift`
 
-- [ ] In `publish`, replace the two-valued `matched` key with
+- [x] In `publish`, replace the two-valued `matched` key with
   `FuzzyMatch.partition(of: filterText ?? label, matching: typed)`. The sort becomes
   partition, then `rankingKey`, then array index. Nothing is filtered, and the cap
   reaches partitions in order. Rewrite the "neither a filter nor a ranking key"
   comment as "a partition, not a filter".
-- [ ] Add `public let detail: String?` to `CompletionItem`, as an init parameter
+- [x] Add `public let detail: String?` to `CompletionItem`, as an init parameter
   defaulted to `nil`. `publish` passes the server's `detail` and adds no synthesized
   detail. Tree-sitter and iOS construction sites stay untouched.
   - `detail` is display-only. It never takes part in dedup (`seen` stays keyed by
     inserted text), matching, ranking or edits.
   - The resolve path never rewrites it.
-- [ ] Tests:
+- [x] Tests:
   - Recorded `Gree` transcript: the matched partition is ordered by `sortText` then
     array order, and all seven non-matching items are still present below.
   - The 93-item YAML answer for `ima`: `image` first, the alphabetical rest below,
@@ -165,7 +165,7 @@ kind, snippet support, code action or inlay hint.
     tree-sitter items.
   - `CompletionPopupTests`: two items differing only in `detail` dedup and order
     exactly as without it, and the inserted text is unchanged.
-- [ ] Run `swift test`. It must pass before Task 3.
+- [x] Run `swift test`. It must pass before Task 3.
 
 ### Task 3: Suffix-aware replace range, `insertReplaceSupport`, list-time drop of unapplicable items
 

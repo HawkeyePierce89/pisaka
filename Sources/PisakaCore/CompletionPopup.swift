@@ -94,6 +94,9 @@ public enum CompletionPopup {
             self.item = item
         }
 
+        /// One row per distinct `displayText`, in the items' order — the item's
+        /// `detail` never takes part, so two items differing only there are one
+        /// row, the first.
         public static func rows(
             for items: [CompletionItem],
             language: SyntaxLanguage?

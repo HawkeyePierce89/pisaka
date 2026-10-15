@@ -716,28 +716,34 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // the one key that answers it, is below the cut and never seen.
         //
         // So the one matcher every other candidate source goes through is asked
-        // here too — and it decides *one* thing: which half of the list the cap
-        // may reach first. It is deliberately neither a filter nor a ranking key.
-        // Not a filter, because a server's own matching may legitimately be
+        // here too — and what it yields is **a partition, not a filter**: the
+        // closed, ordered `FuzzyMatch.Partition` (literal prefix, then
+        // case-insensitive prefix, then boundary, then subsequence; the same four
+        // again with a capital the candidate ignored; then no match at all), which
+        // sits *above* D6 and decides which part of the list the cap reaches
+        // first. Not a filter, because a server's own matching may legitimately be
         // looser than this one's boundary rule and dropping what it chose to send
         // would be this client overruling it: the recorded sourcekit-lsp
         // transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`, seven
         // of its ten items match nothing here, and they still belong in a list
-        // that has room for them. Not a ranking key, because within each half D6
-        // stands untouched — `sortText` still decides, and the server's own array
-        // order still breaks a tie. The key is `filterText ?? label`, the spec's
-        // own filtering key, never the inserted text: a YAML object property
-        // inserts `services:\n  `, and asking whether *that* answers `ser` asks
-        // something else. An empty prefix puts every item in the same half, which is the
-        // bare-dot member case and the deliberate "show me everything".
-        let matched = items.map { item in
-            typed.isEmpty || FuzzyMatch.matches(item.filterText ?? item.label, query: typed)
+        // that has room for them — in `noMatch`, below the rest. Within each
+        // partition D6 stands untouched — `sortText` still decides, and the
+        // server's own array order still breaks a tie. The key is
+        // `filterText ?? label`, the spec's own filtering key, never the inserted
+        // text: a YAML object property inserts `services:\n  `, and asking whether
+        // *that* answers `ser` asks something else. An empty prefix puts every
+        // item in the same partition, which is the bare-dot member case and the
+        // deliberate "show me everything".
+        let partition = items.map { item in
+            FuzzyMatch.partition(of: item.filterText ?? item.label, matching: typed)
         }
         // `sorted(by:)` is not documented as stable, and the server's array order
         // is meaningful on a tie (it is the order it decided to send them in), so
         // the index is carried as the last key rather than trusted.
         let ordered = items.enumerated().sorted { lhs, rhs in
-            if matched[lhs.offset] != matched[rhs.offset] { return matched[lhs.offset] }
+            if partition[lhs.offset] != partition[rhs.offset] {
+                return partition[lhs.offset] < partition[rhs.offset]
+            }
             return lhs.element.rankingKey == rhs.element.rankingKey
                 ? lhs.offset < rhs.offset
                 : lhs.element.rankingKey < rhs.element.rankingKey
@@ -849,7 +855,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     // Computed above, where it is also a drop rule. Nothing else
                     // reads it: the dedup key, the cap and the edits are the
                     // inserted text's, so what reaches the buffer is untouched.
-                    displayText: display
+                    displayText: display,
+                    // The server's own, verbatim; display-only, like the row.
+                    detail: item.detail
                 )
             )
             if results.count == completionLimit { break }

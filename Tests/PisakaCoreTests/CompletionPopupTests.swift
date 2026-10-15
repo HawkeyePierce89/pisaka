@@ -101,4 +101,28 @@ final class CompletionPopupTests: XCTestCase {
         let emptyRows = CompletionRow.rows(for: [], language: nil)
         XCTAssertTrue(emptyRows.isEmpty)
     }
+
+    /// `detail` is display-only: two items differing only there dedup to the
+    /// first, in the same order, inserting the same text, exactly as they would
+    /// without it.
+    func testDetailTakesNoPartInDedupOrOrderOrInsertedText() {
+        let withDetail = [
+            CompletionItem(text: "greet()", kind: .method, isFromCurrentFile: false, detail: "Void"),
+            CompletionItem(text: "greet()", kind: .method, isFromCurrentFile: false, detail: "String"),
+            CompletionItem(text: "salutation", kind: .property, isFromCurrentFile: false, detail: "String"),
+        ]
+        let without = withDetail.map {
+            CompletionItem(text: $0.text, kind: $0.kind, isFromCurrentFile: $0.isFromCurrentFile)
+        }
+
+        let rows = CompletionRow.rows(for: withDetail, language: .swift)
+        let plain = CompletionRow.rows(for: without, language: .swift)
+
+        XCTAssertEqual(rows.map(\.displayText), plain.map(\.displayText))
+        XCTAssertEqual(rows.map(\.displayText), ["greet()", "salutation"])
+        XCTAssertEqual(rows.map(\.item.text), plain.map(\.item.text))
+        XCTAssertEqual(rows.map(\.badge), plain.map(\.badge))
+        XCTAssertEqual(rows.first?.item.detail, "Void")
+        XCTAssertNil(plain.first?.item.detail)
+    }
 }

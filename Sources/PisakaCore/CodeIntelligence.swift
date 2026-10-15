@@ -379,6 +379,16 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// The LSP `label` is never this string: `greet(name: String)` written into
     /// the buffer by the fallback path is not a completion, it is damage.
     public let displayText: String
+    /// The server's one-line description of the item — a signature, a type, a
+    /// module — drawn dimmed beside the row, or `nil` when there is none.
+    ///
+    /// **Display-only, and strictly so**: it never takes part in dedup (that is
+    /// keyed by `text`), matching, ranking or any edit, and the resolve path never
+    /// rewrites it — two items differing only here behave exactly as if it did
+    /// not exist. Only the LSP provider fills it, from the server's own `detail`
+    /// and never a synthesized one; tree-sitter and both iOS surfaces leave it
+    /// `nil`.
+    public let detail: String?
 
     /// `edits` and `resolveHandle` are defaulted so the tree-sitter provider and
     /// both iOS surfaces are untouched by phase 2a; `displayText` is defaulted to
@@ -391,7 +401,8 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         isFromCurrentFile: Bool,
         edits: [CompletionEdit] = [],
         resolveHandle: Int? = nil,
-        displayText: String? = nil
+        displayText: String? = nil,
+        detail: String? = nil
     ) {
         self.text = text
         self.kind = kind
@@ -399,6 +410,7 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         self.edits = edits
         self.resolveHandle = resolveHandle
         self.displayText = displayText ?? text
+        self.detail = detail
     }
 }
 
