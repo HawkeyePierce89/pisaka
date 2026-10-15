@@ -12,9 +12,9 @@ import XCTest
 /// store's base at `/work/LocalHistory` and the project at `/work/project` —
 /// because unlike the store, this model reads the user's files too.
 ///
-/// Nothing here sleeps: the one test that has to observe work in flight holds it
-/// on `StubFileTree.readGate` and waits for the gate to be entered, and the
-/// queued-writes test orders its listings through a barrier on the browser
+/// Nothing here sleeps: a test that has to observe work in flight holds it on a
+/// `StubFileTree` gate (`readGate`, or `listingGate` directly or through
+/// `holdChain`) and waits for the gate to be entered, and the queued-writes test orders its listings through a barrier on the browser
 /// model's serial queue rather than a window of time.
 @MainActor
 final class LocalHistoryModelTests: XCTestCase {
@@ -412,7 +412,12 @@ final class LocalHistoryModelTests: XCTestCase {
         let early = await browser.deletedPaths(root: projectRoot)
         XCTAssertEqual(early, [], "The capture is held on the chain, so the store has nothing yet.")
         gate.release()
-        await fulfillment(of: [listed], timeout: 5)
+        // `listing.value` has no timeout of its own, so it is awaited only once the
+        // listing is known to have answered; a listing that never does fails here.
+        guard await XCTWaiter().fulfillment(of: [listed], timeout: 5) == .completed else {
+            XCTFail("The awaiting listing never answered after the capture was released.")
+            return
+        }
         let deleted = await listing.value
 
         XCTAssertEqual(

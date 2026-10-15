@@ -576,17 +576,27 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             XCTFail("revertInFlight must exist in PisakaApp")
             return
         }
-        XCTAssertGreaterThan(
-            try occurrences(of: "PlatformFeedback\\.warning\\(\\)", in: gateBody),
-            0,
+        // The feedback must sit on the refusing path: after the early return that
+        // lets an ungated caller through, or a refused recreate would be silent.
+        guard let passes = try offsets(of: "guard localChanges\\.isReverting else \\{ return false \\}", in: gateBody)
+            .first
+        else {
+            XCTFail("revertInFlight must let an ungated caller through before it refuses")
+            return
+        }
+        let beeps = try offsets(of: "PlatformFeedback\\.warning\\(\\)", in: gateBody)
+        XCTAssertFalse(
+            beeps.isEmpty,
             "The gate the restore consults must beep: the record says a gated recreate is refused with a beep."
         )
-        XCTAssertGreaterThan(
-            try occurrences(of: "\\.runModal\\(\\)", in: gateBody),
-            0,
+        XCTAssertTrue(beeps.allSatisfy { $0 > passes }, "The beep must be on the refusing path only.")
+        let notices = try offsets(of: "\\.runModal\\(\\)", in: gateBody)
+        XCTAssertFalse(
+            notices.isEmpty,
             "The gate the restore consults must explain: the record says a gated recreate shows the "
                 + "\"Git operation in progress\" notice."
         )
+        XCTAssertTrue(notices.allSatisfy { $0 > passes }, "The notice must be on the refusing path only.")
         guard let body = body(of: "private func restoreFromLocalHistory(", in: app) else {
             XCTFail("restoreFromLocalHistory must exist in PisakaApp")
             return
@@ -609,7 +619,7 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             secondBeeps,
             [],
             "revertInFlight() already beeps when it refuses; a warning beside the consult beeps twice and breaks "
-                + "the refusal every gated operation shares."
+                + "the refusal the tree's file operations share."
         )
     }
 

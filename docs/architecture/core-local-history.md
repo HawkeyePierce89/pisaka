@@ -1107,7 +1107,7 @@ changes.)
     project-tree write, so it obeys the gate the way the tree's own create does,
     and *consults* it without raising it. If a gated operation holds the gate,
     that consult beeps and shows the "Git operation in progress" notice, the same
-    refusal every gated operation gives, and the action stops, creating nothing
+    refusal the tree's own file operations give, and the action stops, creating nothing
     and opening nothing. Otherwise it `ensureDirectory`s the parent and `createFile`s through the
     file service (beeping and stopping on failure) and bumps the tree either way,
     since `ensureDirectory` does not roll back the parents it built. Everything
@@ -1454,7 +1454,8 @@ history, just not the newest one.
     ahead of it — that number pinned cross-file against this sentence; the
     restore's recreate asking `isMissing(` before its refusal, and both the
     refusal and `revertInFlight()` ahead of its one `createFile(`; the gate it
-    consults being `revertInFlight()`, whose body beeps and runs the notice, with
+    consults being `revertInFlight()`, whose body beeps and runs the notice only after
+    its pass-through return, with
     the restore never reading `localChanges.isReverting` itself and no
     `PlatformFeedback.warning()` between that consult and the create, so nothing
     beeps twice; `followMove(` named once, inside `performMove`, after
