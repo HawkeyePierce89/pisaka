@@ -283,11 +283,11 @@ Three claims bend, and each is stated where it bends:
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`: full Core suite green.
-- [ ] Run `xcodegen generate` and the app-layer bundle with `-destination 'platform=macOS'` and `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`: green.
-- [ ] Run the iOS build (`-destination 'generic/platform=iOS'`, same derived data path) to confirm nothing new compiles there beyond Core.
-- [ ] Run `swiftlint --strict` from the repository root: clean.
-- [ ] Confirm every new Core rule listed in requirement 5 has a test: record write and codec, empty-directory sweep, file/folder migration including merge, delete capture ordering, label non-dedup, deleted-path listing.
+- [x] Run `swift test`: full Core suite green.
+- [x] Run `xcodegen generate` and the app-layer bundle with `-destination 'platform=macOS'` and `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`: green.
+- [x] Run the iOS build (`-destination 'generic/platform=iOS'`, same derived data path) to confirm nothing new compiles there beyond Core.
+- [x] Run `swiftlint --strict` from the repository root: clean.
+- [x] Confirm every new Core rule listed in requirement 5 has a test: record write and codec, empty-directory sweep, file/folder migration including merge, delete capture ordering, label non-dedup, deleted-path listing.
 
 ## Post-Completion
 
