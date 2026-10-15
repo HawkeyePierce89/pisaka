@@ -25,6 +25,22 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// Completion candidates for the prefix in `request`, best first, already
     /// capped by the provider.
     func completions(for request: CompletionRequest) async -> [CompletionItem]
+    /// `completions(for:)`'s list, plus — when the answer is one the editor may
+    /// keep narrowing locally — the token that names it (`RetainedCompletionList`).
+    ///
+    /// Defaulted to the plain list with `retained: nil`: only a language server
+    /// hands out a list that is *complete* for a prefix (`isIncomplete == false`),
+    /// and only such a list can answer a longer prefix without being asked again.
+    /// The tree-sitter provider and both iOS surfaces therefore never retain
+    /// anything, and their behaviour is exactly `completions(for:)`'s.
+    func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer
+    /// The list `retained` names, re-ranked for the word `request` now carries,
+    /// without asking anyone — or `nil` when it cannot be, which the caller reads
+    /// as "make an ordinary request".
+    ///
+    /// Defaulted to `nil`, for `completionAnswer`'s reason: a provider that never
+    /// retains a list has nothing to narrow.
+    func narrow(_ retained: RetainedCompletionList, for request: CompletionRequest) async -> [CompletionItem]?
     /// The buffer edits `item` performs, for an item the provider deferred to a
     /// second round trip (`CompletionItem.resolveHandle`).
     ///
@@ -96,6 +112,14 @@ public protocol CodeIntelligenceProviding: AnyObject {
 }
 
 public extension CodeIntelligenceProviding {
+    func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer {
+        CompletionAnswer(items: await completions(for: request), retained: nil)
+    }
+
+    func narrow(_ retained: RetainedCompletionList, for request: CompletionRequest) async -> [CompletionItem]? {
+        nil
+    }
+
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
     func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
     func references(for request: UsagesRequest) async -> [UsageResult] { [] }
@@ -411,6 +435,43 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         self.resolveHandle = resolveHandle
         self.displayText = displayText ?? text
         self.detail = detail
+    }
+}
+
+/// A completion answer: the rows, and the token for narrowing them locally.
+public struct CompletionAnswer: Equatable, Sendable {
+    /// What `completions(for:)` returns for the same request.
+    public let items: [CompletionItem]
+    /// Non-`nil` only for a complete language-server answer that lost no item to
+    /// the list-time drop and came from the session that is still live — the one
+    /// kind of list that already holds everything a longer prefix can match.
+    /// Always `nil` for a fallback (tree-sitter) answer.
+    public let retained: RetainedCompletionList?
+
+    public init(items: [CompletionItem], retained: RetainedCompletionList?) {
+        self.items = items
+        self.retained = retained
+    }
+}
+
+/// The editor's handle on a list the provider kept, and the two facts
+/// `CompletionNarrowingRule` decides by.
+///
+/// `handle` is opaque, like `CompletionItem.resolveHandle`: the editor never
+/// interprets it and hands it back to the provider that issued it, which answers
+/// `nil` once a newer list has replaced the one it names.
+public struct RetainedCompletionList: Equatable, Hashable, Sendable {
+    public let handle: Int
+    /// The UTF-16 offset of the typed word's first character in the buffer the
+    /// list was answered for.
+    public let wordStart: Int
+    /// The typed word the list was answered for.
+    public let typed: String
+
+    public init(handle: Int, wordStart: Int, typed: String) {
+        self.handle = handle
+        self.wordStart = wordStart
+        self.typed = typed
     }
 }
 

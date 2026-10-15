@@ -840,6 +840,20 @@ public final class LSPWorkspace {
         return documents[prepared.uri]?.version == prepared.version
     }
 
+    /// Whether `session` is still the live session for its `(server, root)` under
+    /// the request generation `generation` — `false` once it has died, been
+    /// replaced by a restart, been retired by an un-registration, or once the
+    /// folder has changed.
+    ///
+    /// The question a *retained* completion list asks before it is narrowed
+    /// locally: narrowing sends nothing, so no document version can vouch for
+    /// it, and a list answered by a process that no longer exists must not keep
+    /// producing rows — or resolve handles a restarted server cannot honour.
+    public func isLive(_ session: LSPSession, generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
+        return sessions.values.contains { $0 === session }
+    }
+
     /// The text each open document was last **sent**, keyed by the file URL its
     /// URI names — the texts a server's answers are computed against.
     ///

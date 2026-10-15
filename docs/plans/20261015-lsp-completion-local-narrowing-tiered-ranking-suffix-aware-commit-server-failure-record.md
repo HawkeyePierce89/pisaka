@@ -227,7 +227,7 @@ kind, snippet support, code action or inlay hint.
 - Create: `Tests/PisakaCoreTests/CompletionNarrowingRuleTests.swift`
 - Modify: `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`
 
-- [ ] Add a seam value `CompletionAnswer { items: [CompletionItem]; retained:
+- [x] Add a seam value `CompletionAnswer { items: [CompletionItem]; retained:
   RetainedCompletionList? }`. `RetainedCompletionList` holds:
   - an opaque `handle: Int`;
   - the typed word's start;
@@ -235,11 +235,11 @@ kind, snippet support, code action or inlay hint.
 
   It is non-nil only for a complete LSP answer that was not trimmed (Task 3) and
   came from the live session.
-- [ ] Add protocol methods `completionAnswer(for:)` and
+- [x] Add protocol methods `completionAnswer(for:)` and
   `narrow(_:for:) async -> [CompletionItem]?`. Their defaults wrap
   `completions(for:)` with `retained: nil` and return `nil`, so the tree-sitter
   provider and iOS are unaffected.
-- [ ] The LSP provider keeps the last complete list: raw items, the request text,
+- [x] The LSP provider keeps the last complete list: raw items, the request text,
   the typed word, the session, and `serverResolves`. A newer list token replaces it.
   `narrow` re-runs the same `publish` pipeline (partition, ranking, dedup, cap,
   resolve registration) with the new prefix:
@@ -250,10 +250,10 @@ kind, snippet support, code action or inlay hint.
     retirement), when the handle is not the current one, or when every item lands
     in `noMatch`.
   - The retained raw items are never mutated.
-- [ ] `RoutingIntelligenceProvider` forwards both methods to the LSP side under the
+- [x] `RoutingIntelligenceProvider` forwards both methods to the LSP side under the
   existing completion budget. A fallback (tree-sitter) answer always carries
   `retained: nil`.
-- [ ] Add the pure rule
+- [x] Add the pure rule
   `CompletionNarrowingRule.decide(retained:wordStart:typed:explicit:typedTriggerCharacter:insertedNewline:caretJumped:) -> .narrow / .request / .dropRetained`.
   It narrows only when all of these hold:
   - the word start is unchanged;
@@ -266,7 +266,7 @@ kind, snippet support, code action or inlay hint.
   `.dropRetained` means only "forget the retained list": it carries no instruction
   about what the popup does next, and its doc comment says so — the caller then
   follows its existing empty-word path unchanged (Task 5).
-- [ ] Tests:
+- [x] Tests:
   - Rule table: extend, backspace, emptied word, crossed word start, trigger
     character, explicit invocation, newline, caret jump.
   - Typing `fo` → `foo` → `foob` against a complete answer: exactly one
@@ -280,7 +280,7 @@ kind, snippet support, code action or inlay hint.
   - A list trimmed by Task 3's drop is not retained.
   - After the session restarts, `narrow` returns `nil`.
   - A narrow whose matched partitions are empty returns `nil`.
-- [ ] Run `swift test`. It must pass before Task 5.
+- [x] Run `swift test`. It must pass before Task 5.
 
 ### Task 5: App — controller narrows locally, panel draws the detail column
 

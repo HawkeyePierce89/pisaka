@@ -317,6 +317,45 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["GreeterFromTheServer"])
     }
 
+    /// A complete server answer reaches the editor with its retained-list token,
+    /// and narrowing it is forwarded to the server side without a second request.
+    func testAServerAnswerIsRetainedAndItsNarrowingIsForwardedWithoutARequest() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([completionItemJSON("GreeterFromTheServer"), completionItemJSON("Grape")]),
+        ])))
+        let router = makeRouter(index: makeIndex())
+
+        let answer = await router.completionAnswer(for: completionRequest())
+        let retained = try XCTUnwrap(answer.retained)
+        XCTAssertEqual(retained.typed, "Gree")
+        XCTAssertEqual(retained.wordStart, greeterReference)
+
+        let narrowed = await router.narrow(
+            retained,
+            for: CompletionRequest(
+                prefix: "Greet",
+                fileURL: mainFile,
+                text: mainSource,
+                language: .swift,
+                offset: typedCaret + 1
+            )
+        )
+        XCTAssertEqual(narrowed?.first?.text, "GreeterFromTheServer")
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1)
+    }
+
+    /// The index's answer never carries a retained list: it is rebuilt from the
+    /// live buffer on every keystroke, so there is nothing to narrow.
+    func testAFallbackAnswerRetainsNothing() async {
+        transport.script(LSPMethod.completion, .reply(.object(["items": .array([])])))
+        let router = makeRouter(index: makeIndex())
+
+        let answer = await router.completionAnswer(for: completionRequest())
+
+        XCTAssertEqual(answer.items.map(\.text), ["Greeter", "Greeting", "greeter"])
+        XCTAssertNil(answer.retained)
+    }
+
     // MARK: - Hover: the server or nothing
 
     private func hoverRequest() -> HoverRequest {

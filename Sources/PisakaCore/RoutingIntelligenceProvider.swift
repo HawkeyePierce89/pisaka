@@ -213,15 +213,35 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
     /// editor resolved it once, and a `nil` there already means "this buffer has
     /// no language", which is exactly the state no server can be asked about.
     public func completions(for request: CompletionRequest) async -> [CompletionItem] {
+        await completionAnswer(for: request).items
+    }
+
+    /// The server's answer — retained list and all — or the index's, which
+    /// never carries one: a tree-sitter list is rebuilt from the buffer on every
+    /// keystroke anyway, and narrowing it would answer from a stale buffer.
+    public func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer {
         if let language = request.language,
            await lsp.canServe(language),
            let answer = await withBudget(budgets.completion, { [lsp] in
-               await lsp.completions(for: request)
+               await lsp.completionAnswer(for: request)
            }),
-           !answer.isEmpty {
+           !answer.items.isEmpty {
             return answer
         }
-        return await fallback.completions(for: request)
+        return CompletionAnswer(items: await fallback.completions(for: request), retained: nil)
+    }
+
+    /// The server's local narrowing of a list it retained, under the same
+    /// completion budget — or `nil`, which the editor reads as "make an ordinary
+    /// request". No `canServe` gate and no fallback: a retained list only ever
+    /// came from the server, and the fallback is the request the `nil` leads to.
+    public func narrow(
+        _ retained: RetainedCompletionList,
+        for request: CompletionRequest
+    ) async -> [CompletionItem]? {
+        await withBudget(budgets.completion, { [lsp] in
+            await lsp.narrow(retained, for: request)
+        }) ?? nil
     }
 
     /// D4's second round trip, routed to whichever provider issued the item.

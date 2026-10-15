@@ -2797,6 +2797,247 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
     /// that carries no snippet syntax, and a value the schema wants indented
     /// under the key.
+    // MARK: - Local narrowing
+
+    /// The buffer with `word` typed on line 2, and the request for its end.
+    private func narrowingRequest(_ word: String, lead: String = "") -> CompletionRequest {
+        let text = "import A\nlet x = \(lead)\(word)\nprint(x)\n"
+        let caret = (text as NSString).range(of: "\n", options: [], range: NSRange(location: 9, length: 20)).location
+        return completionRequest(prefix: word, offset: caret, text: text)
+    }
+
+    /// Four items a server answering `fo` might send: one deferring its import to
+    /// a resolve, one carrying it outright, one plain, and one matching nothing.
+    private func narrowingItems(isIncomplete: Bool = false, extra: [JSONValue] = []) -> JSONValue {
+        var deferred = completionItemJSON(label: "foobar", sortText: "1")
+        if case .object(var object) = deferred {
+            object["data"] = .object(["itemId": .int(1)])
+            deferred = .object(object)
+        }
+        var importing = completionItemJSON(label: "foobaz", sortText: "2", detail: "Baz")
+        if case .object(var object) = importing {
+            object["additionalTextEdits"] = .array([
+                .object(["newText": .string("import Baz\n"), "range": range(0, 0, 0, 0)]),
+            ])
+            importing = .object(object)
+        }
+        return .object([
+            "isIncomplete": .bool(isIncomplete),
+            "items": .array([
+                deferred,
+                importing,
+                completionItemJSON(label: "food", sortText: "3"),
+                completionItemJSON(label: "bar", sortText: "4"),
+            ] + extra),
+        ])
+    }
+
+    /// What resolving `foobar` adds: its import.
+    private var narrowingResolve: JSONValue {
+        .object([
+            "label": .string("foobar"),
+            "additionalTextEdits": .array([
+                .object(["newText": .string("import Bar\n"), "range": range(0, 0, 0, 0)]),
+            ]),
+        ])
+    }
+
+    private func withoutHandle(_ items: [CompletionItem]) -> [CompletionItem] {
+        items.map {
+            CompletionItem(
+                text: $0.text,
+                kind: $0.kind,
+                isFromCurrentFile: $0.isFromCurrentFile,
+                edits: $0.edits,
+                displayText: $0.displayText,
+                detail: $0.detail
+            )
+        }
+    }
+
+    /// Typing `fo` → `foo` → `foob` against a complete answer asks the server
+    /// once, and the `foob` narrowing is exactly what a fresh `foob` request over
+    /// the same items answers — rows, edits, and what their handles resolve to.
+    func testTypingOnInsideACompleteAnswerAsksOnceAndNarrowsToWhatAFreshAnswerWouldBe() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        XCTAssertEqual(retained.typed, "fo")
+        XCTAssertEqual(answer.items.map(\.text), ["foobar", "foobaz", "food", "bar"])
+
+        let fooAnswer = await provider.narrow(retained, for: narrowingRequest("foo"))
+
+        let foo = try XCTUnwrap(fooAnswer)
+        XCTAssertEqual(foo.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        let foobAnswer = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let foob = try XCTUnwrap(foobAnswer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1, "nothing was asked again")
+
+        harness = Harness()
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let fresh = await makeProvider().completions(for: narrowingRequest("foob"))
+
+        XCTAssertEqual(withoutHandle(foob), withoutHandle(fresh))
+        XCTAssertEqual(foob.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        let importEdits = try XCTUnwrap(foob.first { $0.text == "foobaz" }).edits
+        XCTAssertEqual(importEdits.map(\.newText), ["foobaz", "import Baz\n"])
+        XCTAssertEqual(importEdits.first?.range.length, 4, "the primary edit covers `foob`, not `fo`")
+
+        let narrowedResolve = await provider.resolveEdits(for: try XCTUnwrap(foob.first))
+        XCTAssertEqual(narrowedResolve.map(\.newText), ["foobar", "import Bar\n"])
+        XCTAssertEqual(narrowedResolve.first?.range.length, 4)
+    }
+
+    /// The narrowed handle resolves exactly what a fresh `foob` list's handle
+    /// resolves, against the same buffer.
+    func testANarrowedHandleResolvesWhatAFreshHandleResolves() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+        let narrowedAnswer = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let narrowed = try XCTUnwrap(narrowedAnswer)
+        let narrowedEdits = await provider.resolveEdits(for: try XCTUnwrap(narrowed.first))
+
+        harness = Harness()
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let other = makeProvider()
+        let fresh = await other.completions(for: narrowingRequest("foob"))
+        let freshEdits = await other.resolveEdits(for: try XCTUnwrap(fresh.first))
+
+        XCTAssertFalse(freshEdits.isEmpty)
+        XCTAssertEqual(narrowedEdits, freshEdits)
+    }
+
+    /// An incomplete answer is never retained, so every keystroke asks again.
+    func testAnIncompleteAnswerIsNotRetainedAndEveryKeystrokeAsks() async {
+        transport.script(LSPMethod.completion, .reply(narrowingItems(isIncomplete: true)))
+        let provider = makeProvider()
+
+        for word in ["fo", "foo", "foob"] {
+            let answer = await provider.completionAnswer(for: narrowingRequest(word))
+            XCTAssertNil(answer.retained, word)
+            XCTAssertFalse(answer.items.isEmpty, word)
+        }
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 3)
+    }
+
+    /// A backspace inside the answered word narrows too; the retained list is
+    /// never consumed by narrowing it.
+    func testABackspaceInsideTheWordNarrowsWithNoRequest() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        _ = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let foo = await provider.narrow(retained, for: narrowingRequest("foo"))
+        let fo = await provider.narrow(retained, for: narrowingRequest("fo"))
+
+        XCTAssertEqual(foo?.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        XCTAssertEqual(fo?.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1)
+    }
+
+    /// A list the list-time drop trimmed is not the server's whole answer, so it
+    /// is not retained even though the server called it complete.
+    func testATrimmedListIsNotRetained() async {
+        let unfit: JSONValue = .object([
+            "label": .string("fooBad"),
+            "sortText": .string("0"),
+            "textEdit": .object(["newText": .string("fooBad"), "range": range(9, 8, 9, 10)]),
+        ])
+        transport.script(LSPMethod.completion, .reply(narrowingItems(extra: [unfit])))
+        let provider = makeProvider()
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+
+        XCTAssertFalse(answer.items.isEmpty)
+        XCTAssertFalse(answer.items.contains { $0.text == "fooBad" })
+        XCTAssertNil(answer.retained)
+    }
+
+    /// A newer list replaces the retained one, so the older handle narrows nothing.
+    func testANewerListRetiresTheOlderHandle() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let firstAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let first = try XCTUnwrap(firstAnswer)
+        let secondAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let second = try XCTUnwrap(secondAnswer)
+
+        let stale = await provider.narrow(first, for: narrowingRequest("foo"))
+        let current = await provider.narrow(second, for: narrowingRequest("foo"))
+        XCTAssertNil(stale)
+        XCTAssertNotNil(current)
+    }
+
+    /// A word that no longer starts where the answered one did is not this list's.
+    func testANarrowForAWordStartingElsewhereAnswersNil() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        let moved = await provider.narrow(retained, for: narrowingRequest("foo", lead: " "))
+        XCTAssertNil(moved)
+    }
+
+    /// Once the session that answered has gone, its list narrows nothing — its
+    /// rows and handles belong to a process that no longer exists.
+    func testAfterTheSessionDiesTheRetainedListNarrowsNothing() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+        let before = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNotNil(before)
+
+        transport.closeStream()
+        // The session marks itself terminated before it terminates its transport,
+        // so this is the causal point after which it can no longer be running.
+        let deadline = Date().addingTimeInterval(2)
+        while !transport.isTerminated, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertTrue(transport.isTerminated, "the session never noticed EOF")
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNil(narrowed, "a dead session's list still narrowed")
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1)
+    }
+
+    /// A folder switch retires the list too, whatever its session is doing.
+    func testAFolderSwitchRetiresTheRetainedList() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        await lastWorkspace?.prepareForFolderChange(root: URL(fileURLWithPath: "/private/tmp/elsewhere"))
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNil(narrowed)
+    }
+
+    /// A narrowing that leaves every item in `noMatch` is a question worth asking
+    /// the server again, not an empty popup.
+    func testANarrowMatchingNothingAnswersNil() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+    }
+
     private func schemaPropertyItemJSON(label: String) -> JSONValue {
         .object([
             "label": .string(label),
