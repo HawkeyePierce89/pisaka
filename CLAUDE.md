@@ -264,8 +264,8 @@ because nothing else states them.
   writes on the main thread**. The **project tree's delete is a capture site** too: it reads
   the doomed files synchronously before `removeItem`, leaves only the store writes to the
   chain, and takes no gate. Its **one worktree create** is a restore into a missing path,
-  which first creates an empty file under `revertInFlight()`. Every skip and every failure
-  is silent; retention is 14 days / 30 revisions with the newest always surviving.
+  which first creates an empty file under `revertInFlight()`. Every capture skip and every
+  capture failure is silent; retention is 14 days / 30 revisions with the newest always surviving.
 - **The database viewer is a reader with two writes, whose tab kind can never be dirty**
   (macOS only, `core-database-viewer.md`): a recognized database file opens as the **second
   kind of `OpenFile`** — `.viewer`, carrying no text, with `isDirty` `false` *by

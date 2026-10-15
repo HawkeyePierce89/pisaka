@@ -50,7 +50,9 @@ import XCTest
 ///    round: inside `performMove`, *after* the move it follows. And the
 ///    restore's recreate of a missing file — the feature's one worktree create —
 ///    is pinned in `restoreFromLocalHistory` behind its refusal and behind
-///    `revertInFlight()`, both ahead of the one `createFile`.
+///    `revertInFlight()`, both ahead of the one `createFile`; the gate it
+///    consults is pinned to be the helper that beeps and explains, and nothing
+///    beeps a second time beside it.
 final class LocalHistorySourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -561,6 +563,63 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             create,
             "The create is a worktree write: it consults revertInFlight() first and stops while a git operation "
                 + "holds the gate, or it writes into a tree git is rewriting."
+        )
+    }
+
+    /// The record says a recreate refused by the gate beeps and explains; this is
+    /// what keeps that sentence true. The feedback lives in `revertInFlight()`,
+    /// so the restore must reach the gate through it, never by reading the flag
+    /// itself, and must not beep a second time beside the consult.
+    func testTheRestoresGateIsTheOneThatBeepsAndExplains() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        guard let gateBody = body(of: "private func revertInFlight(", in: app) else {
+            XCTFail("revertInFlight must exist in PisakaApp")
+            return
+        }
+        // The feedback must sit on the refusing path: after the early return that
+        // lets an ungated caller through, or a refused recreate would be silent.
+        guard let passes = try offsets(of: "guard localChanges\\.isReverting else \\{ return false \\}", in: gateBody)
+            .first
+        else {
+            XCTFail("revertInFlight must let an ungated caller through before it refuses")
+            return
+        }
+        let beeps = try offsets(of: "PlatformFeedback\\.warning\\(\\)", in: gateBody)
+        XCTAssertFalse(
+            beeps.isEmpty,
+            "The gate the restore consults must beep: the record says a gated recreate is refused with a beep."
+        )
+        XCTAssertTrue(beeps.allSatisfy { $0 > passes }, "The beep must be on the refusing path only.")
+        let notices = try offsets(of: "\\.runModal\\(\\)", in: gateBody)
+        XCTAssertFalse(
+            notices.isEmpty,
+            "The gate the restore consults must explain: the record says a gated recreate shows the "
+                + "\"Git operation in progress\" notice."
+        )
+        XCTAssertTrue(notices.allSatisfy { $0 > passes }, "The notice must be on the refusing path only.")
+        guard let body = body(of: "private func restoreFromLocalHistory(", in: app) else {
+            XCTFail("restoreFromLocalHistory must exist in PisakaApp")
+            return
+        }
+        XCTAssertEqual(
+            try occurrences(of: "localChanges\\.isReverting", in: body),
+            0,
+            "Reading the flag directly bypasses revertInFlight()'s beep and notice, and the gated recreate "
+                + "would refuse silently."
+        )
+        guard let gate = try offsets(of: "revertInFlight\\(\\)", in: body).first,
+              let create = try offsets(of: "createFile\\(", in: body).first
+        else {
+            XCTFail("restoreFromLocalHistory must consult the gate and create")
+            return
+        }
+        let secondBeeps = try offsets(of: "PlatformFeedback\\.warning\\(\\)", in: body)
+            .filter { $0 > gate && $0 < create }
+        XCTAssertEqual(
+            secondBeeps,
+            [],
+            "revertInFlight() already beeps when it refuses; a warning beside the consult beeps twice and breaks "
+                + "the refusal the tree's file operations share."
         )
     }
 

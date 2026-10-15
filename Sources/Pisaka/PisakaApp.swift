@@ -2877,7 +2877,8 @@ struct PisakaApp: App {
     /// back from its own revisions. "Missing" is the store's question
     /// (`isMissing(root:relativePath:)`). The create is an ordinary project-tree
     /// write, so it consults the writer gate the way the tree's own create does
-    /// and stops when a git operation holds it; a failed create beeps and stops,
+    /// and stops — beeping and explaining, through `revertInFlight()` — when a git
+    /// operation holds it; a failed create beeps and stops,
     /// and either way the tree is bumped, since `ensureDirectory` may have built
     /// parents before the create failed. The two refusals below are asked
     /// **before** the create, against the empty file it would make (or the tab's
@@ -3303,7 +3304,7 @@ struct PisakaApp: App {
     /// `canRename` declines: the dialog does not appear at all, because a name
     /// prompt whose OK cannot do anything is worse than no prompt. A fourth,
     /// `revertInFlight()`, joins them and is the one that speaks: a raised writer
-    /// gate is the same alert every other gated operation gives.
+    /// gate is the same alert ⌘S and the project tree's file operations give.
     ///
     /// `canRename` is a policy question — it starts no server and probes none — so
     /// asking it before the sheet costs one actor hop, not a launch.
@@ -3453,7 +3454,7 @@ struct PisakaApp: App {
     /// says nothing: the user has moved on.
     ///
     /// It refuses outright while another writer holds the gate too, through
-    /// `revertInFlight()` — the same alert every other gated operation gives,
+    /// `revertInFlight()` — the same alert ⌘S and the tree's file operations give,
     /// because a rename arriving mid-`git checkout` is refused for the same reason
     /// ⌘S is and deserves the same explanation.
     private func applyRename(
