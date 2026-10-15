@@ -136,6 +136,9 @@ public final class LSPWorkspace {
     /// The backoff wait, injectable so the restart tests assert D7's delays
     /// instead of sleeping for seven seconds.
     private let delay: @MainActor (TimeInterval) async -> Void
+    /// Each session's exit grace (D43), handed through untouched — the seam the
+    /// "both graces run concurrently" case is staged through.
+    private let exitGraceWait: @Sendable (TimeInterval) async -> Void
     private let processID: Int?
 
     private var sessions: [ServerKey: LSPSession] = [:]
@@ -206,13 +209,15 @@ public final class LSPWorkspace {
         },
         delay: @escaping @MainActor (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
-        }
+        },
+        exitGraceWait: @escaping @Sendable (TimeInterval) async -> Void = LSPSession.sleep
     ) {
         self.registry = registry
         self.budgets = budgets
         self.processID = processID
         self.transportFactory = transportFactory
         self.delay = delay
+        self.exitGraceWait = exitGraceWait
     }
 
     // MARK: - Folder lifecycle
@@ -240,6 +245,12 @@ public final class LSPWorkspace {
     }
 
     public var currentRequestGeneration: Int { generation }
+
+    /// Whether any server process is alive or launching — what decides that a
+    /// quit must wait for `shutdownAll()` (`.terminateLater`) rather than go at
+    /// once. Read off `transports`, the one map every live process is filed in
+    /// from before its handshake until it is actually dead.
+    public var hasLiveServers: Bool { !transports.isEmpty }
     public var root: URL? { currentRoot }
 
     /// Stop every server, politely, and forget every document.
@@ -252,8 +263,10 @@ public final class LSPWorkspace {
     /// coherent view of the world.
     ///
     /// Never throws and never waits on a server that will not answer:
-    /// `LSPSession.shutdown()` gives up after its own budget and terminates the
-    /// transport regardless.
+    /// `LSPSession.shutdown()` gives up after its own budget and its exit grace,
+    /// and terminates the transport regardless. **The sessions are torn down
+    /// concurrently** (D43): each goodbye may now cost a whole grace, and paying
+    /// them in turn would make a quit with three servers wait three of them.
     public func shutdownAll() async {
         // Bumped first: a launch still in flight will see the mismatch after its
         // handshake and terminate itself instead of registering into the maps this
@@ -290,12 +303,21 @@ public final class LSPWorkspace {
         // registered a *newer* transport for the same key in the meantime keeps it.
         // The inflight transports need no entry here at all: a superseded launch
         // sees the epoch mismatch, terminates what it built and `forget`s it itself.
-        for (key, session) in live {
-            for (uri, state) in open where state.serverKey == key {
-                try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+        // One child per server, each keeping its own `didClose` → `shutdown` →
+        // `forget` order; the children interleave only at their `await`s, all on
+        // the main actor, so `forget`'s identity guard reads exactly as before.
+        await withTaskGroup(of: Void.self) { group in
+            for (key, session) in live {
+                let uris = open.filter { $0.value.serverKey == key }.map(\.key)
+                let transport = liveTransports[key]
+                group.addTask { @MainActor [weak self] in
+                    for uri in uris {
+                        try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+                    }
+                    await session.shutdown()
+                    if let transport { self?.forget(transport, for: key) }
+                }
             }
-            await session.shutdown()
-            if let transport = liveTransports[key] { forget(transport, for: key) }
         }
 
         // A launch that had not finished when the epoch moved returns `nil` and has
@@ -1057,7 +1079,7 @@ public final class LSPWorkspace {
         // land in, since that is also the slowest thing this layer ever does.
         transports[key] = transport
 
-        let session = LSPSession(transport: transport, budgets: budgets)
+        let session = LSPSession(transport: transport, budgets: budgets, exitGraceWait: exitGraceWait)
         do {
             let capabilities = try await session.start(
                 processID: processID,

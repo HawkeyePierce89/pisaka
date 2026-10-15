@@ -36,6 +36,15 @@ public protocol LSPTransport: AnyObject, Sendable {
     /// server.
     func send(_ data: Data) throws
 
+    /// Close the server's stdin, and nothing else — no signal, no stream finish.
+    ///
+    /// The polite half of the shutdown (D43): after `exit` the session closes the
+    /// input so a server that reads to EOF can leave on its own, then waits — at
+    /// most one grace — for `incomingBytes` to end before `terminate()`. Must be
+    /// idempotent, and must not overtake a write already handed to `send`, or the
+    /// `exit` it follows is dropped. A `send` after it throws `notRunning`.
+    func closeInput()
+
     /// Stop the server, unconditionally and without a handshake — the session has
     /// already sent `shutdown`/`exit` if it was going to. Must be idempotent (the
     /// session calls it on every terminal path) and must finish `incomingBytes`,

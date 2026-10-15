@@ -32,8 +32,10 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// Not a courtesy: the release check is `pgrep -fl sourcekit-lsp` coming back
     /// empty after a quit, and a server wedged in its own build-system resolution
     /// will not honour a polite signal. `TerminalSession.terminate()` makes the
-    /// same promise about a shell.
-    private static let terminationGrace: TimeInterval = 2
+    /// same promise about a shell. An init parameter (default 2 s) only so the
+    /// app-layer shutdown test can watch both halves of the escalation without
+    /// waiting out the real one.
+    private let terminationGrace: TimeInterval
 
     let incomingBytes: AsyncStream<Data>
     private let continuation: AsyncStream<Data>.Continuation
@@ -58,6 +60,7 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var isStopped = false
+    private var isInputClosed = false
     private var streamIsFinished = false
 
     /// What is queued but not yet written, bounded (D39). Guarded by `lock`, like
@@ -76,8 +79,10 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         executable: URL,
         arguments: [String],
         directory: URL,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        terminationGrace: TimeInterval = 2
     ) throws {
+        self.terminationGrace = terminationGrace
         var escaped: AsyncStream<Data>.Continuation!
         // Unbounded on purpose. Every element is a piece of the message stream and
         // dropping one desyncs `LSPFraming.Decoder` for good; the bound that
@@ -141,6 +146,10 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         // behind either.
         stop()
     }
+
+    /// The server's pid — read by the app-layer shutdown test, which has to see
+    /// the process itself go away rather than take the stream's word for it.
+    var processIdentifier: Int32 { process.processIdentifier }
 
     // MARK: - Reading
 
@@ -240,7 +249,7 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// retirement).
     func send(_ data: Data) throws {
         lock.lock()
-        if isStopped {
+        if isStopped || isInputClosed {
             lock.unlock()
             throw LSPTransportError.notRunning
         }
@@ -269,6 +278,21 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         }
     }
 
+    /// Close stdin so a server that reads to EOF can leave on its own (D43).
+    ///
+    /// On the write queue, behind every write already handed to `send` — the
+    /// `exit` the session queued just before this call above all. Closing the
+    /// descriptor from this thread would race that write and usually win.
+    func closeInput() {
+        lock.lock()
+        let alreadyClosed = isInputClosed
+        isInputClosed = true
+        lock.unlock()
+        guard !alreadyClosed else { return }
+        let stdin = input.fileHandleForWriting
+        writeQueue.async { try? stdin.close() }
+    }
+
     func terminate() {
         stop()
     }
@@ -289,26 +313,22 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
 
         output.fileHandleForReading.readabilityHandler = nil
         errors.fileHandleForReading.readabilityHandler = nil
-        // Closing stdin gives a server that reads to EOF a chance to exit on its
-        // own before the signal arrives — sourcekit-lsp does exactly that.
-        //
-        // On the write queue, not here: `send` only *queues* a write, and
-        // `LSPSession.shutdown()` queues the `exit` notification and then calls
-        // `terminate()` in the same turn. Closing the descriptor from this thread
-        // would race that write and usually win, so the notification that lets a
-        // server end with status 0 would be dropped on the ordinary quit path —
-        // the one thing the serial write queue exists to make impossible. The
-        // signals below are unaffected: they are sent regardless, immediately.
-        let stdin = input.fileHandleForWriting
-        writeQueue.async { try? stdin.close() }
+        // Stdin is closed here too, for the paths that never said goodbye (a
+        // crash, a superseded launch, `terminateNow()`); the polite path has
+        // already closed it through `closeInput()` and given the server its exit
+        // grace (D43), so this is then a no-op. On the write queue for
+        // `closeInput()`'s reason. The signals below are unaffected: they are
+        // sent regardless, immediately.
+        closeInput()
 
         guard process.isRunning else { return }
         process.terminate()
 
         let process = self.process
         let pid = process.processIdentifier
+        let grace = terminationGrace
         LSPProcessTransport.reapQueue.async {
-            let deadline = Date().addingTimeInterval(LSPProcessTransport.terminationGrace)
+            let deadline = Date().addingTimeInterval(grace)
             while process.isRunning, Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.05)
             }

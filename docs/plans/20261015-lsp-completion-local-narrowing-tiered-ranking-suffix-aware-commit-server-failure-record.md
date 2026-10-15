@@ -332,36 +332,38 @@ kind, snippet support, code action or inlay hint.
 - Create: `Tests/PisakaAppTests/LSPProcessShutdownTests.swift`,
   `Tests/PisakaAppTests/Fixtures/lsp-ignores-exit.sh`
 
-- [ ] `LSPTransport` gains `closeInput()` (idempotent; stdin closed, no signal).
-- [ ] `LSPSession.shutdown()` runs: `shutdown` request (existing budget) → `exit` →
+- [x] `LSPTransport` gains `closeInput()` (idempotent; stdin closed, no signal).
+- [x] `LSPSession.shutdown()` runs: `shutdown` request (existing budget) → `exit` →
   `closeInput()` → race the read loop's end of stream against an injectable
   `exitGrace` wait (default 2 s) → `close(reason:)`, which calls
   `transport.terminate()`. A server whose stream has already ended costs no wait.
   Pending requests are still failed once, through the idempotent `close`.
-- [ ] `LSPProcessTransport` takes its SIGTERM→SIGKILL grace as an init parameter
+- [x] `LSPProcessTransport` takes its SIGTERM→SIGKILL grace as an init parameter
   (default 2 s) and implements `closeInput()`.
-- [ ] `LSPWorkspace.shutdownAll()` tears sessions down concurrently with a task
+- [x] `LSPWorkspace.shutdownAll()` tears sessions down concurrently with a task
   group, keeping today's `didClose` and `forget` bookkeeping per key.
   `terminateNow()` is unchanged.
-- [ ] `AppDelegate`:
+- [x] `AppDelegate`:
   - `applicationShouldTerminate` returns `.terminateLater` when the workspace holds
     live sessions, runs `shutdownAll()`, then calls
     `reply(toApplicationShouldTerminate: true)`.
   - The workspace reaches the delegate through a closure installed by `PisakaApp`.
   - The `willTerminate` observer keeps `terminateNow()` as the fallback.
-- [ ] Core tests with `Gate`:
+- [x] Core tests with `Gate`:
   - A scripted server that ends its stream on `exit` is never terminated before its
     stream ends.
   - One that ignores `exit` is terminated only after the grace gate is released.
   - Pending requests fail exactly once.
   - `shutdownAll()` over two servers that both ignore `exit` waits on both graces
     concurrently: both waits start before either is released.
-- [ ] App test: a script fixture that ignores `exit` (and ignores stdin EOF) traps
+- [x] App test: a script fixture that ignores `exit` (and ignores stdin EOF) traps
   TERM to write a marker. With small graces, the marker appears only after the
   first grace and the process is gone after the second (kill). Polling uses
   `waitFor`.
-- [ ] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
-  Task 7.
+- [x] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
+  Task 7. (`swift test` green; the bundle's only failures are the 8 scale-1.8
+  layout assertions in BottomBar/ChromePopover/CommitDialog, which fail
+  identically on the unmodified tree on this machine.)
 
 ### Task 7: Bounded stderr and exit-code record, shown passively in settings
 

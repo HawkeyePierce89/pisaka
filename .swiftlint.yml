@@ -200,10 +200,14 @@ file_length:
 # arguments, inside the scene's `body` and so inside the struct body, moving it
 # by exactly what `file_length` did — and to 1919 with Local History's
 # thirty-nine, every one of them inside the struct body, moving it by exactly
-# what `file_length` did again.
+# what `file_length` did again — and to 1920 with the polite quit's one line
+# (D43), the closure installed on the app delegate inside the scene's
+# start-once block. The one time the two did not move together: the delegate
+# that closure feeds left this file for `AppDelegate.swift` in the same change,
+# so `file_length` fell rather than rose.
 type_body_length:
-  warning: 1919
-  error: 1919
+  warning: 1920
+  error: 1920
 
 function_body_length:
   warning: 140

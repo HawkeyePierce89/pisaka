@@ -1479,6 +1479,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `awaitAccountResolution()` and raises the login sheet only when the settled
     state is not signed in, because the optimistic one would have a stored-but-dead
     session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome(model: model)` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
+  - `AppDelegate.swift` — the `NSApplicationDelegate` behind
+    `@NSApplicationDelegateAdaptor`: promotes the process to a regular GUI app,
+    quits when the last window closes, and is **the one place a quit is held**
+    (D43, `core-lsp.md`). `PisakaApp` installs `languageServerTeardown` in the
+    scene's start-once block — a closure, because the adaptor builds the
+    delegate before the app struct and its workspace exist — answering the
+    teardown to wait for (`lspWorkspace.shutdownAll()`), or `nil` when
+    `hasLiveServers` is false. `applicationShouldTerminate` answers
+    `.terminateNow` on `nil`; otherwise it returns `.terminateLater`, runs the
+    teardown on the main actor and calls `reply(toApplicationShouldTerminate:
+    true)` when it returns. A second ⌘Q while one is pending answers
+    `.terminateLater` again and starts nothing — the one reply answers both.
+    The `willTerminate` observer's `lspWorkspace.terminateNow()` is unchanged and
+    stays the fallback for a quit that never asked the delegate; after a polite
+    teardown it finds nothing to kill. Moved out of `PisakaApp.swift` when it
+    gained this behaviour, which is also what kept that file under its
+    `file_length` ceiling (`style-lint.md`).
+
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over
     (both halves verified live in the preferences domain): the framework-derived

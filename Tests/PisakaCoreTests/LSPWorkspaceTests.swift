@@ -31,6 +31,8 @@ final class LSPWorkspaceTests: XCTestCase {
         var initializeDelay: TimeInterval = 0
         /// Answer `initialize` at all. `false` stages a handshake that times out.
         var answersInitialize = true
+        /// Every server launched from here on ignores `exit` and stdin EOF (D43).
+        var ignoresExit = false
 
         func makeTransport(
             _ description: LSPServerDescription,
@@ -48,6 +50,7 @@ final class LSPWorkspaceTests: XCTestCase {
             )
             // So a `shutdownAll` in a test costs a round trip and not a budget.
             transport.script(LSPMethod.shutdown, .reply(.null))
+            if ignoresExit { transport.ignoreExit() }
             transports.append(transport)
             return transport
         }
@@ -90,7 +93,8 @@ final class LSPWorkspaceTests: XCTestCase {
     private func makeWorkspace(
         harness: ServerHarness,
         registry: LSPServerRegistry = .standard,
-        root: URL? = nil
+        root: URL? = nil,
+        exitGraceWait: @escaping @Sendable (TimeInterval) async -> Void = LSPSession.sleep
     ) -> LSPWorkspace {
         let workspace = LSPWorkspace(
             registry: registry,
@@ -102,7 +106,8 @@ final class LSPWorkspaceTests: XCTestCase {
             delay: { [weak self] seconds in
                 self?.recordedDelays.append(seconds)
                 if let hook = self?.onDelay { await hook() }
-            }
+            },
+            exitGraceWait: exitGraceWait
         )
         workspace.prepareForFolderChange(root: root ?? self.root)
         return workspace
@@ -1277,6 +1282,42 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertFalse(workspace.canServe(.typescript))
         XCTAssertFalse(workspace.canServe(.javascript))
         XCTAssertTrue(workspace.canServe(.swift))
+    }
+
+    /// D43: each goodbye may cost a whole exit grace now, so the sessions are torn
+    /// down side by side. Two servers that both ignore `exit` must have *both*
+    /// graces running before either is released — in turn, the second wait could
+    /// only start once the first was let go, and the gate would never see two.
+    func testShutdownAllWaitsOutEveryExitGraceConcurrently() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()]),
+            exitGraceWait: graces.wait
+        )
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let b = 2")
+        XCTAssertEqual(workspace.liveServerCount, 2)
+        XCTAssertTrue(workspace.hasLiveServers)
+        let transports = harness.transports
+
+        let teardown = Task { await workspace.shutdownAll() }
+        await waitFor("both exit graces to start") { graces.started.count == 2 }
+        XCTAssertFalse(transports.contains { $0.isTerminated }, "nothing is signalled inside its grace")
+        XCTAssertTrue(transports.allSatisfy { $0.isInputClosed })
+        // Each session still closed its own documents before saying goodbye.
+        for transport in transports {
+            XCTAssertEqual(transport.notifications(for: LSPMethod.didClose).count, 1)
+        }
+
+        graces.release()
+        await teardown.value
+
+        XCTAssertTrue(transports.allSatisfy { $0.isTerminated })
+        XCTAssertFalse(workspace.hasLiveServers)
     }
 
     /// Un-registering is not forgetting: the process has to stop, or it outlives the

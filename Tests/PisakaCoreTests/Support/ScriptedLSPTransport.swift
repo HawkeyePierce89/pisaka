@@ -72,7 +72,16 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     private var framing = LSPFraming.Decoder()
     private var streamIsFinished = false
     private var terminated = false
+    private var inputClosed = false
+    /// Set when `terminate()` landed while the byte stream was still open — the
+    /// "signalled before it left" fact D43's ordering is asserted on.
+    private var terminatedWithStreamOpen = false
     private var writeError: LSPTransportError?
+    /// Whether the fake leaves when it is told to (D43). `true` by default — a
+    /// well-behaved server ends its stream on `exit`, so a shutdown in any test
+    /// that is about something else costs no grace. `false` stages the server
+    /// that ignores both `exit` and a closed stdin.
+    private var leavesOnExit = true
 
     init() {
         var escaped: AsyncStream<Data>.Continuation!
@@ -100,6 +109,13 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     func onSend(_ hook: (@Sendable (String) -> Void)?) {
         lock.lock()
         onSend = hook
+        lock.unlock()
+    }
+
+    /// Stage a server that ignores `exit` and stdin EOF — see `leavesOnExit`.
+    func ignoreExit() {
+        lock.lock()
+        leavesOnExit = false
         lock.unlock()
     }
 
@@ -211,7 +227,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     /// watch an arithmetic rule `LSPWriteBudgetTests` already states directly.
     func send(_ data: Data) throws {
         lock.lock()
-        if terminated {
+        if terminated || inputClosed {
             lock.unlock()
             throw LSPTransportError.notRunning
         }
@@ -247,8 +263,15 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         for message in messages { react(to: message) }
     }
 
+    func closeInput() {
+        lock.lock()
+        inputClosed = true
+        lock.unlock()
+    }
+
     func terminate() {
         lock.lock()
+        if !terminated, !streamIsFinished { terminatedWithStreamOpen = true }
         terminated = true
         lock.unlock()
         closeStream()
@@ -257,6 +280,13 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     // MARK: - Reacting
 
     private func react(to message: LSPIncomingMessage) {
+        if case .notification(let notification) = message, notification.method == LSPMethod.exit {
+            lock.lock()
+            let leaves = leavesOnExit
+            lock.unlock()
+            if leaves { closeStream() }
+            return
+        }
         // A client request decodes as `.serverRequest` here: the case names are
         // written from the session's point of view, and this object is the peer.
         guard case .serverRequest(let request) = message else { return }
@@ -352,5 +382,67 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return terminated
+    }
+
+    var isInputClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return inputClosed
+    }
+
+    var wasTerminatedWithStreamOpen: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return terminatedWithStreamOpen
+    }
+}
+
+/// The exit-grace seam (D43) held open until the test lets it go.
+///
+/// `Gate`'s causal rendezvous for an `async` wait: every call is recorded the
+/// moment it starts and parks on a continuation, not a blocked thread — so two
+/// sessions waiting out their graces at once cost the cooperative pool nothing,
+/// and "both waits started before either was released" is a fact read off
+/// `started`, not a timing. `release()` resumes every wait parked so far and
+/// every one that arrives later; a test must call it before it ends, or the
+/// parked continuations leak.
+final class GraceGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var startedGraces: [TimeInterval] = []
+    private var isReleased = false
+
+    /// The seam itself, for `LSPSession(exitGraceWait:)` /
+    /// `LSPWorkspace(exitGraceWait:)`.
+    var wait: @Sendable (TimeInterval) async -> Void {
+        { [self] grace in
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                startedGraces.append(grace)
+                if isReleased {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    /// The grace each wait was started with, in arrival order.
+    var started: [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return startedGraces
+    }
+
+    func release() {
+        lock.lock()
+        isReleased = true
+        let parked = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for continuation in parked { continuation.resume() }
     }
 }

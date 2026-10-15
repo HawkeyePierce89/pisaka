@@ -980,6 +980,107 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertEqual(transport.sentMethods.count, before)
     }
 
+    /// D43: a server that leaves on `exit` is let go — `terminate()` lands only
+    /// after its stream has already ended, never while it could still be
+    /// flushing. The grace is never released here: the stream ending is what
+    /// lets the shutdown return.
+    func testShutdownNeverSignalsAServerThatLeavesOnExit() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.shutdown, .reply(.null))
+        let graces = GraceGate()
+        defer { graces.release() }
+        let session = LSPSession(transport: transport, budgets: Self.quick, exitGraceWait: graces.wait)
+        try await session.start(processID: 4242, rootURI: "file:///tmp/Project")
+
+        await session.shutdown()
+
+        XCTAssertTrue(transport.isInputClosed)
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertFalse(transport.wasTerminatedWithStreamOpen)
+        let phase = await session.currentPhase
+        XCTAssertEqual(phase, .terminated)
+    }
+
+    /// D43: one that ignores `exit` (and its closed stdin) keeps running for the
+    /// whole grace, and is terminated only once the grace is over.
+    func testShutdownTerminatesAServerThatIgnoresExitOnlyAfterTheGrace() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.shutdown, .reply(.null))
+        transport.ignoreExit()
+        let graces = GraceGate()
+        defer { graces.release() }
+        let session = LSPSession(transport: transport, budgets: Self.quick, exitGraceWait: graces.wait)
+        try await session.start(processID: 4242, rootURI: "file:///tmp/Project")
+
+        let shuttingDown = Task { await session.shutdown() }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        XCTAssertEqual(graces.started, [Self.quick.exitGrace])
+        XCTAssertEqual(transport.sentMethods.suffix(2), [LSPMethod.shutdown, LSPMethod.exit])
+        XCTAssertTrue(transport.isInputClosed)
+        XCTAssertFalse(transport.isTerminated, "terminated inside the grace")
+
+        graces.release()
+        await shuttingDown.value
+
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertTrue(transport.wasTerminatedWithStreamOpen)
+    }
+
+    /// A request still in flight when the goodbye starts is failed exactly once —
+    /// through the idempotent `close` — however long the grace runs.
+    func testShutdownFailsAPendingRequestExactlyOnce() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.shutdown, .reply(.null))
+        transport.script(LSPMethod.definition, .drop)
+        transport.ignoreExit()
+        let graces = GraceGate()
+        defer { graces.release() }
+        let session = LSPSession(
+            transport: transport,
+            budgets: LSPSession.Budgets(handshake: 2, definition: 60, shutdown: 1),
+            exitGraceWait: graces.wait
+        )
+        try await session.start(processID: 4242, rootURI: "file:///tmp/Project")
+
+        let params = definitionParams
+        let asking = Task { try await session.definition(params) }
+        await waitFor("the definition request to be pending") { await session.pendingRequestCount == 1 }
+
+        let shuttingDown = Task { await session.shutdown() }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        let stillPending = await session.pendingRequestCount
+        XCTAssertEqual(stillPending, 1, "the grace does not fail the request early")
+
+        graces.release()
+        await shuttingDown.value
+
+        do {
+            _ = try await asking.value
+            XCTFail("A request outstanding at shutdown must fail")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .notRunning)
+        }
+        let remaining = await session.pendingRequestCount
+        XCTAssertEqual(remaining, 0)
+    }
+
+    /// A server that is already gone costs no grace: its stream ending closed the
+    /// session, and the shutdown has nothing left to wait for.
+    func testShutdownOfAServerWhoseStreamEndedWaitsForNothing() async throws {
+        let transport = makeTransport()
+        let graces = GraceGate()
+        defer { graces.release() }
+        let session = LSPSession(transport: transport, budgets: Self.quick, exitGraceWait: graces.wait)
+        try await session.start(processID: 4242, rootURI: "file:///tmp/Project")
+        transport.closeStream()
+        await waitFor("the session to notice EOF") { await session.currentPhase == .terminated }
+
+        await session.shutdown()
+
+        XCTAssertTrue(graces.started.isEmpty)
+        XCTAssertFalse(transport.sentMethods.contains(LSPMethod.exit))
+    }
+
     // MARK: - Notifications out
 
     func testDocumentSyncNotificationsCarryTheirParamsAndExpectNoAnswer() async throws {
