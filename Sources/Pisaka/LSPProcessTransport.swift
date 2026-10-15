@@ -239,12 +239,17 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// Record one of `errorOutput`'s two endings — the exit status when
     /// `exitCode` is given, stderr's end otherwise — and finish the stream once
     /// both have happened.
+    ///
+    /// The exit status is yielded *before* its ending is recorded: stderr's end
+    /// arrives on another thread at nearly the same moment, and recording first
+    /// would let that thread finish the stream between the two, dropping the
+    /// exit status into an already-finished stream.
     private func endErrorOutput(exitCode: Int32?) {
+        if let exitCode { errorContinuation.yield(.exited(code: exitCode)) }
         lock.lock()
         if exitCode == nil { errorReadingEnded = true } else { exitReported = true }
         let done = errorReadingEnded && exitReported
         lock.unlock()
-        if let exitCode { errorContinuation.yield(.exited(code: exitCode)) }
         if done { errorContinuation.finish() }
     }
 

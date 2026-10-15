@@ -2036,7 +2036,8 @@ capability beyond `insertReplaceSupport` came with any of it.
     built** (D41): either range not mapping exactly (`LSPPositionMap.exactRange`),
     a range spanning lines, or the range `CompletionEditPlan.primaryRange` chose
     not containing both the typed word's start and the caret. Dropping anything
-    sets `trimmed`, and a trimmed list is never retained. `additionalTextEdits` are
+    sets `trimmed` — asked of every item, including those below the cap, so the cut
+    cannot hide a drop — and a trimmed list is never retained. `additionalTextEdits` are
     untouched, and `make`'s commit-time refusal stays.
     **The last complete list is retained** (D40): a response with
     `isIncomplete == false`, not trimmed, from the session that answered, is kept
@@ -3524,7 +3525,8 @@ that lies outside the request text, spans a line, or does not cover both the
 typed word's start and the caret describes an edit this editor will not make, so
 the row is not offered. Mapping is **exact** (`LSPPositionMap.exactRange`), not
 the clamping form every jump uses: a clamped completion range is a guessed edit.
-The drop is recorded as `trimmed`, and a trimmed list is never retained — what
+The drop is recorded as `trimmed` — for items below the cap too, which the popup
+never shows but a narrowing would lift — and a trimmed list is never retained — what
 was dropped was dropped *for this request text*, and it may be exactly the item a
 longer prefix wants. `make`'s refusal stays as the last line.
 

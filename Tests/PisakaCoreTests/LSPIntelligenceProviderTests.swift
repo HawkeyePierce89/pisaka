@@ -2976,6 +2976,23 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertNil(answer.retained)
     }
 
+    /// The cap does not hide a drop: an unapplicable item sorted below the cut
+    /// still trims the list, so it is not retained either.
+    func testAnUnapplicableItemBelowTheCapStillTrimsTheList() async {
+        let unfit: JSONValue = .object([
+            "label": .string("fooBad"),
+            "sortText": .string("9"),
+            "textEdit": .object(["newText": .string("fooBad"), "range": range(9, 8, 9, 10)]),
+        ])
+        transport.script(LSPMethod.completion, .reply(narrowingItems(extra: [unfit])))
+        let provider = makeProvider(completionLimit: 2)
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+
+        XCTAssertEqual(answer.items.count, 2)
+        XCTAssertNil(answer.retained)
+    }
+
     /// A newer list replaces the retained one, so the older handle narrows nothing.
     func testANewerListRetiresTheOlderHandle() async throws {
         transport.script(LSPMethod.completion, .reply(narrowingItems()))

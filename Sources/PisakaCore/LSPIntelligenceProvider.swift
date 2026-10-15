@@ -993,6 +993,18 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             )
             if results.count == completionLimit { break }
         }
+        // The cap stops the loop, not the question `trimmed` answers: an item
+        // below the cut that cannot be applied still makes the list less than the
+        // server's whole answer, and a narrowing would lift it above the cut only
+        // to drop it there. Applicability reads the request text and typed word
+        // alone — never `typed` — so asking it here answers it for every later
+        // narrowing of the same list too.
+        if !trimmed {
+            trimmed = items.contains { item in
+                (item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax)
+                    && primaryRange(for: item, typedWord: typedWord, in: text, lineStarts: lineStarts) == nil
+            }
+        }
 
         // The items are returned either way — a superseded list still answers the
         // caller that asked for it, and that caller discards it on its own
