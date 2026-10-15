@@ -423,13 +423,22 @@ kind, snippet support, code action or inlay hint.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
+- [x] `swift test`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
   (`CompletionItem` reaches the iOS bar)
-- [ ] `swiftlint --strict` from the repository root
-- [ ] Confirm that `LSPSourceGatingTests` still holds `Process` behind
+- [x] `swiftlint --strict` from the repository root
+- [x] Confirm that `LSPSourceGatingTests` still holds `Process` behind
   `LSPTransport`, and that every acceptance criterion 1–12 maps to a passing test.
+  (`swift test` 6336 tests green; `PisakaAppTests` 315 tests, only the 8
+  environmental scale-1.8 layout assertions recorded in Task 6 fail; iOS
+  build succeeded unsigned; `swiftlint --strict` 0 violations in 684 files.
+  The ticket's numbered criteria are not in the repo; each Overview behaviour
+  maps to tests in FuzzyMatchTests, LSPIntelligenceProviderTests,
+  CompletionEditPlanTests, LSPProtocolTypesTests, CompletionNarrowingRuleTests,
+  CompletionPopupTests, CompletionPanelDetailLayoutTests, LSPSessionTests,
+  LSPWorkspaceTests, LSPProcessShutdownTests, LSPServerFailureRecordTests,
+  LSPProvisioningModelTests and LSPSourceGatingTests.)
 
 ### Task 9: Update documentation
 
