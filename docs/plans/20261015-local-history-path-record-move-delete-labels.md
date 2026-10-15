@@ -230,28 +230,28 @@ Three claims bend, and each is stated where it bends:
 - Create: `Sources/Pisaka/LocalHistoryPrompts.swift`
 - Modify: `.swiftlint.yml`, `Tests/PisakaCoreTests/LintConfigurationTests.swift`, `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [ ] **`performMove`:** after the move succeeds and the `applyRenamePlan` / viewer retargets have run, call `localHistory.followMove(from: source, to: destination, root: model.projectRoot)`.
-- [ ] **`deleteItem`:** after the confirmation and the affected-tab collection, and before `fileService.removeItem`, call `localHistory.captureBeforeDelete(of: url, root: model.projectRoot, bufferTexts:)` with the affected tabs' buffers (from `openBufferTexts()` restricted to the affected urls). The delete still raises no gate of its own.
-- [ ] **`restoreFromLocalHistory`:** after the current-root check, when `localHistory.store.isMissing(root:relativePath:)` is true:
+- [x] **`performMove`:** after the move succeeds and the `applyRenamePlan` / viewer retargets have run, call `localHistory.followMove(from: source, to: destination, root: model.projectRoot)`.
+- [x] **`deleteItem`:** after the confirmation and the affected-tab collection, and before `fileService.removeItem`, call `localHistory.captureBeforeDelete(of: url, root: model.projectRoot, bufferTexts:)` with the affected tabs' buffers (from `openBufferTexts()` restricted to the affected urls). The delete still raises no gate of its own.
+- [x] **`restoreFromLocalHistory`:** after the current-root check, when `localHistory.store.isMissing(root:relativePath:)` is true:
   - consult `revertInFlight()` and stop if it is raised;
   - otherwise `ensureDirectory` the parent and `createFile` through the file service (beep and stop on failure), then call `model.bumpTreeRevision()`;
   - continue with the unchanged restore steps (preflight, open, "Before Restore" capture, `applyRestore`).
-- [ ] **File menu:** below "Local History…", add "Deleted Files…" and "Put Label…".
+- [x] **File menu:** below "Local History…", add "Deleted Files…" and "Put Label…".
   - Deleted Files is disabled without a project.
   - Put Label's enablement passes the Core predicate the urls of `model.openFiles`' text-kind tabs. It does **not** call `openBufferTexts()`, so menu validation copies no buffer text.
   - Deleted Files: `await localHistoryBrowser.deletedPaths(root:)`, then the prompt, then `showLocalHistory(for: root.appendingPathComponent(choice))`.
   - Put Label: the prompt, then `localHistory.captureLabel(_, root:, texts: openBufferTexts())`. This action is the only place the label feature calls `openBufferTexts()`.
-- [ ] **`LocalHistoryPrompts.swift`** (`#if os(macOS)`): the label prompt and the deleted-file chooser per the decisions above. It makes no decisions of its own beyond asking `LocalHistoryPolicy.label(from:)`.
-- [ ] **`LocalHistoryView`:** rows show `browser.title(for:)` and call `browser.loadLabel(for:)` when a row appears.
-- [ ] **Lint ceilings:** measure `PisakaApp.swift` and raise `file_length` and `type_body_length` by exactly the measured amount, with the reasoning paragraph in `.swiftlint.yml`. Update `LintConfigurationTests`' pinned numbers and `docs/architecture/style-lint.md`'s record of them.
-- [ ] **`LocalHistorySourceGatingTests`:**
+- [x] **`LocalHistoryPrompts.swift`** (`#if os(macOS)`): the label prompt and the deleted-file chooser per the decisions above. It makes no decisions of its own beyond asking `LocalHistoryPolicy.label(from:)`.
+- [x] **`LocalHistoryView`:** rows show `browser.title(for:)` and call `browser.loadLabel(for:)` when a row appears.
+- [x] **Lint ceilings:** measure `PisakaApp.swift` and raise `file_length` and `type_body_length` by exactly the measured amount, with the reasoning paragraph in `.swiftlint.yml`. Update `LintConfigurationTests`' pinned numbers and `docs/architecture/style-lint.md`'s record of them.
+- [x] **`LocalHistorySourceGatingTests`:**
   - `captureBeforeDelete(` is named exactly once in `PisakaApp`, inside `deleteItem`, at an offset before that body's `removeItem(`, and is not awaited;
   - `followMove(` is named exactly once, inside `performMove`, after its `fileService.move(`;
   - the delete-site count is pinned cross-file against the number stated in `core-local-history.md`'s Tests entry (stated there in Task 6; add the sentence now so this task's tests pass);
   - the existing rule that no `LocalHistory*` file names `autosave.suspend` / `beginRevert` is kept and extended to `revertInFlight`, and it covers the new prompts file by name;
   - the macOS-gating rule covers the new file;
   - the restore's existing counts (`policy.capture(` asked exactly twice, one open) still hold.
-- [ ] Run `swift test`, `xcodegen generate`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`) and `swiftlint --strict`. All must pass before Task 6.
+- [x] Run `swift test`, `xcodegen generate`, the app-layer bundle (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`) and `swiftlint --strict`. All must pass before Task 6.
 
 ### Task 6: Documentation
 

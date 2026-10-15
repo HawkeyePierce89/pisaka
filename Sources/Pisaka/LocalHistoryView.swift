@@ -30,8 +30,8 @@ import SwiftUI
 ///
 /// Thin and untested like the rest of `Sources/Pisaka`. Every decision is Core's:
 /// what the revisions are and how they sort is `LocalHistorySnapshot`, what a row
-/// is called is `LocalHistoryEvent.title`, what the diff shows is `LineDiff`
-/// through the browser model, and whether a Restore is worth doing at all is
+/// is called is `LocalHistoryBrowserModel.title(for:)`, what the diff shows is
+/// `LineDiff` through the browser model, and whether a Restore is worth doing at all is
 /// `LocalHistoryBrowserModel.restorePlan` — `nil` for a revision the buffer
 /// already holds, so this view never has to decide it.
 struct LocalHistoryView: View {
@@ -158,7 +158,11 @@ struct LocalHistoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(browser.revisions, id: \.fileName, selection: selection) { snapshot in
-                    RevisionRow(snapshot: snapshot, now: now)
+                    RevisionRow(snapshot: snapshot, title: browser.title(for: snapshot), now: now)
+                        // A `.label` row's text is a sidecar read, asked for only
+                        // once the row is on screen; the browser ignores every
+                        // other row and any row already asked about.
+                        .onAppear { browser.loadLabel(for: snapshot) }
                         .listRowBackground(
                             snapshot.fileName == selection.wrappedValue
                                 ? Color.clear
@@ -261,6 +265,11 @@ struct LocalHistoryView: View {
 private struct RevisionRow: View {
     let snapshot: LocalHistorySnapshot
 
+    /// The row's title — the event's, or `"Label: <text>"` once a labelled
+    /// revision's text has loaded. `LocalHistoryBrowserModel.title(for:)` decides
+    /// it; the row only prints it.
+    let title: String
+
     /// The instant the relative wording is measured against, handed down by the
     /// window rather than read here.
     ///
@@ -281,7 +290,7 @@ private struct RevisionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: metrics.scaled(2)) {
-            Text(snapshot.event.title)
+            Text(title)
                 .font(metrics.scaledFont(.body))
                 .foregroundStyle(theme.color(.textPrimary))
             Text("\(Self.relative.localizedString(for: snapshot.timestamp, relativeTo: now)) · "

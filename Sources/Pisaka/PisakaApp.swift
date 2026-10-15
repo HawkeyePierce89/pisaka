@@ -1350,6 +1350,18 @@ struct PisakaApp: App {
                 }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
                 .disabled(localHistoryTargetURL == nil)
+
+                // The history of a file that is gone, and a label of the user's
+                // own on every open project file. No shortcuts. Put Label's
+                // enablement hands Core the text tabs' *urls* — never
+                // `openBufferTexts()`, so validating a menu copies no buffer.
+                Button("Deleted Files…") { showDeletedLocalHistory() }
+                    .disabled(model.projectRoot == nil)
+                Button("Put Label…") { putLocalHistoryLabel() }
+                    .disabled(!LocalHistoryModel.canPutLabel(
+                        tabURLs: model.openFiles.filter { $0.kind == .text }.compactMap(\.url),
+                        root: model.projectRoot
+                    ))
             }
 
             CommandGroup(after: .pasteboard) {
@@ -2767,6 +2779,29 @@ struct PisakaApp: App {
         }
     }
 
+    /// **File ▸ Deleted Files…**: offer the files under the current root that
+    /// have history and are gone from disk, and open the Local History window on
+    /// the one chosen. Core lists them (off the main actor) and sorts them; an
+    /// empty list is said so and opens nothing. A folder switch while the list
+    /// was being read drops the answer — it names files of the previous project.
+    private func showDeletedLocalHistory() {
+        guard let root = model.projectRoot else { return }
+        Task {
+            let paths = await localHistoryBrowser.deletedPaths(root: root)
+            guard model.isCurrentProjectRoot(root),
+                  let choice = LocalHistoryPrompts.chooseDeletedPath(from: paths) else { return }
+            showLocalHistory(for: root.appendingPathComponent(choice))
+        }
+    }
+
+    /// **File ▸ Put Label…**: ask for a label, then snapshot every open
+    /// project-backed text buffer under it. The one place the label feature
+    /// collects buffer texts; the menu's enablement asks urls only.
+    private func putLocalHistoryLabel() {
+        guard let text = LocalHistoryPrompts.askLabel() else { return }
+        localHistory.captureLabel(text, root: model.projectRoot, texts: openBufferTexts())
+    }
+
     /// What the file `url` names holds *right now* — the "new" side of the
     /// window's diff and the text a restore displaces.
     ///
@@ -2834,6 +2869,17 @@ struct PisakaApp: App {
     /// on disk when the user saves or the autosave fires, which is what keeps this
     /// feature a reader that takes no writer gate.
     ///
+    /// **A file that is no longer on disk is recreated first, empty** — the one
+    /// worktree create this feature makes, and the reason a deleted file can come
+    /// back from its own revisions. "Missing" is the store's question
+    /// (`isMissing(root:relativePath:)`). The create is an ordinary project-tree
+    /// write, so it consults the writer gate the way the tree's own create does
+    /// and stops when a git operation holds it; a failed create beeps and stops.
+    /// The tree is bumped, and the restore then runs unchanged against the empty
+    /// file: the open, the "Before Restore" capture of `""`, and the replacement.
+    /// A recreated file has no tab before the open, so `applyRestore` falls back
+    /// to a model rewrite and there is no ⌘Z step back to empty.
+    ///
     /// **Step 0 is the project check, and it is what makes the window's survival
     /// of a folder switch safe.** The window is deliberately long-lived — it is
     /// retargeted, not recreated, and `LocalHistoryView` says outright that it
@@ -2868,6 +2914,17 @@ struct PisakaApp: App {
         guard model.isCurrentProjectRoot(plan.root) else {
             PlatformFeedback.warning()
             return
+        }
+        if localHistory.store.isMissing(root: plan.root, relativePath: plan.relativePath) {
+            guard !revertInFlight() else { return }
+            do {
+                try fileService.ensureDirectory(at: plan.fileURL.deletingLastPathComponent())
+                try fileService.createFile(at: plan.fileURL)
+            } catch {
+                PlatformFeedback.warning()
+                return
+            }
+            model.bumpTreeRevision()
         }
         if let known = localHistoryTextToDisplace(plan.fileURL),
            localHistoryRestoreRefused(displacing: known, plan) {
@@ -4898,6 +4955,10 @@ struct PisakaApp: App {
             // connection is left alone on purpose: a rename moves the name, not the
             // inode, so there is nothing stale to re-read.
             plan.forEach { databaseViewers.retarget(id: $0.id, url: $0.newURL) }
+            // Carry the moved file's — or folder's — history to its new key. On
+            // the capture chain, after any capture already queued under the old
+            // one; it writes only the store and takes no gate.
+            localHistory.followMove(from: source, to: destination, root: model.projectRoot)
             // The tabs now name their destinations, so nothing holds a buffer for the
             // old paths any more. Without this each entry stays marked buffer-sourced
             // — which exempts it from both the refresh's re-extraction and its
@@ -4957,6 +5018,12 @@ struct PisakaApp: App {
         let affectedURLs = affectedIDs.compactMap { id in
             model.openFiles.first { $0.id == id }?.url
         }
+        // Snapshot what is about to go, under "Before Delete": the affected tabs'
+        // buffers, and the rest read off disk *before this returns* — only the
+        // store writes are left for the capture chain. Not awaited, and no gate.
+        let affectedSet = Set(affectedURLs)
+        let affectedBuffers = openBufferTexts().filter { affectedSet.contains($0.key) }
+        localHistory.captureBeforeDelete(of: url, root: model.projectRoot, bufferTexts: affectedBuffers)
         do {
             try fileService.removeItem(at: url)
             model.closeFiles(ids: affectedIDs)

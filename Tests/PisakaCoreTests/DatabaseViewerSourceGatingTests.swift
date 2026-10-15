@@ -292,7 +292,10 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// one: the ⌘S funnel's early success and `resyncViewerTab`.
     ///
     /// The eighth and ninth are the two *commands* that act on the selected tab
-    /// as text: `isFindableTabSelected` and `localHistoryTargetURL`.
+    /// as text: `isFindableTabSelected` and `localHistoryTargetURL`. The tenth is
+    /// Put Label's menu enablement, which asks whether any open *text* tab is a
+    /// project file: a viewer tab holds no buffer to snapshot, so it must not
+    /// enable a command that would then find nothing to label.
     ///
     /// A count rather than a shape because the failure is silent either way: a
     /// seventh consumer that forgets the filter compiles, runs, and reports a
@@ -301,21 +304,22 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     /// **Part 2b moves neither number**, which is the point of pinning them here:
     /// the console lives entirely inside a tab that already exists, and the two
     /// things it needed from the scene — the gate question and the write hook —
-    /// were wired for the cell edit. A console that had required a tenth filter
+    /// were wired for the cell edit. A console that had required one more filter
     /// would have meant a new way for the app to read a viewer tab as text.
     func testEveryTextShapedConsumerFiltersOnTheTabKind() throws {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "kind == \\.text", in: app),
-            9,
-            "Nine sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
+            10,
+            "Ten sites read openFiles as text and each must skip viewer tabs. If this number moved, a "
                 + "text-shaped consumer was added or removed — say which, here, rather than adjusting the "
                 + "number: an unfiltered one hands the empty string to a real path. The eighth is "
                 + "isFindableTabSelected: the find bar renders inside the text editor zone alone, so the "
                 + "four in-editor find commands grey out on a viewer tab rather than arming a bar the next "
                 + "text tab would come up already showing. The ninth is localHistoryTargetURL: a Restore on "
                 + "a viewer tab would file a revision claiming the database held the empty string and then "
-                + "restore nothing."
+                + "restore nothing. The tenth is Put Label's enablement: a viewer tab has no buffer to label, so "
+                + "it must not enable the command."
         )
         XCTAssertEqual(
             try occurrences(of: "kind == \\.viewer|kind != \\.viewer", in: app),

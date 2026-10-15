@@ -990,9 +990,14 @@ history, just not the newest one.
     routed through `SaveTransformController` with no second file naming
     `beginSaveTransformRewrite`/`replaceCharacters`; the restore asking
     `policy.capture(` exactly once, so it cannot replace a buffer the store would
-    refuse to snapshot; both open sites present; the
-    window declaring no zoom surface; the window closed at termination; and Local
-    History never naming `autosave.suspend`/`beginRevert` anywhere.
+    refuse to snapshot; all three open sites present (the File menu item, the
+    tree's row and Deleted Files…); the project tree's delete capture,
+    `captureBeforeDelete(` named at exactly one site, inside `deleteItem`, before
+    that body's `removeItem(` and never awaited — that number pinned cross-file
+    against this sentence; `followMove(` named once, inside `performMove`, after
+    its `fileService.move(`; the window declaring no zoom surface; the window
+    closed at termination; and Local History — the prompts file included, by name —
+    never naming `autosave.suspend`/`beginRevert`/`revertInFlight` anywhere.
 
 ## Known limits
 

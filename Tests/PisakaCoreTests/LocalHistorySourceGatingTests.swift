@@ -40,6 +40,14 @@ import XCTest
 /// 4. The compiler cannot ensure the app-side files are macOS-gated; without
 ///    `#if os(macOS)` they would break the iOS build, which has no window to
 ///    browse history in and no caller for the capture model.
+/// 5. The compiler cannot see *when* the project tree's delete captures. The
+///    capture reads the files it snapshots before it returns, so it is only a
+///    capture if it runs before `removeItem` — after it, it reads nothing and
+///    files nothing, silently. So it is pinned to one site, inside `deleteItem`,
+///    ahead of the removal and not awaited (the delete has no hop to wait
+///    across), and that one site is pinned cross-file against the number
+///    `core-local-history.md` states. The move's hook is pinned the other way
+///    round: inside `performMove`, *after* the move it follows.
 final class LocalHistorySourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -414,10 +422,10 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "showLocalHistory\\(for:", in: app),
-            2,
-            "The two open sites are the File menu item and the project tree's row callback, and both must reach "
-                + "the same handler: there is one window and one browser model behind it, so a second open path "
-                + "is a second way to leave the two disagreeing about which file is shown."
+            3,
+            "The three open sites are the File menu item, the project tree's row callback and Deleted Files…, "
+                + "and all must reach the same handler: there is one window and one browser model behind it, so "
+                + "a second open path is a second way to leave the two disagreeing about which file is shown."
         )
         let tree = try code(ofFileNamed: "ProjectTreeView.swift", under: "Sources/Pisaka")
         XCTAssertTrue(
@@ -455,16 +463,109 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - The tree's delete and move
+
+    /// The body of the `PisakaApp` method declared as `declaration`, up to the
+    /// next `private func`.
+    private func body(of declaration: String, in app: String) -> String? {
+        guard let start = app.range(of: declaration)?.upperBound,
+              let end = app.range(of: "private func ", range: start..<app.endIndex)?.lowerBound
+        else { return nil }
+        return String(app[start..<end])
+    }
+
+    /// The number of delete capture sites, as a word, the way
+    /// `core-local-history.md` states it.
+    private static let deleteSiteWords = [1: "one", 2: "two", 3: "three"]
+
+    func testTheTreesDeleteCapturesBeforeItRemoves() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        let sites = try occurrences(of: "captureBeforeDelete\\(", in: app)
+        XCTAssertEqual(
+            sites,
+            1,
+            "The project tree's delete is the one place a delete is captured; a second site is a second answer "
+                + "to what is read before a removal."
+        )
+        guard let body = body(of: "private func deleteItem(", in: app) else {
+            XCTFail("deleteItem must exist in PisakaApp")
+            return
+        }
+        guard let capture = try offsets(of: "captureBeforeDelete\\(", in: body).first,
+              let removal = try offsets(of: "removeItem\\(", in: body).first
+        else {
+            XCTFail("deleteItem must both capture and remove")
+            return
+        }
+        XCTAssertLessThan(
+            capture,
+            removal,
+            "The capture reads the files before it returns; after removeItem there is nothing left to read, and "
+                + "the delete would be captured by nothing."
+        )
+        XCTAssertEqual(
+            try occurrences(of: "await\\s+(?:[A-Za-z_.]+\\.)?captureBeforeDelete\\(", in: app),
+            0,
+            "The delete capture is synchronous and is not awaited: the delete has no hop to put an await in "
+                + "front of, and a capture that ran one hop later would read the files after their removal."
+        )
+
+        let doc = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent("docs/architecture/core-local-history.md"),
+            encoding: .utf8
+        )
+        let word = try XCTUnwrap(Self.deleteSiteWords[sites], "no word for \(sites) delete sites")
+        XCTAssertTrue(
+            doc.contains("`captureBeforeDelete(` named at exactly \(word) site"),
+            "core-local-history.md's Tests entry states the delete-site count (\(word)); the number written there "
+                + "and the number in PisakaApp must agree."
+        )
+    }
+
+    func testTheTreesMoveCarriesTheHistoryAfterItMoves() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "followMove\\(", in: app),
+            1,
+            "Both of the tree's moves — the rename and the drag-and-drop — funnel through performMove, so one "
+                + "hook carries the history for both."
+        )
+        guard let body = body(of: "private func performMove(", in: app) else {
+            XCTFail("performMove must exist in PisakaApp")
+            return
+        }
+        guard let move = try offsets(of: "fileService\\.move\\(", in: body).first,
+              let follow = try offsets(of: "followMove\\(", in: body).first
+        else {
+            XCTFail("performMove must both move and carry the history")
+            return
+        }
+        XCTAssertGreaterThan(
+            follow,
+            move,
+            "The history follows a move that happened: carried before it, a failed move would leave the history "
+                + "under a path that does not exist and the file under one with none."
+        )
+    }
+
     // MARK: - Local History is a reader
 
     func testLocalHistoryNeverTakesTheWriterGate() throws {
+        let names = Set(try localHistoryFiles().map(\.lastPathComponent))
+        XCTAssertTrue(
+            names.contains("LocalHistoryPrompts.swift"),
+            "The menu commands' prompts fall under these rules by name; if the file moved, this suite no longer "
+                + "sees it."
+        )
         for url in try localHistoryFiles() {
             let code = try self.code(of: url)
             XCTAssertFalse(
-                code.contains("autosave.suspend") || LSPSourceGatingTests.containsToken("beginRevert", in: code),
-                "\(url.lastPathComponent) must not raise the writer gate: Local History reads the user's files "
-                    + "and writes only its own store, so it is neither a gated writer nor a gate of its own — "
-                    + "the symbol index's rule, for the symbol index's reason."
+                code.contains("autosave.suspend") || LSPSourceGatingTests.containsToken("beginRevert", in: code)
+                    || LSPSourceGatingTests.containsToken("revertInFlight", in: code),
+                "\(url.lastPathComponent) must not raise or consult the writer gate: Local History reads the "
+                    + "user's files and writes only its own store, so it is neither a gated writer nor a gate of "
+                    + "its own — the symbol index's rule, for the symbol index's reason. The restore's one create "
+                    + "consults the gate in PisakaApp, never here."
             )
         }
     }
