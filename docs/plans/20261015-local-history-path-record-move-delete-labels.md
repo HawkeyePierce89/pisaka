@@ -137,21 +137,21 @@ Three claims bend, and each is stated where it bends:
 - Modify: `Sources/PisakaCore/LocalHistoryStore.swift`
 - Modify: `Tests/PisakaCoreTests/LocalHistoryStoreTests.swift`
 
-- [ ] **Record write in `capture(...)`, driven by the listing only.**
+- [x] **Record write in `capture(...)`, driven by the listing only.**
   - After the decision, if the directory holds at least one snapshot (already, or after this write) and the directory listing already in hand shows no `path` entry, write the record.
   - Write it as temporary → rename; failure is silent.
   - Capture never reads the record's content. A present record, correct or not, is left alone, so a dedup'd capture still costs one directory read and no content read.
   - A dedup'd capture into a directory that already has snapshots but no `path` entry still writes the record. This is AC9's "the first capture after the upgrade writes their record".
-- [ ] **Labelled capture.** Add a `label: String?` parameter (default `nil`) to `capture(...)`, used only with `.label`. Write the sidecar (temporary → rename) before the snapshot, using the same retry discipline. When retention deletes a `.label` snapshot, its sidecar goes with it.
-- [ ] **Sweep (`prune(directory:)`).**
+- [x] **Labelled capture.** Add a `label: String?` parameter (default `nil`) to `capture(...)`, used only with `.label`. Write the sidecar (temporary → rename) before the snapshot, using the same retry discipline. When retention deletes a `.label` snapshot, its sidecar goes with it.
+- [x] **Sweep (`prune(directory:)`).**
   - Reclaim every own temporary (the Task 1 predicate) and every orphan sidecar whose snapshot is not in the listing.
   - A directory that then holds no snapshot and nothing foreign (only its record, or nothing) counts as empty. Remove the record, re-list, and remove the directory only if the re-list is empty. This keeps the existing re-list guard against a concurrent quit-time capture.
   - A directory holding a foreign entry is still left alone.
-- [ ] **Readers, each silent on failure and each verifying records:**
+- [x] **Readers, each silent on failure and each verifying records:**
   - `recordedPaths(root:) -> [String]`: one directory read of the project directory plus one record read per file directory. A record that is absent or fails verification makes its directory record-less, and it is skipped. An unreadable store answers `[]`.
   - `isMissing(root:relativePath:) -> Bool`.
   - `labelText(of:root:relativePath:) -> String?`: reads the sidecar and answers it only if `LocalHistoryPolicy.label(from:)` accepts it.
-- [ ] Tests:
+- [x] Tests:
   - The first capture writes the record through a temporary and one extra `move`; a second capture writes nothing and reads no record (update the existing "exactly one move" / `writtenPaths` assertions accordingly, and assert `readPaths` excludes `path`).
   - A dedup'd capture into a directory with snapshots and no `path` entry writes the record.
   - A present-but-wrong record is **not** rewritten by capture (bytes unchanged afterwards), and `recordedPaths` skips that directory.
@@ -159,7 +159,7 @@ Three claims bend, and each is stated where it bends:
   - Pruning a label snapshot removes its sidecar.
   - The sweep reclaims a record-only directory (record and directory gone), an orphan sidecar, `path.partial` and a sidecar `.partial`, and leaves a directory with a foreign file alone.
   - `recordedPaths` lists only verified records; `isMissing` is true for an absent file and false for a present one; `labelText` returns `nil` for a missing or invalid sidecar.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: Store and model: history follows a rename or move
 
