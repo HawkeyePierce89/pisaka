@@ -288,16 +288,18 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     ///
     /// **The ranking, in order** (each tie-break is pinned by its own test):
     ///
-    /// 1. **match quality** — `FuzzyMatch.Quality`, which is itself ordered
-    ///    case-sensitive prefix, then case-insensitive prefix, then fuzzy, and
-    ///    within fuzzy prefers a match that lands on word boundaries, then a
-    ///    tighter span, then an earlier start. Typing `arr` still surfaces
-    ///    `ArrayBuffer`, but never above `arrayCount`, because the user's
-    ///    capitalization is a signal; and a literal prefix always beats a
-    ///    scattered subsequence, however short the scattered candidate is.
-    ///    For a literal prefix this key collapses to exactly the two-valued
-    ///    case rank this method ranked on before fuzzy matching existed, so
-    ///    every order that held then holds now;
+    /// 1. **match quality** — `FuzzyMatch.Quality`, which is itself ordered by
+    ///    case mismatches first (a capital the user typed that the candidate
+    ///    ignores: `aBu` puts `ArrayBuffer` above `abuse`; always 0 for a
+    ///    lowercase query), then tier — case-sensitive prefix, case-insensitive
+    ///    prefix, boundary match, subsequence match — then fewer contiguous
+    ///    fragments, more characters on word boundaries, a tighter span and an
+    ///    earlier start. Typing `arr` still surfaces `ArrayBuffer`, but never
+    ///    above `arrayCount`; and a literal prefix always beats a scattered
+    ///    subsequence, however short the scattered candidate is. For a literal
+    ///    prefix and a lowercase query this key collapses to exactly the
+    ///    two-valued case rank this method ranked on before fuzzy matching
+    ///    existed, so every such order that held then holds now;
     /// 2. the **current file** before the rest of the project — the nearby name
     ///    is the likely one, the same reasoning as go-to-definition;
     /// 3. the **source**: a known symbol, then a language keyword, then a bare

@@ -69,8 +69,8 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     private var isStopped = false
     private var isInputClosed = false
     private var streamIsFinished = false
-    /// The two halves `errorOutput` finishes after: stderr reached EOF (or
-    /// stopped being read), and the exit status was reported. Both, so a crash's
+    /// The two halves `errorOutput` finishes after: stderr reached EOF, and the
+    /// exit status was reported. Both, so a crash's
     /// last lines — readable a moment after the process is reaped — still land
     /// before the stream ends.
     private var errorReadingEnded = false
@@ -164,6 +164,7 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         stop()
         // A grandchild that inherited stderr can hold it open past the server's
         // own exit; the record's reader must not outlive the transport for it.
+        errors.fileHandleForReading.readabilityHandler = nil
         errorContinuation.finish()
     }
 
@@ -357,10 +358,12 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         guard !alreadyStopped else { return }
 
         output.fileHandleForReading.readabilityHandler = nil
-        errors.fileHandleForReading.readabilityHandler = nil
-        // Nothing reads stderr from here on, so that half of `errorOutput` is over;
-        // the exit status still arrives through the termination handler.
-        endErrorOutput(exitCode: nil)
+        // stderr is deliberately *not* detached: a crash ends stdout, and this
+        // runs from the session's reaction to that, while the server's last
+        // lines — the panic, the missing toolchain, exactly what D44 keeps — may
+        // still sit unread in the stderr pipe. Its handler reads on to EOF and
+        // ends that half of `errorOutput` itself; `deinit` is the backstop for a
+        // grandchild that holds the pipe open.
         // Stdin is closed here too, for the paths that never said goodbye (a
         // crash, a superseded launch, `terminateNow()`); the polite path has
         // already closed it through `closeInput()` and given the server its exit

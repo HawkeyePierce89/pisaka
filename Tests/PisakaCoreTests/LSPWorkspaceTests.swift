@@ -94,11 +94,12 @@ final class LSPWorkspaceTests: XCTestCase {
         harness: ServerHarness,
         registry: LSPServerRegistry = .standard,
         root: URL? = nil,
+        budgets: LSPSession.Budgets = LSPWorkspaceTests.quick,
         exitGraceWait: @escaping @Sendable (TimeInterval) async -> Void = LSPSession.sleep
     ) -> LSPWorkspace {
         let workspace = LSPWorkspace(
             registry: registry,
-            budgets: LSPWorkspaceTests.quick,
+            budgets: budgets,
             processID: 4242,
             transportFactory: { [harness] description, launchRoot in
                 try harness.makeTransport(description, launchRoot)
@@ -1015,6 +1016,38 @@ final class LSPWorkspaceTests: XCTestCase {
         )
     }
 
+    /// A quit held for `shutdownAll()` (D43) must not sit out a handshake: the
+    /// launch's epoch is already stale, so its process is killed at once rather
+    /// than waited on for up to a whole handshake budget — and a handshake cut
+    /// short that way is superseded, not failed, so it charges no restart.
+    func testShutdownAllKillsALaunchThatIsStillHandshakingInsteadOfWaitingOnIt() async {
+        let harness = ServerHarness()
+        harness.initializeDelay = 30
+        // A handshake budget far past the rendezvous below, so only the kill —
+        // never the budget running out — can end this handshake in time.
+        let patient = LSPSession.Budgets(handshake: 60, definition: 1, completion: 1, resolve: 1, shutdown: 1)
+        let workspace = makeWorkspace(harness: harness, budgets: patient)
+
+        let pending = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+        let handshaking = harness.latest
+
+        async let teardown: Void = workspace.shutdownAll()
+        await waitFor("the handshaking server to be killed") { handshaking.isTerminated }
+        await teardown
+        let prepared = await pending.value
+
+        XCTAssertNil(prepared)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertFalse(workspace.hasLiveServers)
+        XCTAssertTrue(workspace.failureRecordList.isEmpty, "a superseded handshake is not a failure")
+
+        harness.initializeDelay = 0
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertTrue(recordedDelays.isEmpty, "superseded is not failed")
+        XCTAssertEqual(workspace.liveServerCount, 1)
+    }
+
     /// A request *waiting on somebody else's launch* when the folder changes is
     /// answered by that launch's refusal and starts nothing of its own.
     ///
@@ -1125,6 +1158,62 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(record?.text.contains("crash 1"), false)
         XCTAssertEqual(record?.statusSentence, "Stopped after 4 failures · exit code 4")
         XCTAssertEqual(published.last, workspace.failureRecordList, "the sink saw the final state")
+    }
+
+    /// A crashed process that keeps talking after its successor started must not
+    /// write into the successor's record: the record follows the live source.
+    func testAPredecessorsLateOutputStaysOutOfItsSuccessorsRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let predecessor = harness.latest
+        await crash(predecessor)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let successor = harness.latest
+        XCTAssertFalse(predecessor === successor)
+
+        // Yielded first, so its consumer is queued on the main actor ahead of the
+        // successor's: without the source guard these land before "fresh".
+        predecessor.writeError("stale\n")
+        predecessor.reportExit(code: 99)
+        successor.writeError("fresh\n")
+        await waitFor("the successor's line to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.text.contains("fresh") == true
+        }
+
+        let record = workspace.failureRecord(serverID: "sourcekit-lsp")
+        XCTAssertEqual(record?.text, "fresh\n")
+        XCTAssertNil(record?.lastExitCode)
+    }
+
+    /// A registry update that changes a server (an uninstall here, a version bump
+    /// alike) drops its record and tells the sink, so a reinstall starts silent.
+    func testARegistryUpdateDropsAStaleServersRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+        await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP, downloaded()]))
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        harness.latest.writeError("boom\n")
+        harness.latest.reportExit(code: 1)
+        await waitFor("the exit to reach the record") {
+            workspace.failureRecord(serverID: "typescript-language-server")?.lastExitCode == 1
+        }
+        await crash(harness.latest)
+        // The restart fails too, so the record survives rather than being cleared
+        // by a handshake that answered.
+        harness.launchError = .launchFailed("gone")
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertEqual(workspace.failureRecordList.first?.serverID, "typescript-language-server")
+
+        await workspace.updateRegistry(.standard)
+
+        XCTAssertTrue(workspace.failureRecordList.isEmpty)
+        XCTAssertNil(workspace.failureRecord(serverID: "typescript-language-server"))
+        XCTAssertEqual(published.last, [], "the sink was not told the record went")
     }
 
     func testASuccessfulRestartClearsTheRecord() async {

@@ -752,7 +752,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than the graceful `shutdownAll()`**, because this is the last notification
     AppKit posts before the process exits: a `Task` wrapping the async teardown would
     compile, never be picked up, and leave exactly that orphan — the same reason the
-    autosave and session writers flush *synchronously* from this observer.
+    autosave and session writers flush *synchronously* from this observer. A quit
+    that asked the delegate has normally run the polite `shutdownAll()` already
+    (D43, `AppDelegate.swift`), so this call is the fallback for one that did not
+    and then finds nothing to kill.
     `lspGoToolchain.terminateNow()` is called beside it, and what it ends is worse
     than an orphan server: a `go install` has a compiler and a linker beneath it,
     all writing into a staging directory nothing will ever finish. It is also

@@ -417,8 +417,12 @@ user sees it.
   camelCase hump, the character after a `_`/`-`, or either side of a
   digit/letter transition (`base64Encoder` is reachable by `b`, `6` and `E`),
   counting the first eight such starts. Ranking puts the
-  best match first — an exact-case prefix, then a prefix ignoring case, then a
-  fuzzy match, preferring the ones that land on word boundaries and stay tight —
+  best match first. A capital you typed counts: a name that ignores it ranks below
+  every name that honours it (`aBu` puts `ArrayBuffer` above `abuse`). Then an
+  exact-case prefix, a prefix ignoring case, a match whose every run starts a word,
+  and any other match; within those, one unbroken run beats a scattered one (`buf`
+  is the hump `Buf` in `ArrayBuffer`), then matches that land on word boundaries
+  and stay tight —
   then the current file's names, then real declarations before keywords before
   plain words, then shorter names. Keywords are offered for Swift, JavaScript,
   TypeScript, Python, Go (the 25 reserved words plus the predeclared names no
@@ -491,17 +495,17 @@ user sees it.
   gutter — no blame column — and the same code zoom, one window per file) rather
   than as an editable tab, so a jump
   into the SDK can never write outside your project. Completion becomes typed
-  candidates in the compiler's own ranking, including real members after a `.`, and
+  candidates, including real members after a `.`, and
   a symbol that needs an `import` inserts the import line together with the symbol —
   caret after the symbol, and a single Cmd+Z undoes both. While you keep typing in
   the same word, a list the server said was complete is narrowed on the spot rather
   than asked for again. Candidates that match what you typed sit above the ones
   that do not, best-matching first, and the server's own order applies within each
   group. A capital you typed counts: `aBu` puts `ArrayBuffer` above `abuse`. Each
-  row shows the server's detail (a signature or type) dimmed at the right. Completing in
-  the middle of a word replaces the rest of it only when the completion ends with
-  that rest. `foo|Baz` completed to `fooBaz` gives `fooBaz`, while `foo|Bar` gives
-  `fooBazBar`.
+  row shows the server's detail (a signature or type) dimmed at the right. Committing with
+  **Enter** in the middle of a word replaces the rest of it only when the completion
+  ends with that rest. `foo|Baz` completed to `fooBaz` gives `fooBaz`, while
+  `foo|Bar` gives `fooBazBar`; **Tab** still replaces the whole identifier.
   All of this is silent and optional. Every other language keeps the index's
   answers; so does Swift on a machine with no Xcode, in a project the server cannot
   build, while the server is still starting, and if it crashes or hangs — the
@@ -1744,7 +1748,8 @@ and iPhone. The feature scope landed so far:
   server crashes it is restarted up to three times for that project and then given
   up on for the rest of the session. That happens without an alert, but no longer
   without a trace: Preferences → Language Servers then shows a line such as
-  "Stopped after 4 failures · exit code 1" on the server's row (sourcekit-lsp gets
+  "Stopped after 4 failures · exit code 1" on the server's row ("Restarted after
+  N failures" while it is still being restarted) (sourcekit-lsp gets
   a row of its own only while there is something to report), with the last 32 KiB
   of what the server wrote to stderr behind a disclosure. That record is kept in
   memory for the app run only and clears once the server starts successfully
@@ -1784,7 +1789,8 @@ and iPhone. The feature scope landed so far:
   has stopped knowing things rather than like a failed download.
 - The Go server (`gopls`) is macOS-only and covers the same Go to Definition,
   completion, hover types, diagnostics, Find Usages and Rename, with the same
-  absence of a status indicator and a log. It needs a Go toolchain — there is no offer without one, and
+  absence of a status indicator and a log beyond the same after-failure record on
+  its Preferences row. It needs a Go toolchain — there is no offer without one, and
   a `go` that cannot answer `go env` counts as none. A `gopls` you already have
   is used **at whatever version it is**: none is read, required or shown, and it
   is never replaced or updated by Pisaka. A build Pisaka does run is your own
@@ -1797,7 +1803,8 @@ and iPhone. The feature scope landed so far:
   version is pinned in the app and there is no version picker.
 - The Rust server (`rust-analyzer`) is macOS-only and covers the same Go to
   Definition, completion, hover types, diagnostics, Find Usages and Rename, with
-  the same absence of a status indicator and a log. It needs a **Rust toolchain** — there is no
+  the same absence of a status indicator and a log beyond the same after-failure
+  record on its Preferences row. It needs a **Rust toolchain** — there is no
   offer and no server without one, and a `cargo` that cannot answer
   `cargo --version` counts as none. The same applies to a `rust-analyzer` it
   finds: rustup installs a proxy for it whether or not the component was ever

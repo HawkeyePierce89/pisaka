@@ -2188,9 +2188,11 @@ capability beyond `insertReplaceSupport` came with any of it.
     `.dropRetained`; no retained list is `.request`; an explicit invocation, a
     trigger character, an inserted newline or a caret that jumped is `.request`; a
     moved word start is `.request`; otherwise the new word narrows when it extends
-    the answered one **or is a non-empty prefix of it** (a backspace inside the
-    word — the server's matching for the longer word was at least as loose), and
-    anything else is `.request`. Words compare in UTF-16 units, the coordinates
+    (or equals) the answered one, and anything else is `.request` — **including a
+    backspace below the answered word**: `isIncomplete == false` promises only
+    that *longer* spellings need no new request, and a server that filters on its
+    side answered `foob` without the `fooz` a shorter `foo` also matches. A
+    backspace that stays at or above the answered word still extends it. Words compare in UTF-16 units, the coordinates
     every offset here is in, so a composed and a decomposed spelling never read as
     the same word. **`.dropRetained` means only "forget the retained list"** and
     carries no instruction about the popup: the caller then follows the path it
@@ -3502,8 +3504,9 @@ the ordinary `publish` over it — the same partition, order, dedup, cap and res
 table a fresh answer gets, which is the property the tests pin: a narrowed `foob`
 equals a fresh `foob` answer from the same items. Whether a keystroke narrows is
 `CompletionNarrowingRule`'s pure decision, never the controller's: same word
-start, a non-empty word that extends the answered one or is a prefix of it (a
-backspace), and nothing that makes the situation new — an explicit invocation, a
+start, a non-empty word that extends the answered one (a backspace narrows only
+while it stays at or above the answered word — below it a server that filtered
+on its side never sent what the shorter word matches), and nothing that makes the situation new — an explicit invocation, a
 trigger character, a newline, a caret that jumped. Those are exactly the cases in
 which a server may answer differently from the same items. A narrow skips the
 debounce but answers to the same generation token; `nil` (replaced handle, dead

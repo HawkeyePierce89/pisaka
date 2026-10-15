@@ -120,34 +120,20 @@ public final class LSPServerFailureModel: ObservableObject {
     }
 
     /// The status for the row keyed by `serverID`, or `nil` with nothing to say.
+    /// Several roots for one server resolve to the newest record: the row is
+    /// about the server, and what it last did is the most useful single answer.
     public func status(forServerID serverID: String) -> LSPServerFailureRecord? {
-        LSPServerFailureModel.status(forServerID: serverID, in: records)
+        records
+            .filter { $0.serverID == serverID }
+            .max { $0.sequence < $1.sequence }
     }
 
     /// The servers no row on the page names — sourcekit-lsp today — one row each,
     /// present only while a record exists, in a stable order.
     public func statusOnlyRows(excludingServerIDs rowIDs: Set<String>) -> [LSPServerFailureRecord] {
-        LSPServerFailureModel.statusOnlyRows(in: records, excludingServerIDs: rowIDs)
-    }
-
-    /// Several roots for one server resolve to the newest record: the row is about
-    /// the server, and what it last did is the most useful single answer.
-    public nonisolated static func status(
-        forServerID serverID: String,
-        in records: [LSPServerFailureRecord]
-    ) -> LSPServerFailureRecord? {
-        records
-            .filter { $0.serverID == serverID && $0.hasFailed }
-            .max { $0.sequence < $1.sequence }
-    }
-
-    public nonisolated static func statusOnlyRows(
-        in records: [LSPServerFailureRecord],
-        excludingServerIDs rowIDs: Set<String>
-    ) -> [LSPServerFailureRecord] {
         Set(records.map(\.serverID))
             .subtracting(rowIDs)
             .sorted()
-            .compactMap { status(forServerID: $0, in: records) }
+            .compactMap { status(forServerID: $0) }
     }
 }

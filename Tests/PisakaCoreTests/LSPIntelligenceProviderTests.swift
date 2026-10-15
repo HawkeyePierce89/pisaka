@@ -2793,11 +2793,24 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
     // MARK: - Inline item construction
 
-    /// One `yaml-language-server` property completion, as that server really
-    /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
-    /// that carries no snippet syntax, and a value the schema wants indented
-    /// under the key.
     // MARK: - Local narrowing
+
+    /// Poll `condition` until it holds, failing loudly on timeout rather than
+    /// passing vacuously.
+    private func waitFor(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+    }
 
     /// The buffer with `word` typed on line 2, and the request for its end.
     private func narrowingRequest(_ word: String, lead: String = "") -> CompletionRequest {
@@ -3002,11 +3015,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.closeStream()
         // The session marks itself terminated before it terminates its transport,
         // so this is the causal point after which it can no longer be running.
-        let deadline = Date().addingTimeInterval(2)
-        while !transport.isTerminated, Date() < deadline {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        XCTAssertTrue(transport.isTerminated, "the session never noticed EOF")
+        await waitFor("the session to notice EOF") { self.transport.isTerminated }
 
         let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
         XCTAssertNil(narrowed, "a dead session's list still narrowed")
@@ -3038,6 +3047,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertNil(narrowed)
     }
 
+    /// One `yaml-language-server` property completion, as that server really
+    /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
+    /// that carries no snippet syntax, and a value the schema wants indented
+    /// under the key.
     private func schemaPropertyItemJSON(label: String) -> JSONValue {
         .object([
             "label": .string(label),

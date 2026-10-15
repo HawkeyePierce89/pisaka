@@ -32,10 +32,18 @@ final class CompletionNarrowingRuleTests: XCTestCase {
         XCTAssertEqual(decide(typed: "fo"), .narrow, "the answered word itself")
     }
 
-    func testABackspaceThatStaysInsideTheAnsweredWordNarrows() {
+    func testABackspaceThatStaysAtOrAboveTheAnsweredWordNarrows() {
+        let shorter = RetainedCompletionList(handle: 7, wordStart: 40, typed: "fo")
+        XCTAssertEqual(decide(retained: shorter, typed: "foo"), .narrow)
+        XCTAssertEqual(decide(retained: shorter, typed: "fo"), .narrow)
+    }
+
+    /// A server that filters on its side answered the longer word without what
+    /// the shorter one also matches, so a backspace below the answer asks again.
+    func testABackspaceBelowTheAnsweredWordAsksAgain() {
         let longer = RetainedCompletionList(handle: 7, wordStart: 40, typed: "foob")
-        XCTAssertEqual(decide(retained: longer, typed: "foo"), .narrow)
-        XCTAssertEqual(decide(retained: longer, typed: "f"), .narrow)
+        XCTAssertEqual(decide(retained: longer, typed: "foo"), .request)
+        XCTAssertEqual(decide(retained: longer, typed: "f"), .request)
     }
 
     func testAnEmptiedWordDropsTheRetainedListAndSaysNothingElse() {

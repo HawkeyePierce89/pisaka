@@ -1460,8 +1460,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the
     same reason — Core owns framing, correlation, budgets and position mapping and is
     unit-tested without an Xcode installation anywhere in sight, so this file owns
-    `Process`, is untested by repository convention, and is kept small enough to read
-    in one sitting. **It never interprets a message and never restarts anything**: a
+    `Process` and is kept small enough to read in one sitting. Its one headless test
+    is `PisakaAppTests/LSPProcessShutdownTests` (fixture `lsp-ignores-exit.sh`),
+    which drives a real process through the SIGTERM → SIGKILL escalation — the
+    reason the grace is an init parameter (`terminationGrace`, default 2 s) and
+    `processIdentifier` is exposed; the rest stays untested by convention. **It never interprets a message and never restarts anything**: a
     crashed server is reported by `incomingBytes` *finishing*, and deciding what that
     means (`core-lsp.md`'s D7) is `LSPWorkspace`'s job, the only thing that knows how
     many times it has already happened. **The stream publishes raw chunks, not
@@ -1507,10 +1510,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     "a transport nobody references stops reading" true, matching the session's own
     contract. The `terminationHandler` is the backstop for the EOF that never comes (a
     server whose child inherited stdout), which otherwise leaves a crash unnoticed and
-    every request falling back until the folder is closed. **stderr is drained and
-    discarded**, and draining is not optional: a server that logs steadily would
+    every request falling back until the folder is closed. **stderr is always
+    drained**, and draining is not optional: a server that logs steadily would
     otherwise fill the pipe buffer and block *writing a log line*, wedging itself
-    behind output nobody reads.
+    behind output nobody reads. What it says goes to `errorOutput` and nowhere else
+    (D44, `core-lsp.md`): the chunks, then `.exited(code:)` from the termination
+    handler (a signal reported negated), the stream finishing only once **both**
+    stderr's EOF and the exit status have arrived, so a crash's last lines land
+    before it ends. `stop()` therefore detaches stdout's handler but **not
+    stderr's** — a crash reaches `stop()` through the session's reaction to stdout's
+    end, while the panic text may still sit unread in the stderr pipe — and `deinit`
+    detaches it and finishes the stream as the backstop for a grandchild holding
+    the pipe open.
     The environment is inherited wholesale and never *replaced* (`GitCLIService.run`'s
     reasoning: a language server resolves its toolchain, caches and build system out
     of `PATH`/`HOME`/`DEVELOPER_DIR`, and assigning the environment to add one
@@ -1531,10 +1542,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     stdin — which gives a server that reads to EOF a chance to exit on its own, as
     sourcekit-lsp does — `SIGTERM`, then `SIGKILL` after a 2 s grace.
     **The stdin close goes through the write queue**, not the calling
-    thread: `send` only *queues* a write, and `LSPSession.shutdown()` queues the
-    `exit` notification and then calls `terminate()` in the same turn, so closing the
-    descriptor directly would race that write and usually win — dropping, on the
-    ordinary quit path, the one notification that lets a server end with status 0.
+    thread, in an idempotent `closeInput()`: `send` only *queues* a write, and
+    `LSPSession.shutdown()` queues the `exit` notification and then calls
+    `closeInput()` before its exit grace (D43), so closing the descriptor directly
+    would race that write and usually win — dropping, on the ordinary quit path, the
+    one notification that lets a server end with status 0. `stop()` calls it too, for
+    the paths that never said goodbye (a crash, a superseded launch,
+    `terminateNow()`), and `send` throws `notRunning` once input is closed.
     The signals are unaffected; they are sent immediately either way. Reaping runs on a *concurrent*
     reap queue, so two servers torn down on a folder switch do not wait for each
     other. `pid > 0` guards the one genuinely dangerous mistake here: `kill(0, …)`

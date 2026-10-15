@@ -325,6 +325,15 @@ public final class LSPWorkspace {
         // registered a *newer* transport for the same key in the meantime keeps it.
         // The inflight transports need no entry here at all: a superseded launch
         // sees the epoch mismatch, terminates what it built and `forget`s it itself.
+        // A launch still handshaking is stopped *now*, not waited out: its epoch is
+        // already stale, so it could only ever terminate itself after `initialize`
+        // answers — up to a whole handshake budget, which a quit held by
+        // `applicationShouldTerminate` (D43) would spend frozen. Killing it ends
+        // the handshake at once; the launch sees the stale epoch and books nothing.
+        for key in inflight.keys where live[key] == nil {
+            liveTransports[key]?.terminate()
+        }
+
         // One child per server, each keeping its own `didClose` → `shutdown` →
         // `forget` order; the children interleave only at their `await`s, all on
         // the main actor, so `forget`'s identity guard reads exactly as before.
@@ -1184,6 +1193,9 @@ public final class LSPWorkspace {
         } catch {
             await session.terminate()
             forget(transport, for: key)
+            // A handshake cut short by `shutdownAll()` stopping a superseded
+            // launch is not a failure, exactly as a superseded success is not.
+            guard token == epoch else { return nil }
             _ = noteFailure(of: key)
             return nil
         }

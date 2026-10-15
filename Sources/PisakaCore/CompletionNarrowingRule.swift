@@ -6,11 +6,11 @@ import Foundation
 /// A language server that answered a prefix with `isIncomplete == false` has
 /// said that its list holds everything a longer spelling of the same word can
 /// match, so typing on inside that word needs no second round trip — the
-/// provider re-ranks the list it kept (`CodeIntelligenceProviding.narrow`). A
-/// backspace that stays inside the answered word is the same situation read the
-/// other way: the list was answered for a longer word, and the shorter one is a
-/// prefix of it, so the server's own matching was looser than or equal to what
-/// is now typed.
+/// provider re-ranks the list it kept (`CodeIntelligenceProviding.narrow`). The
+/// promise runs one way only: a backspace below the answered word asks again,
+/// because a server that filters on its side answered `foob` without the `fooz`
+/// a shorter `foo` matches. A backspace that stays at or above the answered word
+/// (`fo` answered, `foob` typed, back to `foo`) still extends it and narrows.
 ///
 /// Everything that makes the situation *new* asks again: a different word
 /// (its start moved), an explicit invocation, a trigger character, a newline, a
@@ -59,8 +59,6 @@ public enum CompletionNarrowingRule {
         // composed and a decomposed spelling never read as the same word.
         let now = Array(typed.utf16)
         let answered = Array(retained.typed.utf16)
-        let extends = now.starts(with: answered)
-        let shortens = answered.starts(with: now)
-        return extends || shortens ? .narrow : .request
+        return now.starts(with: answered) ? .narrow : .request
     }
 }
