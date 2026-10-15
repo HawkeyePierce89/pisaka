@@ -36,6 +36,16 @@ import Foundation
 /// problem and becomes a lottery. The boundary it starts on must additionally be
 /// one of the name's first `maximumInitials` — see that constant for why the
 /// matcher, not just the index, is where the cap has to be stated.
+///
+/// **What a match is worth** is `Quality` (the full key) and `Partition` (the
+/// closed class above a caller's own order); both are stated on their types. In
+/// short: a capital the user typed and the candidate ignores costs more than
+/// anything else; then a literal prefix beats a *boundary* match (every
+/// contiguous run starts on a word boundary), which beats a plain subsequence;
+/// then fewer runs beat more. Placement tries the whole query as **one
+/// contiguous run** on an early boundary before falling back to the walks, so
+/// `buf` in `ArrayBuffer` is one run, not three. A lowercase query carries no
+/// capitals, so the mismatch key is always zero for it and never reorders it.
 public enum FuzzyMatch {
 
     /// How many bucket keys one name may contribute — **and therefore how many
@@ -64,38 +74,60 @@ public enum FuzzyMatch {
     ///
     /// The keys, in comparison order:
     ///
-    /// 1. `tier` — 0 a case-sensitive prefix, 1 a case-insensitive prefix,
-    ///    2 a fuzzy (subsequence) match. The user's capitalization is a signal,
-    ///    and a literal prefix is always a better answer than a scattered one.
-    /// 2. `offBoundary` — how many matched characters did *not* land on a word
+    /// 1. `caseMismatches` — how many matched positions hold an *uppercase*
+    ///    query character over a candidate character that is not uppercase. A
+    ///    capital the user typed is a deliberate signal (`aBu` names a hump), so
+    ///    a candidate that ignores it ranks below every candidate that honours
+    ///    it, whatever its tier: `ArrayBuffer` over `abuse` for `aBu`. A
+    ///    lowercase query carries no such signal, so it is **always 0** there:
+    ///    the key can never reorder what a lowercase query ranks.
+    /// 2. `tier` — 0 a case-sensitive prefix, 1 a case-insensitive prefix,
+    ///    2 a *boundary* match, 3 a *subsequence* match. A boundary match is one
+    ///    in which every contiguous run of matched characters starts on a word
+    ///    boundary (`buf` → `ArrayBuffer`, `ab` → `ArrayBuffer`); any other
+    ///    non-prefix match is a subsequence match (`arr` → `aXrr`). The user's
+    ///    capitalization is a signal, a literal prefix is always a better answer
+    ///    than a scattered one, and a match that reads as word initials is a
+    ///    better one than a match through the middle of a word.
+    /// 3. `fragments` — how many contiguous runs the match falls into: `buf` is
+    ///    one run in `ArrayBuffer` and three in `bigUnderFlow`, and the single
+    ///    run is what the user meant far more often.
+    /// 4. `offBoundary` — how many matched characters did *not* land on a word
     ///    boundary. `aBu` → `ArrayBuffer` (two humps hit) reads as intentional;
     ///    the same three characters scattered through the middle of a name do
     ///    not.
-    /// 3. `span` — last matched index minus first: a tighter match over a
+    /// 5. `span` — last matched index minus first: a tighter match over a
     ///    looser one.
-    /// 4. `start` — where the match begins: earlier over later.
+    /// 6. `start` — where the match begins: earlier over later.
     ///
-    /// **For a prefix match (`tier` 0 or 1) the three fuzzy sub-keys are
-    /// pinned to zero**, not computed. That is what keeps the pre-existing
-    /// ranking intact bit-for-bit: with a literal prefix the whole key collapses
-    /// to the two-valued case rank the provider ranked on before fuzzy matching
-    /// existed, so every candidate that would have tied then still ties now and
-    /// the later tie-breaks decide, exactly as before.
+    /// **For a prefix match (`tier` 0 or 1) `fragments`, `offBoundary`,
+    /// `span` and `start` are pinned to zero**, not computed. That is what keeps
+    /// the pre-existing ranking intact: with a literal prefix the key collapses
+    /// to the two-valued case rank (plus, for a case-insensitive prefix, the
+    /// mismatch count of an uppercase query), so every candidate that tied
+    /// before still ties now and the later tie-breaks decide, exactly as before.
     public struct Quality: Comparable, Hashable, Sendable {
         /// A prefix match with the typed capitalization.
         public static let caseSensitivePrefixTier = 0
         /// A prefix match ignoring capitalization.
         public static let caseInsensitivePrefixTier = 1
-        /// A subsequence match that is not a prefix.
-        public static let fuzzyTier = 2
+        /// A non-prefix match whose every contiguous run starts on a word
+        /// boundary.
+        public static let boundaryTier = 2
+        /// Any other non-prefix (subsequence) match.
+        public static let subsequenceTier = 3
 
+        public let caseMismatches: Int
         public let tier: Int
+        public let fragments: Int
         public let offBoundary: Int
         public let span: Int
         public let start: Int
 
-        public init(tier: Int, offBoundary: Int, span: Int, start: Int) {
+        public init(caseMismatches: Int, tier: Int, fragments: Int, offBoundary: Int, span: Int, start: Int) {
+            self.caseMismatches = caseMismatches
             self.tier = tier
+            self.fragments = fragments
             self.offBoundary = offBoundary
             self.span = span
             self.start = start
@@ -103,10 +135,12 @@ public enum FuzzyMatch {
 
         /// Whether the candidate literally starts with the query — the state in
         /// which the fuzzy sub-keys carry no information.
-        public var isPrefixMatch: Bool { tier < Self.fuzzyTier }
+        public var isPrefixMatch: Bool { tier < Self.boundaryTier }
 
         public static func < (lhs: Quality, rhs: Quality) -> Bool {
+            if lhs.caseMismatches != rhs.caseMismatches { return lhs.caseMismatches < rhs.caseMismatches }
             if lhs.tier != rhs.tier { return lhs.tier < rhs.tier }
+            if lhs.fragments != rhs.fragments { return lhs.fragments < rhs.fragments }
             if lhs.offBoundary != rhs.offBoundary { return lhs.offBoundary < rhs.offBoundary }
             if lhs.span != rhs.span { return lhs.span < rhs.span }
             return lhs.start < rhs.start
@@ -114,9 +148,53 @@ public enum FuzzyMatch {
 
         /// The pinned key of a prefix match — see the type's note on why the
         /// fuzzy sub-keys are constant here.
-        fileprivate static func prefix(tier: Int) -> Quality {
-            Quality(tier: tier, offBoundary: 0, span: 0, start: 0)
+        fileprivate static func prefix(tier: Int, caseMismatches: Int) -> Quality {
+            Quality(caseMismatches: caseMismatches, tier: tier, fragments: 0, offBoundary: 0, span: 0, start: 0)
         }
+    }
+
+    // MARK: - Partition
+
+    /// The closed, ordered class a candidate's match falls into — coarser than
+    /// `Quality`, and meant to sit *above* an order the caller does not own
+    /// (a language server's `sortText`) rather than to replace it.
+    ///
+    /// Eight matching values — the four tiers without a case mismatch, then the
+    /// same four with at least one — then `noMatch`, in that order. It is a
+    /// ranking key, **not a filter**: `noMatch` is a value like any other, and
+    /// a caller decides for itself whether to keep such candidates. An empty
+    /// query has nothing to classify, so every candidate lands in one partition
+    /// (`caseSensitivePrefix`), and the caller's own order decides alone.
+    public enum Partition: Int, Comparable, CaseIterable, Sendable {
+        case caseSensitivePrefix
+        case caseInsensitivePrefix
+        case boundary
+        case subsequence
+        case caseSensitivePrefixWithCaseMismatch
+        case caseInsensitivePrefixWithCaseMismatch
+        case boundaryWithCaseMismatch
+        case subsequenceWithCaseMismatch
+        case noMatch
+
+        /// The partition of an already computed `quality` for `query` — the
+        /// constructor for a caller that ranked with the quality anyway.
+        public init(_ quality: Quality?, query: String) {
+            guard !query.isEmpty else { self = .caseSensitivePrefix; return }
+            guard let quality else { self = .noMatch; return }
+            let tier = min(max(quality.tier, Quality.caseSensitivePrefixTier), Quality.subsequenceTier)
+            let mismatchHalf = quality.caseMismatches > 0 ? Quality.subsequenceTier + 1 : 0
+            self = Partition(rawValue: tier + mismatchHalf) ?? .noMatch
+        }
+
+        public static func < (lhs: Partition, rhs: Partition) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    /// The partition `candidate` falls into for `query` — the one place it is
+    /// derived, so no caller recomputes it from the quality's keys.
+    public static func partition(of candidate: String, matching query: String) -> Partition {
+        Partition(quality(of: candidate, matching: query), query: query)
     }
 
     // MARK: - Matching
@@ -131,21 +209,27 @@ public enum FuzzyMatch {
     /// character occurring only *off* a boundary, or only on a boundary past the
     /// cap, is not a match).
     ///
-    /// The walk is greedy and left-to-right, and deliberately deterministic
-    /// rather than optimal: for each query character it takes the next
-    /// *boundary* occurrence if there is one and the next occurrence otherwise,
-    /// and if that pass runs out of candidate it retries taking the leftmost
-    /// occurrence throughout. Two passes rather than a search because the
-    /// candidate set is scanned once per keystroke: the pair answers "is this a
+    /// **Placement is three deterministic tries, not a search.** First, the
+    /// contiguous run: if the whole query occurs case-insensitively as one run
+    /// starting on one of the name's first `maximumInitials` boundary
+    /// positions, the first such run is taken — `buf` in `ArrayBuffer` is the
+    /// hump `Buf`, never `B…u…f` scattered. Otherwise the walk is greedy and
+    /// left-to-right: for each query character it takes the next *boundary*
+    /// occurrence if there is one and the next occurrence otherwise, and if
+    /// that pass runs out of candidate it retries taking the leftmost
+    /// occurrence throughout. Tries rather than a search because the candidate
+    /// set is scanned once per keystroke: the walks answer "is this a
     /// subsequence at all" exactly, and only the *quality* of a pathological
     /// name (`abC_bx` matched against `abc`, where the boundary-preferring pass
-    /// is the one that has to back off) is decided by which pass succeeded.
+    /// is the one that has to back off) is decided by which try succeeded.
     public static func quality(of candidate: String, matching query: String) -> Quality? {
         guard !query.isEmpty, !candidate.isEmpty else { return nil }
 
         // The prefix tiers first: they are the common case, they short-circuit
         // the character-array work below, and their key is a constant.
-        if candidate.hasPrefix(query) { return .prefix(tier: Quality.caseSensitivePrefixTier) }
+        if candidate.hasPrefix(query) {
+            return .prefix(tier: Quality.caseSensitivePrefixTier, caseMismatches: 0)
+        }
         // `lowercased()` allocates a whole String per side, so it is reached only
         // once the first characters agree — a necessary condition for the prefix
         // (the first character of a lowercased string is the lowercased first
@@ -154,7 +238,10 @@ public enum FuzzyMatch {
         if let queried = query.first, let leading = candidate.first,
            lowercased(leading) == lowercased(queried),
            candidate.lowercased().hasPrefix(query.lowercased()) {
-            return .prefix(tier: Quality.caseInsensitivePrefixTier)
+            return .prefix(
+                tier: Quality.caseInsensitivePrefixTier,
+                caseMismatches: caseMismatches(zip(query, candidate).map { ($0, $1) })
+            )
         }
 
         // **The allocation gate.** Everything below builds four arrays per
@@ -172,7 +259,8 @@ public enum FuzzyMatch {
 
         let characters = Array(candidate)
         let lowered = characters.map(lowercased)
-        let target = query.map(lowercased)
+        let queryCharacters = Array(query)
+        let target = queryCharacters.map(lowercased)
         let boundaries = boundaryFlags(of: characters)
 
         // The bucket agreement, enforced here rather than left to the index — see
@@ -184,13 +272,24 @@ public enum FuzzyMatch {
               boundaryInitials(of: lowered, boundaries: boundaries).contains(queried)
         else { return nil }
 
-        guard let positions = positions(of: target, in: lowered, boundaries: boundaries, preferringBoundaries: true)
+        guard let positions = contiguousRun(of: target, in: lowered, boundaries: boundaries)
+                ?? positions(of: target, in: lowered, boundaries: boundaries, preferringBoundaries: true)
                 ?? positions(of: target, in: lowered, boundaries: boundaries, preferringBoundaries: false),
               let first = positions.first, let last = positions.last
         else { return nil }
 
+        var fragments = 0
+        var everyRunOnABoundary = true
+        for (offset, position) in positions.enumerated()
+        where offset == 0 || positions[offset - 1] + 1 != position {
+            fragments += 1
+            if !boundaries[position] { everyRunOnABoundary = false }
+        }
+
         return Quality(
-            tier: Quality.fuzzyTier,
+            caseMismatches: caseMismatches(positions.enumerated().map { (queryCharacters[$0], characters[$1]) }),
+            tier: everyRunOnABoundary ? Quality.boundaryTier : Quality.subsequenceTier,
+            fragments: fragments,
             offBoundary: positions.reduce(0) { $0 + (boundaries[$1] ? 0 : 1) },
             span: last - first,
             start: first
@@ -257,6 +356,34 @@ public enum FuzzyMatch {
             needle = lowercased(next)
         }
         return false
+    }
+
+    /// How many `(query, candidate)` pairs put an uppercase query character
+    /// over a candidate character that is not uppercase — the `caseMismatches`
+    /// key, 0 by construction for a lowercase query.
+    private static func caseMismatches(_ pairs: [(Character, Character)]) -> Int {
+        pairs.reduce(0) { $0 + ($1.0.isUppercase && !$1.1.isUppercase ? 1 : 0) }
+    }
+
+    /// The positions of the first contiguous occurrence of `query` in
+    /// `candidate` that starts on one of the first `maximumInitials` boundary
+    /// positions, or `nil` when there is none — the placement tried before the
+    /// two walks. The cap keeps the run inside what the bucket agreement
+    /// already lets a match be anchored on.
+    private static func contiguousRun(of query: [Character], in candidate: [Character], boundaries: [Bool]) -> [Int]? {
+        guard query.count <= candidate.count else { return nil }
+        var boundariesSeen = 0
+        for start in 0...(candidate.count - query.count) where boundaries[start] {
+            boundariesSeen += 1
+            if boundariesSeen > maximumInitials { return nil }
+            var matched = true
+            for offset in query.indices where candidate[start + offset] != query[offset] {
+                matched = false
+                break
+            }
+            if matched { return Array(start..<(start + query.count)) }
+        }
+        return nil
     }
 
     /// One index per query character, or `nil` when the walk cannot place them

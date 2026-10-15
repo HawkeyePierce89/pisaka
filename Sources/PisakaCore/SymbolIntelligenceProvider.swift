@@ -562,7 +562,9 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     private static func memberQuality(of name: String, matching query: String) -> FuzzyMatch.Quality? {
         guard !query.isEmpty else {
             return FuzzyMatch.Quality(
+                caseMismatches: 0,
                 tier: FuzzyMatch.Quality.caseSensitivePrefixTier,
+                fragments: 0,
                 offBoundary: 0,
                 span: 0,
                 start: 0

@@ -92,7 +92,7 @@ final class FuzzyMatchTests: XCTestCase {
 
         XCTAssertEqual(exact.tier, FuzzyMatch.Quality.caseSensitivePrefixTier)
         XCTAssertEqual(insensitive.tier, FuzzyMatch.Quality.caseInsensitivePrefixTier)
-        XCTAssertEqual(fuzzy.tier, FuzzyMatch.Quality.fuzzyTier)
+        XCTAssertEqual(fuzzy.tier, FuzzyMatch.Quality.subsequenceTier)
         XCTAssertLessThan(exact, insensitive)
         XCTAssertLessThan(insensitive, fuzzy)
     }
@@ -145,9 +145,121 @@ final class FuzzyMatchTests: XCTestCase {
     /// leftmost one.
     func testTheBoundaryPreferringWalkFallsBackRatherThanFailing() throws {
         let quality = try XCTUnwrap(FuzzyMatch.quality(of: "axbc_by", matching: "abc"))
-        XCTAssertEqual(quality.tier, FuzzyMatch.Quality.fuzzyTier)
+        XCTAssertEqual(quality.tier, FuzzyMatch.Quality.subsequenceTier)
         XCTAssertEqual(quality.start, 0)
         XCTAssertEqual(quality.span, 3)
         XCTAssertEqual(quality.offBoundary, 2)
+    }
+
+    // MARK: - Case mismatches, fragments, boundary tier
+
+    /// `buf` is one run in `ArrayBuffer` and three in `bigUnderFlow`; both are
+    /// boundary matches, so the run count decides — even though every one of
+    /// `bigUnderFlow`'s three characters lands on a boundary.
+    func testOneRunBeatsThreeBoundaryRuns() throws {
+        let single = try XCTUnwrap(FuzzyMatch.quality(of: "ArrayBuffer", matching: "buf"))
+        let split = try XCTUnwrap(FuzzyMatch.quality(of: "bigUnderFlow", matching: "buf"))
+        XCTAssertEqual(single.tier, FuzzyMatch.Quality.boundaryTier)
+        XCTAssertEqual(split.tier, FuzzyMatch.Quality.boundaryTier)
+        XCTAssertEqual(single.fragments, 1)
+        XCTAssertEqual(split.fragments, 3)
+        XCTAssertLessThan(single, split)
+    }
+
+    /// The capital the user typed is honoured above the prefix tiers: `abuse`
+    /// is a case-insensitive prefix of `aBu` but ignores its `B`.
+    func testATypedCapitalOutranksAPrefixThatIgnoresIt() throws {
+        let hump = try XCTUnwrap(FuzzyMatch.quality(of: "ArrayBuffer", matching: "aBu"))
+        let prefix = try XCTUnwrap(FuzzyMatch.quality(of: "abuse", matching: "aBu"))
+        XCTAssertEqual(hump.caseMismatches, 0)
+        XCTAssertEqual(prefix.caseMismatches, 1)
+        XCTAssertEqual(prefix.tier, FuzzyMatch.Quality.caseInsensitivePrefixTier)
+        XCTAssertLessThan(hump, prefix)
+    }
+
+    /// A lowercase query never carries a mismatch, whatever the candidate's
+    /// capitalization or the tier it lands in.
+    func testALowercaseQueryNeverCarriesACaseMismatch() {
+        let candidates = ["ArrayBuffer", "arrayBuffer", "ARRAY", "bigUnderFlow", "aXrr", "axbc_by", "URLSession"]
+        for query in ["arr", "buf", "ab", "abc", "us", "a"] {
+            for candidate in candidates {
+                guard let quality = FuzzyMatch.quality(of: candidate, matching: query) else { continue }
+                XCTAssertEqual(quality.caseMismatches, 0, "\(query) → \(candidate)")
+            }
+        }
+    }
+
+    /// A non-prefix match with a run starting off a boundary is a subsequence
+    /// match, below every boundary match.
+    func testARunStartingOffABoundaryIsASubsequenceMatch() throws {
+        let boundary = try XCTUnwrap(FuzzyMatch.quality(of: "ArrayBuffer", matching: "ab"))
+        let subsequence = try XCTUnwrap(FuzzyMatch.quality(of: "alphabet", matching: "ab"))
+        XCTAssertEqual(boundary.tier, FuzzyMatch.Quality.boundaryTier)
+        XCTAssertEqual(subsequence.tier, FuzzyMatch.Quality.subsequenceTier)
+        XCTAssertLessThan(boundary, subsequence)
+    }
+
+    /// The boundary-preferring walk would take `a` at 0 and the `b` after the
+    /// underscore — two runs; the contiguous run `Ab` on the third boundary is
+    /// taken first.
+    func testAContiguousRunBeatsTheBoundaryWalksSplit() throws {
+        let quality = try XCTUnwrap(FuzzyMatch.quality(of: "a_bxAb", matching: "ab"))
+        XCTAssertEqual(quality.fragments, 1)
+        XCTAssertEqual(quality.start, 4)
+        XCTAssertEqual(quality.span, 1)
+        XCTAssertEqual(quality.tier, FuzzyMatch.Quality.boundaryTier)
+    }
+
+    /// The contiguous run is anchored only on the first `maximumInitials`
+    /// boundary positions; past them the walk decides.
+    func testTheContiguousRunIsBoundedByTheInitialsCap() throws {
+        // Nine single-letter words, then `ab`: the run sits on the tenth boundary.
+        let quality = try XCTUnwrap(FuzzyMatch.quality(of: "a_c_d_e_f_g_h_i_j_ab", matching: "ab"))
+        XCTAssertEqual(quality.start, 0)
+        XCTAssertEqual(quality.fragments, 2)
+    }
+
+    // MARK: - Partition
+
+    func testPartitionOrderIsTiersThenTheMismatchHalfThenNoMatch() {
+        XCTAssertEqual(FuzzyMatch.Partition.allCases, [
+            .caseSensitivePrefix, .caseInsensitivePrefix, .boundary, .subsequence,
+            .caseSensitivePrefixWithCaseMismatch, .caseInsensitivePrefixWithCaseMismatch,
+            .boundaryWithCaseMismatch, .subsequenceWithCaseMismatch,
+            .noMatch,
+        ])
+        XCTAssertEqual(FuzzyMatch.Partition.allCases, FuzzyMatch.Partition.allCases.sorted())
+    }
+
+    func testPartitionOfEachTier() {
+        XCTAssertEqual(FuzzyMatch.partition(of: "arrayBuffer", matching: "arr"), .caseSensitivePrefix)
+        XCTAssertEqual(FuzzyMatch.partition(of: "ArrayBuffer", matching: "arr"), .caseInsensitivePrefix)
+        XCTAssertEqual(FuzzyMatch.partition(of: "ArrayBuffer", matching: "buf"), .boundary)
+        XCTAssertEqual(FuzzyMatch.partition(of: "aXrr", matching: "arr"), .subsequence)
+        XCTAssertEqual(FuzzyMatch.partition(of: "abuse", matching: "aBu"), .caseInsensitivePrefixWithCaseMismatch)
+        XCTAssertEqual(FuzzyMatch.partition(of: "big_under_flow", matching: "bUf"), .boundaryWithCaseMismatch)
+        XCTAssertEqual(FuzzyMatch.partition(of: "alphabet", matching: "aB"), .subsequenceWithCaseMismatch)
+        XCTAssertEqual(FuzzyMatch.partition(of: "ArrayBuffer", matching: "rray"), .noMatch)
+        XCTAssertLessThan(FuzzyMatch.Partition.subsequence, .caseInsensitivePrefixWithCaseMismatch)
+    }
+
+    /// An empty query classifies nothing: every candidate, matching or not,
+    /// lands in one partition, so the caller's own order decides alone.
+    func testAnEmptyQueryGivesOnePartition() {
+        let partitions = Set(["arrayBuffer", "ArrayBuffer", "aXrr", "", "zzz"].map {
+            FuzzyMatch.partition(of: $0, matching: "")
+        })
+        XCTAssertEqual(partitions.count, 1)
+    }
+
+    /// The partition built from an already computed quality agrees with the
+    /// one-call derivation.
+    func testPartitionFromAQualityAgreesWithTheDerivation() {
+        for (candidate, query) in [("ArrayBuffer", "aBu"), ("abuse", "aBu"), ("aXrr", "arr"), ("x", "y")] {
+            XCTAssertEqual(
+                FuzzyMatch.Partition(FuzzyMatch.quality(of: candidate, matching: query), query: query),
+                FuzzyMatch.partition(of: candidate, matching: query)
+            )
+        }
     }
 }

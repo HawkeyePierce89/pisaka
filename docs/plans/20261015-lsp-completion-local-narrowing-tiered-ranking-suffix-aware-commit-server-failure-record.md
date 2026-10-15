@@ -96,7 +96,7 @@ kind, snippet support, code action or inlay hint.
 - Modify: `Sources/PisakaCore/FuzzyMatch.swift`
 - Modify: `Tests/PisakaCoreTests/FuzzyMatchTests.swift`
 
-- [ ] Extend `Quality` to the key order `caseMismatches`, `tier`, `fragments`,
+- [x] Extend `Quality` to the key order `caseMismatches`, `tier`, `fragments`,
   `offBoundary`, `span`, `start`.
   - `caseMismatches` counts matched positions where the query character is
     uppercase and the candidate character is not. It is always 0 for a query
@@ -105,25 +105,25 @@ kind, snippet support, code action or inlay hint.
     match (every contiguous matched run starts on a boundary), 3 a subsequence
     match.
   - `fragments` is the number of contiguous matched runs.
-- [ ] Replace the `fuzzyTier` constant with `boundaryTier` and `subsequenceTier`.
+- [x] Replace the `fuzzyTier` constant with `boundaryTier` and `subsequenceTier`.
   Keep `isPrefixMatch`. Prefix tiers keep `offBoundary`/`span`/`start` pinned to
   today's constants, `fragments` is pinned too, and `caseMismatches` is computed for
   the case-insensitive prefix (`abuse` for `aBu` carries one).
-- [ ] Add a contiguous-run placement before the two existing walks. If the whole
+- [x] Add a contiguous-run placement before the two existing walks. If the whole
   query occurs case-insensitively as one contiguous run that starts on one of the
   first `maximumInitials` boundaries, take the first such run. Otherwise fall back
   to today's boundary-preferring walk, then the leftmost walk. The allocation gate,
   the start-on-boundary rule and `maximumInitials` are unchanged.
-- [ ] Add a closed, ordered `FuzzyMatch.Partition`, `Comparable`, built from a
+- [x] Add a closed, ordered `FuzzyMatch.Partition`, `Comparable`, built from a
   `Quality?` and the query:
   - Eight matching values: the four tiers mismatch-free, then the same four with at
     least one case mismatch.
   - Then `noMatch`.
   - An empty query maps every candidate to a single partition.
   - Expose a static `partition(of:matching:)` so callers never recompute it.
-- [ ] Update the type's doc comment: keys, the boundary-tier definition, the
+- [x] Update the type's doc comment: keys, the boundary-tier definition, the
   contiguous-placement rule, and why a lowercase query ranks exactly as before.
-- [ ] Tests:
+- [x] Tests:
   - `buf`: `ArrayBuffer` < `bigUnderFlow` (both tier 2, fragments 1 vs 3).
   - `aBu`: `ArrayBuffer` < `abuse` (the mismatch at `B`).
   - `caseMismatches == 0` for every lowercase query.
@@ -132,7 +132,7 @@ kind, snippet support, code action or inlay hint.
     gives one partition.
   - Every existing ranking assertion is unchanged; only the `fuzzyTier` references
     move to the new constants (`aXrr`/`axbc_by` → `subsequenceTier`).
-- [ ] Run `swift test` (`SymbolIntelligenceProvider`/`SymbolIndex` suites must stay
+- [x] Run `swift test` (`SymbolIntelligenceProvider`/`SymbolIndex` suites must stay
   green). It must pass before Task 2.
 
 ### Task 2: LSP list ordering by partition, and `CompletionItem.detail`
