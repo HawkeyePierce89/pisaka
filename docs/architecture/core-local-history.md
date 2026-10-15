@@ -1390,8 +1390,12 @@ history, just not the newest one.
     refused rather than keyed by its bare name (the re-join guard); and a capture
     with nothing to store returning while the sweep is demonstrably mid-read —
     asserted with a deadline, so joining the chain fails instead of hanging.
-    A delete capture held on the chain is not yet listed by `deletedPaths`, and
-    is listed by `deletedPaths(root:awaiting:)` once the chain is released.
+    A delete capture held on the chain: the non-awaiting `deletedPaths(root:)`,
+    asked while the capture is held, answers `[]`, and its return through the
+    browser model's serial queue is the barrier behind which an awaiting form
+    that did not wait would already have answered; `deletedPaths(root:awaiting:)`,
+    started before it, lists the deleted file once the chain is released — no
+    timed window.
     `followMove`: a capture queued before it carried and one queued after landing
     under the new key (a `Gate` on a listing as the causal rendezvous, then
     `chain?.value`), and an unkeyable side not extending the chain.

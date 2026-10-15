@@ -84,7 +84,7 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
 - Modify: `Tests/PisakaCoreTests/LocalHistoryModelTests.swift`
 - Modify: `docs/architecture/core-local-history.md`
 
-- [ ] Restate `testWaitingForQueuedWritesListsAFileDeletedJustBefore` with this shape:
+- [x] Restate `testWaitingForQueuedWritesListsAFileDeletedJustBefore` with this shape:
   - `let gate = await holdChain(model, tree)`, as today;
   - `model.captureBeforeDelete(of: projectFile("gone.swift"), root: projectRoot, bufferTexts: [:])`;
   - `tree.files["project/gone.swift"] = nil`;
@@ -96,17 +96,17 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
   - `await fulfillment(of: [listed], timeout: 5)`;
   - `let deleted = await listing.value`;
   - `XCTAssertEqual(deleted, ["gone.swift"], …)`.
-- [ ] Remove the `while !progress.started { await Task.yield() }` spin, the 200 ms deadline loop with its `Task.sleep`, the `XCTAssertFalse(progress.finished, …)`, and the `ListingProgress` class, which has no other user. Restore `holdChain`'s doc comment to sit directly above `holdChain`. Today the line "Hold the chain on the store sweep's first listing, so the main actor can mutate the stub tree while nothing on the chain is touching it." is separated from it by `ListingProgress`.
-- [ ] Rewrite the test's doc comment to explain the rendezvous the way its siblings do:
+- [x] Remove the `while !progress.started { await Task.yield() }` spin, the 200 ms deadline loop with its `Task.sleep`, the `XCTAssertFalse(progress.finished, …)`, and the `ListingProgress` class, which has no other user. Restore `holdChain`'s doc comment to sit directly above `holdChain`. Today the line "Hold the chain on the store sweep's first listing, so the main actor can mutate the stub tree while nothing on the chain is touching it." is separated from it by `ListingProgress`.
+- [x] Rewrite the test's doc comment to explain the rendezvous the way its siblings do:
   - The listing task signals from its first statement, and its body runs on the main actor with no suspension between that signal and the listing's first real suspension. So when the test resumes, the awaiting form has either parked on the capture chain or put its store read on the browser model's serial queue.
   - The plain form is then asked while the capture is held. It answers `[]`, which proves its half, and because it reads through the same serial queue its return is a barrier: an awaiting form that did not wait would already have read the empty store and answered `[]`.
   - The release and the final assertion that the awaiting form lists `gone.swift` therefore fail deterministically on that regression, with no window of time anywhere.
   - Both expectations fail loudly on timeout instead of hanging.
-- [ ] Update the suite header ("Nothing here sleeps: the one test that has to observe work in flight holds it on `StubFileTree.readGate` …") so it stays true. Name the second rendezvous: the queued-writes test's barrier through the browser model's serial queue.
-- [ ] Prove the test can fail. Temporarily delete `await capture?.waitForQueuedWrites()` from `LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`, then run `swift test --filter LocalHistoryModelTests/testWaitingForQueuedWritesListsAFileDeletedJustBefore` several times (for example five) and confirm it fails every time on the `["gone.swift"]` assertion. Restore the line, then confirm `git diff Sources/PisakaCore` is empty and the test passes.
-- [ ] Confirm `grep -nE "Task\.sleep|Task\.yield|Date\(\)\.addingTimeInterval" Tests/PisakaCoreTests/LocalHistoryModelTests.swift` finds nothing.
-- [ ] In `core-local-history.md`'s Tests section, replace the `LocalHistoryModelTests` sentence "A delete capture held on the chain is not yet listed by `deletedPaths`, and is listed by `deletedPaths(root:awaiting:)` once the chain is released." with one that describes the causal shape. The non-awaiting form, asked while the capture is held, answers `[]`. Its return through the browser model's serial queue is the barrier behind which an awaiting form that did not wait would already have answered. The awaiting form, started before it, lists the deleted file once the chain is released. There is no timed window.
-- [ ] Run `swift test`. It must pass before Task 3.
+- [x] Update the suite header ("Nothing here sleeps: the one test that has to observe work in flight holds it on `StubFileTree.readGate` …") so it stays true. Name the second rendezvous: the queued-writes test's barrier through the browser model's serial queue.
+- [x] Prove the test can fail. Temporarily delete `await capture?.waitForQueuedWrites()` from `LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`, then run `swift test --filter LocalHistoryModelTests/testWaitingForQueuedWritesListsAFileDeletedJustBefore` several times (for example five) and confirm it fails every time on the `["gone.swift"]` assertion. Restore the line, then confirm `git diff Sources/PisakaCore` is empty and the test passes.
+- [x] Confirm `grep -nE "Task\.sleep|Task\.yield|Date\(\)\.addingTimeInterval" Tests/PisakaCoreTests/LocalHistoryModelTests.swift` finds nothing.
+- [x] In `core-local-history.md`'s Tests section, replace the `LocalHistoryModelTests` sentence "A delete capture held on the chain is not yet listed by `deletedPaths`, and is listed by `deletedPaths(root:awaiting:)` once the chain is released." with one that describes the causal shape. The non-awaiting form, asked while the capture is held, answers `[]`. Its return through the browser model's serial queue is the barrier behind which an awaiting form that did not wait would already have answered. The awaiting form, started before it, lists the deleted file once the chain is released. There is no timed window.
+- [x] Run `swift test`. It must pass before Task 3.
 
 ### Task 3: Verify acceptance criteria
 

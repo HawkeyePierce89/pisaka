@@ -13,7 +13,9 @@ import XCTest
 /// because unlike the store, this model reads the user's files too.
 ///
 /// Nothing here sleeps: the one test that has to observe work in flight holds it
-/// on `StubFileTree.readGate` and waits for the gate to be entered.
+/// on `StubFileTree.readGate` and waits for the gate to be entered, and the
+/// queued-writes test orders its listings through a barrier on the browser
+/// model's serial queue rather than a window of time.
 @MainActor
 final class LocalHistoryModelTests: XCTestCase {
     private let treeRoot = URL(fileURLWithPath: "/work")
@@ -329,13 +331,6 @@ final class LocalHistoryModelTests: XCTestCase {
 
     /// Hold the chain on the store sweep's first listing, so the main actor can
     /// mutate the stub tree while nothing on the chain is touching it.
-    /// Where a listing started on the main actor has got to.
-    @MainActor
-    private final class ListingProgress {
-        var started = false
-        var finished = false
-    }
-
     private func holdChain(_ model: LocalHistoryModel, _ tree: StubFileTree) async -> Gate {
         let gate = Gate()
         tree.listingGate = gate
@@ -382,6 +377,19 @@ final class LocalHistoryModelTests: XCTestCase {
     /// still queued the store has nothing to list, and awaiting the capture
     /// model's queued writes is what makes the just-deleted file appear on the
     /// first try.
+    ///
+    /// The rendezvous is causal. The listing task signals `started` from its
+    /// first statement, and its body runs on the main actor with no suspension
+    /// between that signal and the listing's first real suspension, so when the
+    /// test resumes the awaiting form has either parked on the capture chain or
+    /// put its store read on the browser model's serial queue. The plain form is
+    /// then asked while the capture is still held: it answers `[]`, which proves
+    /// its own half, and because it reads through that same serial queue its
+    /// return is a barrier — an awaiting form that did not wait would already
+    /// have read the empty store and answered `[]`. The release and the final
+    /// assertion therefore fail deterministically on that regression, with no
+    /// window of time anywhere, and both expectations fail loudly on timeout
+    /// instead of hanging.
     func testWaitingForQueuedWritesListsAFileDeletedJustBefore() async {
         let tree = makeTree(files: ["project/gone.swift": "last words"])
         let model = makeModel(tree)
@@ -390,30 +398,28 @@ final class LocalHistoryModelTests: XCTestCase {
 
         model.captureBeforeDelete(of: projectFile("gone.swift"), root: projectRoot, bufferTexts: [:])
         tree.files["project/gone.swift"] = nil
-        let early = await browser.deletedPaths(root: projectRoot)
-        XCTAssertEqual(early, [], "The capture is held on the chain, so the store has nothing yet.")
 
-        let progress = ListingProgress()
+        let started = expectation(description: "the awaiting listing has started")
+        let listed = expectation(description: "the awaiting listing has answered")
         let listing = Task { @MainActor in
-            progress.started = true
+            started.fulfill()
             let paths = await browser.deletedPaths(root: projectRoot, awaiting: model)
-            progress.finished = true
+            listed.fulfill()
             return paths
         }
-        while !progress.started { await Task.yield() }
-        // The listing has started and the capture is still held. A listing that
-        // did not wait would run off-main against a store with nothing in it and
-        // finish well inside this window; one that waits cannot finish at all, so
-        // the window costs a passing run its length and never fails it.
-        let deadline = Date().addingTimeInterval(0.2)
-        while !progress.finished, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        XCTAssertFalse(progress.finished, "The listing must wait for the held capture.")
+        await fulfillment(of: [started], timeout: 5)
+
+        let early = await browser.deletedPaths(root: projectRoot)
+        XCTAssertEqual(early, [], "The capture is held on the chain, so the store has nothing yet.")
         gate.release()
+        await fulfillment(of: [listed], timeout: 5)
         let deleted = await listing.value
 
-        XCTAssertEqual(deleted, ["gone.swift"])
+        XCTAssertEqual(
+            deleted,
+            ["gone.swift"],
+            "The awaiting form must wait for the held capture; one that read past it answered before the barrier."
+        )
     }
 
     func testCaptureBeforeDeletePrefersABufferToItsDiskCopy() async {
