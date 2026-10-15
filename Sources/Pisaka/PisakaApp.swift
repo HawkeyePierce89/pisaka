@@ -2764,7 +2764,7 @@ struct PisakaApp: App {
     /// so there is nothing to list, and that is a fact about the file rather than
     /// a failure to report.
     private func showLocalHistory(for url: URL) {
-        localHistoryBrowser.open(file: url, root: model.projectRoot)
+        localHistoryBrowser.open(file: url, root: model.projectRoot, restorable: !model.opensAsViewer(url))
         let currentText = { [self] in currentTextForLocalHistory(of: url) }
         let content = LocalHistoryView(
             browser: localHistoryBrowser, settings: settings, currentText: currentText,
@@ -2773,21 +2773,24 @@ struct PisakaApp: App {
         // Coming back to this window is the moment its "current" side may have
         // moved: the buffer lives in another window, and the Restore button's
         // enablement is computed from it. See
-        // `LocalHistoryBrowserModel.refreshSelection(currentText:)`.
+        // `LocalHistoryBrowserModel.refreshSelection(currentText:restorable:)`,
+        // which re-asks the tab kind too — a renamed text tab closing hands a
+        // `.db` path to the viewer.
         localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content) {
-            localHistoryBrowser.refreshSelection(currentText: currentText())
+            localHistoryBrowser.refreshSelection(currentText: currentText(), restorable: !model.opensAsViewer(url))
         }
     }
 
     /// **File ▸ Deleted Files…**: offer the files under the current root that
     /// have history and are gone from disk, and open the Local History window on
-    /// the one chosen. Core lists them (off the main actor) and sorts them; an
+    /// the one chosen. Core lists them (off the main actor, once every capture
+    /// already queued — a delete's included — has landed) and sorts them; an
     /// empty list is said so and opens nothing. A folder switch while the list
     /// was being read drops the answer — it names files of the previous project.
     private func showDeletedLocalHistory() {
         guard let root = model.projectRoot else { return }
         Task {
-            let paths = await localHistoryBrowser.deletedPaths(root: root)
+            let paths = await localHistoryBrowser.deletedPaths(root: root, awaiting: localHistory)
             guard model.isCurrentProjectRoot(root),
                   let choice = LocalHistoryPrompts.chooseDeletedPath(from: paths) else { return }
             showLocalHistory(for: root.appendingPathComponent(choice))
@@ -2899,7 +2902,11 @@ struct PisakaApp: App {
     /// would be the one edit in the file with no history behind it. So it beeps
     /// and stops, like the two refusals below. `isCurrentProjectRoot` is the
     /// model's own canonical comparison, which is the rule for "same folder?"
-    /// everywhere else in this file.
+    /// everywhere else in this file. The same step refuses a path that opens as a
+    /// **viewer** tab (`WorkspaceModel.opensAsViewer`): a restore is a buffer
+    /// edit and a viewer holds no buffer, so it would file a capture of `""` and
+    /// — for a missing `.db` — leave only the empty file it created. The window
+    /// is opened non-restorable for such a path, so this is the backstop.
     ///
     /// **The two refusals are asked before the open, for a file with a tab and for
     /// a file without one.** They judge the text a restore would displace, and
@@ -2915,13 +2922,13 @@ struct PisakaApp: App {
     /// file can move between the two reads; the pre-open ask is there to keep the
     /// refusal from costing a tab, not to decide it.
     private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
-        guard model.isCurrentProjectRoot(plan.root) else {
+        guard model.isCurrentProjectRoot(plan.root), !model.opensAsViewer(plan.fileURL) else {
             PlatformFeedback.warning()
             return
         }
         let missing = localHistory.store.isMissing(root: plan.root, relativePath: plan.relativePath)
         if let known = localHistoryTextToDisplace(plan.fileURL, missing: missing),
-           localHistoryRestoreRefused(displacing: known, plan) {
+           localHistoryRestoreRefused(displacing: known, plan, recreating: missing) {
             PlatformFeedback.warning()
             return
         }
@@ -2943,7 +2950,7 @@ struct PisakaApp: App {
             return
         }
         let displaced = model.text(for: file.id) ?? plan.captureText
-        guard !localHistoryRestoreRefused(displacing: displaced, plan) else {
+        guard !localHistoryRestoreRefused(displacing: displaced, plan, recreating: missing) else {
             PlatformFeedback.warning()
             return
         }
@@ -2954,6 +2961,16 @@ struct PisakaApp: App {
             texts: [plan.fileURL: displaced]
         )
         saveTransform.applyRestore(plan.text, to: file.id)
+        // A clean tab outlives its file's out-of-band delete, and may already
+        // hold the revision: the restore then changed nothing and left it clean
+        // over the empty file just created. Its own save is what puts the text
+        // back on disk, through the same funnel a dirty tab's autosave takes.
+        // A save that fails (the gate is not raised here, so a write error) has
+        // already beeped; the baseline is then re-read from the empty file, so
+        // the tab turns dirty and the autosave or ⌘S retries the write instead of
+        // a clean tab claiming bytes the disk does not hold.
+        if missing, let tab = model.openFiles.first(where: { $0.id == file.id }), !tab.isDirty, !tab.text.isEmpty,
+           !save(id: file.id) { _ = model.reconcileSavedBaseline(id: file.id) }
     }
 
     /// The text a restore of `url` would displace, answered **without opening
@@ -3017,8 +3034,19 @@ struct PisakaApp: App {
     /// `latestHash: nil` asks the one question that matters
     /// here — *may* these bytes be stored — rather than whether they would be
     /// deduplicated, which is a skip that loses nothing.
-    private func localHistoryRestoreRefused(displacing displaced: String, _ plan: LocalHistoryRestore) -> Bool {
-        if (displaced as NSString).isEqual(to: plan.text) { return true }
+    ///
+    /// **A restore that recreates a missing file is never refused as "the
+    /// same"** (`recreating`): the text it displaces is the empty file the create
+    /// is about to make, so an empty revision would otherwise be the one
+    /// revision of a deleted file that could not bring it back — the plan's own
+    /// exemption, re-asked on the same terms at both moments. After the create
+    /// the restore of an empty revision then runs as any other: a "Before
+    /// Restore" of the empty text (deduplicated when the newest revision is
+    /// already empty) and an `applyRestore` that changes nothing. A tab that
+    /// survived the delete and already holds a non-empty revision passes here
+    /// too, and is saved after the restore so the file is not left empty.
+    private func localHistoryRestoreRefused(displacing displaced: String, _ plan: LocalHistoryRestore, recreating: Bool) -> Bool {
+        if !recreating, (displaced as NSString).isEqual(to: plan.text) { return true }
         let policy = localHistory.store.policy
         return policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil, event: .restore).hash == nil
     }

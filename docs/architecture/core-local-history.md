@@ -491,13 +491,28 @@ changes.)
     back to an **entry-by-entry merge**: sidecars then snapshots are carried, the
     order a capture writes them in; a name present on both sides keeps the
     destination's copy and discards the source's (a snapshot name *is* its
-    timestamp, event and hash, so the two are one revision); the source's own
+    timestamp, event and hash, so the two are one revision) — and a source copy
+    that cannot be removed counts as an entry that did not move, stranding with
+    its sidecar and its record rather than being taken for carried; the source's own
     temporaries are discarded; the source's record and its emptied directory are
     then removed through `discard` (the directory only on an empty re-list); the
     destination's record is made correct, which also corrects a wrong one; and
     the merged list is pruned by the ordinary per-file rule, sidecars with their
-    snapshots. A destination that is absent or empty is not a history to merge
-    into, so the source stays where it was. A foreign entry, or an entry whose
+    snapshots. **A labelled snapshot and its sidecar move as a pair**: the
+    sidecar goes ahead as a *copy* and the source's original is removed only
+    once the snapshot has moved, so a sidecar that cannot be copied keeps its
+    snapshot at the source, a snapshot that cannot move has the copy discarded
+    (a discard that fails leaves a spare orphan the sweep reclaims, never the
+    only label on the wrong side), and a sidecar the destination already holds is
+    discarded only once its snapshot has gone — so no failure at any step leaves
+    a label-less row on one side and its only label on the other. A destination
+    that is **empty** — what a capture that failed after its `ensureDirectory`
+    leaves — is no history to merge into but no reason to stay behind either: it
+    is merged into like any other, entry by entry, and never removed, since
+    nothing would migrate the source again. Only a listing that *succeeded* says
+    what a destination holds: one that cannot be listed — absent, a file, an
+    unreadable directory — leaves the source where it was and the destination
+    untouched. A foreign entry, or an entry whose
     `move` fails, strands the source directory under a record that still names
     it. **Each directory fails silently on its own**, so one stuck directory
     strands one file's history and nothing more.
@@ -515,6 +530,9 @@ changes.)
     one lane is cheaper to reason about than a map of them. `append(_:)` captures
     no `self` — the work already holds the store it needs — so a model released
     mid-flight still finishes what it promised rather than dropping a revision.
+    `waitForQueuedWrites() async` (internal) awaits the chain's current tail —
+    the one way for a reader on another queue to see the writes already queued;
+    units appended later are not waited for.
     The entry points:
     - `captureSaves(urls:root:texts:)` — fire-and-forget: a save must not wait on
       a safety net. A url with no entry in `texts` is skipped rather than read
@@ -717,7 +735,7 @@ changes.)
     spinner off. The token is shared by listing and selection rather than split in
     two, because the two are one conversation: a selection only exists against a
     listing, and a retarget must cancel an in-flight content load as surely as an
-    in-flight listing. **Retargeting clears before it loads** — `open(file:root:)`
+    in-flight listing. **Retargeting clears before it loads** — `open(file:root:restorable:)`
     empties the rows, the selection and the diff synchronously, so the window
     never shows one file's revisions, or one file's content diffed against
     another's buffer, while the new listing is in flight. A url that is not a file
@@ -754,18 +772,29 @@ changes.)
     agree with the diff pane it sits under — the previous rule, armed by the
     loaded content and refused at click time by a `restore(currentText:)` that
     re-read the current text, could show an armed button whose click did nothing.
-    The plan is `nil` in the three cases where a restore would be a no-op the user
+    The plan is `nil` in the four cases where a restore would be a no-op the user
     could not tell from a bug: nothing selected, its content not in hand (a
-    revision reclaimed between the listing and the click), and a revision whose
-    text the buffer already holds; refusing the identical case is what keeps a
+    revision reclaimed between the listing and the click), a target opened with
+    `restorable: false`, and a revision whose text the buffer already holds. The
+    app opens a path non-restorable when `WorkspaceModel.opensAsViewer(_:)` says
+    it is — or would open as — a **viewer** tab: a restore is a buffer edit, a
+    viewer holds none, and a `.db` reached through the tree's context menu or
+    Deleted Files (history carried there by a move, or captured while it was a
+    text tab) would otherwise be recreated as an empty file and left that way.
+    The listing and the diff still show, so the bytes stay readable; refusing the identical case is what keeps a
     restore from marking a clean tab dirty and writing a `.restore` snapshot of
-    bytes that are already the newest revision. It is cleared wherever the
-    selection is — `open(file:root:)` and a `nil` selection — and a superseded
+    bytes that are already the newest revision. **A file missing from disk is
+    never the identical case**: the hop that resolves the current text also asks
+    `store.isMissing(root:relativePath:)`, and a missing file's current text is
+    the empty string, so without that answer an empty revision — a file deleted
+    while empty — would be the one revision of a deleted file Restore could not
+    bring back. It is cleared wherever the
+    selection is — `open(file:root:restorable:)` and a `nil` selection — and a superseded
     selection publishes no plan, like everything else the generation token
     guards.
 
     **The plan is re-asked when the window becomes key**
-    (`refreshSelection(currentText:)`, driven by the window controller's
+    (`refreshSelection(currentText:restorable:)`, driven by the window controller's
     `windowDidBecomeKey`). Moving the question off the click is what buys the
     agreement above, and the price is that it can go stale — and a stale
     *refusal* is worse than a stale pane. Left alone, a window held open across
@@ -787,14 +816,33 @@ changes.)
     and a whole-document `LineDiff` and sets `isLoading`, so the footer's spinner
     flashes on an event carrying no news — the very flicker the refresh avoids by
     not blanking the panes, reappearing in the one place it could. `.deferred`
-    cannot be settled without the read it defers and so always re-asks. That
+    cannot be settled without the read it defers and so always re-asks. **The
+    short-circuit skips the text, not the disk**: the plan also rests on whether
+    the file still exists, and a clean tab whose file is deleted (or recreated)
+    behind it holds the same text either way, so a short-circuited refresh still
+    re-asks `store.isMissing(root:relativePath:)` off the main actor — one stat,
+    no `isLoading`, no token of its own — and re-plans only when that answer
+    moved and nothing has taken the token since. Because a load in flight and
+    every short-circuited focus ask that existence question under **one**
+    generation, its answers carry a **token of their own** (`missingCheck`,
+    bumped as each is asked): only the newest publishes the missing flag, and a
+    load whose answer was overtaken publishes the rest and plans from the newer
+    one — the serial queue lands them in order today, and the token makes that
+    the rule rather than an accident of the queue. That
     sameness test is `NSString`'s, not Swift's:
     `==` on `String` compares by canonical equivalence, while a revision is
     identified by a SHA-256 over its *UTF-8 bytes*, so a decomposed and a
     precomposed spelling are two real revisions the store keeps apart — and a
     canonical comparison would arm Restore and then plan nothing, which is the
     one no-op that *is* a bug (`SaveTransformController.applyRestore` guards the
-    same hazard one layer up). `LocalHistoryRestore` is **a plan, not an
+    same hazard one layer up). **Restorability is re-asked on the same occasion**
+    (the refresh's optional `restorable`, applied before anything else): the answer `open`
+    was given is the tab kind the path had *then*, and a text tab renamed to
+    `.db` that closes while the window stays open hands the path to the viewer.
+    A moved answer re-plans synchronously from the landed selection — the
+    missing-file answer is kept beside the resolved text for this — so the click
+    that made the window key reads a corrected plan, and the app's viewer
+    refusal stays the backstop rather than the thing a user meets. `LocalHistoryRestore` is **a plan, not an
     action** — the `SaveTransformPlan` / `PushPlan` shape — because only the app
     layer can replace a buffer through the live text view. It carries *both* texts
     on purpose: `text` is what the buffer becomes and `captureText` is what the
@@ -811,7 +859,7 @@ changes.)
     for a megabyte of text.
 
     **Labels and deleted files.** Published `labelTexts` maps a snapshot file
-    name to its loaded label text and is cleared on every `open(file:root:)`.
+    name to its loaded label text and is cleared on every `open(file:root:restorable:)`.
     `loadLabel(for:)` fills it one row at a time with an off-main
     `store.labelText` read, and **does not take the generation token**: a label
     is decoration on a row the listing already published, and a row appearing
@@ -823,7 +871,11 @@ changes.)
     included, so it is read once per targeting rather than on every appear).
     `title(for:)` answers `"Label: <text>"` once the text is loaded and the
     event's own title otherwise — the one place a row's title is decided.
-    `deletedPaths(root:) async` is what Deleted Files… offers: off the main
+    `deletedPaths(root:awaiting:) async` is what Deleted Files… offers: it first
+    awaits the capture model's queued writes (`waitForQueuedWrites()`), so a
+    delete's capture — and, for a file never captured before, its path record —
+    has landed and the file just deleted is listed on the first try rather than
+    the next; then, off the main
     actor, `store.recordedPaths` filtered by `store.isMissing`, sorted by path,
     `[]` with no root or an unreadable store — computed on demand and **never
     stored**, because it is one answer to one menu command, not window state.
@@ -1041,7 +1093,9 @@ changes.)
     outside the opened folder — and would file the `.restore` capture under the
     old root while every later save of that buffer keys to nothing, making the
     restore the one edit in that file with no history behind it. So it beeps and
-    stops, like the two refusals below. **Then the recreate exception: a restore
+    stops, like the two refusals below; the same first step refuses a path that
+    `model.opensAsViewer(_:)` answers for, the backstop behind the window's
+    non-restorable open. **Then the recreate exception: a restore
     is a buffer edit, except that a restore into a path with no file first
     creates an empty file, under `revertInFlight()`.** The action asks
     `localHistory.store.isMissing(root:relativePath:)` first, and the preflight's
@@ -1056,7 +1110,19 @@ changes.)
     file service (beeping and stopping on failure) and bumps the tree either way,
     since `ensureDirectory` does not roll back the parents it built. Everything
     after runs unchanged against the empty file: the open, the re-asked refusal, a
-    "Before Restore" capture of the empty text it displaces, and `applyRestore`. This is the feature's **one worktree create**;
+    "Before Restore" capture of the empty text it displaces, and `applyRestore`.
+    Both refusals are asked with `recreating:` set for a missing path, which
+    exempts them from the sameness half only (the policy half still applies) —
+    the plan's own exemption, so an **empty revision recreates the empty file**
+    rather than being refused as identical to the empty text it displaces. A
+    clean tab outlives its file's out-of-band delete, and when it already holds
+    a non-empty revision the restore changes nothing in it and would leave it
+    clean over the empty file just created — so a recreating restore that leaves
+    its tab clean and non-empty **saves that tab** through `save(id:)`, the same
+    funnel a dirty tab's autosave takes. When that save fails (it has beeped) the
+    tab's baseline is re-read from the empty file with `reconcileSavedBaseline`,
+    so the tab turns dirty and the autosave or ⌘S retries the write, rather than
+    a clean tab claiming bytes the disk does not hold. This is the feature's **one worktree create**;
     without it a `.delete` revision — and the `Before Revert` / `Before Branch
     Change` revision of a file the operation removed — could be listed and never
     brought back. Then: open a tab
@@ -1138,7 +1204,7 @@ changes.)
   - **Two flat File-menu items directly below Local History…, with no
     shortcuts** — the existing item and its ⌘⇧H are untouched and no submenu is
     introduced. **Deleted Files…**, disabled without a project, awaits
-    `localHistoryBrowser.deletedPaths(root:)`, drops the answer if the folder was
+    `localHistoryBrowser.deletedPaths(root:awaiting: localHistory)`, drops the answer if the folder was
     switched meanwhile (it names files of the previous project), asks
     `LocalHistoryPrompts.chooseDeletedPath(from:)` and opens the window on
     `root.appendingPathComponent(choice)` — a file that does not exist, which the
@@ -1297,8 +1363,14 @@ history, just not the newest one.
     leaving the source intact and listable under its old key, and a merged
     entry that cannot move staying behind under its record; a foreign file in the
     source keeping its record and directory while the merge's own debris is
-    discarded; an empty directory under the new key leaving the source where it
-    was; a move onto itself doing nothing. A quit-time capture landing as the
+    discarded; an empty directory under the new key merged into, the whole
+    history carried into it, label included; a file or an unreadable directory
+    under the new key left untouched with the source still under its old key; a
+    labelled pair stranded together at the source when either its sidecar or its
+    snapshot cannot move, still labelled at the source when the copy's cleanup
+    and every way back fail too, and a stranded snapshot keeping its own sidecar
+    over a destination copy; a
+    move onto itself doing nothing. A quit-time capture landing as the
     sweep removes a record-only directory's record keeping its snapshot, and the
     next capture writing the record again.
   - `LocalHistoryModelTests` — `captureBeforeOperation` returning only once every
@@ -1316,6 +1388,8 @@ history, just not the newest one.
     refused rather than keyed by its bare name (the re-join guard); and a capture
     with nothing to store returning while the sweep is demonstrably mid-read —
     asserted with a deadline, so joining the chain fails instead of hanging.
+    A delete capture held on the chain is not yet listed by `deletedPaths`, and
+    is listed by `deletedPaths(root:awaiting:)` once the chain is released.
     `followMove`: a capture queued before it carried and one queued after landing
     under the new key (a `Gate` on a listing as the causal rendezvous, then
     `chain?.value`), and an unkeyable side not extending the chain.
@@ -1339,8 +1413,9 @@ history, just not the newest one.
     outside the root targeted but unkeyed (`isUnsupportedTarget`); clearing an
     already-clear selection unable to cancel the listing in flight; the diff
     rows for a selection; the restore plan carrying both texts, `nil` for no
-    selection and for an identical revision, and a revision differing from the
-    buffer only by Unicode normalization still planning a restore (the store keys
+    selection and for an identical revision of a file on disk, an empty revision
+    of a missing file still planned (and disarmed once the file exists), and a
+    revision differing from the buffer only by Unicode normalization still planning a restore (the store keys
     on UTF-8 bytes, so canonical equivalence is the wrong question).
     `deletedPaths` sorted, excluding existing files and record-less directories
     (a wrong record included), and `[]` for no root and for an unreadable store; a loaded label
@@ -1433,13 +1508,13 @@ history, just not the newest one.
   deleted file whose history is only there is not offered. A file's first capture
   after the upgrade writes its record; only a migration corrects a wrong one.
 - **The revisions *list* does not refresh itself.** `revisions` is listed once, by
-  `open(file:root:)`; a revision written while the window is open — an autosave,
+  `open(file:root:restorable:)`; a revision written while the window is open — an autosave,
   a gated operation, or the `Before Restore` snapshot the Restore button itself
   takes — is in the store but not in the list until ⌘⇧H retargets the window.
   The *selection* is a different matter and does refresh, on becoming key: its
   right-hand side is the live buffer, and the Restore button's enablement is
   computed from it, so that one is an action going stale rather than a listing
-  (see the `refreshSelection(currentText:)` note above).
+  (see the `refreshSelection(currentText:restorable:)` note above).
   Re-listing after a restore would additionally race the capture, which is
   fire-and-forget on the chain, so a reload issued in the same turn could show
   the row or not depending on timing — less truthful than a list that plainly

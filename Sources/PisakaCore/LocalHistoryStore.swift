@@ -445,8 +445,16 @@ public struct LocalHistoryStore {
     /// The `move` refuses an existing destination, which in practice is what a
     /// failure means: the new path already has a history of its own (a file
     /// moved over one that was deleted, a folder moved onto a folder). That falls
-    /// back to `merge(_:into:relativePath:now:)`. A failure with no destination
-    /// directory to merge into leaves the source exactly where it was.
+    /// back to `merge(_:into:relativePath:now:)`.
+    ///
+    /// **A destination holding nothing is not a history, and not a reason to
+    /// stay behind either.** An empty directory is what a capture that failed
+    /// after its `ensureDirectory` leaves, and refusing it would strand the
+    /// source under the old key for good, since nothing migrates it again. So it
+    /// is merged into like any other — entry by entry, and never removed: only
+    /// a listing that *succeeded* says what a destination holds, so one that
+    /// cannot be listed at all (absent, a file, unreadable) leaves the source
+    /// exactly where it was and the destination untouched.
     private nonisolated func migrate(_ oldPath: String, to newPath: String, root: URL, now: Date) {
         let source = layout.fileDirectory(forRoot: root, relativePath: oldPath)
         let destination = layout.fileDirectory(forRoot: root, relativePath: newPath)
@@ -463,8 +471,18 @@ public struct LocalHistoryStore {
     /// - **A name on both sides keeps the destination's copy** and discards the
     ///   source's. A snapshot name is its timestamp, event and content hash, so
     ///   the two copies are the same revision; a sidecar follows its snapshot.
-    /// - **Sidecars are carried before snapshots**, the order a capture writes
-    ///   them in, so the destination never lists a labelled row ahead of its text.
+    ///   A source copy that cannot be removed counts as an entry that did not
+    ///   move: it strands, with its sidecar and its record.
+    /// - **A labelled snapshot and its sidecar move as a pair**, sidecar first —
+    ///   the order a capture writes them in, so the destination never lists a
+    ///   labelled row ahead of its text. The sidecar goes ahead as a *copy*, and
+    ///   the source's original is removed only once the snapshot has moved: a
+    ///   sidecar that cannot be copied keeps its snapshot at the source with it,
+    ///   and a snapshot that cannot move has the copy discarded — a discard that
+    ///   fails leaves only a spare orphan the sweep reclaims, never the one label
+    ///   on the wrong side of its snapshot. A sidecar whose snapshot the source
+    ///   does not hold is carried on its own, as before: the destination may hold
+    ///   that snapshot.
     /// - **Only what this feature wrote is carried.** Its own temporaries are
     ///   debris and are discarded; a foreign entry stays where it is, and so then
     ///   do the source's record and directory, because a directory still holding
@@ -474,26 +492,58 @@ public struct LocalHistoryStore {
     ///   wrong one, and the merged list is pruned by the ordinary per-file rule,
     ///   label sidecars going with their snapshots.
     private nonisolated func merge(_ source: URL, into destination: URL, relativePath: String, now: Date) {
-        // A destination holding nothing is not a history to merge into: either it
-        // is absent and the `move` failed for some other reason, or it is an
-        // empty directory the sweep reclaims. Both leave the source where it is.
+        // A destination that cannot be listed is no directory to merge into —
+        // absent, a file, or unreadable — and is left exactly as it is. An empty
+        // listing is a real answer, and is merged into like any other.
         guard let incoming = try? fileService.contentsOfDirectory(at: source),
-              let present = try? fileService.contentsOfDirectory(at: destination),
-              !present.isEmpty
+              let present = try? fileService.contentsOfDirectory(at: destination)
         else { return }
         let taken = Set(present.map(\.name))
         let files = incoming.filter { !$0.isDirectory }.map(\.name)
         let sidecars = files.filter { LocalHistoryLayout.snapshotFileName(fromLabelFileName: $0) != nil }
         let snapshots = files.filter { LocalHistoryLayout.snapshot(fromFileName: $0) != nil }
+        let sidecarSet = Set(sidecars)
 
         var stranded = incoming.contains { $0.isDirectory }
-        for name in sidecars + snapshots {
+        func carry(_ name: String) -> Bool {
             let from = source.appendingPathComponent(name)
-            if taken.contains(name) {
-                discard(from)
-            } else if (try? fileService.move(from: from, to: destination.appendingPathComponent(name))) == nil {
+            // A duplicate counts as carried only once it is gone: one that
+            // cannot be removed is still a revision here, and strands like a
+            // failed move, keeping its sidecar and the record that names it.
+            if taken.contains(name) { return removed(from) }
+            return (try? fileService.move(from: from, to: destination.appendingPathComponent(name))) != nil
+        }
+        // A sidecar goes ahead of its snapshot as a *copy*, so the source keeps
+        // the original until the snapshot has landed: no failure at any step —
+        // the copy, the snapshot's move, the cleanup of either — can leave the
+        // snapshot on one side and its only label on the other.
+        func copySidecar(_ name: String) -> Bool {
+            guard let text = try? fileService.read(url: source.appendingPathComponent(name)) else { return false }
+            return writeInPlace(text, named: name, in: destination)
+        }
+        for name in snapshots {
+            let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: name)
+            let paired = sidecarSet.contains(sidecar)
+            // A sidecar the destination already holds is not copied, and the
+            // source's is discarded only once its snapshot has gone, so a
+            // snapshot that stays keeps its own.
+            let sidecarCopied = paired && !taken.contains(sidecar)
+            if sidecarCopied, !copySidecar(sidecar) {
                 stranded = true
+                continue
             }
+            if carry(name) {
+                if paired { discard(source.appendingPathComponent(sidecar)) }
+            } else {
+                stranded = true
+                if sidecarCopied { discard(destination.appendingPathComponent(sidecar)) }
+            }
+        }
+        let snapshotSet = Set(snapshots)
+        for name in sidecars {
+            guard let owner = LocalHistoryLayout.snapshotFileName(fromLabelFileName: name),
+                  !snapshotSet.contains(owner) else { continue }
+            if !carry(name) { stranded = true }
         }
         for name in files where !sidecars.contains(name) && !snapshots.contains(name) {
             if LocalHistoryLayout.isOwnTemporary(name) {
@@ -546,7 +596,14 @@ public struct LocalHistoryStore {
     /// caller passing a url from somewhere else must not turn into `rm` on a
     /// user's file.
     private nonisolated func discard(_ url: URL) {
-        guard layout.contains(url) else { return }
-        try? fileService.removeItem(at: url)
+        _ = removed(url)
+    }
+
+    /// `discard(_:)` for the one caller that must know it worked: whether `url`
+    /// is gone — `false` for a removal that failed and for a url that is not
+    /// ours, which is never removed.
+    private nonisolated func removed(_ url: URL) -> Bool {
+        guard layout.contains(url) else { return false }
+        return (try? fileService.removeItem(at: url)) != nil
     }
 }

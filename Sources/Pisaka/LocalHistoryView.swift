@@ -217,7 +217,7 @@ struct LocalHistoryView: View {
             // stale, and a stale *refusal* is worse than a stale pane. The
             // window re-asks it on becoming key, which is when the user has come
             // back from wherever the buffer changed; see
-            // `LocalHistoryBrowserModel.refreshSelection(currentText:)`.
+            // `LocalHistoryBrowserModel.refreshSelection(currentText:restorable:)`.
             .disabled(browser.restorePlan == nil)
             .buttonStyle(.chromeSecondary)
         }

@@ -329,6 +329,13 @@ final class LocalHistoryModelTests: XCTestCase {
 
     /// Hold the chain on the store sweep's first listing, so the main actor can
     /// mutate the stub tree while nothing on the chain is touching it.
+    /// Where a listing started on the main actor has got to.
+    @MainActor
+    private final class ListingProgress {
+        var started = false
+        var finished = false
+    }
+
     private func holdChain(_ model: LocalHistoryModel, _ tree: StubFileTree) async -> Gate {
         let gate = Gate()
         tree.listingGate = gate
@@ -369,6 +376,44 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertEqual(contents(model, "dir/sub/b.swift"), ["beta"])
         XCTAssertEqual(revisions(model, "dir/a.swift").map(\.event), [.delete])
         XCTAssertTrue(revisions(model, "other.swift").isEmpty)
+    }
+
+    /// "Deleted Files…" right after a delete: while the delete's capture is
+    /// still queued the store has nothing to list, and awaiting the capture
+    /// model's queued writes is what makes the just-deleted file appear on the
+    /// first try.
+    func testWaitingForQueuedWritesListsAFileDeletedJustBefore() async {
+        let tree = makeTree(files: ["project/gone.swift": "last words"])
+        let model = makeModel(tree)
+        let browser = LocalHistoryBrowserModel(store: model.store)
+        let gate = await holdChain(model, tree)
+
+        model.captureBeforeDelete(of: projectFile("gone.swift"), root: projectRoot, bufferTexts: [:])
+        tree.files["project/gone.swift"] = nil
+        let early = await browser.deletedPaths(root: projectRoot)
+        XCTAssertEqual(early, [], "The capture is held on the chain, so the store has nothing yet.")
+
+        let progress = ListingProgress()
+        let listing = Task { @MainActor in
+            progress.started = true
+            let paths = await browser.deletedPaths(root: projectRoot, awaiting: model)
+            progress.finished = true
+            return paths
+        }
+        while !progress.started { await Task.yield() }
+        // The listing has started and the capture is still held. A listing that
+        // did not wait would run off-main against a store with nothing in it and
+        // finish well inside this window; one that waits cannot finish at all, so
+        // the window costs a passing run its length and never fails it.
+        let deadline = Date().addingTimeInterval(0.2)
+        while !progress.finished, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(progress.finished, "The listing must wait for the held capture.")
+        gate.release()
+        let deleted = await listing.value
+
+        XCTAssertEqual(deleted, ["gone.swift"])
     }
 
     func testCaptureBeforeDeletePrefersABufferToItsDiskCopy() async {

@@ -9,7 +9,7 @@ import PisakaCore
 /// `NSAlert`-based, the way `FilePanels` hosts the delete confirmation, and
 /// thin: what a label may be is `LocalHistoryPolicy.label(from:)` — asked here
 /// only to enable the button — and which paths are offered is
-/// `LocalHistoryBrowserModel.deletedPaths(root:)`, handed in already sorted.
+/// `LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`, handed in already sorted.
 /// Neither prompt writes anything; the caller acts on the answer.
 enum LocalHistoryPrompts {
     /// Ask for a label. Answers the text as typed when the user confirms, `nil`

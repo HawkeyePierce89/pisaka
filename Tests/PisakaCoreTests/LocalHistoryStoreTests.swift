@@ -785,22 +785,180 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
     }
 
-    /// An empty directory under the new key is no history to merge into — the
-    /// sweep's to reclaim — so the source stays exactly where it was.
-    func testAMoveOntoAnEmptyHistoryDirectoryLeavesTheSourceWhereItWas() {
+    /// An empty directory under the new key — what a capture that failed after
+    /// its `ensureDirectory` leaves — is merged into like any other, so the
+    /// history follows the move instead of staying under the old key for good.
+    func testAMoveOntoAnEmptyHistoryDirectoryCarriesTheHistory() throws {
         let tree = makeTree()
         let store = makeStore(tree)
         let target = "target.swift"
-        store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
-        let source = fileDirectory(path, in: tree)
-        let filesBefore = tree.filePaths(under: source)
+        let labelled = try XCTUnwrap(store.capture(
+            text: "one", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(1_000)
+        ))
+        let revisionsBefore = store.revisions(root: projectRoot, relativePath: path)
         tree.directories.insert(fileDirectory(target, in: tree))
 
         store.migrate(root: projectRoot, from: path, to: target, now: date(2_000))
 
-        XCTAssertEqual(tree.filePaths(under: source), filesBefore)
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: target), revisionsBefore)
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: target), "mark")
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [])
+        XCTAssertFalse(tree.hasDirectory(fileDirectory(path, in: tree)))
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [target])
+    }
+
+    /// A sidecar that cannot be carried keeps its snapshot at the source with
+    /// it: the pair strands together, still labelled, and nothing half-moved is
+    /// left under the new key.
+    func testAMergedSidecarThatCannotMoveKeepsItsSnapshotBesideIt() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let labelled = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(2_000)
+        ))
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: labelled.fileName)
+        let destination = fileDirectory(target, in: tree)
+        tree.moveFailures = ["\(destination)/\(sidecar)"]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [labelled])
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: path), "mark")
+        XCTAssertNil(tree.files["\(destination)/\(labelled.fileName)"])
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
+    }
+
+    /// A snapshot that cannot be carried takes back the sidecar that went ahead
+    /// of it, so the source keeps a labelled row and the destination no orphan.
+    func testAMergedLabelledSnapshotThatCannotMoveTakesItsSidecarBack() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let labelled = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(2_000)
+        ))
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: labelled.fileName)
+        let destination = fileDirectory(target, in: tree)
+        tree.moveFailures = ["\(destination)/\(labelled.fileName)"]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [labelled])
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: path), "mark")
+        XCTAssertNil(tree.files["\(destination)/\(sidecar)"])
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
+    }
+
+    /// A revision the destination already holds is carried only by removing the
+    /// source's copy; a copy that cannot be removed strands like a failed move —
+    /// still labelled, under the record that names it, with no orphan label
+    /// copy left at the destination.
+    func testADuplicateThatCannotBeRemovedStrandsWithItsSidecarAndRecord() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let labelled = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(2_000)
+        ))
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: labelled.fileName)
+        let source = fileDirectory(path, in: tree)
+        let destination = fileDirectory(target, in: tree)
+        tree.files["\(destination)/\(labelled.fileName)"] = "here"
+        tree.removeFailures = ["\(source)/\(labelled.fileName)"]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [labelled])
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: path), "mark")
+        XCTAssertNil(tree.files["\(destination)/\(sidecar)"])
+        XCTAssertEqual(tree.files[recordPath(path, in: tree)], path)
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
+    }
+
+    /// A labelled snapshot that stays behind keeps its own sidecar even when the
+    /// destination already holds one of the same name.
+    func testAStrandedLabelledSnapshotKeepsItsSidecarOverADestinationCopy() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let labelled = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(2_000)
+        ))
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: labelled.fileName)
+        let destination = fileDirectory(target, in: tree)
+        tree.files["\(destination)/\(sidecar)"] = "mark"
+        tree.moveFailures = ["\(destination)/\(labelled.fileName)"]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: path), "mark")
+    }
+
+    /// The copy that went ahead of a snapshot that cannot move is discarded; if
+    /// that discard fails too, the original still sits beside its snapshot, so
+    /// the label survives at the source whatever the destination is left with.
+    func testAFailedCleanupAfterAStrandedSnapshotKeepsItsLabelAtTheSource() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let labelled = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .label, label: "mark", now: date(2_000)
+        ))
+        let sidecar = LocalHistoryLayout.labelFileName(forSnapshotFileName: labelled.fileName)
+        let destination = fileDirectory(target, in: tree)
+        // Every way back fails too: nothing may move the sidecar home, and the
+        // copy at the destination cannot be removed.
+        tree.moveFailures = ["\(destination)/\(labelled.fileName)", "\(fileDirectory(path, in: tree))/\(sidecar)"]
+        tree.removeFailures = ["\(destination)/\(sidecar)"]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [labelled])
+        XCTAssertEqual(store.labelText(of: labelled, root: projectRoot, relativePath: path), "mark")
+    }
+
+    /// Only a listing that succeeded says what a destination holds: a file
+    /// sitting where the new key's directory belongs is neither removed nor
+    /// merged into, and the history stays under the old key.
+    func testAMoveOntoAFileAtTheDestinationKeyLeavesBothAlone() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+        let revisionsBefore = store.revisions(root: projectRoot, relativePath: path)
+        let destination = fileDirectory(target, in: tree)
+        tree.files[destination] = "not ours"
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(2_000))
+
+        XCTAssertEqual(tree.files[destination], "not ours")
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), revisionsBefore)
         XCTAssertEqual(store.recordedPaths(root: projectRoot), [path])
-        XCTAssertEqual(tree.filePaths(under: fileDirectory(target, in: tree)), [])
+    }
+
+    /// A destination directory that cannot be listed is not taken for an empty
+    /// one: it is left in place, and so is the source.
+    func testAMoveOntoAnUnreadableDestinationLeavesBothAlone() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        store.capture(text: "here", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
+        let revisionsBefore = store.revisions(root: projectRoot, relativePath: path)
+        let destination = fileDirectory(target, in: tree)
+        let destinationFiles = tree.filePaths(under: destination)
+        tree.unreadableDirectories = [destination]
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(tree.filePaths(under: destination), destinationFiles)
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), revisionsBefore)
     }
 
     func testMigratingAPathOntoItselfDoesNothing() {

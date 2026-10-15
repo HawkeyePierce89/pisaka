@@ -121,7 +121,7 @@ public enum LocalHistoryCurrentText: Sendable {
 /// listing, and a retarget must cancel an in-flight content load as surely as it
 /// cancels an in-flight listing.
 ///
-/// **Retargeting clears before it loads.** `open(file:root:)` empties the rows,
+/// **Retargeting clears before it loads.** `open(file:root:restorable:)` empties the rows,
 /// the selection and the diff synchronously, so the window never shows one
 /// file's revisions — or worse, one file's content diffed against another's
 /// buffer — while the new listing is in flight.
@@ -179,13 +179,16 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// button says "restorable" while its rows say "identical" is the disagreement
     /// this removes.
     ///
-    /// It is `nil` in the three cases where a restore would be a no-op the user
+    /// It is `nil` in the four cases where a restore would be a no-op the user
     /// could not tell from a bug: nothing is selected; the selected revision's
     /// content is not in hand (reclaimed by retention between the listing and the
-    /// click); and a revision whose text the buffer already holds. Refusing the
+    /// click); a target opened as not restorable (a file that opens as a viewer
+    /// tab, which holds no buffer to edit — see ``open(file:root:restorable:)``);
+    /// and a revision whose text the buffer already holds. Refusing the
     /// identical case is what keeps a restore from marking a clean tab dirty and
     /// writing a `.restore` snapshot of bytes that are already the newest
-    /// revision.
+    /// revision. A file missing from disk is never the identical case: restoring
+    /// any revision of it, an empty one included, recreates it.
     ///
     /// **The sameness test is `NSString`'s, not `String`'s**, and that is the same
     /// hazard `SaveTransformController.applyRestore` guards one layer up: Swift's
@@ -204,7 +207,7 @@ public final class LocalHistoryBrowserModel: ObservableObject {
 
     /// The user's label texts loaded so far for the current file's `.label` rows,
     /// keyed by snapshot file name. Filled one row at a time by
-    /// ``loadLabel(for:)`` and cleared on every ``open(file:root:)``; read through
+    /// ``loadLabel(for:)`` and cleared on every ``open(file:root:restorable:)``; read through
     /// ``title(for:)``.
     @Published public private(set) var labelTexts: [String: String] = [:]
 
@@ -238,8 +241,22 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// Cleared wherever the selection is.
     private var resolvedCurrentText: String?
 
+    /// The store's missing-from-disk answer from the same landed load as
+    /// ``resolvedCurrentText``, kept so a moved restorability can re-plan
+    /// without a hop.
+    private var resolvedMissing = false
+
     /// See the type's note.
     private var generation = 0
+
+    /// Orders the answers to the existence question alone, which a load and any
+    /// number of short-circuited refreshes ask under one generation; see
+    /// ``refreshSelection(currentText:restorable:)``.
+    private var missingCheck = 0
+
+    /// Whether the current target may be restored at all; set by every
+    /// ``open(file:root:restorable:)`` and read by the plan alone.
+    private var restorable = true
 
     /// The `.label` rows ``loadLabel(for:)`` has already asked about for the
     /// current file — including the ones whose sidecar answered nothing, so an
@@ -270,9 +287,16 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// the rows do: a retarget clears it, and a window holding its own copy
     /// would have to echo that clear back through `select(_:currentText:)`,
     /// cancelling the listing this call just started.
-    public func open(file: URL, root: URL?) {
+    ///
+    /// `restorable: false` keeps the listing and the diff and withholds only the
+    /// plan, so Restore stays greyed out for every revision. The app passes it
+    /// for a file that opens as a **viewer** tab: a restore is a buffer edit, a
+    /// viewer holds no buffer, and a recreated database path would otherwise be
+    /// left an empty file behind a button that claimed to restore it.
+    public func open(file: URL, root: URL?, restorable: Bool = true) {
         generation += 1
         let generation = self.generation
+        self.restorable = restorable
 
         revisions = []
         selected = nil
@@ -280,6 +304,7 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         diffRows = []
         restorePlan = nil
         resolvedCurrentText = nil
+        resolvedMissing = false
         labelTexts = [:]
         requestedLabels = []
         fileURL = file
@@ -323,7 +348,7 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     ///
     /// **Clearing an already-clear pane is not a new question**, and must not
     /// count as one: the generation token is what supersedes work in flight, so
-    /// a caller echoing back the clear `open(file:root:)` has just made would
+    /// a caller echoing back the clear `open(file:root:restorable:)` has just made would
     /// otherwise discard the listing that call started and leave a file that has
     /// history looking as though it has none.
     public func select(_ snapshot: LocalHistorySnapshot?, currentText: LocalHistoryCurrentText) {
@@ -336,6 +361,7 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         diffRows = []
         restorePlan = nil
         resolvedCurrentText = nil
+        resolvedMissing = false
 
         guard let snapshot, root != nil, relativePath != nil else {
             isLoading = false
@@ -377,16 +403,70 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// load resolved. ``LocalHistoryCurrentText/deferred(_:)`` cannot be settled
     /// without the read it defers and so always re-asks.
     ///
+    /// **What the short-circuit skips is the text, not the disk.** The plan also
+    /// rests on whether the file is still there — a missing file is restored by
+    /// recreating it — and that can move while the buffer does not: a clean tab
+    /// whose file is deleted behind it, or recreated behind it, holds the same
+    /// text either way. So an unchanged text still re-asks the store's one
+    /// existence question, off the main actor and **without** ``isLoading`` (it
+    /// is one stat, not a load, and must not flash the spinner), and re-plans
+    /// only when the answer moved. It takes no generation token of its own — a
+    /// stat is no reason to cancel work in flight — and publishes only if
+    /// nothing has taken one since it was asked.
+    ///
+    /// **Two existence answers under one generation are ordered by a token of
+    /// their own.** Every focus that short-circuits asks again under the same
+    /// generation, and so does a load still in flight, so the generation cannot
+    /// say which answer is newest; ``missingCheck`` is bumped by each of them
+    /// when it is asked, and only the newest may publish `resolvedMissing`. A
+    /// load whose existence answer has been overtaken still publishes everything
+    /// else it carries and plans from the newer answer. The private queue being
+    /// serial happens to land them in order today; the token is what makes that
+    /// order the rule rather than an accident of the queue.
+    ///
     /// The comparison is `NSString`'s, for the reason spelled on ``restorePlan``:
     /// a buffer rewritten from one Unicode spelling of a word to another *has*
     /// moved as far as this feature is concerned, and Swift's `==` would call it
     /// unchanged and skip the refresh the plan needs.
-    public func refreshSelection(currentText: LocalHistoryCurrentText) {
+    ///
+    /// **`restorable` is re-asked on the same occasion**, when the caller passes
+    /// it (`nil` keeps the current answer). The answer
+    /// ``open(file:root:restorable:)`` was given is the tab kind the path had
+    /// *then*, and that can change under an open window: a text tab renamed to
+    /// `.db` stays a text tab until it closes, after which the same path opens as
+    /// a viewer. A moved answer re-plans first and synchronously, with no hop —
+    /// everything else the plan is built from is already in hand — so a click
+    /// that made the window key reads the corrected plan, whether or not the
+    /// current text goes on to short-circuit.
+    public func refreshSelection(currentText: LocalHistoryCurrentText, restorable: Bool? = nil) {
+        if let restorable, restorable != self.restorable {
+            self.restorable = restorable
+            restorePlan = plannedRestore(recreating: resolvedMissing)
+        }
         guard let snapshot = selected, root != nil, relativePath != nil else { return }
         if case let .text(text) = currentText, let resolved = resolvedCurrentText,
-           (text as NSString).isEqual(to: resolved) { return }
+           (text as NSString).isEqual(to: resolved) {
+            recheckMissing()
+            return
+        }
         generation += 1
         load(snapshot, currentText: currentText)
+    }
+
+    /// Re-ask only the existence half of the landed answer, for a refresh whose
+    /// current text short-circuited; see ``refreshSelection(currentText:restorable:)``.
+    private func recheckMissing() {
+        guard let root, let relativePath else { return }
+        let generation = self.generation
+        missingCheck += 1
+        let check = missingCheck
+        let store = self.store
+        Task {
+            let missing = await offMain { store.isMissing(root: root, relativePath: relativePath) }
+            guard generation == self.generation, check == missingCheck, missing != resolvedMissing else { return }
+            resolvedMissing = missing
+            restorePlan = plannedRestore(recreating: missing)
+        }
     }
 
     /// The one hop both entry points make: resolve the current text, read the
@@ -398,22 +478,26 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     private func load(_ snapshot: LocalHistorySnapshot, currentText: LocalHistoryCurrentText) {
         guard let root, let relativePath else { return }
         let generation = self.generation
+        missingCheck += 1
+        let check = missingCheck
 
         isLoading = true
         let store = self.store
         Task {
-            let loaded = await offMain { () -> (current: String, content: String?, rows: [DiffRow]) in
+            let loaded = await offMain { () -> (current: String, missing: Bool, content: String?, rows: [DiffRow]) in
                 let current = currentText.resolve()
+                let missing = store.isMissing(root: root, relativePath: relativePath)
                 guard let text = store.content(of: snapshot, root: root, relativePath: relativePath) else {
-                    return (current, nil, [])
+                    return (current, missing, nil, [])
                 }
-                return (current, text, LineDiff.rows(old: text, new: current))
+                return (current, missing, text, LineDiff.rows(old: text, new: current))
             }
             guard generation == self.generation else { return }
             resolvedCurrentText = loaded.current
+            if check == missingCheck { resolvedMissing = loaded.missing }
             selectedContent = loaded.content
             diffRows = loaded.rows
-            restorePlan = plannedRestore()
+            restorePlan = plannedRestore(recreating: resolvedMissing)
             isLoading = false
         }
     }
@@ -462,8 +546,16 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// candidates (`LocalHistoryStore.recordedPaths(root:)`), and "missing" is the
     /// store's one question (`isMissing(root:relativePath:)`). `[]` with no root or
     /// an unreadable store, silently.
-    public func deletedPaths(root: URL?) async -> [String] {
+    ///
+    /// **`capture`'s queued writes land first.** A delete's capture — and, for a
+    /// file never captured before, its path record — is still on the capture
+    /// model's chain when the delete returns, and this read runs on another
+    /// queue; without the wait the file just deleted could be missing from the
+    /// list and appear on the next try. Writes queued after the call are not
+    /// waited for.
+    public func deletedPaths(root: URL?, awaiting capture: LocalHistoryModel? = nil) async -> [String] {
         guard let root else { return [] }
+        await capture?.waitForQueuedWrites()
         let store = self.store
         return await offMain {
             store.recordedPaths(root: root)
@@ -479,11 +571,17 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     /// — and the byte-wise `NSString` comparison that answers it — exists exactly
     /// once in the app. The reasoning for both lives on ``restorePlan``, which is
     /// what the window reads.
-    private func plannedRestore() -> LocalHistoryRestore? {
-        guard let fileURL, let root, let relativePath,
+    ///
+    /// **A file missing from disk is never "the same"**: its current text
+    /// resolves to the empty string, so an empty revision — a file deleted while
+    /// empty — would otherwise be refused, when restoring it is exactly what
+    /// brings the file back. `recreating` is the store's own answer
+    /// (`isMissing(root:relativePath:)`), read in the same hop as the text.
+    private func plannedRestore(recreating: Bool) -> LocalHistoryRestore? {
+        guard restorable, let fileURL, let root, let relativePath,
               let snapshot = selected, let text = selectedContent,
               let currentText = resolvedCurrentText else { return nil }
-        guard !(text as NSString).isEqual(to: currentText) else { return nil }
+        guard recreating || !(text as NSString).isEqual(to: currentText) else { return nil }
         return LocalHistoryRestore(
             fileURL: fileURL,
             root: root,

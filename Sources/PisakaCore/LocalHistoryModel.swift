@@ -398,6 +398,15 @@ public final class LocalHistoryModel {
 
     // MARK: - The chain
 
+    /// Wait until every unit already on the chain has landed — for a reader of
+    /// the store on another queue whose answer must include the writes the user
+    /// just caused (`LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`).
+    /// Units appended afterwards are not waited for; a folder-open sweep already
+    /// queued is, the price of an answer that agrees with the store.
+    func waitForQueuedWrites() async {
+        await chain?.value
+    }
+
     /// Append one unit of work to the serial chain and answer the task that will
     /// have finished it.
     ///

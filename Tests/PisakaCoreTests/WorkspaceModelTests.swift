@@ -2633,6 +2633,37 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(tree.stampPaths, ["app.sqlite"])
     }
 
+    func testOpensAsViewerAnswersTheRoutingWithoutOpeningOrProbing() throws {
+        let tree = makeViewerTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+
+        // Routing is by name: a database that is not on disk at all still answers
+        // `true`, and nothing is probed, read or opened to say so.
+        XCTAssertTrue(model.opensAsViewer(tree.url("app.sqlite")))
+        XCTAssertTrue(model.opensAsViewer(tree.url("gone.DB")))
+        XCTAssertFalse(model.opensAsViewer(tree.url("notes.txt")))
+        XCTAssertFalse(model.opensAsViewer(tree.url("a.db.txt")))
+        XCTAssertTrue(model.openFiles.isEmpty)
+        XCTAssertEqual(tree.stampPaths, [])
+        XCTAssertEqual(tree.readPaths, [])
+
+        // An open tab answers by its kind, through any spelling of its path.
+        _ = try model.open(url: tree.url("app.sqlite"))
+        XCTAssertTrue(model.opensAsViewer(URL(fileURLWithPath: "/tmp/pisaka-viewer-tests/./app.sqlite")))
+    }
+
+    func testOpensAsViewerIsFalseWithTheSwitchOffOrForATextTab() throws {
+        let tree = makeViewerTree()
+        tree.files["fixture.db"] = "not really a database"
+        let off = WorkspaceModel(fileService: tree)
+
+        XCTAssertFalse(off.opensAsViewer(tree.url("app.sqlite")))
+        // A `.db` already open as text (the switch off) stays a text tab: the
+        // tab's kind wins over the name.
+        _ = try off.open(url: tree.url("fixture.db"))
+        XCTAssertFalse(off.opensAsViewer(tree.url("fixture.db")))
+    }
+
     func testOpenWithTheSwitchOffTakesTheReadPathAndSurfacesItsFailure() {
         // Today's iOS behavior, pinned (decision 3): with no viewer surface, a
         // database takes the ordinary read path and fails honestly. The stub's
