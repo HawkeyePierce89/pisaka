@@ -4,7 +4,7 @@
 
 The acceptance review of pull request 101 left two findings. This plan closes both, and it changes no behaviour.
 
-**Finding 1: the gated restore. The code is right and the record is wrong.** The review read the gate consult in `restoreFromLocalHistory` (`guard !revertInFlight() else { return }`) as a silent return. It is not one. `revertInFlight()` (`Sources/Pisaka/PisakaApp.swift`, `private func revertInFlight() -> Bool`) calls `PlatformFeedback.warning()` and runs the modal "Git operation in progress" alert before it returns `true`. So a Restore into a missing path while a gated operation runs already beeps, explains and stops, creating nothing and opening nothing. That is the same treatment as every other gated refusal in the app, the project tree's included (`mayBeginFileOperation: { !revertInFlight() }`). Adding a `PlatformFeedback.warning()` at the restore's consult site would make it beep twice and break the shared vocabulary, so the code does not change.
+**Finding 1: the gated restore. The code is right and the record is wrong.** The review read the gate consult in `restoreFromLocalHistory` (`guard !revertInFlight() else { return }`) as a silent return. It is not one. `revertInFlight()` (`Sources/Pisaka/PisakaApp.swift`, `private func revertInFlight() -> Bool`) calls `PlatformFeedback.warning()` and runs the modal "Git operation in progress" alert before it returns `true`. So a Restore into a missing path while a gated operation runs already beeps, explains and stops, creating nothing and opening nothing. That is the same treatment the project tree's file operations give (`mayBeginFileOperation: { !revertInFlight() }`), and ⌘S, the run/test saves and the symbol rename with them. It is not every gated refusal in the app: the database viewer and the pull-request flows read `localChanges.isReverting` directly and refuse with a sentence in their own surface, deliberately, so one refusal never carries two notices. Adding a `PlatformFeedback.warning()` at the restore's consult site would make it beep twice and break the vocabulary it shares with the tree, so the code does not change.
 
 What is wrong is the record. Two places describe the gated restore as silent:
 
@@ -64,7 +64,7 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
 - Modify: `Sources/Pisaka/PisakaApp.swift` (doc comment only)
 - Modify: `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [x] In `core-local-history.md`'s restore entry, replace "consults `revertInFlight()` and stops silently if a gated operation holds the gate" with wording that says what happens: the consult beeps and shows the "Git operation in progress" notice through `revertInFlight()`, the same refusal every gated operation gives, and stops, creating nothing and opening nothing. Keep the rest of the sentence (the create obeys the gate the way the tree's own create does, and consults it without raising it). Leave the known-limits section as it is.
+- [x] In `core-local-history.md`'s restore entry, replace "consults `revertInFlight()` and stops silently if a gated operation holds the gate" with wording that says what happens: the consult beeps and shows the "Git operation in progress" notice through `revertInFlight()`, the same refusal the tree's own file operations give, and stops, creating nothing and opening nothing. Keep the rest of the sentence (the create obeys the gate the way the tree's own create does, and consults it without raising it). Leave the known-limits section as it is.
 - [x] In `FEATURES.md`'s Local History bullet, replace "A restore that would recreate a file while a git operation is running does nothing." with a sentence saying it is refused with the same "Git operation in progress" notice (and its beep) as the other gated file operations, and creates nothing. Do not touch the session-restore paragraph's "Restore is silent", which is about a different feature.
 - [x] In `restoreFromLocalHistory(_:)`'s doc comment in `PisakaApp.swift`, make the gate sentence say the refusal beeps and explains through `revertInFlight()` (for example: "and stops — beeping and explaining, through `revertInFlight()` — when a git operation holds it"). Change comment lines only, with no code line added, removed or moved. The existing pins (`isMissing(` before the refusal, the refusal and `revertInFlight()` before the one `createFile(`) must keep passing unedited.
 - [x] Measure rather than assume. Run `swiftlint lint --strict` and confirm `PisakaApp.swift` is still clean at `file_length` 1935 and `type_body_length` 1919. If the measurement differs, which is not expected because only comment-only lines changed, move both ceilings by the measured amount, update `LintConfigurationTests`' pinned numbers and `style-lint.md`'s ceiling history, and add one clause to each ceiling's reasoning paragraph in `.swiftlint.yml` in the established "measured, never rounded up for room" manner. Otherwise leave all four untouched.
@@ -115,13 +115,22 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
 - [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`; the app-layer bundle passes.
 - [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build build`; both succeed.
 - [x] Run `grep -n -i "stops silently\|does nothing" docs/architecture/core-local-history.md docs/FEATURES.md` and confirm no hit describes the gated restore.
-- [x] Confirm `git diff --stat` touches only the files named in Tasks 1–2, with no Core source file and no code line of `PisakaApp.swift` changed.
+- [x] Confirm `git diff --stat` touches only the files named in Tasks 1–2, with no Core source file and no code line of `PisakaApp.swift` changed. (The review fixes below later added `CLAUDE.md` and two more comment-only edits in `PisakaApp.swift`; still no Core source file and no code line.)
 
 ### Task 4: Update documentation
 
 - [x] Confirm every documentation entry touched in Tasks 1–2 is consistent: the restore entry and the Tests inventory in `core-local-history.md`, and the Local History bullet in `FEATURES.md`. If Task 1 had to move the ceilings, also check `style-lint.md` and `.swiftlint.yml`.
 - [x] README.md: no change. Its Local History lines do not describe the gated refusal.
-- [x] CLAUDE.md: no change. No pattern, file or invariant changes, and the cross-cutting Local History bullet makes no claim about the gated restore's feedback.
+- [x] CLAUDE.md: no change at implementation time. No pattern, file or invariant changes. The code review then found that the cross-cutting Local History bullet's "Every skip and every failure is silent" read as covering the gated restore's refusal, so the review fixes narrowed it to "Every capture skip and every capture failure is silent"; see below.
+
+## Review fixes
+
+The code review after Task 4 changed the record further, with no behaviour change:
+
+- `CLAUDE.md`: the Local History invariant's "Every skip and every failure is silent" became "Every capture skip and every capture failure is silent", so it no longer reads as covering the gated restore, which beeps and explains.
+- `core-local-history.md` and the new pin's failure message: "the same refusal every gated operation gives" became "the refusal the tree's own file operations give", because the database viewer and the pull-request flows read `localChanges.isReverting` directly and refuse in their own surface without `revertInFlight()`'s alert. Two older `PisakaApp.swift` doc comments making the same overstatement (`renameSymbol` and `applyRename`) were narrowed the same way, comment lines only.
+- `LocalHistorySourceGatingTests`: the new pin also asserts that the beep and the notice sit after `revertInFlight()`'s pass-through return, so they are on the refusing path only.
+- `LocalHistoryModelTests`: the suite header now names every `StubFileTree` gate its tests hold, and the release wait goes through `XCTWaiter` with an `XCTFail` before `listing.value` is awaited, since that await has no timeout of its own. The causal shape is the one Task 2 describes.
 
 ## Post-Completion
 
