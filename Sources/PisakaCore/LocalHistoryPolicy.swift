@@ -129,9 +129,7 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     /// untitled buffer, or no project root open. `latestHash` is the
     /// `contentHash` of that file's newest stored revision, or `nil` when the
     /// file has no history yet; it is a *name* the caller already had in hand
-    /// from a directory listing, never a content read. Its `nil` default is for
-    /// the caller asking only whether the bytes *may* be stored — the restore's
-    /// preflight — never for one that holds a listing.
+    /// from a directory listing, never a content read.
     ///
     /// The precedence is deliberate and is what the tests pin: identity first
     /// (there is nowhere to write), then containment, then size, then sameness.
@@ -155,7 +153,7 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     public func capture(
         of text: String,
         relativePath: String?,
-        latestHash: String? = nil,
+        latestHash: String?,
         event: LocalHistoryEvent
     ) -> LocalHistoryCaptureDecision {
         guard let relativePath, !relativePath.isEmpty else { return .skip(.untitled) }

@@ -175,15 +175,6 @@ final class LocalHistoryPolicyTests: XCTestCase {
         )
     }
 
-    /// The restore's preflight omits `latestHash`: it asks whether the bytes may
-    /// be stored at all, which the `nil` default answers for every event.
-    func testTheLatestHashDefaultsToNoHistory() {
-        XCTAssertEqual(
-            policy.capture(of: "x", relativePath: "A.swift", event: .restore),
-            policy.capture(of: "x", relativePath: "A.swift", latestHash: nil, event: .restore)
-        )
-    }
-
     // MARK: - Label text
 
     func testTheLabelCeilingIsTheDocumentedNumber() {

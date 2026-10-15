@@ -2874,9 +2874,13 @@ struct PisakaApp: App {
     /// back from its own revisions. "Missing" is the store's question
     /// (`isMissing(root:relativePath:)`). The create is an ordinary project-tree
     /// write, so it consults the writer gate the way the tree's own create does
-    /// and stops when a git operation holds it; a failed create beeps and stops.
-    /// The tree is bumped, and the restore then runs unchanged against the empty
-    /// file: the open, the "Before Restore" capture of `""`, and the replacement.
+    /// and stops when a git operation holds it; a failed create beeps and stops,
+    /// and either way the tree is bumped, since `ensureDirectory` may have built
+    /// parents before the create failed. The two refusals below are asked
+    /// **before** the create, against the empty file it would make (or the tab's
+    /// buffer, when a tab still holds the path), so a refused restore creates
+    /// nothing. The restore then runs unchanged against the empty file: the open,
+    /// the "Before Restore" capture of `""`, and the replacement.
     /// A recreated file has no tab before the open, so `applyRestore` falls back
     /// to a model rewrite and there is no ⌘Z step back to empty.
     ///
@@ -2904,7 +2908,7 @@ struct PisakaApp: App {
     /// nothing into a click that pulls the editor onto another file and beeps,
     /// which is the armed-button-whose-click-does-nothing the published plan
     /// exists to remove, wearing a side effect. Both answers are in hand before
-    /// the open: `localHistoryTextToDisplace(_:)` reads the buffer when a tab
+    /// the open: `localHistoryTextToDisplace(_:missing:)` reads the buffer when a tab
     /// holds the file and the same unbounded `read` the open itself makes when
     /// none does. The refusal is nonetheless re-asked *after* the open, because
     /// the open is what the capture and the replacement actually act on and the
@@ -2915,8 +2919,17 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return
         }
-        if localHistory.store.isMissing(root: plan.root, relativePath: plan.relativePath) {
+        let missing = localHistory.store.isMissing(root: plan.root, relativePath: plan.relativePath)
+        if let known = localHistoryTextToDisplace(plan.fileURL, missing: missing),
+           localHistoryRestoreRefused(displacing: known, plan) {
+            PlatformFeedback.warning()
+            return
+        }
+        if missing {
             guard !revertInFlight() else { return }
+            // `ensureDirectory` does not roll back, so the tree is re-read whether
+            // or not the create lands — the reason `newFile(in:name:)` gives.
+            defer { model.bumpTreeRevision() }
             do {
                 try fileService.ensureDirectory(at: plan.fileURL.deletingLastPathComponent())
                 try fileService.createFile(at: plan.fileURL)
@@ -2924,12 +2937,6 @@ struct PisakaApp: App {
                 PlatformFeedback.warning()
                 return
             }
-            model.bumpTreeRevision()
-        }
-        if let known = localHistoryTextToDisplace(plan.fileURL),
-           localHistoryRestoreRefused(displacing: known, plan) {
-            PlatformFeedback.warning()
-            return
         }
         guard let file = try? model.open(url: plan.fileURL) else {
             PlatformFeedback.warning()
@@ -2965,13 +2972,17 @@ struct PisakaApp: App {
     /// grown past the ceiling, and would otherwise be loaded whole into a new tab
     /// only to be refused.
     ///
+    /// A `missing` file with no tab answers the empty string without a read: it
+    /// is the empty file the restore is about to create, and asking before the
+    /// create is what lets a refusal create nothing.
+    ///
     /// This does mean the successful restore of a file no tab holds reads it
     /// twice. That is bounded by the ceiling the policy enforces — anything above
     /// it is refused here and never opened at all, so the duplicated read is at
     /// most 1 MiB — and it is paid once per explicit Restore click.
-    private func localHistoryTextToDisplace(_ url: URL) -> String? {
+    private func localHistoryTextToDisplace(_ url: URL, missing: Bool) -> String? {
         if let id = model.fileID(forURL: url) { return model.text(for: id) }
-        return try? fileService.read(url: url)
+        return missing ? "" : try? fileService.read(url: url)
     }
 
     /// Whether the planned restore must not happen against `displaced` — the text
@@ -3003,12 +3014,13 @@ struct PisakaApp: App {
     /// exactly what it exists to keep. It is also the case the window renders
     /// least honestly: the same ceiling makes `currentTextForLocalHistory` answer
     /// the empty string, so the diff showed the revision as wholly added.
-    /// `latestHash` left at its `nil` default asks the one question that matters
+    /// `latestHash: nil` asks the one question that matters
     /// here — *may* these bytes be stored — rather than whether they would be
     /// deduplicated, which is a skip that loses nothing.
     private func localHistoryRestoreRefused(displacing displaced: String, _ plan: LocalHistoryRestore) -> Bool {
         if (displaced as NSString).isEqual(to: plan.text) { return true }
-        return localHistory.store.policy.capture(of: displaced, relativePath: plan.relativePath, event: .restore).hash == nil
+        let policy = localHistory.store.policy
+        return policy.capture(of: displaced, relativePath: plan.relativePath, latestHash: nil, event: .restore).hash == nil
     }
 
     /// The selected tab's url, or `nil` — what **File ▸ Local History…** acts on,

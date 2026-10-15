@@ -282,17 +282,40 @@ final class LocalHistoryBrowserModelTests: XCTestCase {
         model.open(file: projectFile("a.swift"), root: projectRoot)
         await waitUntil("the listing to land") { !model.isLoading }
 
+        // The unreadable read is observed reaching the file service and released
+        // before the readable one is asked; the queue is serial, so once the
+        // readable label has published the unreadable one has answered.
+        let gate = Gate()
+        tree.readGate = (path: sidecarPath(of: unreadable, "a.swift"), gate: gate)
         model.loadLabel(for: unreadable)
+        await gate.waitUntilReached()
+        gate.release()
         model.loadLabel(for: save)
         model.loadLabel(for: readable)
-        // The queue is serial and the unreadable read was asked first, so once
-        // the readable one has published the other has long since answered.
         await waitUntil("the readable label to land") { model.labelTexts[readable.fileName] != nil }
 
         XCTAssertEqual(model.title(for: readable), "Label: Release")
         XCTAssertEqual(model.title(for: unreadable), "Label")
         XCTAssertEqual(model.title(for: save), LocalHistoryEvent.save.title)
         XCTAssertEqual(Set(model.labelTexts.keys), [readable.fileName])
+    }
+
+    func testALabelIsReadOncePerTargetingNotOnEveryAppear() async {
+        let first = capture("one", "a.swift", event: .label, label: "First", at: 1)
+        let second = capture("two", "a.swift", event: .label, label: "Second", at: 2)
+        let model = makeModel()
+        model.open(file: projectFile("a.swift"), root: projectRoot)
+        await waitUntil("the listing to land") { !model.isLoading }
+
+        model.loadLabel(for: first)
+        await waitUntil("the first label to land") { model.labelTexts[first.fileName] != nil }
+        model.loadLabel(for: first)
+        // Asked after the repeat, on the same serial queue: once it has landed, a
+        // second read of the first sidecar would have happened too.
+        model.loadLabel(for: second)
+        await waitUntil("the second label to land") { model.labelTexts[second.fileName] != nil }
+
+        XCTAssertEqual(tree.readPaths.filter { $0 == sidecarPath(of: first, "a.swift") }.count, 1)
     }
 
     func testALabelReadLandingAfterARetargetIsDiscarded() async {

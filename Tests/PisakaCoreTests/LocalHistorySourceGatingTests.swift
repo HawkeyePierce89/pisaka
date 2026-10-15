@@ -47,7 +47,10 @@ import XCTest
 ///    ahead of the removal and not awaited (the delete has no hop to wait
 ///    across), and that one site is pinned cross-file against the number
 ///    `core-local-history.md` states. The move's hook is pinned the other way
-///    round: inside `performMove`, *after* the move it follows.
+///    round: inside `performMove`, *after* the move it follows. And the
+///    restore's recreate of a missing file — the feature's one worktree create —
+///    is pinned in `restoreFromLocalHistory` behind its refusal and behind
+///    `revertInFlight()`, both ahead of the one `createFile`.
 final class LocalHistorySourceGatingTests: XCTestCase {
 
     private static let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -509,6 +512,12 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             "The delete capture is synchronous and is not awaited: the delete has no hop to put an await in "
                 + "front of, and a capture that ran one hop later would read the files after their removal."
         )
+        XCTAssertEqual(
+            try occurrences(of: "\\bTask\\s*(?:\\(|\\{)|DispatchQueue", in: (body as NSString).substring(to: capture)),
+            0,
+            "Nothing ahead of the capture in deleteItem may defer it: a capture handed to a Task or a queue "
+                + "runs after removeItem, reads nothing and files nothing — the same failure as an await."
+        )
 
         let doc = try String(
             contentsOf: Self.repositoryRoot.appendingPathComponent("docs/architecture/core-local-history.md"),
@@ -519,6 +528,39 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             doc.contains("`captureBeforeDelete(` named at exactly \(word) site"),
             "core-local-history.md's Tests entry states the delete-site count (\(word)); the number written there "
                 + "and the number in PisakaApp must agree."
+        )
+    }
+
+    func testTheRestoresRecreateRefusesFirstAndConsultsTheGateBeforeItCreates() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        guard let body = body(of: "private func restoreFromLocalHistory(", in: app) else {
+            XCTFail("restoreFromLocalHistory must exist in PisakaApp")
+            return
+        }
+        XCTAssertEqual(
+            try occurrences(of: "createFile\\(", in: body),
+            1,
+            "The restore's recreate is Local History's one worktree create; a second create is a second write."
+        )
+        guard let missing = try offsets(of: "isMissing\\(", in: body).first,
+              let refusal = try offsets(of: "localHistoryRestoreRefused\\(", in: body).first,
+              let gate = try offsets(of: "revertInFlight\\(\\)", in: body).first,
+              let create = try offsets(of: "createFile\\(", in: body).first
+        else {
+            XCTFail("restoreFromLocalHistory must ask isMissing, refuse, consult the gate and create")
+            return
+        }
+        XCTAssertLessThan(missing, refusal, "The refusal judges the empty file a missing path would become.")
+        XCTAssertLessThan(
+            refusal,
+            create,
+            "A refused restore creates nothing: the refusal is asked before the create, not after it."
+        )
+        XCTAssertLessThan(
+            gate,
+            create,
+            "The create is a worktree write: it consults revertInFlight() first and stops while a git operation "
+                + "holds the gate, or it writes into a tree git is rewriting."
         )
     }
 

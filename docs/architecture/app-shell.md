@@ -968,9 +968,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (receives the accepted text from the draft, a no-op when unchanged →
     validate → `performMove(from:to:)`, the shared body below: capture
     `model.planRename(from:to:)` *before* the move → `fileService.move(from:to:)`
-    → `model.applyRenamePlan(_:)` → bump), and Delete
-    (`confirmDelete` → capture `model.tabIDs(under:)` *before* the removal →
-    `fileService.removeItem(at:)` → `model.closeFiles(ids:)` → bump). The tab
+    → `model.applyRenamePlan(_:)` → `localHistory.followMove(from:to:root:)` →
+    bump), and Delete (`confirmDelete` → capture `model.tabIDs(under:)` *before*
+    the removal → `localHistory.captureBeforeDelete(of:root:bufferTexts:)`, whose
+    reads are synchronous, not awaited and ungated, and so must precede the
+    removal → `fileService.removeItem(at:)` → `model.closeFiles(ids:)` → bump;
+    `core-local-history.md`). The tab
     reconciliation is captured before the disk mutation (not after) so a tab
     opened through a symlink to the affected item — which dangles, and so stops
     canonicalizing to the target, once the move/removal lands — is still matched.
@@ -988,7 +991,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the source still canonicalizes to it only until the move renames the target
     away, and once `applyRenamePlan` retargets a tab its old url is no longer
     reachable from the model), then `fileService.move` → `applyRenamePlan` →
-    `forgetIndexedBuffer` per retargeted url → `bumpTreeRevision()` →
+    the viewer retargets → `localHistory.followMove` (enqueued after the move and
+    the tab retarget, which is its ordering argument) → `forgetIndexedBuffer` per
+    retargeted url → `bumpTreeRevision()` →
     `notifyIndexOfProjectFileChanges()`, with any throw going to
     `reportFileOperationFailure(_:)`. `performMove` assumes the writer gate has
     already been passed; both callers raise it themselves. `moveItem(at:into:)`

@@ -159,7 +159,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
-        let suffix = LocalHistoryStore.temporarySuffix
+        let suffix = LocalHistoryLayout.temporarySuffix
         let record = "\(directory)/\(LocalHistoryLayout.pathRecordName)"
 
         let snapshot = try XCTUnwrap(
@@ -209,7 +209,7 @@ final class LocalHistoryStoreTests: XCTestCase {
             event: .save,
             contentHash: LocalHistoryLayout.contentHash(of: "hello")
         )
-        tree.writeFailures = ["\(directory)/\(name)\(LocalHistoryStore.temporarySuffix)"]
+        tree.writeFailures = ["\(directory)/\(name)\(LocalHistoryLayout.temporarySuffix)"]
 
         XCTAssertNil(store.capture(text: "hello", root: projectRoot, relativePath: path, event: .save, now: date(1_000)))
         XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [])
@@ -236,7 +236,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         // permanently failing one still leaves nothing behind.
         XCTAssertEqual(
             tree.removedPaths,
-            Array(repeating: "\(directory)/\(name)\(LocalHistoryStore.temporarySuffix)", count: 2)
+            Array(repeating: "\(directory)/\(name)\(LocalHistoryLayout.temporarySuffix)", count: 2)
         )
     }
 
@@ -251,7 +251,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
-        let temporary = "\(directory)/\(LocalHistoryLayout.snapshotFileName(timestamp: date(1_000), event: .save, contentHash: LocalHistoryLayout.contentHash(of: "hello")))\(LocalHistoryStore.temporarySuffix)"
+        let temporary = "\(directory)/\(LocalHistoryLayout.snapshotFileName(timestamp: date(1_000), event: .save, contentHash: LocalHistoryLayout.contentHash(of: "hello")))\(LocalHistoryLayout.temporarySuffix)"
         // The sweep gets in exactly once, between the create and the write.
         tree.writeFailures = [temporary]
         tree.onWrite = { [weak tree] written in
@@ -330,7 +330,7 @@ final class LocalHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(tree.files[record], "Elsewhere/other.swift")
         // The first capture's record, and no other.
-        XCTAssertEqual(tree.writtenPaths.filter { $0 == record + LocalHistoryStore.temporarySuffix }.count, 1)
+        XCTAssertEqual(tree.writtenPaths.filter { $0 == record + LocalHistoryLayout.temporarySuffix }.count, 1)
         XCTAssertEqual(store.recordedPaths(root: projectRoot), [])
         XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2, "Still readable forwards.")
     }
@@ -359,7 +359,7 @@ final class LocalHistoryStoreTests: XCTestCase {
             "\(directory)/\(LocalHistoryLayout.pathRecordName)",
         ])
         XCTAssertEqual(tree.files[sidecar], "Before refactor")
-        XCTAssertNil(tree.files[sidecar + LocalHistoryStore.temporarySuffix])
+        XCTAssertNil(tree.files[sidecar + LocalHistoryLayout.temporarySuffix])
         XCTAssertEqual(store.labelText(of: snapshot, root: projectRoot, relativePath: path), "Before refactor")
         XCTAssertEqual(store.content(of: snapshot, root: projectRoot, relativePath: path), "body")
     }
@@ -411,7 +411,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let name = LocalHistoryLayout.snapshotFileName(
             timestamp: date(1_000), event: .label, contentHash: LocalHistoryLayout.contentHash(of: "body")
         )
-        tree.writeFailures = ["\(directory)/\(LocalHistoryLayout.labelFileName(forSnapshotFileName: name))\(LocalHistoryStore.temporarySuffix)"]
+        tree.writeFailures = ["\(directory)/\(LocalHistoryLayout.labelFileName(forSnapshotFileName: name))\(LocalHistoryLayout.temporarySuffix)"]
 
         XCTAssertNil(store.capture(
             text: "body", root: projectRoot, relativePath: path, event: .label, label: "kept", now: date(1_000)
@@ -484,7 +484,7 @@ final class LocalHistoryStoreTests: XCTestCase {
             timestamp: date(5_000), event: .label, contentHash: LocalHistoryLayout.contentHash(of: "never landed")
         )
         let orphan = LocalHistoryLayout.labelFileName(forSnapshotFileName: orphanSnapshot)
-        let suffix = LocalHistoryStore.temporarySuffix
+        let suffix = LocalHistoryLayout.temporarySuffix
         let debris = [
             orphan,
             LocalHistoryLayout.pathRecordName + suffix,
@@ -758,6 +758,51 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
     }
 
+    /// What the merge did not write is not its to remove: a foreign file keeps
+    /// the source's record and directory where they are, while the merge's own
+    /// debris is discarded and every revision is still carried.
+    func testAMergeLeavesASourceHoldingAForeignFileUnderItsRecordAndDiscardsItsOwnDebris() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "there", root: projectRoot, relativePath: target, event: .save, now: date(1_000))
+        let carried = try XCTUnwrap(store.capture(
+            text: "here", root: projectRoot, relativePath: path, event: .save, now: date(2_000)
+        ))
+        let source = fileDirectory(path, in: tree)
+        let foreign = "\(source)/notes.txt"
+        let debris = "\(source)/\(carried.fileName)\(LocalHistoryLayout.temporarySuffix)"
+        tree.files[foreign] = "not ours"
+        tree.files[debris] = "half a revision"
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(3_000))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: target).count, 2)
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path), [])
+        XCTAssertNil(tree.files[debris])
+        XCTAssertEqual(tree.files[foreign], "not ours")
+        XCTAssertEqual(tree.files[recordPath(path, in: tree)], path)
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path, target].sorted())
+    }
+
+    /// An empty directory under the new key is no history to merge into — the
+    /// sweep's to reclaim — so the source stays exactly where it was.
+    func testAMoveOntoAnEmptyHistoryDirectoryLeavesTheSourceWhereItWas() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let target = "target.swift"
+        store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+        let source = fileDirectory(path, in: tree)
+        let filesBefore = tree.filePaths(under: source)
+        tree.directories.insert(fileDirectory(target, in: tree))
+
+        store.migrate(root: projectRoot, from: path, to: target, now: date(2_000))
+
+        XCTAssertEqual(tree.filePaths(under: source), filesBefore)
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path])
+        XCTAssertEqual(tree.filePaths(under: fileDirectory(target, in: tree)), [])
+    }
+
     func testMigratingAPathOntoItselfDoesNothing() {
         let tree = makeTree()
         let store = makeStore(tree)
@@ -957,7 +1002,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
-        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryLayout.temporarySuffix)"
         store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
         tree.files["\(directory)/\(debris)"] = "half a revision"
 
@@ -973,7 +1018,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
-        let debris = "0000001772345678901-commit-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        let debris = "0000001772345678901-commit-abcdef0123456789.snapshot\(LocalHistoryLayout.temporarySuffix)"
         tree.directories.insert(directory)
         tree.files["\(directory)/\(debris)"] = "half a revision"
 
@@ -998,7 +1043,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
-        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryStore.temporarySuffix)"
+        let debris = "0000001772345678901-save-abcdef0123456789.snapshot\(LocalHistoryLayout.temporarySuffix)"
         tree.directories.insert(directory)
         tree.files["\(directory)/\(debris)"] = "half a revision"
 
@@ -1013,6 +1058,36 @@ final class LocalHistoryStoreTests: XCTestCase {
         let listed = store.revisions(root: projectRoot, relativePath: path)
         XCTAssertEqual(listed.count, 1)
         XCTAssertEqual(store.content(of: listed[0], root: projectRoot, relativePath: path), "the last save")
+    }
+
+    /// The record-only reclamation has the same race, removing the record where
+    /// the debris case removes a temporary: a quit-time capture landing as the
+    /// record goes keeps its snapshot and its directory, and the next capture's
+    /// listing shows the record gone and writes it again.
+    func testASnapshotLandingWhileTheSweepRemovesARecordSurvivesAndTheRecordComesBack() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let directory = fileDirectory(path, in: tree)
+        let record = recordPath(path, in: tree)
+        tree.directories.insert(directory)
+        tree.files[record] = path
+
+        tree.onRemove = { [weak tree] removed in
+            guard removed == record else { return }
+            tree?.onRemove = nil
+            store.capture(text: "the last save", root: self.projectRoot, relativePath: self.path, event: .save, now: self.date(1_000))
+        }
+        store.prune(root: projectRoot, now: date(1_000))
+
+        XCTAssertTrue(tree.hasDirectory(directory))
+        let listed = store.revisions(root: projectRoot, relativePath: path)
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(store.content(of: listed[0], root: projectRoot, relativePath: path), "the last save")
+        XCTAssertNil(tree.files[record])
+
+        store.capture(text: "the next save", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
+        XCTAssertEqual(tree.files[record], path)
+        XCTAssertEqual(store.recordedPaths(root: projectRoot), [path])
     }
 
     func testPruningLeavesTheNewestRevisionHoweverOldItIs() {

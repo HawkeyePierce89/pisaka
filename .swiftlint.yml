@@ -149,21 +149,24 @@ line_length:
 # the Open…, New File and Open Problem… commands' own actions to the screen's
 # rows. Everything else — the view, the switch and every title, glyph and chord
 # — lives in `WelcomeView.swift`, `ContentView.swift` and Core's
-# `WelcomeScreen`. And 1931 with Local History's path record, for the
-# **thirty-five** lines that are this file's whole share in it: the move's
+# `WelcomeScreen`. And 1933 with Local History's path record, for the
+# **thirty-seven** lines that are this file's whole share in it: the move's
 # one-line `followMove` hook, the delete's three-line capture ahead of
-# `removeItem`, the restore's eleven-line recreate of a missing file (the one
+# `removeItem`, the restore's twelve-line recreate of a missing file, asked
+# after the preflight so a refused restore creates nothing (the one
 # worktree create the feature makes, which must consult the writer gate here
 # because only this file holds it), the two File menu items with Put Label's
-# url-only enablement, and their two short actions. Everything else — the two
+# url-only enablement, their two short actions, and the restore preflight's
+# one extra line spelling `latestHash: nil` and `.restore` outright, which the
+# policy now requires of every caller. Everything else — the two
 # prompts — lives in `LocalHistoryPrompts.swift`, and every decision (what is
 # read before a delete, where history moves, what a label may say, which
 # files are missing) lives in Core. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1931
-  error: 1931
+  warning: 1933
+  error: 1933
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -192,12 +195,12 @@ file_length:
 # time (from a measured 1873, the previous 1874 having carried the same one line
 # of slack) — and to 1880 with the Welcome screen's three `ContentView`
 # arguments, inside the scene's `body` and so inside the struct body, moving it
-# by exactly what `file_length` did — and to 1915 with Local History's
-# thirty-five, every one of them inside the struct body, moving it by exactly
+# by exactly what `file_length` did — and to 1917 with Local History's
+# thirty-seven, every one of them inside the struct body, moving it by exactly
 # what `file_length` did again.
 type_body_length:
-  warning: 1915
-  error: 1915
+  warning: 1917
+  error: 1917
 
 function_body_length:
   warning: 140

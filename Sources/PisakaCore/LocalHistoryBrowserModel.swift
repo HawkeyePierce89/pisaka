@@ -454,7 +454,8 @@ public final class LocalHistoryBrowserModel: ObservableObject {
     // MARK: - Deleted files
 
     /// The project-relative paths of every file under `root` that has a history
-    /// and is no longer on disk, sorted by path — what "Deleted Files…" offers.
+    /// and is no longer on disk, sorted by path (the order `recordedPaths(root:)`
+    /// already answers in, which a filter keeps) — what "Deleted Files…" offers.
     ///
     /// Computed on demand, off the main actor, and never stored: it is one answer
     /// to one menu command. Only directories with a **verified** path record are
@@ -467,7 +468,6 @@ public final class LocalHistoryBrowserModel: ObservableObject {
         return await offMain {
             store.recordedPaths(root: root)
                 .filter { store.isMissing(root: root, relativePath: $0) }
-                .sorted()
         }
     }
 

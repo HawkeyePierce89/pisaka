@@ -1627,7 +1627,8 @@ and iPhone. The feature scope landed so far:
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
-  save funnel and its nine worktree operations are not captured and leave no
+  save funnel, its nine worktree operations, the project tree's delete and Put
+  Label… are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
   snapshot. The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything

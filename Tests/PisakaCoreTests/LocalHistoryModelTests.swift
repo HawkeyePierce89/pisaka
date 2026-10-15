@@ -405,6 +405,29 @@ final class LocalHistoryModelTests: XCTestCase {
         XCTAssertEqual(Set(model.store.recordedPaths(root: projectRoot)), ["dir/deep/z.swift", "dir/a.swift"])
     }
 
+    /// A file a buffer already holds is not a disk target, so it neither spends
+    /// the cap nor is read: with a cap of two, the two files no buffer holds are
+    /// both read, and all three files are captured.
+    func testCaptureBeforeDeleteDoesNotChargeABufferHeldFileToTheDiskTargetLimit() async {
+        let tree = makeTree(files: [
+            "project/dir/a.swift": "a on disk",
+            "project/dir/b.swift": "b",
+            "project/dir/c.swift": "c",
+        ])
+        let model = makeModel(tree, policy: LocalHistoryPolicy(maxPreOperationFiles: 2))
+
+        model.captureBeforeDelete(
+            of: projectFile("dir"),
+            root: projectRoot,
+            bufferTexts: [projectFile("dir/a.swift"): "a in the buffer"]
+        )
+        await drain(model)
+
+        XCTAssertEqual(Set(projectReads(tree)), ["project/dir/b.swift", "project/dir/c.swift"])
+        XCTAssertEqual(Set(model.store.recordedPaths(root: projectRoot)), ["dir/a.swift", "dir/b.swift", "dir/c.swift"])
+        XCTAssertEqual(contents(model, "dir/a.swift"), ["a in the buffer"])
+    }
+
     func testCaptureBeforeDeleteSkipsBinariesSymlinksAndExcludedEntries() async {
         let tree = makeTree(files: [
             "project/dir/image.png": "\u{0}binary",

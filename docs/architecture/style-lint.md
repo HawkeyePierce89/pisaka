@@ -86,12 +86,13 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is Local History's path record, thirty-five lines:
-`file_length` 1896 → **1931**, `type_body_length` 1880 → **1915**, for the move's
+The most recent bump is Local History's path record, thirty-seven lines:
+`file_length` 1896 → **1933**, `type_body_length` 1880 → **1917**, for the move's
 `followMove` hook, the delete's capture ahead of `removeItem`, the restore's
 recreate of a missing file (it consults the writer gate, which only `PisakaApp`
-holds), the two File menu items "Deleted Files…" and "Put Label…" and their two
-short actions. The prompts live in `LocalHistoryPrompts.swift` and every
+holds, and is asked after the preflight so a refused restore creates nothing), the two File menu items "Deleted Files…" and "Put Label…" and their two
+short actions, plus the restore preflight's one extra line stating
+`latestHash: nil` outright. The prompts live in `LocalHistoryPrompts.swift` and every
 decision in Core (`core-local-history.md`).
 
 The bump before it is the Welcome screen, three lines: `file_length`

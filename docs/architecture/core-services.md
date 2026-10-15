@@ -764,7 +764,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     In's ⌘+ matches the second "Zoom In" item and the ⌘= item is ignored. The
     **folder-required table** is closed: the suite states, as a literal set,
     every menu title whose chain carries `.disabled(model.projectRoot == nil)`
-    (today Find in Files… and Commit…), holds the scan equal to it, and asserts
+    (today Find in Files…, Commit… and Local History's Deleted Files…), holds the scan equal to it, and asserts
     no advertised title is in it. Covered by `WelcomeScreenTests` and
     `WelcomeShortcutPinTests`.
   - `TabColumnWidthRule.swift` — the macOS vertical tab column's width bounds

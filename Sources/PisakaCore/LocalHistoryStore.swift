@@ -53,13 +53,6 @@ public struct LocalHistoryStore {
         self.policy = policy
     }
 
-    /// What a half-written snapshot is called while it is being written. It ends
-    /// in something other than `LocalHistoryLayout.snapshotExtension`, which is
-    /// the whole mechanism: `snapshot(fromFileName:)` refuses it, so listing and
-    /// retention both look straight through it. Spelled once, in the layout
-    /// (`LocalHistoryLayout.temporarySuffix`), which owns every on-disk name.
-    static let temporarySuffix = LocalHistoryLayout.temporarySuffix
-
     // MARK: - Reading
 
     /// One file's stored revisions, newest first.
@@ -412,7 +405,7 @@ public struct LocalHistoryStore {
     /// share the one discipline.
     private nonisolated func writeInPlace(_ text: String, named name: String, in directory: URL) -> Bool {
         let destination = directory.appendingPathComponent(name)
-        let temporary = directory.appendingPathComponent(name + Self.temporarySuffix)
+        let temporary = directory.appendingPathComponent(name + LocalHistoryLayout.temporarySuffix)
         for _ in 0..<2 {
             do {
                 try fileService.ensureDirectory(at: directory)

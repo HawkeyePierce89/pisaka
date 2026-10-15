@@ -211,8 +211,8 @@ because nothing else states them.
   `localChanges.beginRevert()` synchronously before its first `await`, balanced by
   `defer`. The bracket raises the flag without reading it, which is why the operations
   that must not run under it refuse for themselves: the project-tree file ops, ⌘S, the
-  run/test saves, the three branch-checkout entry points, and the database viewer's two
-  writes, which only *consult* it.
+  run/test saves, the three branch-checkout entry points, the database viewer's two
+  writes and Local History's recreate-on-restore, which only *consult* it.
 - **Readers do not take the writer gate**: the symbol index only *reads*, so it neither
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor

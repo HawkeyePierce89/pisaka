@@ -188,8 +188,8 @@ changes.)
     is "Before Pull Request Checkout" — a separate case from `branch` even though
     it shares that operation's bracket, because from a file's point of view "the
     branch was switched" and "a pull request was checked out" are different
-    answers to "why did this revision get taken" (`core-github.md`). `pull` is the
-    newest, and it is `pullRequest`'s argument applied once more: the post-merge
+    answers to "why did this revision get taken" (`core-github.md`). `pull` came
+    next, and it is `pullRequest`'s argument applied once more: the post-merge
     tail's second step is a `pull --ff-only`, and a file it overwrites was
     overwritten by *the remote's* work rather than by anything done on this
     machine — "what did this file look like before I took everyone else's
@@ -1043,15 +1043,20 @@ changes.)
     restore the one edit in that file with no history behind it. So it beeps and
     stops, like the two refusals below. **Then the recreate exception: a restore
     is a buffer edit, except that a restore into a path with no file first
-    creates an empty file, under `revertInFlight()`.** When
-    `localHistory.store.isMissing(root:relativePath:)` answers true, the action
-    consults `revertInFlight()` and stops silently if a gated operation holds the
-    gate — the create is an ordinary project-tree write, so it obeys the gate the
-    way the tree's own create does, and *consults* it without raising it — then
-    `ensureDirectory`s the parent and `createFile`s through the file service
-    (beeping and stopping on failure) and bumps the tree. Everything after runs
-    unchanged against the empty file: the preflight, the open, a "Before Restore"
-    capture of the empty text it displaces, and `applyRestore`. This is the feature's **one worktree create**;
+    creates an empty file, under `revertInFlight()`.** The action asks
+    `localHistory.store.isMissing(root:relativePath:)` first, and the preflight's
+    two refusals are asked **before** anything is created — against the empty
+    file the create would make (`localHistoryTextToDisplace(_:missing:)` answers
+    `""` for a missing path no tab holds, and the buffer when one does) — so a
+    refused restore creates nothing. When the path is missing and the preflight
+    passes, the action consults `revertInFlight()` and stops silently if a gated
+    operation holds the gate — the create is an ordinary project-tree write, so it
+    obeys the gate the way the tree's own create does, and *consults* it without
+    raising it — then `ensureDirectory`s the parent and `createFile`s through the
+    file service (beeping and stopping on failure) and bumps the tree either way,
+    since `ensureDirectory` does not roll back the parents it built. Everything
+    after runs unchanged against the empty file: the open, the re-asked refusal, a
+    "Before Restore" capture of the empty text it displaces, and `applyRestore`. This is the feature's **one worktree create**;
     without it a `.delete` revision — and the `Before Revert` / `Before Branch
     Change` revision of a file the operation removed — could be listed and never
     brought back. Then: open a tab
@@ -1081,7 +1086,7 @@ changes.)
     feature a capture could lose what it exists to keep — then
     `saveTransform.applyRestore(…)`. **A restore the policy would refuse to
     capture does not happen at all**: the displaced text is put to
-    `store.policy.capture(of:relativePath:event: .restore)` first, and a refusal
+    `store.policy.capture(of:relativePath:latestHash: nil, event: .restore)` first, and a refusal
     beeps and stops exactly as an unreadable file does. Reading the buffer back
     fixes *what* is snapshotted, not whether it can be — a file that had history
     when it was small and has since grown past `maxContentBytes` is captured by
@@ -1222,7 +1227,7 @@ history, just not the newest one.
 
 ## Tests
 
-215 tests across seven suites in `Tests/PisakaCoreTests/`, all against
+220 tests across seven suites in `Tests/PisakaCoreTests/`, all against
 `StubFileTree` or pure values — no temporary directories and no real clock:
 
   - `LocalHistorySnapshotTests` — the tag vocabulary by set equality, every event
@@ -1290,8 +1295,12 @@ history, just not the newest one.
     merge into a destination holding a wrong record leaving a correct one;
     sidecars carried ahead of their snapshots; an injected `move` failure
     leaving the source intact and listable under its old key, and a merged
-    entry that cannot move staying behind under its record; a move onto itself
-    doing nothing.
+    entry that cannot move staying behind under its record; a foreign file in the
+    source keeping its record and directory while the merge's own debris is
+    discarded; an empty directory under the new key leaving the source where it
+    was; a move onto itself doing nothing. A quit-time capture landing as the
+    sweep removes a record-only directory's record keeping its snapshot, and the
+    next capture writing the record again.
   - `LocalHistoryModelTests` — `captureBeforeOperation` returning only once every
     byte is stored (a causal wait through `Gate`, never a delay); a file with both
     a buffer and a disk target captured once, from the buffer; a binary target
@@ -1313,7 +1322,8 @@ history, just not the newest one.
     `captureBeforeDelete`: every disk target read by the time it returns
     (`readPaths`), the `.delete` snapshots holding the pre-delete text after the
     files are removed from the stub; a buffer beating its disk copy; a folder
-    capped at a small `maxPreOperationFiles`; binaries, symlinks and excluded
+    capped at a small `maxPreOperationFiles`, a buffer-held file spending none of
+    that cap and read from nowhere; binaries, symlinks and excluded
     entries skipped; a single-file url captured; nothing to store leaving the
     chain untouched; a capture appended after it landing after it.
     `captureLabel`: three buffers (two edited, one untouched) giving three
@@ -1334,7 +1344,9 @@ history, just not the newest one.
     on UTF-8 bytes, so canonical equivalence is the wrong question).
     `deletedPaths` sorted, excluding existing files and record-less directories
     (a wrong record included), and `[]` for no root and for an unreadable store; a loaded label
-    titling its row "Label: …" while an unreadable one keeps "Label"; a label
+    titling its row "Label: …" while an unreadable one — its read observed
+    through `Gate` — keeps "Label"; a label read once per targeting, not on every
+    appear; a label
     read landing after a retarget discarded (`Gate` rendezvous); a label load
     not cancelling the listing in flight; a retarget clearing the loaded labels.
   - `LocalHistorySourceGatingTests` — the app layer's architectural rules, matched
@@ -1357,8 +1369,10 @@ history, just not the newest one.
     refuse to snapshot; all three open sites present (the File menu item, the
     tree's row and Deleted Files…); the project tree's delete capture,
     `captureBeforeDelete(` named at exactly one site, inside `deleteItem`, before
-    that body's `removeItem(` and never awaited — that number pinned cross-file
-    against this sentence; `followMove(` named once, inside `performMove`, after
+    that body's `removeItem(` and never awaited or handed to a `Task` or a queue
+    ahead of it — that number pinned cross-file against this sentence; the
+    restore's recreate asking `isMissing(` before its refusal, and both the
+    refusal and `revertInFlight()` ahead of its one `createFile(`; `followMove(` named once, inside `performMove`, after
     its `fileService.move(`; the window declaring no zoom surface; the window
     closed at termination; and Local History — the prompts file included, by name —
     never naming `autosave.suspend`/`beginRevert`/`revertInFlight` anywhere.
