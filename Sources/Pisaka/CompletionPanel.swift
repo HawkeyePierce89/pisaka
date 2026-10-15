@@ -5,7 +5,8 @@ import SwiftUI
 
 @MainActor
 final class CompletionPanel {
-    private static let maximumWidth: CGFloat = 520
+    /// The width cap at the unscaled interface; internal for the layout suite.
+    static let maximumWidth: CGFloat = 520
     private static let gap: CGFloat = 4
 
     private var panel: PassThroughPanel?
@@ -61,7 +62,12 @@ final class CompletionPanel {
         // stay raw: one tracks the code font's cell, the other is the same
         // class of fixed anchor offset `DiffView`'s code-side paddings are.
         let maximumWidth = CGFloat(metrics.pt(Double(Self.maximumWidth)))
-        let width = min(maximumWidth, contentView.measureWidth(for: rows, codeFont: codeFont, metrics: metrics))
+        let width = CompletionRowLayout.measureWidth(
+            for: rows,
+            codeFont: codeFont,
+            metrics: metrics,
+            maximumWidth: maximumWidth
+        )
         let rowHeight = contentView.rowHeight(codeFont: codeFont)
         // The provider's 30 is a *list* cap, not a visible one: at a zoomed code
         // font thirty rows outrun the screen, so the drawn count is bounded by
@@ -273,36 +279,6 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         return ceil(codeFont.ascender - codeFont.descender) + 6 // padding
     }
 
-    /// The row's text projected onto one line.
-    ///
-    /// An LSP item's display text is what the server inserts, and a YAML
-    /// property completion legitimately carries newlines (`services:\n  `).
-    /// Drawing that verbatim paints over the rows below and desyncs the visual
-    /// list from click hit-testing, which divides the row height evenly. The
-    /// popup shows single-line choices: the first line stands in for the whole
-    /// insertion, marked with an ellipsis. Display-only — the committed text
-    /// and every key built on it stay the full string.
-    private static func singleLineDisplay(_ text: String) -> String {
-        guard text.contains("\n") || text.contains("\r") else { return text }
-        var head = text.components(separatedBy: .newlines)[0]
-        while let last = head.last, last == " " || last == "\t" {
-            head.removeLast()
-        }
-        return head + "…"
-    }
-
-    func measureWidth(for rows: [CompletionRow], codeFont: NSFont, metrics: InterfaceMetrics) -> CGFloat {
-        var maxW: CGFloat = 0
-        let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
-        for row in rows {
-            let textString = Self.singleLineDisplay(row.displayText) as NSString
-            let size = textString.size(withAttributes: attributes)
-            maxW = max(maxW, size.width)
-        }
-        // width = badge column + text + padding — interface chrome, so scaled
-        return maxW + CGFloat(metrics.pt(40))
-    }
-
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let rHeight = rowHeight(codeFont: codeFont)
@@ -353,13 +329,165 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 configuredImage.draw(in: badgeRect)
             }
 
+            let layout = CompletionRowLayout.make(
+                label: row.displayText,
+                detail: row.item.detail,
+                codeFont: codeFont,
+                metrics: metrics,
+                width: bounds.width
+            )
             let color = (index == selection) ? ChromePalette.nsColor(.onAccent) : ChromePalette.nsColor(.textPrimary)
-            let attr = NSAttributedString(string: Self.singleLineDisplay(row.displayText), attributes: [
+            let attr = NSAttributedString(string: layout.label, attributes: [
                 .font: codeFont,
                 .foregroundColor: color,
             ])
-            attr.draw(at: NSPoint(x: CGFloat(metrics.pt(28)), y: originY + (rHeight - attr.size().height) / 2))
+            attr.draw(at: NSPoint(x: layout.labelX, y: originY + (rHeight - attr.size().height) / 2))
+
+            // Dimmed in the same role the badge uses off the selection, and on
+            // the selection the same contrast role the label takes there.
+            if let detail = layout.detail {
+                let detailColor = (index == selection)
+                    ? ChromePalette.nsColor(.onAccent) : ChromePalette.nsColor(.textSecondary)
+                let detailString = NSAttributedString(string: detail, attributes: [
+                    .font: codeFont,
+                    .foregroundColor: detailColor,
+                ])
+                detailString.draw(at: NSPoint(
+                    x: layout.detailX,
+                    y: originY + (rHeight - detailString.size().height) / 2
+                ))
+            }
         }
+    }
+}
+
+/// One row's horizontal layout: the label at its column, untruncated, and the
+/// item's `detail` right-aligned in whatever room the label leaves.
+///
+/// **The label keeps priority.** It is what the commit inserts and what the
+/// user is choosing between, so it is never shortened for the detail; the
+/// detail takes what is left and is truncated at its *leading* edge, because
+/// the tail of a signature (`-> String`, the module) is the part that tells two
+/// overloads apart. No room for even one character after the ellipsis draws no
+/// detail at all. The panel's width is measured here too, so the one place
+/// that knows the columns is also the one that caps them at `maximumWidth`.
+///
+/// Internal rather than private so the app-layer bundle can measure a row
+/// headlessly (`CompletionPanelDetailLayoutTests`).
+struct CompletionRowLayout: Equatable {
+    /// The label as drawn: the display text projected onto one line.
+    let label: String
+    let labelX: CGFloat
+    /// The detail as drawn — head-truncated with a leading `…` when it did not
+    /// fit — or `nil` when the item has none or no room is left for it.
+    let detail: String?
+    let detailX: CGFloat
+
+    /// Where the label starts: right of the badge column (interface chrome).
+    static func labelX(metrics: InterfaceMetrics) -> CGFloat { CGFloat(metrics.pt(28)) }
+    /// The padding right of the last column.
+    static func trailingInset(metrics: InterfaceMetrics) -> CGFloat { CGFloat(metrics.pt(12)) }
+    /// The least space kept between the label's end and the detail's start.
+    static func columnGap(metrics: InterfaceMetrics) -> CGFloat { CGFloat(metrics.pt(16)) }
+
+    static func make(
+        label: String,
+        detail: String?,
+        codeFont: NSFont,
+        metrics: InterfaceMetrics,
+        width: CGFloat
+    ) -> CompletionRowLayout {
+        let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
+        let shownLabel = singleLineDisplay(label)
+        let labelX = labelX(metrics: metrics)
+        let labelEnd = labelX + (shownLabel as NSString).size(withAttributes: attributes).width
+        let trailingEdge = width - trailingInset(metrics: metrics)
+        guard let detail = detail.map(singleLineDisplay), !detail.isEmpty else {
+            return CompletionRowLayout(label: shownLabel, labelX: labelX, detail: nil, detailX: trailingEdge)
+        }
+        let room = trailingEdge - labelEnd - columnGap(metrics: metrics)
+        guard let fitted = headTruncated(detail, toWidth: room, attributes: attributes) else {
+            return CompletionRowLayout(label: shownLabel, labelX: labelX, detail: nil, detailX: trailingEdge)
+        }
+        let fittedWidth = (fitted as NSString).size(withAttributes: attributes).width
+        return CompletionRowLayout(
+            label: shownLabel,
+            labelX: labelX,
+            detail: fitted,
+            detailX: trailingEdge - fittedWidth
+        )
+    }
+
+    /// The panel's content width for `rows`: the widest label-plus-detail row,
+    /// never more than `maximumWidth`. A detail that would push past the cap is
+    /// what gets truncated when drawn, never the label.
+    static func measureWidth(
+        for rows: [CompletionRow],
+        codeFont: NSFont,
+        metrics: InterfaceMetrics,
+        maximumWidth: CGFloat
+    ) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
+        var widest: CGFloat = 0
+        for row in rows {
+            var rowWidth = (singleLineDisplay(row.displayText) as NSString).size(withAttributes: attributes).width
+            if let detail = row.item.detail.map(singleLineDisplay), !detail.isEmpty {
+                rowWidth += columnGap(metrics: metrics)
+                    + (detail as NSString).size(withAttributes: attributes).width
+            }
+            widest = max(widest, rowWidth)
+        }
+        let width = labelX(metrics: metrics) + widest + trailingInset(metrics: metrics)
+        return min(maximumWidth, width)
+    }
+
+    /// `text` when it fits `width`; otherwise its longest tail that fits behind
+    /// a leading `…`; `nil` when not even one character does.
+    private static func headTruncated(
+        _ text: String,
+        toWidth width: CGFloat,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> String? {
+        guard width > 0 else { return nil }
+        func fits(_ candidate: String) -> Bool {
+            (candidate as NSString).size(withAttributes: attributes).width <= width
+        }
+        if fits(text) { return text }
+        let characters = Array(text)
+        // Binary search over how many leading characters are dropped: more
+        // dropped never makes the string wider, so the fitting set is a suffix.
+        var low = 1
+        var high = characters.count - 1
+        var best: String?
+        while low <= high {
+            let dropped = (low + high) / 2
+            let candidate = "…" + String(characters[dropped...])
+            if fits(candidate) {
+                best = candidate
+                high = dropped - 1
+            } else {
+                low = dropped + 1
+            }
+        }
+        return best
+    }
+
+    /// The row's text projected onto one line.
+    ///
+    /// An LSP item's display text is what the server inserts, and a YAML
+    /// property completion legitimately carries newlines (`services:\n  `).
+    /// Drawing that verbatim paints over the rows below and desyncs the visual
+    /// list from click hit-testing, which divides the row height evenly. The
+    /// popup shows single-line choices: the first line stands in for the whole
+    /// insertion, marked with an ellipsis. Display-only — the committed text
+    /// and every key built on it stay the full string.
+    static func singleLineDisplay(_ text: String) -> String {
+        guard text.contains("\n") || text.contains("\r") else { return text }
+        var head = text.components(separatedBy: .newlines)[0]
+        while let last = head.last, last == " " || last == "\t" {
+            head.removeLast()
+        }
+        return head + "…"
     }
 }
 #endif

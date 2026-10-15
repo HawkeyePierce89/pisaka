@@ -291,7 +291,7 @@ kind, snippet support, code action or inlay hint.
   pinned per-file inventory changes)
 - Create: `Tests/PisakaAppTests/CompletionPanelDetailLayoutTests.swift`
 
-- [ ] Controller:
+- [x] Controller:
   - Calls `completionAnswer(for:)` and keeps `answer.retained` for its generation.
   - On each update, asks `CompletionNarrowingRule.decide`. On `.narrow` it calls
     `provider.narrow` with no debounce, under the same generation-token check. A
@@ -302,7 +302,7 @@ kind, snippet support, code action or inlay hint.
     beyond forgetting the list.
   - `reset()` and a tab switch also clear the retained list.
   - The 150 ms debounce and the 1.5 s budget are unchanged for requests.
-- [ ] Panel:
+- [x] Panel:
   - Draws `item.detail` right-aligned in the existing `.textSecondary` role, at the
     row's code font built through `EditorFont` (the panel is already a zoom
     surface).
@@ -310,11 +310,14 @@ kind, snippet support, code action or inlay hint.
     priority.
   - `measureWidth` never exceeds the existing `maximumWidth`.
   - Draws nothing when `detail` is nil.
-- [ ] Headless app test: a row with a long label and a long detail stays within
+- [x] Headless app test: a row with a long label and a long detail stays within
   `maximumWidth`, the label is drawn untruncated before the detail, and the
   detail's drawn string keeps its tail.
-- [ ] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
-  Task 6.
+- [x] Run `swift test` and the `PisakaAppTests` bundle. Both must pass before
+  Task 6. (swift test: 6320 passed. PisakaAppTests: all new and completion
+  suites pass; 8 pre-existing scale-1.8 layout failures in BottomBarLayoutTests,
+  BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests
+  reproduce identically on the unmodified HEAD — environment, not this task.)
 
 ### Task 6: Shutdown that gives `exit` time, and concurrent polite quit
 
