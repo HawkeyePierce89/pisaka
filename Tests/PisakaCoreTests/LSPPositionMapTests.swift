@@ -397,4 +397,37 @@ final class LSPPositionMapTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Exact mapping
+
+    func testExactMappingRefusesALinePastTheLastOne() {
+        let text = "ab\ncd" as NSString
+        let starts = LSPPositionMap.lineStarts(in: text)
+        XCTAssertNil(LSPPositionMap.exactOffset(for: LSPPosition(line: 2, character: 0), in: text, lineStarts: starts))
+        XCTAssertNil(LSPPositionMap.exactOffset(for: LSPPosition(line: -1, character: 0), in: text, lineStarts: starts))
+    }
+
+    func testExactMappingRefusesACharacterPastItsLinesEnd() {
+        let text = "ab\r\ncd" as NSString
+        let starts = LSPPositionMap.lineStarts(in: text)
+        // The line's content end is a position; the separator is not.
+        XCTAssertEqual(LSPPositionMap.exactOffset(for: LSPPosition(line: 0, character: 2), in: text, lineStarts: starts), 2)
+        XCTAssertNil(LSPPositionMap.exactOffset(for: LSPPosition(line: 0, character: 3), in: text, lineStarts: starts))
+        XCTAssertEqual(LSPPositionMap.exactOffset(for: LSPPosition(line: 1, character: 2), in: text, lineStarts: starts), 6)
+        XCTAssertNil(LSPPositionMap.exactOffset(for: LSPPosition(line: 1, character: 3), in: text, lineStarts: starts))
+        XCTAssertNil(LSPPositionMap.exactOffset(for: LSPPosition(line: 1, character: Int.max), in: text, lineStarts: starts))
+    }
+
+    func testExactRangeIsNilWhenEitherEndDoesNotFitOrTheEndPrecedesTheStart() {
+        let text = "abc" as NSString
+        let starts = LSPPositionMap.lineStarts(in: text)
+        func range(_ startChar: Int, _ endChar: Int) -> LSPRange {
+            LSPRange(start: LSPPosition(line: 0, character: startChar), end: LSPPosition(line: 0, character: endChar))
+        }
+        XCTAssertEqual(LSPPositionMap.exactRange(for: range(1, 3), in: text, lineStarts: starts), NSRange(location: 1, length: 2))
+        XCTAssertNil(LSPPositionMap.exactRange(for: range(1, 4), in: text, lineStarts: starts))
+        XCTAssertNil(LSPPositionMap.exactRange(for: range(2, 1), in: text, lineStarts: starts))
+        // The clamping form is unchanged for the same input.
+        XCTAssertEqual(LSPPositionMap.range(for: range(1, 4), in: text, lineStarts: starts), NSRange(location: 1, length: 2))
+    }
 }

@@ -205,6 +205,40 @@ public struct CompletionEditPlan: Equatable, Sendable {
         case primaryEditMissesTypedWord
     }
 
+    /// Which of a server's two candidate ranges the primary edit replaces:
+    /// `replace`, which may reach past the caret, or `insert`, which stops at it.
+    ///
+    /// **The replace range wins only when the text it would delete past the
+    /// caret is text the completion writes back anyway** — when `newText` ends,
+    /// case-insensitively, with the buffer's `[caret, replace.end)`. Completing
+    /// `foo|Bar` to `fooBaz` must not swallow `Bar`: the user is inserting a word
+    /// in front of one that stands, and a replace range reaching to the end of
+    /// the identifier would delete it. Completing `foo|Baz` to `fooBaz` is the
+    /// opposite case — the suffix is the completion's own tail, and inserting
+    /// would leave `fooBazBaz`. The case-insensitive comparison is what lets a
+    /// completion that also corrects a capital (`foo|bar` → `fooBar`) still
+    /// replace.
+    ///
+    /// A plain `TextEdit` reaching past the caret is the same question with the
+    /// insert range derived: its own range trimmed at the caret. A `replace`
+    /// ending at or before the caret has no suffix to argue about and is returned
+    /// unchanged. Both ranges are buffer ranges in `text`, already mapped; the
+    /// rule neither validates nor clamps them — that is the provider's job, and
+    /// `make` refuses whatever reaches it out of bounds.
+    public static func primaryRange(
+        insert: NSRange,
+        replace: NSRange,
+        caret: Int,
+        newText: String,
+        in text: NSString
+    ) -> NSRange {
+        let replaceEnd = NSMaxRange(replace)
+        guard replaceEnd > caret, caret >= 0, replaceEnd <= text.length else { return replace }
+        let suffix = text.substring(with: NSRange(location: caret, length: replaceEnd - caret))
+        let tail = (newText as NSString).range(of: suffix, options: [.caseInsensitive, .backwards, .anchored])
+        return tail.location == NSNotFound ? insert : replace
+    }
+
     /// Build the plan for `edits` against `text`, where `typedWord` is the
     /// partial word the completion replaces and `typed` is what that range
     /// contained when the request was made.

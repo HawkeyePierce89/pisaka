@@ -2294,6 +2294,100 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    // MARK: - Completion: insert or replace
+
+    /// A one-line buffer with `foo` typed before a standing suffix; the caret
+    /// sits after `foo`, at character 11.
+    private func suffixRequest(_ text: String) -> CompletionRequest {
+        completionRequest(prefix: "foo", offset: 11, text: text)
+    }
+
+    /// What committing `item` writes: its own edits through the plan, or — for
+    /// an edit-less item — its text over the typed word, as AppKit would.
+    private func commit(_ item: CompletionItem, to text: String) throws -> String {
+        let typedWord = NSRange(location: 8, length: 3)
+        let buffer = NSMutableString(string: text)
+        guard !item.edits.isEmpty else {
+            buffer.replaceCharacters(in: typedWord, with: item.text)
+            return buffer as String
+        }
+        let plan = try CompletionEditPlan.make(
+            edits: item.edits, in: text as NSString, replacing: typedWord, typed: "foo"
+        ).get()
+        for edit in plan.edits { buffer.replaceCharacters(in: edit.range, with: edit.newText) }
+        return buffer as String
+    }
+
+    private func range(_ line: Int, _ start: Int, _ endLine: Int, _ end: Int) -> JSONValue {
+        .object([
+            "start": .object(["line": .int(line), "character": .int(start)]),
+            "end": .object(["line": .int(endLine), "character": .int(end)]),
+        ])
+    }
+
+    /// One item over `fooBaz`, spelled either as a plain `TextEdit` reaching to
+    /// character 14 or as an `InsertReplaceEdit` (insert 8…11, replace 8…14).
+    private func fooBazItem(insertReplace: Bool) -> JSONValue {
+        let edit: JSONValue = insertReplace
+            ? .object(["newText": .string("fooBaz"), "insert": range(0, 8, 0, 11), "replace": range(0, 8, 0, 14)])
+            : .object(["newText": .string("fooBaz"), "range": range(0, 8, 0, 14)])
+        return .object([
+            "label": .string("fooBaz"),
+            "sortText": .string("100"),
+            "kind": .int(LSPCompletionItemKind.struct.rawValue),
+            "textEdit": edit,
+        ])
+    }
+
+    /// `foo|Bar` + `fooBaz` keeps `Bar`; `foo|Baz` + `fooBaz` does not double it
+    /// — for both spellings of the server's edit.
+    func testTheReplaceRangeReachesPastTheCaretOnlyOverTheCompletionsOwnSuffix() async throws {
+        // One provider for every case: the scripted transport backs one session,
+        // and each request re-syncs it to its own text.
+        let provider = makeProvider()
+        for insertReplace in [false, true] {
+            for (text, expected) in [
+                ("let x = fooBar", "let x = fooBazBar"),
+                ("let x = fooBaz", "let x = fooBaz"),
+                ("let x = foobaz", "let x = fooBaz"),
+            ] {
+                transport.script(LSPMethod.completion, .reply(.object([
+                    "items": .array([fooBazItem(insertReplace: insertReplace)]),
+                ])))
+                let items = await provider.completions(for: suffixRequest(text))
+                let item = try XCTUnwrap(items.first, "\(text), insertReplace: \(insertReplace)")
+                XCTAssertEqual(
+                    try commit(item, to: text),
+                    expected,
+                    "\(text), insertReplace: \(insertReplace)"
+                )
+            }
+        }
+    }
+
+    /// An edit the request text does not have — a line past the last one, a
+    /// character past its line's end, a range over a line break — is dropped
+    /// while the list is built rather than offered and refused at commit; the
+    /// neighbour still arrives.
+    func testAnItemWhoseEditDoesNotFitTheRequestTextIsDropped() async throws {
+        let text = "let x = foo\nbar"
+        let provider = makeProvider()
+        for badRange in [range(5, 8, 5, 11), range(0, 8, 0, 40), range(0, 8, 1, 3)] {
+            transport.script(LSPMethod.completion, .reply(.object([
+                "items": .array([
+                    .object([
+                        "label": .string("fooBad"),
+                        "sortText": .string("100"),
+                        "textEdit": .object(["newText": .string("fooBad"), "range": badRange]),
+                    ]),
+                    completionItemJSON(label: "fooGood", sortText: "101"),
+                ]),
+            ])))
+            let items = await provider.completions(for: suffixRequest(text))
+            XCTAssertEqual(items.map(\.text), ["fooGood"], "\(badRange)")
+        }
+    }
+
     // MARK: - Completion: what the row reads
 
     /// tsserver's member shape, authored rather than recorded (sourcekit-lsp
@@ -2458,8 +2552,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                 completionItemJSON(
                     label: "greet",
                     sortText: "101",
-                    // Empty, at the caret: nothing to drop, so it reads `.greet`.
-                    textEdit: (startLine: 4, startCharacter: 27, endLine: 4, endCharacter: 27),
+                    // The typed word alone: it starts where the typed word
+                    // does, so there is no head to drop and it reads `.greet`.
+                    textEdit: (startLine: 4, startCharacter: 22, endLine: 4, endCharacter: 27),
                     textEditNewText: ".greet"
                 ),
             ]),

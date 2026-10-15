@@ -133,6 +133,35 @@ public enum LSPPositionMap {
         return NSRange(location: start, length: max(0, end - start))
     }
 
+    /// The buffer offset of an LSP position, or `nil` when the position is not
+    /// one the text has.
+    ///
+    /// The non-clamping twin of `offset(for:in:lineStarts:)`, for the one caller
+    /// that must *refuse* a server's number rather than repair it: a completion
+    /// edit is written to the file, and an edit whose range the clamp moved is
+    /// an edit over characters the server never named. A line outside the table,
+    /// or a character past its line's content end (the separator is not a
+    /// position inside the line), answers `nil`.
+    public static func exactOffset(for position: LSPPosition, in content: NSString, lineStarts: [Int]) -> Int? {
+        guard position.line >= 0, position.line < lineStarts.count, position.character >= 0 else { return nil }
+        let start = lineStarts[position.line]
+        let end = lineContentEnd(ofLine: position.line, in: content, lineStarts: lineStarts)
+        // Compared before adding, for the overflow reason `offset(for:)` states.
+        guard position.character <= end - start else { return nil }
+        return start + position.character
+    }
+
+    /// A whole LSP range through `exactOffset`, or `nil` when either end is not
+    /// in the text or the end precedes the start. The clamping
+    /// `range(for:in:lineStarts:)` stays what every other caller uses.
+    public static func exactRange(for range: LSPRange, in content: NSString, lineStarts: [Int]) -> NSRange? {
+        guard let start = exactOffset(for: range.start, in: content, lineStarts: lineStarts),
+              let end = exactOffset(for: range.end, in: content, lineStarts: lineStarts),
+              end >= start
+        else { return nil }
+        return NSRange(location: start, length: end - start)
+    }
+
     /// The end of a line's *content*: the offset of its separator, or the end of
     /// the buffer for the last line.
     ///

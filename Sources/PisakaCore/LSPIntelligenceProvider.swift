@@ -690,7 +690,15 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             session: prepared.session,
             serverResolves: resolves,
             listToken: listToken
-        )
+        ).items
+    }
+
+    /// What `publish` built: the rows, and whether any item the server sent was
+    /// dropped as unapplicable to the request text — which makes the list less
+    /// than the server's whole answer.
+    private struct PublishedList {
+        let items: [CompletionItem]
+        let trimmed: Bool
     }
 
     /// D6's order, D6's hygiene, and the resolve bookkeeping — the whole of what
@@ -703,7 +711,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         session: LSPSession,
         serverResolves: Bool,
         listToken: Int
-    ) -> [CompletionItem] {
+    ) -> PublishedList {
         // **Matching is the client's job, and a server is not required to have
         // done it.** sourcekit-lsp, tsserver and pyright answer a prefix with the
         // items that answer *that* prefix, which is why this could go unasked for
@@ -751,6 +759,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
 
         var seen = Set<String>()
         var results: [CompletionItem] = []
+        var trimmed = false
         var deferred: [Int: PendingResolve] = [:]
         var handle = claimResolveHandles(count: items.count)
         // One table for the whole list rather than one per mapped range: see the
@@ -776,12 +785,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // text; inserting it is not a guess. Absent means plain text, per the
             // spec.
             guard item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax else { continue }
-            let primary = primaryRange(
+            // An edit that cannot be applied to the request text is dropped here,
+            // where it would otherwise become a row the commit refuses. The list
+            // is then no longer everything the server said, which is what
+            // `trimmed` records.
+            guard let primary = primaryRange(
                 for: item,
                 typedWord: typedWord,
                 in: text,
                 lineStarts: lineStarts
-            )
+            ) else {
+                trimmed = true
+                continue
+            }
             let inserted = Self.insertedText(
                 of: item,
                 forInsertionAt: primary.location,
@@ -867,7 +883,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // caller that asked for it, and that caller discards it on its own
         // generation token. Only the *shared* table is refused to an older list.
         replacePendingResolves(with: deferred, listToken: listToken)
-        return results
+        return PublishedList(items: results, trimmed: trimmed)
     }
 
     /// The edits an item performs, in buffer coordinates — or none at all.
@@ -916,17 +932,52 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         ] + additional
     }
 
-    /// The range the item's own text replaces: the server's if it named one,
-    /// otherwise the word the user typed.
+    /// The range the item's own text replaces — the server's if it named one,
+    /// otherwise the word the user typed — or `nil` when the server's edit
+    /// cannot be applied to the text the request carried.
+    ///
+    /// The ranges are mapped **exactly**, never clamped: this is the edit written
+    /// to the file, and a range the clamp moved is a range the server did not
+    /// name. Which of the item's two ranges is used is
+    /// `CompletionEditPlan.primaryRange`'s rule (a plain `TextEdit`'s insert
+    /// range is its own range trimmed at the caret). The item is refused when
+    /// either range does not fit the text, when the server's range spans more
+    /// than one line, or when the chosen range does not cover both the typed
+    /// word's start and the caret — the shapes `make` would refuse at commit
+    /// anyway, now refused while the list is built so the row is never offered.
+    /// The caret is the typed word's end, on both request paths.
     private func primaryRange(
         for item: LSPCompletionItem,
         typedWord: NSRange,
         in text: NSString,
         lineStarts: [Int]
-    ) -> NSRange {
-        item.textEdit
-            .map { LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts) }
-            ?? typedWord
+    ) -> NSRange? {
+        guard let edit = item.textEdit else { return typedWord }
+        let caret = NSMaxRange(typedWord)
+        guard edit.range.start.line == edit.range.end.line,
+              edit.insertRange.map({ $0.start.line == $0.end.line }) ?? true,
+              let replace = LSPPositionMap.exactRange(for: edit.range, in: text, lineStarts: lineStarts)
+        else { return nil }
+        let insert: NSRange
+        if let insertRange = edit.insertRange {
+            guard let mapped = LSPPositionMap.exactRange(for: insertRange, in: text, lineStarts: lineStarts)
+            else { return nil }
+            insert = mapped
+        } else {
+            insert = NSRange(
+                location: replace.location,
+                length: max(0, min(NSMaxRange(replace), caret) - replace.location)
+            )
+        }
+        let chosen = CompletionEditPlan.primaryRange(
+            insert: insert,
+            replace: replace,
+            caret: caret,
+            newText: item.insertedText,
+            in: text
+        )
+        guard chosen.location <= typedWord.location, NSMaxRange(chosen) >= caret else { return nil }
+        return chosen
     }
 
     /// What the item puts in the buffer, indentation included — the one place
@@ -1068,12 +1119,14 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // the resolved item contributes exactly the half it is allowed to.
         let text = pending.text as NSString
         let lineStarts = LSPPositionMap.lineStarts(in: text)
-        let primary = primaryRange(
+        // Published items passed this rule against this very text, so `nil`
+        // cannot occur; answering `[]` is still the safe reading if it did.
+        guard let primary = primaryRange(
             for: pending.item,
             typedWord: pending.typedWord,
             in: text,
             lineStarts: lineStarts
-        )
+        ) else { return [] }
         return edits(
             insertedText: Self.insertedText(
                 of: pending.item,

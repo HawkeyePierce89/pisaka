@@ -145,6 +145,64 @@ final class CompletionEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.caretOffset, 13)
     }
 
+    // MARK: - Insert or replace
+
+    /// `foo|Bar` completed to `fooBaz`: `Bar` is a word the user is typing in
+    /// front of, not the completion's tail, so the insert range wins and it stays.
+    func testASuffixTheCompletionDoesNotEndWithIsKept() {
+        let text = "let x = fooBar" as NSString
+        let chosen = CompletionEditPlan.primaryRange(
+            insert: NSRange(location: 8, length: 3),
+            replace: NSRange(location: 8, length: 6),
+            caret: 11,
+            newText: "fooBaz",
+            in: text
+        )
+        XCTAssertEqual(chosen, NSRange(location: 8, length: 3))
+    }
+
+    /// `foo|Baz` completed to `fooBaz`: the suffix is the completion's own tail,
+    /// and inserting would leave `fooBazBaz`.
+    func testASuffixTheCompletionEndsWithIsReplaced() {
+        let text = "let x = fooBaz" as NSString
+        let chosen = CompletionEditPlan.primaryRange(
+            insert: NSRange(location: 8, length: 3),
+            replace: NSRange(location: 8, length: 6),
+            caret: 11,
+            newText: "fooBaz",
+            in: text
+        )
+        XCTAssertEqual(chosen, NSRange(location: 8, length: 6))
+    }
+
+    func testTheSuffixComparisonIgnoresCase() {
+        let text = "let x = foobaz" as NSString
+        let chosen = CompletionEditPlan.primaryRange(
+            insert: NSRange(location: 8, length: 3),
+            replace: NSRange(location: 8, length: 6),
+            caret: 11,
+            newText: "fooBaz",
+            in: text
+        )
+        XCTAssertEqual(chosen, NSRange(location: 8, length: 6))
+    }
+
+    /// A replace range ending at (or before) the caret has no suffix to weigh.
+    func testAReplaceRangeEndingAtTheCaretIsReturnedUnchanged() {
+        let text = "value.gre" as NSString
+        let replace = NSRange(location: 5, length: 4)
+        XCTAssertEqual(
+            CompletionEditPlan.primaryRange(
+                insert: NSRange(location: 6, length: 3),
+                replace: replace,
+                caret: 9,
+                newText: ".greet",
+                in: text
+            ),
+            replace
+        )
+    }
+
     // MARK: - Rejections
 
     func testAnEmptyEditListIsRejectedForHavingNoPrimaryEdit() {

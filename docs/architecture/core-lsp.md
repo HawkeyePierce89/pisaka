@@ -261,10 +261,13 @@ document, together with the limits they carry.
     definition: "nothing to show" and "I could not read the answer" are different
     facts. `isEmpty` means "no elements at all"; whether the elements that *are*
     there amount to anything worth drawing is `HoverContent`'s question (D25).
-    `LSPCompletionEdit` decodes both `TextEdit` and `InsertReplaceEdit` even though
-    `insertReplaceSupport` is not advertised — a server that sends the second anyway
-    would otherwise take the whole list down — and re-encodes in the plain spelling,
-    the only one this client sends. `LSPCompletionItem.insertedText` follows the
+    `LSPCompletionEdit` decodes both `TextEdit` and `InsertReplaceEdit` —
+    `insertReplaceSupport` is advertised — and re-encodes in the spelling it
+    arrived in, so a resolve echo is faithful. Which range the primary edit uses
+    is `CompletionEditPlan.primaryRange`'s rule: the replace range reaches past the
+    caret only when the inserted text ends with that suffix; an edit that does not
+    fit the request text exactly (`LSPPositionMap.exactRange`) or spans lines is
+    dropped while the list is built. `LSPCompletionItem.insertedText` follows the
     spec's precedence (`textEdit.newText`, else `insertText`, else `label`), which
     the recorded transcript makes concrete: one sourcekit-lsp item spells itself
     three ways — label `greet(name: String)`, filterText `greet(:)`, insertText

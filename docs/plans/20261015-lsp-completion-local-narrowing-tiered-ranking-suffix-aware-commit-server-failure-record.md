@@ -178,18 +178,18 @@ kind, snippet support, code action or inlay hint.
   `LSPPositionMapTests.swift`, `LSPProtocolTypesTests.swift`,
   `LSPIntelligenceProviderTests.swift`
 
-- [ ] Add a pure rule beside `CompletionEditPlan.make`, e.g.
+- [x] Add a pure rule beside `CompletionEditPlan.make`, e.g.
   `CompletionEditPlan.primaryRange(insert:replace:caret:newText:in:)`. It returns
   the replace range only when `newText` ends, case-insensitively, with the buffer
   text in `[caret, replace.end)`. Otherwise it returns the insert range.
   - For a plain `textEdit` reaching past the caret: replace is the server's range,
     and insert is that range trimmed at the caret.
   - A range that ends at or before the caret is returned unchanged.
-- [ ] Add a non-clamping `LSPPositionMap` mapping that returns `nil` when a
+- [x] Add a non-clamping `LSPPositionMap` mapping that returns `nil` when a
   position's line or character lies outside the text (checked against the line
   table). The existing clamping `range(for:in:lineStarts:)` is unchanged for every
   other caller.
-- [ ] In the provider, build the primary range through the exact mapping plus the
+- [x] In the provider, build the primary range through the exact mapping plus the
   rule above. Drop the item when any of these hold:
   - either range does not fit;
   - a range spans more than one line;
@@ -198,13 +198,13 @@ kind, snippet support, code action or inlay hint.
   Any drop sets an internal `trimmed` flag, which Task 4 turns into an incomplete
   answer. `additionalTextEdits` are untouched. The commit-time refusal in `make`
   stays.
-- [ ] `LSPProtocolTypes`:
+- [x] `LSPProtocolTypes`:
   - Advertise `insertReplaceSupport: true`.
   - `LSPCompletionEdit` re-encodes in the spelling it arrived in
     (`insert`/`replace` for an `InsertReplaceEdit`), so a `completionItem/resolve`
     echo is faithful.
   - Update its doc comment.
-- [ ] Tests:
+- [x] Tests:
   - `foo|Bar` + `fooBaz` → `fooBaz|Bar`, and `foo|Baz` + `fooBaz` → `fooBaz|`, each
     for an `InsertReplaceEdit` and for a plain over-reaching `textEdit`.
   - Case-insensitive suffix match.
@@ -213,7 +213,7 @@ kind, snippet support, code action or inlay hint.
     `InsertReplaceEdit` encode round-trips.
   - The provider drops an item whose `textEdit` lies outside the request text, and
     one that spans another line.
-- [ ] Run `swift test`. It must pass before Task 4.
+- [x] Run `swift test`. It must pass before Task 4.
 
 ### Task 4: Local narrowing in Core — answer type, provider retention, narrowing rule
 
