@@ -119,9 +119,9 @@ One deviation from the ticket: the non-awaiting call moves from before the listi
 
 ### Task 4: Update documentation
 
-- [ ] Confirm every documentation entry touched in Tasks 1–2 is consistent: the restore entry and the Tests inventory in `core-local-history.md`, and the Local History bullet in `FEATURES.md`. If Task 1 had to move the ceilings, also check `style-lint.md` and `.swiftlint.yml`.
-- [ ] README.md: no change. Its Local History lines do not describe the gated refusal.
-- [ ] CLAUDE.md: no change. No pattern, file or invariant changes, and the cross-cutting Local History bullet makes no claim about the gated restore's feedback.
+- [x] Confirm every documentation entry touched in Tasks 1–2 is consistent: the restore entry and the Tests inventory in `core-local-history.md`, and the Local History bullet in `FEATURES.md`. If Task 1 had to move the ceilings, also check `style-lint.md` and `.swiftlint.yml`.
+- [x] README.md: no change. Its Local History lines do not describe the gated refusal.
+- [x] CLAUDE.md: no change. No pattern, file or invariant changes, and the cross-cutting Local History bullet makes no claim about the gated restore's feedback.
 
 ## Post-Completion
 
