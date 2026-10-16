@@ -187,6 +187,15 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// The retained list's resolves — replaced with the slot, `nil` when nothing
     /// is retained.
     private var resolveCache: ResolveCache?
+    /// How many asks joined a resolve already in flight rather than starting
+    /// one — the step count a test waits on to know a second ask has arrived,
+    /// since joining sends nothing it could observe on the wire.
+    private var joinedResolves = 0
+    var joinedResolveCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return joinedResolves
+    }
 
     public init(
         workspace: LSPWorkspace,
@@ -1404,7 +1413,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         defer { lock.unlock() }
         guard resolveCache?.list == key.list else { return .bypass }
         if let item = resolveCache?.resolved[key.index] { return .resolved(item) }
-        if let task = resolveCache?.inFlight[key.index] { return .inFlight(task) }
+        if let task = resolveCache?.inFlight[key.index] {
+            joinedResolves += 1
+            return .inFlight(task)
+        }
         let session = pending.session
         let item = pending.item
         let task = Task<LSPCompletionItem?, Never> { [weak self] in

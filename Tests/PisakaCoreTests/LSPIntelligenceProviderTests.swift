@@ -3028,7 +3028,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     /// resolve rather than sending its own.
     ///
     /// Staged through the transport's write hook: the first resolve is held
-    /// inside `send`, so the second caller provably asks while it is in flight.
+    /// inside `send`, and the gate is released only once the provider counts the
+    /// second ask as joined — so it provably asked while the first was in flight.
     func testASecondAskWhileTheResolveIsInFlightSharesIt() async throws {
         transport.script(LSPMethod.completion, .reply(narrowingItems()))
         transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
@@ -3052,6 +3053,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         let firstAsk = Task { await provider.resolveEdits(for: top) }
         await gate.waitUntilReached()
         let secondAsk = Task { await provider.resolveEdits(for: narrowedTop) }
+        await waitFor("the second ask to join the in-flight resolve") {
+            provider.joinedResolveCount == 1
+        }
         gate.release()
         let first = await firstAsk.value
         let second = await secondAsk.value
@@ -3059,6 +3063,128 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 1)
         XCTAssertFalse(first.isEmpty)
         XCTAssertEqual(first, second)
+    }
+
+    /// A resolve that answers after a newer complete answer replaced the cache
+    /// does not land in the newer list's cache under the same index.
+    func testALateResolveOfAReplacedListDoesNotFillTheNewerCache() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        // The first resolve is answered by hand, late; the second by the script.
+        transport.script(LSPMethod.resolveCompletionItem, [.drop, .reply(otherResolve)])
+        let provider = makeProvider(budgets: Self.patientResolve)
+        let older = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let olderTop = try XCTUnwrap(older.items.first)
+        let late = Task { await provider.resolveEdits(for: olderTop) }
+        await waitFor("the older list's resolve to reach the server") {
+            self.transport.requests(for: LSPMethod.resolveCompletionItem).count == 1
+        }
+
+        let newer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let newerTop = try XCTUnwrap(newer.items.first)
+        let newerEdits = await provider.resolveEdits(for: newerTop)
+        XCTAssertEqual(newerEdits.map(\.newText), ["foobar", "import Other\n"])
+
+        let pending = try XCTUnwrap(transport.requests(for: LSPMethod.resolveCompletionItem).first)
+        transport.emit(.response(LSPResponseMessage(id: pending.id, result: narrowingResolve)))
+        _ = await late.value
+
+        let again = await provider.resolveEdits(for: newerTop)
+        XCTAssertEqual(again.map(\.newText), ["foobar", "import Other\n"])
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+    }
+
+    /// The cache is keyed by an item's index among the list's raw items, not by
+    /// its row: a narrow that drops the first resolvable row hands the second
+    /// row its own resolve, not the one cached for the row that was above it.
+    func testTheCacheIsKeyedByRawItemNotByRow() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "isIncomplete": .bool(false),
+            "items": .array([
+                deferredItemJSON(label: "fooqux", sortText: "1", itemId: 1),
+                deferredItemJSON(label: "foozap", sortText: "2", itemId: 2),
+            ]),
+        ])))
+        transport.script(LSPMethod.resolveCompletionItem, [
+            .reply(importResolve(label: "fooqux", module: "Qux")),
+            .reply(importResolve(label: "foozap", module: "Zap")),
+        ])
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("foo"))
+        let retained = try XCTUnwrap(answer.retained)
+        XCTAssertEqual(answer.items.map(\.text), ["fooqux", "foozap"])
+        let qux = await provider.resolveEdits(for: answer.items[0])
+        let zap = await provider.resolveEdits(for: answer.items[1])
+        XCTAssertEqual(qux.last?.newText, "import Qux\n")
+        XCTAssertEqual(zap.last?.newText, "import Zap\n")
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fooz"))
+        let top = try XCTUnwrap(narrowed?.first)
+        XCTAssertEqual(top.text, "foozap")
+        let edits = await provider.resolveEdits(for: top)
+
+        XCTAssertEqual(edits.last?.newText, "import Zap\n")
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+    }
+
+    /// A trimmed list is never retained, so its rows bypass the cache: each ask
+    /// is its own round trip.
+    func testATrimmedListsResolvesBypassTheCache() async throws {
+        let unfit: JSONValue = .object([
+            "label": .string("fooBad"),
+            "sortText": .string("0"),
+            "textEdit": .object(["newText": .string("fooBad"), "range": range(9, 8, 9, 10)]),
+        ])
+        transport.script(LSPMethod.completion, .reply(narrowingItems(extra: [unfit])))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        XCTAssertNil(answer.retained)
+        let top = try XCTUnwrap(answer.items.first)
+
+        let first = await provider.resolveEdits(for: top)
+        let second = await provider.resolveEdits(for: top)
+
+        XCTAssertEqual(first.map(\.newText), ["foobar", "import Bar\n"])
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+    }
+
+    /// The quick budgets with room for a resolve a test answers by hand.
+    private nonisolated static let patientResolve = LSPSession.Budgets(
+        handshake: 1,
+        definition: 1,
+        completion: 1,
+        resolve: 5,
+        hover: 1,
+        references: 1,
+        foldingRange: 1,
+        shutdown: 1
+    )
+
+    /// What a second server answer resolves `foobar` to: a different import, so
+    /// a cached item from the first answer is told apart from its own.
+    private var otherResolve: JSONValue {
+        importResolve(label: "foobar", module: "Other")
+    }
+
+    /// A resolve reply adding `import <module>`.
+    private func importResolve(label: String, module: String) -> JSONValue {
+        .object([
+            "label": .string(label),
+            "additionalTextEdits": .array([
+                .object(["newText": .string("import \(module)\n"), "range": range(0, 0, 0, 0)]),
+            ]),
+        ])
+    }
+
+    /// An item that defers its edits to a resolve, told apart by `itemId`.
+    private func deferredItemJSON(label: String, sortText: String, itemId: Int) -> JSONValue {
+        var item = completionItemJSON(label: label, sortText: sortText)
+        if case .object(var object) = item {
+            object["data"] = .object(["itemId": .int(itemId)])
+            item = .object(object)
+        }
+        return item
     }
 
     /// An incomplete answer is never retained, so every keystroke asks again.
