@@ -40,6 +40,50 @@ final class TabMiddleClickTests: XCTestCase {
         XCTAssertNil(view.hitTest(inside), "no event at all was claimed")
     }
 
+    /// A key event must not be asked its `buttonNumber` (that raises), and a
+    /// fourth button is not the center one: neither is claimed.
+    func testHitTestPassesKeyEventsAndOtherButtonsThrough() throws {
+        let view = TabMiddleClickView(frame: NSRect(x: 0, y: 0, width: 120, height: 30))
+        let inside = NSPoint(x: 10, y: 10)
+
+        let key = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0
+        ))
+        view.currentEvent = { key }
+        XCTAssertNil(view.hitTest(inside), "a key event was claimed")
+
+        let fourth = try otherMouseEvent(.otherMouseDown, button: 3, at: inside)
+        view.currentEvent = { fourth }
+        XCTAssertNil(view.hitTest(inside), "a fourth-button press was claimed")
+    }
+
+    /// The tab closes on a center-button release inside it, and on nothing else.
+    func testReleaseInsideClosesAndReleaseOutsideOrAnotherButtonDoesNot() throws {
+        let view = TabMiddleClickView(frame: NSRect(x: 0, y: 0, width: 120, height: 30))
+        var closes = 0
+        view.onMiddleClick = { closes += 1 }
+
+        view.otherMouseUp(with: try otherMouseEvent(.otherMouseUp, button: 2, at: NSPoint(x: 10, y: 10)))
+        XCTAssertEqual(closes, 1, "a release inside did not close")
+        view.otherMouseUp(with: try otherMouseEvent(.otherMouseUp, button: 2, at: NSPoint(x: 500, y: 10)))
+        XCTAssertEqual(closes, 1, "a release outside closed")
+        view.otherMouseUp(with: try otherMouseEvent(.otherMouseUp, button: 3, at: NSPoint(x: 10, y: 10)))
+        XCTAssertEqual(closes, 1, "a fourth-button release closed")
+    }
+
+    /// An other-mouse event at `point` (window coordinates; the view has no
+    /// window, so they are its own) from button `button`.
+    private func otherMouseEvent(_ type: NSEvent.EventType, button: Int64, at point: NSPoint) throws -> NSEvent {
+        let base = try XCTUnwrap(NSEvent.mouseEvent(
+            with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 0
+        ))
+        let cgEvent = try XCTUnwrap(base.cgEvent)
+        cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: button)
+        return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+    }
+
     private func mouseEvent(_ type: CGEventType, button: CGMouseButton) throws -> NSEvent {
         let cgEvent = try XCTUnwrap(
             CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: .zero, mouseButton: button)

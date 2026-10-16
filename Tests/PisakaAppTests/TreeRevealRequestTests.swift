@@ -42,6 +42,45 @@ final class TreeRevealRequestTests: XCTestCase {
         XCTAssertNotEqual(first, second)
     }
 
+    /// A file reached canonically under a symlinked root is spelled as the
+    /// tree spells its row — under the link — or the row would never match.
+    func testTheTargetIsSpelledUnderASymlinkedRoot() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let real = dir.appendingPathComponent("real")
+        let link = dir.appendingPathComponent("link")
+        try fm.createDirectory(at: real.appendingPathComponent("src"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let realFile = real.appendingPathComponent("src/a.swift")
+        try Data().write(to: realFile)
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let reveal = try XCTUnwrap(TreeRevealRequest(after: nil, revealing: realFile, root: link))
+        XCTAssertEqual(reveal.target.path, link.appendingPathComponent("src/a.swift").path)
+        XCTAssertTrue(reveal.targets(link.appendingPathComponent("src/a.swift")))
+    }
+
+    /// Each ancestor needs the next one in its listing, the deepest needs the
+    /// target; a listing without it — an excluded `.git`, a deleted file —
+    /// makes the request unreachable, and a directory it does not expand never is.
+    func testAListingWithoutTheNextStepMakesTheRequestUnreachable() throws {
+        let reveal = try request(for: "a/main.swift")
+        let rootDir = URL(fileURLWithPath: "/tmp/project/")
+        let aDir = URL(fileURLWithPath: "/tmp/project/a/")
+        XCTAssertEqual(reveal.step(below: rootDir).map(TreeRevealRequest.rowID), "/tmp/project/a")
+        XCTAssertEqual(reveal.step(below: aDir).map(TreeRevealRequest.rowID), "/tmp/project/a/main.swift")
+        XCTAssertNil(reveal.step(below: URL(fileURLWithPath: "/tmp/project/b/")))
+
+        let listsA = [DirectoryEntry(url: aDir, isDirectory: true)]
+        let listsMain = [DirectoryEntry(url: aDir.appendingPathComponent("main.swift"), isDirectory: false)]
+        let listsOther = [DirectoryEntry(url: aDir.appendingPathComponent("other.swift"), isDirectory: false)]
+        XCTAssertFalse(reveal.isUnreachable(below: rootDir, listing: listsA))
+        XCTAssertTrue(reveal.isUnreachable(below: rootDir, listing: []))
+        XCTAssertFalse(reveal.isUnreachable(below: aDir, listing: listsMain))
+        XCTAssertTrue(reveal.isUnreachable(below: aDir, listing: listsOther))
+        XCTAssertFalse(reveal.isUnreachable(below: URL(fileURLWithPath: "/tmp/project/b/"), listing: []))
+    }
+
     func testNoRequestWithoutARootOrOutsideIt() {
         XCTAssertNil(TreeRevealRequest(after: nil, revealing: URL(fileURLWithPath: "/elsewhere/x.swift"), root: root))
         XCTAssertNil(TreeRevealRequest(after: nil, revealing: root.appendingPathComponent("x.swift"), root: nil))

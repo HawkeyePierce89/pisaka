@@ -1511,7 +1511,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.center`. That report also **withdraws the request** — the tree records the
     completed token and hands `nil` down from then on — so a node the user later
     collapses, or one rebuilt by a re-expansion of its parent, is never re-opened
-    by a request already honoured. The `"draft-row"` scroll id is unchanged.
+    by a request already honoured. **A request that cannot be honoured is
+    withdrawn too**: every ancestor node checks its listing for the row the request
+    needs there (`step(below:)` — the next ancestor, or the target inside the
+    deepest) after `loadChildren()` and, already expanded, when the request
+    arrives, and reports `onRevealed(token, nil)` when it is missing — a file under
+    the excluded `.git`, one deleted while its tab stays open, a spelling the
+    listing does not share. Without that, a request whose row never appears would
+    stay live and re-expand every rebuilt folder the user collapsed. The `"draft-row"` scroll id is unchanged.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
@@ -1866,7 +1873,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the tree reveal and Local History, both the app's, and the pasteboard and
     Finder actions, which need nothing the app holds and are stated here as
     defaults (`NSPasteboard.general`, `NSWorkspace.activateFileViewerSelecting`).
-    `ContentView` gains the one parameter and passes it through.
+    `ContentView` gains two parameters — `tabActions`, passed to the strip or the
+    column, and `treeReveal`, passed to `ProjectTreeView` as `reveal:`.
     `tabGestures(file:files:actions:)` attaches all three gestures in one place.
     **The context menu** (`tabContextMenu`) answers right click and ⌃-click alike,
     SwiftUI's `.contextMenu` doing both: three groups — the five close commands

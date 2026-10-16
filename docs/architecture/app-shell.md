@@ -42,8 +42,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and now spells ⌘⌥P (`core-markdown-preview.md`). That collision was invisible
     to every gate the pipeline had — two commands declaring one chord compile,
     link and launch, and AppKit simply gives it to one of them — so
-    `MenuShortcutUniquenessTests` now reads every character key equivalent in
-    `Sources/Pisaka` and refuses a repeat. Nothing else about the
+    `MenuShortcutUniquenessTests` now reads every character key equivalent, and every
+    `KeyEquivalent` constant except `.return`, in `Sources/Pisaka` and refuses a repeat. Nothing else about the
     preview is in this file: the pane, the split and the divider are
     `ContentView`'s, and every decision is Core's. `togglePanel(.terminal)` creates the first session
     (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists

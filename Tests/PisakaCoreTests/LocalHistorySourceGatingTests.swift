@@ -445,9 +445,11 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             "ContentView threads the tree's callbacks; a row action it does not carry cannot reach the app."
         )
         let tabs = try code(ofFileNamed: "TabStripView.swift", under: "Sources/Pisaka")
-        XCTAssertTrue(
-            LSPSourceGatingTests.containsToken("showLocalHistory", in: tabs),
-            "The tab menu offers Local History through TabActions, which the app wires to the same handler."
+        XCTAssertEqual(
+            try occurrences(of: "actions\\.showLocalHistory\\(", in: tabs),
+            1,
+            "The tab menu offers Local History by calling TabActions, which the app wires to the same handler; "
+                + "the declaration alone is not the menu item."
         )
     }
 

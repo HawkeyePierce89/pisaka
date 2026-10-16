@@ -42,6 +42,10 @@ final class TabChordPassThroughTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(editor))
 
         try assertPassesThrough(editor)
+        // The editor's own control: in this same setup it does consume ⌘D, so
+        // the pass-through assertions above are not vacuous.
+        XCTAssertTrue(editor.performKeyEquivalent(with: try keyEvent("d", keyCode: 2, modifiers: .command)),
+                      "⌘D is the editor's own chord")
     }
 
     func testLocalChangesPassesEveryTabChordThrough() throws {

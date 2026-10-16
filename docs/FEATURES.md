@@ -125,7 +125,8 @@ user sees it.
   highlights its row and scrolls it into view. Cmd+Shift+] / Cmd+Shift+[ (also
   Ctrl+Tab / Ctrl+Shift+Tab) move to the next / previous tab and wrap around at
   both ends; Cmd+1…Cmd+8 select a tab by position and Cmd+9 selects the last tab.
-  All of these live in the Window menu too.
+  The navigation commands live in the Window menu too (Show Next Tab, Show
+  Previous Tab, Select Tab).
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
   line-number gutter on the left that tracks scrolling, edits, and the system
   light/dark appearance.
@@ -944,7 +945,7 @@ user sees it.
   twice, and the state you would have lost is the one under the "Save" row above.
   Open the history with **File ▸ Local History…** (Cmd+Shift+H) for the
   active tab, or with the **"Local History"** item on a file's context menu in the
-  project tree. The window lists that file's revisions newest first, each with the
+  project tree or on a tab's context menu. The window lists that file's revisions newest first, each with the
   event that took it and both a relative ("2 hours ago") and an absolute
   timestamp; selecting one shows a side-by-side diff of that revision against what
   the file holds *now* — the open buffer if a tab has it, including unsaved edits,

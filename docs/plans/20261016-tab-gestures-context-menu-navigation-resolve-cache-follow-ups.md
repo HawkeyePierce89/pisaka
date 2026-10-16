@@ -180,7 +180,7 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
   - Local History: `showLocalHistory(for:)`;
   - Reveal in Project Tree: Task 7.
 - [x] Add one shared `tabContextMenu(file:files:actions:)` modifier in `TabStripView.swift` and apply it to both `TabStripCell` and `TabRowView`:
-  - three sections separated by `Divider()`, in the order A2 lists;
+  - three sections, in the order A2 lists (built as `Section` groups rather than `Divider()`s — a menu draws the same separators, and the swept surfaces spell no `Divider()`);
   - every item `.disabled` from `MenuAvailability`, never hidden;
   - every action takes the tab the menu was opened on.
 

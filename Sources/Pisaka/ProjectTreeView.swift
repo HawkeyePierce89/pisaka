@@ -82,10 +82,11 @@ struct ProjectTreeView: View {
 
     @State private var draft: TreeEditDraft?
     @State private var draftAppearedTrigger: Int = 0
-    /// The token of the last reveal whose target row reported itself on screen.
-    /// From then on the request is withdrawn from the recursion, so a node the
-    /// user collapses — or one rebuilt by a later re-expansion of its parent —
-    /// is never re-expanded by a request already honoured.
+    /// The token of the last reveal whose target row reported itself on screen,
+    /// or whose path an ancestor's listing turned out not to hold. From then on
+    /// the request is withdrawn from the recursion, so a node the user collapses
+    /// — or one rebuilt by a later re-expansion of its parent — is never
+    /// re-expanded by a request already honoured or one that cannot be.
     @State private var completedRevealToken: Int?
 
     /// The interface zone's metrics, inherited from the window root.
@@ -214,6 +215,7 @@ struct ProjectTreeView: View {
                         onRevealed: { token, target in
                             guard completedRevealToken != token else { return }
                             completedRevealToken = token
+                            guard let target else { return }
                             withAnimation {
                                 proxy.scrollTo(target, anchor: .center)
                             }
@@ -265,12 +267,6 @@ struct TreeRevealRequest: Equatable {
     let target: URL
     let ancestors: [URL]
 
-    init(token: Int, target: URL, ancestors: [URL]) {
-        self.token = token
-        self.target = target
-        self.ancestors = ancestors
-    }
-
     /// The request that follows `previous` for the file at `fileURL`: the next
     /// token, the ancestors `TreeRevealRule` answers, and the target spelled as
     /// the tree spells the row — the last ancestor plus the file's name. Nil
@@ -279,22 +275,38 @@ struct TreeRevealRequest: Equatable {
         guard let root,
               let ancestors = TreeRevealRule.ancestors(of: fileURL, root: root),
               let parent = ancestors.last else { return nil }
-        self.init(
-            token: (previous?.token ?? 0) + 1,
-            target: parent.appendingPathComponent(fileURL.lastPathComponent),
-            ancestors: ancestors
-        )
+        token = (previous?.token ?? 0) + 1
+        target = parent.appendingPathComponent(fileURL.lastPathComponent)
+        self.ancestors = ancestors
     }
 
     /// Whether the directory row at `url` is one the request expands.
     func expands(_ url: URL) -> Bool {
-        let path = url.standardizedFileURL.path
-        return ancestors.contains { $0.standardizedFileURL.path == path }
+        step(below: url) != nil
     }
 
     /// Whether the file row at `url` is the one being revealed.
     func targets(_ url: URL) -> Bool {
-        url.standardizedFileURL.path == target.standardizedFileURL.path
+        Self.rowID(url) == Self.rowID(target)
+    }
+
+    /// The row the request needs inside the directory at `url` — the next
+    /// ancestor, or the target inside the deepest one — or nil when the request
+    /// does not expand `url`.
+    func step(below url: URL) -> URL? {
+        let path = Self.rowID(url)
+        guard let index = ancestors.firstIndex(where: { Self.rowID($0) == path }) else { return nil }
+        return index + 1 < ancestors.count ? ancestors[index + 1] : target
+    }
+
+    /// Whether a listing of the directory at `url` lacks the row the request
+    /// needs there — an excluded entry (`.git`), a deleted file, a spelling the
+    /// listing does not share. The tree then withdraws the request, which would
+    /// otherwise stay live and re-expand rebuilt folders the user collapsed.
+    func isUnreachable(below url: URL, listing: [DirectoryEntry]) -> Bool {
+        guard let step = step(below: url) else { return false }
+        let path = Self.rowID(step)
+        return !listing.contains { Self.rowID($0.url) == path }
     }
 
     /// The scroll id a file row carries, so the tree can scroll to the target
@@ -387,8 +399,9 @@ private struct DirectoryNodeView: View {
     /// The live reveal request, handed down beside `selection`, or nil.
     let reveal: TreeRevealRequest?
     /// Reported by the target file row once it is on screen, with the request's
-    /// token and the row's scroll id; the tree then scrolls to it.
-    let onRevealed: (Int, String) -> Void
+    /// token and the row's scroll id; the tree then scrolls to it. A nil id
+    /// withdraws a request this node's listing shows cannot be honoured.
+    let onRevealed: (Int, String?) -> Void
     /// The project root row offers only create actions (New File / New Folder);
     /// nested directories also offer Rename / Delete. It is also the one folder
     /// row that is a drop *target* without being a drag *source*.
@@ -429,7 +442,7 @@ private struct DirectoryNodeView: View {
         dragSession: TreeDragSession,
         selection: TreeSelection,
         reveal: TreeRevealRequest?,
-        onRevealed: @escaping (Int, String) -> Void,
+        onRevealed: @escaping (Int, String?) -> Void,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
         siblings: [String] = []
@@ -679,6 +692,16 @@ private struct DirectoryNodeView: View {
         guard let reveal, reveal.token != honouredRevealToken, reveal.expands(url) else { return }
         honouredRevealToken = reveal.token
         isExpanded = true
+        // Already expanded with a listing in hand: no `loadChildren()` follows,
+        // so the reachability check runs here.
+        withdrawRevealIfUnreachable()
+    }
+
+    /// Withdraw the live reveal when this node's listing lacks the row it needs
+    /// here (`TreeRevealRequest.isUnreachable`).
+    private func withdrawRevealIfUnreachable() {
+        guard let reveal, let children, reveal.isUnreachable(below: url, listing: children) else { return }
+        onRevealed(reveal.token, nil)
     }
 
     /// Tell the tree the reveal's target row is on screen.
@@ -704,6 +727,7 @@ private struct DirectoryNodeView: View {
         do {
             let listing = try model.children(of: url)
             children = listing
+            withdrawRevealIfUnreachable()
 
             // A successful reload can lose the draft just as thoroughly as a
             // collapse or an `ENOENT` does — the entry the draft is drawn at, or

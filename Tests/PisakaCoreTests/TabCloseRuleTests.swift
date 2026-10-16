@@ -143,7 +143,6 @@ final class TabCloseRuleTests: XCTestCase {
     func testALoneTextTab() {
         let lone = file("a")
         let menu = TabCloseRule.MenuAvailability(files: [lone], anchor: lone.id, projectRoot: root)
-        XCTAssertEqual(menu, TabCloseRule.MenuAvailability(files: [lone], anchor: lone.id, projectRoot: root))
         XCTAssertTrue(menu.close)
         XCTAssertFalse(menu.closeOthers)
         XCTAssertFalse(menu.closeToTheRight)
