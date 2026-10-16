@@ -1806,8 +1806,9 @@ capability beyond `insertReplaceSupport` came with any of it.
     Not an actor and not `@MainActor`: both request methods are `nonisolated async`
     so (SE-0338) their bodies run on the cooperative pool — ranking, position
     mapping and target-file reads all stay off the main thread — and the only
-    mutable state is the small resolve table, guarded by an `NSLock` taken and
-    released without crossing a suspension point.
+    mutable state is the small resolve table, the retained list and its resolve
+    cache, guarded by an `NSLock` taken and released without crossing a
+    suspension point.
     `definitions(for:)` applies **D2's guard** first: a request whose `text` is
     empty while its `offset` is non-zero was built by a call site that forgot to
     pass the buffer, and clamping its position to `0:0` would ask a confidently
@@ -2105,6 +2106,36 @@ capability beyond `insertReplaceSupport` came with any of it.
     discards either way — cannot replace the table those visible rows' handles live
     in either.
     The retained raw items are never mutated.
+    **A resolve belongs to the retained list.** Every row `publish` registers for a
+    retained list — the complete answer's own (`listToken`) and every narrow's
+    (`list.handle`) — carries a cache key: the list handle and the item's index in
+    the retained raw items, the `enumerated()` offset `publish` already sorts by
+    and therefore stable across every publish of the same items; every other row
+    carries none. The cache sits beside the retained slot and `retain` replaces it
+    together with the slot, under the same token check — empty for a new list,
+    `nil` when nothing is retained — so it never holds more than one entry per item
+    of the one retained list and is dropped with it. What it holds is the resolved
+    `LSPCompletionItem`, not edits: `resolveEdits(for:)` builds the edits exactly as
+    for an uncached resolve, against the retained text and typed word, and
+    re-expresses them through the handle's own `narrowedLength`, so a cached answer
+    differs from a fresh one only in the round trip it skipped. A key whose list is
+    not the cache's — a superseded list, an answer never retained — bypasses the
+    cache and resolves directly. A failure or a timeout (`nil`) is **not cached**:
+    the next ask sends again. In-flight resolves are **deduplicated**: a miss
+    registers one unstructured `Task` under the lock before awaiting it, and a
+    second caller for the same key awaits that task rather than sending its own
+    request — a narrow usually arrives while the previous keystroke's prefetch,
+    which the controller has just cancelled, is still out. The stated cost: a
+    resolve that goes through the cache is owned by the provider, so cancelling
+    its caller sends no `$/cancelRequest`, and it runs until answered or until the
+    1.5 s resolve budget expires — bounded, most likely wanted by the next narrow,
+    and discarded by a cancelled controller task anyway. A resolve without a key
+    keeps the ordinary cancellation. Joining sends nothing a test could observe on
+    the wire, so the cache records each joined item's raw index — a set bounded
+    by the list and dropped with it, never a running counter — read through an
+    `internal` `joinedResolveCount`: the causal signal the sharing test waits on
+    before it releases the first resolve, without which that test could release
+    the gate before the second ask arrived and pass on a cache hit instead.
 
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the
     editor surfaces hold, and the whole of phase 2a's user-visible contract.
@@ -3561,7 +3592,10 @@ or replaced session, nothing matching) falls through to an ordinary request. An
 emptied word only *forgets* the list (`.dropRetained`), so the popup's existing
 empty-word behaviour is unchanged. Only a complete, untrimmed answer from the live
 session is retained, and never a fallback answer; the tree-sitter provider and iOS
-inherit defaults that retain nothing and narrow nothing.
+inherit defaults that retain nothing and narrow nothing. A resolve belongs to the
+retained list too: a narrowed row whose item was already resolved, or is being
+resolved, for the same list is answered from that list's cache with no second round
+trip, so a narrowed keystroke does not re-send the top rows' prefetch.
 
 **D41 — An item that cannot be applied is dropped when the list is built, and
 dropping anything makes the answer incomplete.** The commit-time refusal in

@@ -44,8 +44,9 @@ import Foundation
 /// async` so (SE-0338) their bodies run on the cooperative pool — the ranking,
 /// the position mapping, the markup normalization and the target-file reads all
 /// stay off the main thread —
-/// and the only mutable state is the resolve table, which is small, touched twice
-/// per completion round and guarded by a lock rather than by an actor hop.
+/// and the only mutable state is the resolve table, the retained list and its
+/// resolve cache — all small, bounded by one list, and guarded by a lock rather
+/// than by an actor hop.
 public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecked Sendable {
 
     /// How the text of a file the *server* named is obtained.
@@ -90,6 +91,43 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         /// are re-expressed against the same buffer the published ones were —
         /// `nil` for a list published straight from a request.
         let narrowedLength: Int?
+        /// Where the resolved item is cached: the retained list the item was
+        /// published from and its index among that list's raw items — `nil` for
+        /// an item of a list that was never retained, which resolves directly.
+        let cacheKey: ResolveCacheKey?
+    }
+
+    /// An item of one retained list: the list's handle and the item's index in
+    /// its raw items, which every `publish` of that list enumerates the same way.
+    private struct ResolveCacheKey: Hashable {
+        let list: Int
+        let index: Int
+    }
+
+    /// The resolves of the retained list's items, so a narrowed row whose item
+    /// was already resolved — or is being resolved — costs no second round trip.
+    ///
+    /// What is kept is the resolved *item*, not edits: every resolve of one
+    /// retained list is computed against the same text and typed word, and the
+    /// result is re-expressed through the handle's own `narrowedLength`, so one
+    /// resolved item serves every narrowing of the list. Bounded by the list: at
+    /// most one entry per raw item, replaced together with the retained slot.
+    /// A failure or a timeout is not stored, so the next ask tries again.
+    ///
+    /// An in-flight resolve is shared: the first ask creates one unstructured
+    /// task, and a second ask for the same item awaits it instead of sending its
+    /// own request. Its cost is ownership — the task is the provider's, so
+    /// cancelling the caller sends no `$/cancelRequest`, and the request runs
+    /// until it is answered or the resolve budget expires.
+    private struct ResolveCache {
+        let list: Int
+        var resolved: [Int: LSPCompletionItem] = [:]
+        var inFlight: [Int: Task<LSPCompletionItem?, Never>] = [:]
+        /// The items a second ask found in flight and joined — the step a test
+        /// waits on to know that ask has arrived, since joining sends nothing it
+        /// could observe on the wire. A set of raw indices, so it is bounded by
+        /// the list like the rest of the cache and dropped with it.
+        var joined: Set<Int> = []
     }
 
     /// The last complete list a request published, kept so the next keystroke
@@ -98,7 +136,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// Everything the list was built from is kept rather than the rows it
     /// became: narrowing re-runs the whole of `publish` with the new prefix, so a
     /// row the cap cut from the first answer can be the best match of the second.
-    /// The raw items are never mutated.
+    /// The raw items are never mutated, and the resolves of those items live
+    /// beside the list in `ResolveCache`, dropped with it.
     private struct RetainedList {
         let handle: Int
         let items: [LSPCompletionItem]
@@ -150,6 +189,16 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// not one that may be retained — and an older one landing late does not.
     private var retainedList: RetainedList?
     private var retainedListToken = 0
+    /// The retained list's resolves — replaced with the slot, `nil` when nothing
+    /// is retained.
+    private var resolveCache: ResolveCache?
+    /// How many of the retained list's items a second ask joined in flight
+    /// (`ResolveCache.joined`); `0` when nothing is retained.
+    var joinedResolveCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolveCache?.joined.count ?? 0
+    }
 
     public init(
         workspace: LSPWorkspace,
@@ -741,7 +790,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             typedWord: typedWord,
             in: source,
             session: prepared.session,
-            serverResolves: resolves
+            serverResolves: resolves,
+            // Keyed under the list only when it may be retained; a trimmed list
+            // is never retained, so its keys simply miss the cache.
+            retainedHandle: response.isIncomplete ? nil : listToken
         )
         stageResolves(published.deferred, listToken: listToken)
         let retained = retain(
@@ -836,7 +888,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             in: list.text as NSString,
             session: list.session,
             serverResolves: list.serverResolves,
-            narrowedLength: length
+            narrowedLength: length,
+            retainedHandle: list.handle
         )
         // Refused before the table is touched: a `nil` leaves the popup showing
         // the previous rows while the ordinary request runs, and committing one
@@ -868,7 +921,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         in text: NSString,
         session: LSPSession,
         serverResolves: Bool,
-        narrowedLength: Int? = nil
+        narrowedLength: Int? = nil,
+        retainedHandle: Int? = nil
     ) -> PublishedList {
         // **Matching is the client's job, and a server is not required to have
         // done it.** sourcekit-lsp, tsserver and pyright answer a prefix with the
@@ -1012,7 +1066,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     item: item,
                     text: text as String,
                     typedWord: typedWord,
-                    narrowedLength: narrowedLength
+                    narrowedLength: narrowedLength,
+                    cacheKey: retainedHandle.map { ResolveCacheKey(list: $0, index: entry.offset) }
                 )
                 handle += 1
             }
@@ -1293,9 +1348,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             return []
         }
 
-        guard let resolved = try? await pending.session.resolveCompletionItem(pending.item) else {
-            return []
-        }
+        guard let resolved = await resolvedItem(for: pending) else { return [] }
         // The **primary** edit comes from the item the popup published and the user
         // committed, never from the resolved one. A resolve exists to fill in what
         // the server kept back — `detail`, `documentation`, `additionalTextEdits`
@@ -1329,6 +1382,64 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             lineStarts: lineStarts
         )
         return Self.shifted(resolvedEdits, from: pending.typedWord, to: pending.narrowedLength)
+    }
+
+    /// The server's resolved item for `pending` — through the retained list's
+    /// cache when the item belongs to it, directly otherwise.
+    private func resolvedItem(for pending: PendingResolve) async -> LSPCompletionItem? {
+        guard let key = pending.cacheKey else {
+            return try? await pending.session.resolveCompletionItem(pending.item)
+        }
+        switch cachedResolve(key, pending: pending) {
+        case .resolved(let item):
+            return item
+        case .inFlight(let task):
+            return await task.value
+        case .bypass:
+            return try? await pending.session.resolveCompletionItem(pending.item)
+        }
+    }
+
+    private enum CachedResolve {
+        case resolved(LSPCompletionItem)
+        case inFlight(Task<LSPCompletionItem?, Never>)
+        /// The key is not the retained list's: a superseded list, or one never
+        /// retained.
+        case bypass
+    }
+
+    /// The cached item, or the resolve already on its way, or — on a miss — a
+    /// new resolve registered under `key` before anything awaits it, so a second
+    /// ask finds it in flight.
+    private func cachedResolve(_ key: ResolveCacheKey, pending: PendingResolve) -> CachedResolve {
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolveCache?.list == key.list else { return .bypass }
+        if let item = resolveCache?.resolved[key.index] { return .resolved(item) }
+        if let task = resolveCache?.inFlight[key.index] {
+            resolveCache?.joined.insert(key.index)
+            return .inFlight(task)
+        }
+        let session = pending.session
+        let item = pending.item
+        let task = Task<LSPCompletionItem?, Never> { [weak self] in
+            let resolved = try? await session.resolveCompletionItem(item)
+            self?.completeResolve(key, with: resolved)
+            return resolved
+        }
+        resolveCache?.inFlight[key.index] = task
+        return .inFlight(task)
+    }
+
+    /// Store `item` under `key` — unless it is `nil`, a failure or a timeout —
+    /// and retire the in-flight entry either way; nothing, when the cache has
+    /// since been replaced with another list's.
+    private func completeResolve(_ key: ResolveCacheKey, with item: LSPCompletionItem?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolveCache?.list == key.list else { return }
+        resolveCache?.inFlight[key.index] = nil
+        if let item { resolveCache?.resolved[key.index] = item }
     }
 
     /// The deferred item behind a handle, if it belongs to the list currently
@@ -1378,6 +1489,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard listToken > retainedListToken else { return nil }
         retainedListToken = listToken
         retainedList = list
+        resolveCache = list.map { ResolveCache(list: $0.handle) }
         return list
     }
 
