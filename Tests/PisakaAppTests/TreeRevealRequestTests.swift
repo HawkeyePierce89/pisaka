@@ -5,7 +5,8 @@ import PisakaCore
 
 /// `TreeRevealRequest` matches the tree's rows by standardized path: a listing
 /// spells a directory with a trailing slash and the rule's appended components
-/// may not, and the two must still agree. Which directories a reveal expands is
+/// may not, and the two must still agree. A listing is matched by entry name
+/// and kind, because it may spell its entries under a resolved parent. Which directories a reveal expands is
 /// `TreeRevealRuleTests`' subject; this suite pins the row matching, the
 /// target's spelling and the token.
 final class TreeRevealRequestTests: XCTestCase {
@@ -79,6 +80,32 @@ final class TreeRevealRequestTests: XCTestCase {
         XCTAssertFalse(reveal.isUnreachable(below: aDir, listing: listsMain))
         XCTAssertTrue(reveal.isUnreachable(below: aDir, listing: listsOther))
         XCTAssertFalse(reveal.isUnreachable(below: URL(fileURLWithPath: "/tmp/project/b/"), listing: []))
+    }
+
+    /// A listing entry of the wrong kind cannot carry the request on: an
+    /// ancestor replaced by a file, or the target replaced by a directory.
+    func testAnEntryOfTheWrongKindMakesTheRequestUnreachable() throws {
+        let reveal = try request(for: "a/main.swift")
+        let rootDir = URL(fileURLWithPath: "/tmp/project/")
+        let aDir = URL(fileURLWithPath: "/tmp/project/a/")
+        XCTAssertTrue(reveal.isUnreachable(below: rootDir, listing: [DirectoryEntry(url: aDir, isDirectory: false)]))
+        let mainAsDirectory = DirectoryEntry(url: aDir.appendingPathComponent("main.swift"), isDirectory: true)
+        XCTAssertTrue(reveal.isUnreachable(below: aDir, listing: [mainAsDirectory]))
+    }
+
+    /// The listing may spell its entries under a resolved parent — `/tmp`
+    /// lists as `/private/tmp` — so its entries are matched by name.
+    func testAListingSpelledUnderAResolvedParentStillReachesTheStep() throws {
+        let reveal = try request(for: "a/main.swift")
+        let resolvedA = URL(fileURLWithPath: "/private/tmp/project/a/")
+        XCTAssertFalse(reveal.isUnreachable(
+            below: URL(fileURLWithPath: "/tmp/project/"),
+            listing: [DirectoryEntry(url: resolvedA, isDirectory: true)]
+        ))
+        XCTAssertFalse(reveal.isUnreachable(
+            below: URL(fileURLWithPath: "/tmp/project/a"),
+            listing: [DirectoryEntry(url: resolvedA.appendingPathComponent("main.swift"), isDirectory: false)]
+        ))
     }
 
     func testNoRequestWithoutARootOrOutsideIt() {

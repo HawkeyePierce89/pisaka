@@ -184,8 +184,10 @@ struct ProjectTreeView: View {
     }
 
     private func tree(root: URL) -> some View {
-        ScrollView {
-            ScrollViewReader { proxy in
+        // The reader wraps the scroll view, not the other way round: a proxy
+        // drives only the scroll views its reader contains.
+        ScrollViewReader { proxy in
+            ScrollView {
                 // A plain VStack (not LazyVStack): the tree is already lazy
                 // via DisclosureGroup, which only reads a directory on
                 // expansion. A lazy container could discard an off-screen
@@ -196,6 +198,7 @@ struct ProjectTreeView: View {
                     DirectoryNodeView(
                         model: model,
                         url: root,
+                        revealURL: root,
                         name: root.lastPathComponent,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
@@ -236,9 +239,9 @@ struct ProjectTreeView: View {
                     }
                 }
             }
-        }
-        .onChange(of: model.projectRoot) { _ in
-            draft = nil
+            .onChange(of: model.projectRoot) { _ in
+                draft = nil
+            }
         }
     }
 
@@ -261,7 +264,10 @@ struct ProjectTreeView: View {
 ///
 /// Both questions compare standardized *paths*: a listing spells a directory
 /// with a trailing slash, an appended component does not, and the two must
-/// still match.
+/// still match. They are asked of a node's `revealURL` — the opened root plus
+/// one listing name per level — never of its listed `url`, because a listing
+/// may spell its entries under a resolved parent (`/tmp` lists as
+/// `/private/tmp`) the request does not share.
 struct TreeRevealRequest: Equatable {
     let token: Int
     let target: URL
@@ -300,13 +306,18 @@ struct TreeRevealRequest: Equatable {
     }
 
     /// Whether a listing of the directory at `url` lacks the row the request
-    /// needs there — an excluded entry (`.git`), a deleted file, a spelling the
-    /// listing does not share. The tree then withdraws the request, which would
-    /// otherwise stay live and re-expand rebuilt folders the user collapsed.
+    /// needs there — an excluded entry (`.git`), a deleted file, or an entry of
+    /// the wrong kind: an ancestor step must be a directory and the target must
+    /// not be, or no row would ever continue or complete the request. The tree
+    /// then withdraws the request, which would otherwise stay live and
+    /// re-expand rebuilt folders the user collapsed.
+    ///
+    /// Entries are matched by **name**, not by url: the listing may spell them
+    /// under a resolved parent the request does not share.
     func isUnreachable(below url: URL, listing: [DirectoryEntry]) -> Bool {
         guard let step = step(below: url) else { return false }
-        let path = Self.rowID(step)
-        return !listing.contains { Self.rowID($0.url) == path }
+        let needsDirectory = Self.rowID(step) != Self.rowID(target)
+        return !listing.contains { $0.name == step.lastPathComponent && $0.isDirectory == needsDirectory }
     }
 
     /// The scroll id a file row carries, so the tree can scroll to the target
@@ -374,6 +385,10 @@ struct TreeSelection: Equatable {
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
     let url: URL
+    /// This node as a reveal request spells it — the opened root, then one
+    /// listing name per level — which `url` need not be: a listing may spell
+    /// its entries under a resolved parent (`/tmp` lists as `/private/tmp`).
+    let revealURL: URL
     let name: String
     let onOpenFile: (URL) -> Void
     let onNewFile: (URL, String) -> Void
@@ -426,6 +441,7 @@ private struct DirectoryNodeView: View {
     init(
         model: WorkspaceModel,
         url: URL,
+        revealURL: URL,
         name: String,
         onOpenFile: @escaping (URL) -> Void,
         onNewFile: @escaping (URL, String) -> Void,
@@ -449,6 +465,7 @@ private struct DirectoryNodeView: View {
     ) {
         self.model = model
         self.url = url
+        self.revealURL = revealURL
         self.name = name
         self.onOpenFile = onOpenFile
         self.onNewFile = onNewFile
@@ -507,6 +524,7 @@ private struct DirectoryNodeView: View {
                     DirectoryNodeView(
                         model: model,
                         url: entry.url,
+                        revealURL: revealURL.appendingPathComponent(entry.name),
                         name: entry.name,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
@@ -555,8 +573,8 @@ private struct DirectoryNodeView: View {
                     // Causal, not timed: the target row reports itself when it
                     // appears (its folder just expanded) or, already on screen,
                     // when the request arrives.
-                    .onAppear { reportIfRevealed(entry.url) }
-                    .onChange(of: reveal) { _ in reportIfRevealed(entry.url) }
+                    .onAppear { reportIfRevealed(entry) }
+                    .onChange(of: reveal) { _ in reportIfRevealed(entry) }
                 }
             }
         } label: {
@@ -689,7 +707,7 @@ private struct DirectoryNodeView: View {
     /// Expand this node once for a reveal request naming it. Expansion goes
     /// through the ordinary `onChange(of: isExpanded)` → `loadChildren()` path.
     private func expandIfRevealed() {
-        guard let reveal, reveal.token != honouredRevealToken, reveal.expands(url) else { return }
+        guard let reveal, reveal.token != honouredRevealToken, reveal.expands(revealURL) else { return }
         honouredRevealToken = reveal.token
         isExpanded = true
         // Already expanded with a listing in hand: no `loadChildren()` follows,
@@ -700,14 +718,15 @@ private struct DirectoryNodeView: View {
     /// Withdraw the live reveal when this node's listing lacks the row it needs
     /// here (`TreeRevealRequest.isUnreachable`).
     private func withdrawRevealIfUnreachable() {
-        guard let reveal, let children, reveal.isUnreachable(below: url, listing: children) else { return }
+        guard let reveal, let children, reveal.isUnreachable(below: revealURL, listing: children) else { return }
         onRevealed(reveal.token, nil)
     }
 
-    /// Tell the tree the reveal's target row is on screen.
-    private func reportIfRevealed(_ rowURL: URL) {
-        guard let reveal, reveal.targets(rowURL) else { return }
-        onRevealed(reveal.token, TreeRevealRequest.rowID(rowURL))
+    /// Tell the tree the reveal's target row is on screen. The row is matched
+    /// in the request's spelling and scrolled to by its own scroll id.
+    private func reportIfRevealed(_ entry: DirectoryEntry) {
+        guard let reveal, reveal.targets(revealURL.appendingPathComponent(entry.name)) else { return }
+        onRevealed(reveal.token, TreeRevealRequest.rowID(entry.url))
     }
 
     /// Read this directory's contents through the model. A read failure must

@@ -1494,7 +1494,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `rowID(_:)` compare **standardized paths**, not urls: a listing spells a
     directory with a trailing slash and an appended component does not, and the
     two must still match — that logic is why `TreeRevealRequestTests` (app bundle)
-    exists. The request **expands and scrolls; it never selects**: the app selects
+    exists. They are asked of each node's `revealURL` — the opened root plus one
+    listing *name* per level — never of its listed `url`: a listing may spell its
+    entries under a resolved parent (`/tmp` lists as `/private/tmp`), which the
+    request, spelled under the root as opened, does not share. The file row keeps
+    its listed url as its scroll id. The request **expands and scrolls; it never selects**: the app selects
     the tab first, so the existing `TreeSelection` highlights the row — one
     selection, not a second spelling of it. It is handed down the recursion beside
     `selection`. A `DirectoryNodeView` whose url the request `expands` sets
@@ -1508,7 +1512,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the target row reports `onRevealed(token, id)` from its `.onAppear` (its folder
     just expanded) and from `.onChange(of: reveal)` (already on screen);
     `ProjectTreeView` then scrolls the existing `ScrollViewReader` to it at
-    `.center`. That report also **withdraws the request** — the tree records the
+    `.center` — the reader wraps the `ScrollView`, since a proxy drives only the
+    scroll views its reader contains. That report also **withdraws the request** — the tree records the
     completed token and hands `nil` down from then on — so a node the user later
     collapses, or one rebuilt by a re-expansion of its parent, is never re-opened
     by a request already honoured. **A request that cannot be honoured is
@@ -1516,8 +1521,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     needs there (`step(below:)` — the next ancestor, or the target inside the
     deepest) after `loadChildren()` and, already expanded, when the request
     arrives, and reports `onRevealed(token, nil)` when it is missing — a file under
-    the excluded `.git`, one deleted while its tab stays open, a spelling the
-    listing does not share. Without that, a request whose row never appears would
+    the excluded `.git`, one deleted while its tab stays open — or present with
+    the wrong kind: an ancestor step must list as a directory and the target as a
+    non-directory, or no row would ever continue or complete the request. The
+    listing is matched by entry name, for the resolved-parent reason above. Without that, a request whose row never appears would
     stay live and re-expand every rebuilt folder the user collapsed. The `"draft-row"` scroll id is unchanged.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
