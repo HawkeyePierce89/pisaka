@@ -243,12 +243,12 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. Everything must be green except the pre-existing scale-1.8 layout assertions already recorded.
-- [ ] Build `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
-- [ ] `grep -rn "non-empty prefix[ ]of it" docs/plans/` finds nothing; that includes this plan once it moves to `completed/`.
-- [ ] Confirm the new Core rules (`TabCloseRule`, `TabNavigationRule`, `TreeRevealRule`, the `DisplayPath` additions) are fully covered by their suites (80%+ line coverage via `swift test --enable-code-coverage`).
+- [x] Run `swift test`.
+- [x] Run `swiftlint --strict` from the repository root.
+- [x] Run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. Everything must be green except the pre-existing scale-1.8 layout assertions already recorded. (Same five pre-existing failures, 8 assertions: the scale-1.8 suites and the branch-popover cap; the other 320 of 325 tests pass.)
+- [x] Build `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
+- [x] `grep -rn "non-empty prefix[ ]of it" docs/plans/` finds nothing; that includes this plan once it moves to `completed/`.
+- [x] Confirm the new Core rules (`TabCloseRule`, `TabNavigationRule`, `TreeRevealRule`, the `DisplayPath` additions) are fully covered by their suites (80%+ line coverage via `swift test --enable-code-coverage`). (100% line coverage for all four files.)
 
 ### Task 10: Update documentation
 
