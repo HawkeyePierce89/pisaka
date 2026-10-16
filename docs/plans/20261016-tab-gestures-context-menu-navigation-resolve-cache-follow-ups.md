@@ -129,23 +129,23 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Create: `Sources/PisakaCore/TabNavigationRule.swift`
 - Create: `Tests/PisakaCoreTests/TabNavigationRuleTests.swift`
 
-- [ ] Add `TabNavigationRule.adjacent(in ids: [UUID], selected: UUID?, forward: Bool) -> UUID?`:
+- [x] Add `TabNavigationRule.adjacent(in ids: [UUID], selected: UUID?, forward: Bool) -> UUID?`:
   - it wraps at both ends;
   - nil with fewer than two tabs, because nothing to move to means the command is disabled;
   - when `selected` is nil or not in the list, forward answers the first tab and backward the last.
-- [ ] Add `TabNavigationRule.positional(_ number: Int, in ids: [UUID]) -> UUID?`:
+- [x] Add `TabNavigationRule.positional(_ number: Int, in ids: [UUID]) -> UUID?`:
   - 1…8 answer the nth tab, or nil past the count;
   - 9 answers the last tab;
   - anything outside 1…9 answers nil;
   - no tabs answers nil.
-- [ ] Tests:
+- [x] Tests:
   - wrap forward from the last tab and backward from the first;
   - a single tab and no tabs;
   - ⌘9 as the last tab with 3 tabs and with 12 tabs;
   - ⌘5 with 3 tabs answers nil;
   - ⌘1 with one tab;
   - an unknown selection.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: Core: the reveal ancestors
 
