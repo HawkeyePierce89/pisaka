@@ -56,6 +56,21 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// One colored bracket: a length-1 character range and the color to paint it.
     typealias BracketRun = (range: NSRange, color: NSColor)
 
+    /// What an occurrence run marks: a read or a write of the identifier at the
+    /// caret, or another exact match of a one-line selection. Each kind paints in
+    /// its own `SyntaxTheme` wash.
+    enum OccurrenceKind: Equatable {
+        case read
+        case write
+        case selectionMatch
+    }
+
+    /// One occurrence background: a character range and the kind that colours it.
+    struct OccurrenceRun: Equatable {
+        let range: NSRange
+        let kind: OccurrenceKind
+    }
+
     /// The rainbow runs currently applied, sorted ascending by `range.location`
     /// (the owner hands over a `BracketDepthScanner` slice, which is already
     /// sorted). Sortedness is what lets `applyOverlays` binary-search rather than
@@ -64,6 +79,17 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
 
     /// The caret's matched pair (0 or 2 length-1 ranges).
     private var pairRanges: [NSRange] = []
+
+    /// The occurrence and selection-match backgrounds currently highlighted,
+    /// sorted ascending by `range.location` (`setOccurrenceRuns` sorts what it is
+    /// handed) and non-overlapping (what both occurrence sources produce), so
+    /// `paintBackgrounds` binary-searches them the way it searches the search
+    /// matches. The owner pushes the on-screen slice only.
+    private var occurrenceRuns: [OccurrenceRun] = []
+
+    /// The enclosing element's tag names (0, 1 or 2 ranges): the opening name and,
+    /// when the element is closed, the closing one.
+    private var tagRanges: [NSRange] = []
 
     /// Every search-bar match currently highlighted, sorted ascending by
     /// `location` and non-overlapping (`TextSearchEngine.matches` produces them in
@@ -208,6 +234,33 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         repaintBackgrounds(clearing: cleared, clampingTo: storageLength)
     }
 
+    /// Replace the occurrence and selection-match runs, repainting the
+    /// backgrounds.
+    ///
+    /// The runs are the lowest background layer: the tag pair, the bracket pair
+    /// and the search matches all paint over them. Order in `runs` does not
+    /// matter — they are sorted here, so the paint path can binary-search them.
+    ///
+    /// An unchanged set is a no-op, for the same reason as `setPairRanges`: the
+    /// controller re-pushes on every settle and every scroll.
+    func setOccurrenceRuns(_ runs: [OccurrenceRun]) {
+        let sorted = runs.sorted { $0.range.location < $1.range.location }
+        guard sorted != occurrenceRuns else { return }
+        let cleared = backgroundRanges()
+        occurrenceRuns = sorted
+        repaintBackgrounds(clearing: cleared, clampingTo: storageLength)
+    }
+
+    /// Replace the enclosing element's tag-name ranges, repainting the
+    /// backgrounds. The tag pair paints over the occurrences and under the
+    /// bracket pair. An unchanged set is a no-op, as for `setPairRanges`.
+    func setTagRanges(_ ranges: [NSRange]) {
+        guard ranges != tagRanges else { return }
+        let cleared = backgroundRanges()
+        tagRanges = ranges
+        repaintBackgrounds(clearing: cleared, clampingTo: storageLength)
+    }
+
     /// Replace the search bar's matches and its current one, repainting the
     /// backgrounds.
     ///
@@ -233,8 +286,8 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         repaintBackgrounds(clearing: cleared, clampingTo: storageLength)
     }
 
-    /// Clear *every* background overlay — the caret's pair and the search
-    /// matches — in a coordinate space whose valid extent is `storageLength`,
+    /// Clear *every* background overlay — the occurrences, the tag pair, the
+    /// caret's pair and the search matches — in a coordinate space whose valid extent is `storageLength`,
     /// rather than the text storage's current length.
     ///
     /// This exists for the one caller that runs *inside*
@@ -248,12 +301,15 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// removes it. Passing the pre-edit length keeps the removal in the same space
     /// as the attributes it is removing.
     ///
-    /// Both overlays are dropped rather than shifted because both are recomputed
-    /// immediately after the edit anyway: the caret's pair by the selection-change
+    /// Every overlay is dropped rather than shifted because each is recomputed
+    /// after the edit anyway: the caret's pair by the selection-change
     /// notification that follows, the search highlight by
-    /// `EditorSearchController`'s re-run on the same edit.
+    /// `EditorSearchController`'s re-run on the same edit, the occurrences and the
+    /// tag pair by their controllers' next settle.
     func clearBackgrounds(storageLength: Int) {
         let cleared = backgroundRanges()
+        occurrenceRuns = []
+        tagRanges = []
         pairRanges = []
         searchRanges = []
         currentSearchRange = nil
@@ -1076,13 +1132,14 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
 
     /// **The only place in this class that adds a temporary `.backgroundColor`.**
     ///
-    /// It walks the three background caches in one fixed order — pair, then
-    /// matches, then the current match — so a later write wins: the current match
-    /// sits on top of an ordinary match, which sits on top of the caret's pair
-    /// highlight. Because that order lives in a single loop body shared by both
-    /// paint paths (the state setters via `repaintBackgrounds`, and Neon's
-    /// per-write repaint via `applyOverlays`), it is physically impossible for the
-    /// two to disagree — the highlight cannot change color depending on whether a
+    /// It walks the five background caches in one fixed order — occurrences
+    /// (and selection matches), then the tag pair, then the bracket pair, then
+    /// the search matches, then the current match — so a later write wins: the
+    /// current match sits on top of an ordinary match, which sits on top of the
+    /// caret's pair, which sits on the tag pair, which sits on the occurrences.
+    /// Because that order lives in a single loop body shared by both paint paths
+    /// (the state setters via `repaintBackgrounds`, and Neon's per-write repaint
+    /// via `applyOverlays`), it is physically impossible for the two to disagree — the highlight cannot change color depending on whether a
     /// scroll, a re-parse, or a ⌘G painted it last. **No other method may call
     /// `addTemporaryAttributes(.backgroundColor)` directly.**
     ///
@@ -1104,6 +1161,28 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         guard clip.length > 0 else { return }
         let theme = SyntaxTheme.shared
         let end = NSMaxRange(clip)
+
+        var runIndex = firstOccurrenceIndex(endingAfter: clip.location)
+        while runIndex < occurrenceRuns.count, occurrenceRuns[runIndex].range.location < end {
+            let run = occurrenceRuns[runIndex]
+            let intersection = NSIntersectionRange(run.range, clip)
+            if intersection.length > 0 {
+                addTemporaryAttributes(
+                    [.backgroundColor: occurrenceColor(for: run.kind, in: theme)],
+                    forCharacterRange: intersection
+                )
+            }
+            runIndex += 1
+        }
+
+        for tag in tagRanges {
+            let intersection = NSIntersectionRange(tag, clip)
+            guard intersection.length > 0 else { continue }
+            addTemporaryAttributes(
+                [.backgroundColor: theme.nsTagMatchBackground],
+                forCharacterRange: intersection
+            )
+        }
 
         for pair in pairRanges {
             let intersection = NSIntersectionRange(pair, clip)
@@ -1134,6 +1213,15 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
                     forCharacterRange: intersection
                 )
             }
+        }
+    }
+
+    /// The wash an occurrence run of `kind` paints in.
+    private func occurrenceColor(for kind: OccurrenceKind, in theme: SyntaxTheme) -> NSColor {
+        switch kind {
+        case .read: return theme.nsOccurrenceReadBackground
+        case .write: return theme.nsOccurrenceWriteBackground
+        case .selectionMatch: return theme.nsSelectionMatchBackground
         }
     }
 
@@ -1197,7 +1285,9 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// Every range the background caches currently describe, in no particular
     /// order — what a repaint has to clear before it repaints.
     private func backgroundRanges() -> [NSRange] {
-        var ranges = pairRanges
+        var ranges = occurrenceRuns.map(\.range)
+        ranges.append(contentsOf: tagRanges)
+        ranges.append(contentsOf: pairRanges)
         ranges.append(contentsOf: searchRanges)
         if let currentSearchRange { ranges.append(currentSearchRange) }
         return ranges
@@ -1206,7 +1296,8 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// Whether any background overlay is currently set (so a Neon write over a
     /// buffer with none skips the whole intersection walk).
     private var hasBackgroundOverlays: Bool {
-        !pairRanges.isEmpty || !searchRanges.isEmpty || currentSearchRange != nil
+        !occurrenceRuns.isEmpty || !tagRanges.isEmpty || !pairRanges.isEmpty
+            || !searchRanges.isEmpty || currentSearchRange != nil
     }
 
     /// Index of the first run whose range ends after `location` (the runs are
@@ -1234,6 +1325,21 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         while low < high {
             let mid = (low + high) / 2
             if NSMaxRange(searchRanges[mid]) <= location {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    /// `firstRunIndex(endingAfter:)` for the occurrence runs, sorted the same way.
+    private func firstOccurrenceIndex(endingAfter location: Int) -> Int {
+        var low = 0
+        var high = occurrenceRuns.count
+        while low < high {
+            let mid = (low + high) / 2
+            if NSMaxRange(occurrenceRuns[mid].range) <= location {
                 low = mid + 1
             } else {
                 high = mid

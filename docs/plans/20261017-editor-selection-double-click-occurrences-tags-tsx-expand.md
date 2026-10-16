@@ -124,16 +124,16 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Create: `Tests/PisakaAppTests/OccurrenceBackgroundTests.swift`
 - Modify: `Tests/PisakaAppTests/SyntaxThemeTests.swift`
 
-- [ ] Add four dynamic code-zone colours beside the bracket-match colour, each with light and dark values: `occurrenceReadBackground`, `occurrenceWriteBackground`, `selectionMatchBackground` (fainter) and `tagMatchBackground`. No chrome role is added, and the chrome-theme gating sets are unchanged.
-- [ ] In `BracketOverlayLayoutManager`, add `setOccurrenceRuns([(NSRange, kind)])` and `setTagRanges([NSRange])`. Both are no-ops when unchanged, as `setPairRanges` is.
+- [x] Add four dynamic code-zone colours beside the bracket-match colour, each with light and dark values: `occurrenceReadBackground`, `occurrenceWriteBackground`, `selectionMatchBackground` (fainter) and `tagMatchBackground`. No chrome role is added, and the chrome-theme gating sets are unchanged.
+- [x] In `BracketOverlayLayoutManager`, add `setOccurrenceRuns([(NSRange, kind)])` and `setTagRanges([NSRange])`. Both are no-ops when unchanged, as `setPairRanges` is.
   - Paint order, bottom to top: occurrences / selection matches, then tag pair, then bracket pair, then search matches, then the current search match.
   - `clearBackgrounds(storageLength:)` drops the new layers too.
-- [ ] App tests:
+- [x] App tests:
   - the layers paint and clear in that order;
   - unchanged input causes no repaint;
   - **AC4:** painting and clearing every layer leaves `undoManager.canUndo == false`, the string unchanged, and no `NSTextStorage` character edit (`editedMask` has no `.editedCharacters`);
   - colour light/dark values are distinct.
-- [ ] Run `make test-app` before Task 5.
+- [x] Run `make test-app` before Task 5.
 
 ### Task 5: Budgeted textual scans and highlight eligibility (Core, R2/R3)
 

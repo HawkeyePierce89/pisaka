@@ -108,6 +108,47 @@ final class SyntaxThemeTests: XCTestCase {
         }
     }
 
+    // MARK: - The overlay washes
+
+    /// The four editor-overlay washes, restated: occurrence read, occurrence
+    /// write, selection match, tag match. Opaque, like the table.
+    private static let expectedWashes: [(name: String, dark: UInt32, light: UInt32)] = [
+        ("occurrenceRead", 0x3D4160, 0xDEDCF7),
+        ("occurrenceWrite", 0x4E3240, 0xF6DDE6),
+        ("selectionMatch", 0x3A3E47, 0xE6E9EF),
+        ("tagMatch", 0x2F4A33, 0xD9EED8),
+    ]
+
+    private var washes: [NSColor] {
+        let theme = SyntaxTheme.shared
+        return [
+            theme.nsOccurrenceReadBackground,
+            theme.nsOccurrenceWriteBackground,
+            theme.nsSelectionMatchBackground,
+            theme.nsTagMatchBackground,
+        ]
+    }
+
+    /// Each wash resolves to its restated value in both appearances, its light
+    /// and dark values differ, and within each appearance the four differ from
+    /// one another and from the two search washes painted beside them.
+    func testTheOverlayWashesAreDistinctAndFollowTheAppearance() throws {
+        let theme = SyntaxTheme.shared
+        for (row, colour) in zip(Self.expectedWashes, washes) {
+            try assertComponents(resolved(colour, under: .darkAqua), equal: row.dark, "\(row.name), dark")
+            try assertComponents(resolved(colour, under: .aqua), equal: row.light, "\(row.name), light")
+            XCTAssertNotEqual(row.dark, row.light, "\(row.name) has one value for both appearances")
+        }
+        for name in [NSAppearance.Name.darkAqua, .aqua] {
+            let all = washes + [theme.nsSearchMatchBackground, theme.nsCurrentSearchMatchBackground]
+            let values = try all.map { colour -> [Int] in
+                let parts = try components(resolved(colour, under: name))
+                return [parts.r, parts.g, parts.b]
+            }
+            XCTAssertEqual(Set(values).count, values.count, "two overlay washes coincide under \(name.rawValue)")
+        }
+    }
+
     // MARK: - The rule
 
     /// No token kind resolves to a system semantic colour, in either appearance.
