@@ -12,6 +12,9 @@ import Foundation
 ///
 /// - `docs/RELEASING.md`'s anchored ``Pinned toolchain: Xcode `X.Y` `` phrase
 ///   (`ReleaseWorkflowTests.testReleasingDocNamesTheWorkflowPin`).
+/// - The `Makefile`'s `PINNED_XCODE ?= /Applications/Xcode_X.Y.app` default,
+///   under which every `xcodebuild` it issues runs
+///   (`LintConfigurationTests.testMakefileRunsXcodebuildUnderThePinnedXcode`).
 ///
 /// The workflows are read through `#filePath` with Foundation only, over the
 /// lines `activeYAMLLines(of:)` keeps — so a commented-out `xcode-version:`

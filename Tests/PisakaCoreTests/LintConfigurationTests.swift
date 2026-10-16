@@ -575,6 +575,147 @@ final class LintConfigurationTests: XCTestCase {
             Makefile no longer wires core.hooksPath, so running anything through \
             make leaves the clone without its local lint gate
             """)
+        let scan = scanMakefile(makefile)
+        let prerequisites = scan.prerequisites
+        let declaredPhony = scan.declaredPhony
+        XCTAssertTrue(prerequisites.keys.contains("test"), """
+            the Makefile target scan found no `test` target, so it is no longer reading \
+            the file it means to read
+            """)
+        XCTAssertFalse(declaredPhony.isEmpty, """
+            the Makefile declares no `.PHONY` targets, so the roster this scan checks \
+            itself against is gone
+            """)
+        for target in declaredPhony.sorted() {
+            XCTAssertNotNil(prerequisites[target], """
+                Makefile declares `\(target)` in `.PHONY` but this scan found no rule \
+                for it — either the declaration outlived the target, or the rule is \
+                written in a shape the scan can no longer read and would otherwise be \
+                silently exempt from the `hooks` requirement
+                """)
+        }
+
+        func reachesHooks(_ target: String, seen: Set<String> = []) -> Bool {
+            guard !seen.contains(target) else { return false }
+            guard let deps = prerequisites[target] else { return false }
+            if deps.contains("hooks") { return true }
+            return deps.contains { reachesHooks($0, seen: seen.union([target])) }
+        }
+
+        for target in prerequisites.keys.sorted() where target != "help" && target != "hooks" {
+            XCTAssertTrue(reachesHooks(target), """
+                Makefile's `\(target)` target does not reach `hooks` through its \
+                prerequisites, so invoking it leaves this clone's hooks unwired — which \
+                is the whole reason the Makefile exists beside the raw commands
+                """)
+        }
+    }
+
+    /// The app-layer gates are only worth running under the Xcode CI pins: a newer
+    /// local toolchain accepts what the pinned one refuses, which is how an
+    /// eleven-entry `.commands { }` passed every local gate and failed CI. So every
+    /// `xcodebuild` the Makefile issues runs under `DEVELOPER_DIR` pointed at
+    /// `PINNED_XCODE`, whose default names `XcodePin`'s version, and every target
+    /// issuing one first reaches `toolchain`, which refuses rather than falling back
+    /// to whatever `xcode-select` names. The roster is the one the `hooks` scan
+    /// reads, so a target that scan cannot attribute cannot dodge this rule either.
+    func testMakefileRunsXcodebuildUnderThePinnedXcode() throws {
+        let makefile = try read("Makefile")
+        let scan = scanMakefile(makefile)
+        let pinned = try XcodePin.pinnedVersion()
+        let prefix = "DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer"
+
+        // Comment-stripped, unindented non-recipe lines: where make's assignments live.
+        let topLevel = makefile.components(separatedBy: .newlines)
+            .filter { !$0.hasPrefix("\t") }
+            .map { String($0.prefix(while: { $0 != "#" })).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let assignments = topLevel.filter {
+            $0.hasPrefix("PINNED_XCODE") && $0.dropFirst("PINNED_XCODE".count)
+                .trimmingCharacters(in: .whitespaces).first.map { "?:+!=".contains($0) } == true
+        }
+        XCTAssertEqual(assignments.count, 1, """
+            the Makefile must assign PINNED_XCODE exactly once, as an overridable \
+            `PINNED_XCODE ?= /Applications/Xcode_\(pinned).app`; found \(assignments)
+            """)
+        if let only = assignments.first {
+            XCTAssertTrue(only.hasPrefix("PINNED_XCODE ?="), """
+                the Makefile assigns PINNED_XCODE with `\(only)`, which the command line \
+                or the environment cannot override as `?=` lets them
+                """)
+            let value = only.components(separatedBy: "=").dropFirst().joined(separator: "=")
+                .trimmingCharacters(in: .whitespaces)
+            XCTAssertEqual(value, "/Applications/Xcode_\(pinned).app", """
+                the Makefile's PINNED_XCODE default must name the Xcode the workflows pin \
+                (XcodePin: \(pinned)) — set it to /Applications/Xcode_\(pinned).app
+                """)
+        }
+
+        // Every xcodebuild in a recipe is the prefixed one: per command, the count of
+        // `xcodebuild` equals the count of the prefixed spelling.
+        func occurrences(of needle: String, in text: String) -> Int {
+            text.components(separatedBy: needle).count - 1
+        }
+        let invoking = Set(scan.recipes.filter { $0.value.contains { $0.contains("xcodebuild") } }.keys)
+        let unprefixed = scan.recipes.flatMap { target, commands in
+            commands.filter {
+                occurrences(of: "xcodebuild", in: $0) != occurrences(of: "\(prefix) xcodebuild", in: $0)
+            }.map { "\(target): \($0)" }
+        }
+        XCTAssertEqual(unprefixed, [], """
+            every xcodebuild the Makefile runs must be written `\(prefix) xcodebuild`, \
+            or it builds with whatever Xcode xcode-select names instead of the pinned one
+            """)
+        XCTAssertTrue(invoking.isSuperset(of: ["test-app", "build", "build-ios"]), """
+            the Makefile scan found xcodebuild only in \(invoking.sorted()), so it is no \
+            longer reading the recipes it means to read
+            """)
+
+        func reaches(_ goal: String, from target: String, seen: Set<String> = []) -> Bool {
+            if target == goal { return true }
+            guard !seen.contains(target), let deps = scan.prerequisites[target] else { return false }
+            return deps.contains { reaches(goal, from: $0, seen: seen.union([target])) }
+        }
+        for target in invoking.sorted() {
+            XCTAssertTrue(reaches("toolchain", from: target), """
+                Makefile's `\(target)` runs xcodebuild but does not reach `toolchain` \
+                through its prerequisites, so a missing pinned Xcode is not refused first
+                """)
+        }
+
+        let toolchain = try XCTUnwrap(scan.recipes["toolchain"], """
+            the Makefile has no `toolchain` recipe — the refusal that keeps xcodebuild \
+            off an unpinned Xcode
+            """).joined(separator: "\n")
+        XCTAssertTrue(toolchain.contains("test -d \"$(PINNED_XCODE)/Contents/Developer\""), """
+            the Makefile's `toolchain` recipe must test that $(PINNED_XCODE)/Contents/Developer \
+            is a directory before anything runs under it
+            """)
+        XCTAssertTrue(toolchain.contains("exit 1"), """
+            the Makefile's `toolchain` recipe never reaches `exit 1`, so a missing pinned \
+            Xcode is reported and then built past
+            """)
+        XCTAssertTrue(occurrences(of: "PINNED_XCODE=", in: toolchain) > 0, """
+            the Makefile's `toolchain` refusal must show the PINNED_XCODE= override
+            """)
+        XCTAssertFalse(toolchain.contains("xcode-select"), """
+            the Makefile's `toolchain` recipe must never fall back to xcode-select's Xcode
+            """)
+    }
+
+    /// What `scanMakefile` read off the `Makefile`: every rule's prerequisites
+    /// (unioned across the rule lines make unions), the `.PHONY` roster, and every
+    /// rule's recipe commands. One reading, shared by the `hooks` requirement and
+    /// the pinned-Xcode requirement, so the two can never judge different rosters.
+    private struct MakefileScan {
+        let prerequisites: [String: [String]]
+        let declaredPhony: Set<String>
+        let recipes: [String: [String]]
+    }
+
+    /// Reads every rule out of the `Makefile`, refusing (by `XCTFail`) every shape
+    /// the reading cannot attribute to a single target.
+    private func scanMakefile(_ makefile: String) -> MakefileScan {
         // Every target that does real work must reach `hooks` — directly or
         // through a prerequisite that does, which is how `build`, `build-ios`
         // and `test-app` reach it via `generate`. The list is **read from the
@@ -728,7 +869,17 @@ final class LintConfigurationTests: XCTestCase {
 
         var prerequisites: [String: [String]] = [:]
         var declaredPhony: Set<String> = []
+        var recipes: [String: [String]] = [:]
+        var currentRule: String?
         for rawLine in logicalLines(of: makefile) {
+            // A recipe line belongs to the rule above it, across blank and
+            // comment lines, until the next non-recipe line ends that rule.
+            // It is kept with its tab dropped and its continuations already
+            // folded, so one recipe command is one entry.
+            if rawLine.hasPrefix("\t") {
+                if let rule = currentRule { recipes[rule, default: []].append(String(rawLine.dropFirst())) }
+                continue
+            }
             // The recipe prefix is a *tab*, and only a tab — make reads a
             // space-indented line as an ordinary rule line. Treating all leading
             // whitespace as a recipe marker would skip `  smoke2:` outright,
@@ -737,6 +888,7 @@ final class LintConfigurationTests: XCTestCase {
             guard let first = rawLine.first, first != "\t", first != "#" else { continue }
             let line = rawLine.drop(while: { $0 == " " })
             guard let afterIndent = line.first, afterIndent != "#" else { continue }
+            currentRule = nil
             // Directives this scan does not interpret, refused rather than
             // ignored — ignoring one is the same silent exemption every shape
             // above is refused for. A *conditional* is the sharpest case: make
@@ -886,38 +1038,9 @@ final class LintConfigurationTests: XCTestCase {
             // and reports a `hooks` path make actually has as missing, so the
             // lists are appended the way `.PHONY` above is unioned.
             prerequisites[name, default: []].append(contentsOf: deps)
+            currentRule = name
         }
-        XCTAssertTrue(prerequisites.keys.contains("test"), """
-            the Makefile target scan found no `test` target, so it is no longer reading \
-            the file it means to read
-            """)
-        XCTAssertFalse(declaredPhony.isEmpty, """
-            the Makefile declares no `.PHONY` targets, so the roster this scan checks \
-            itself against is gone
-            """)
-        for target in declaredPhony.sorted() {
-            XCTAssertNotNil(prerequisites[target], """
-                Makefile declares `\(target)` in `.PHONY` but this scan found no rule \
-                for it — either the declaration outlived the target, or the rule is \
-                written in a shape the scan can no longer read and would otherwise be \
-                silently exempt from the `hooks` requirement
-                """)
-        }
-
-        func reachesHooks(_ target: String, seen: Set<String> = []) -> Bool {
-            guard !seen.contains(target) else { return false }
-            guard let deps = prerequisites[target] else { return false }
-            if deps.contains("hooks") { return true }
-            return deps.contains { reachesHooks($0, seen: seen.union([target])) }
-        }
-
-        for target in prerequisites.keys.sorted() where target != "help" && target != "hooks" {
-            XCTAssertTrue(reachesHooks(target), """
-                Makefile's `\(target)` target does not reach `hooks` through its \
-                prerequisites, so invoking it leaves this clone's hooks unwired — which \
-                is the whole reason the Makefile exists beside the raw commands
-                """)
-        }
+        return MakefileScan(prerequisites: prerequisites, declaredPhony: declaredPhony, recipes: recipes)
     }
 
     func testGeneratedProjectWiresTheHooksOnEveryBuild() throws {
