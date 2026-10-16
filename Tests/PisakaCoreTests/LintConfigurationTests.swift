@@ -58,6 +58,10 @@ import XCTest
 ///    `.swiftlint.yml`, and CLAUDE.md names the style authority too — setup
 ///    instructions that quietly disappear are this repository's documented
 ///    failure mode.
+///  * every `xcodebuild` the Makefile issues, and every one CLAUDE.md's
+///    Commands block spells, runs under `DEVELOPER_DIR` naming the Xcode the
+///    workflows pin (`XcodePin`) — a newer local toolchain accepts what the
+///    pinned one refuses;
 ///  * CLAUDE.md stays under the character ceiling it states for itself, and
 ///    states the ceiling this suite enforces — the file is loaded whole into
 ///    every session, it was once allowed to pass its stated target fourfold
@@ -700,6 +704,44 @@ final class LintConfigurationTests: XCTestCase {
             """)
         XCTAssertFalse(toolchain.contains("xcode-select"), """
             the Makefile's `toolchain` recipe must never fall back to xcode-select's Xcode
+            """)
+    }
+
+    /// CLAUDE.md's Commands block is the authority the Makefile wraps, so it states
+    /// the same toolchain: every command line in its `sh` block that starts with
+    /// `xcodebuild` or a `DEVELOPER_DIR=` assignment is spelled exactly
+    /// `DEVELOPER_DIR=/Applications/Xcode_<XcodePin>.app/Contents/Developer xcodebuild`.
+    /// Set equality between the two rosters, so a bare `xcodebuild` line and a
+    /// prefix naming another Xcode both fail. Continuation lines are not commands.
+    func testClaudeMdCommandsRunUnderThePinnedXcode() throws {
+        let text = try read(Self.instructionFilePath)
+        let pinned = try XcodePin.pinnedVersion()
+        let prefix = "DEVELOPER_DIR=/Applications/Xcode_\(pinned).app/Contents/Developer xcodebuild"
+
+        let commands = try XCTUnwrap(text.range(of: "## Commands"), """
+            \(Self.instructionFilePath) has no `## Commands` section, so the raw commands \
+            this rule pins are gone
+            """)
+        let opening = try XCTUnwrap(text.range(of: "```sh\n", range: commands.upperBound..<text.endIndex), """
+            \(Self.instructionFilePath)'s Commands section has no ```sh block
+            """)
+        let closing = try XCTUnwrap(text.range(of: "\n```", range: opening.upperBound..<text.endIndex), """
+            \(Self.instructionFilePath)'s Commands ```sh block is never closed
+            """)
+        let lines = text[opening.upperBound..<closing.lowerBound].components(separatedBy: .newlines)
+
+        let starting = Set(lines.filter { $0.hasPrefix("xcodebuild") || $0.hasPrefix("DEVELOPER_DIR=") })
+        let prefixed = Set(lines.filter { $0.hasPrefix(prefix) })
+        XCTAssertGreaterThanOrEqual(starting.count, 4, """
+            \(Self.instructionFilePath)'s Commands block holds \(starting.count) xcodebuild command \
+            lines; the test, the two builds and the archive make four, so this rule is no \
+            longer reading the block it means to read
+            """)
+        XCTAssertEqual(starting.subtracting(prefixed).sorted(), [], """
+            every xcodebuild command in \(Self.instructionFilePath)'s Commands block must start \
+            `\(prefix)` — the Xcode the workflows pin (XcodePin: \(pinned)), which the \
+            Makefile reads from PINNED_XCODE — or it runs under whatever Xcode xcode-select \
+            names, which proves nothing
             """)
     }
 

@@ -15,6 +15,9 @@ import Foundation
 /// - The `Makefile`'s `PINNED_XCODE ?= /Applications/Xcode_X.Y.app` default,
 ///   under which every `xcodebuild` it issues runs
 ///   (`LintConfigurationTests.testMakefileRunsXcodebuildUnderThePinnedXcode`).
+/// - `CLAUDE.md`'s Commands block, whose every `xcodebuild` command is prefixed
+///   `DEVELOPER_DIR=/Applications/Xcode_X.Y.app/Contents/Developer`
+///   (`LintConfigurationTests.testClaudeMdCommandsRunUnderThePinnedXcode`).
 ///
 /// The workflows are read through `#filePath` with Foundation only, over the
 /// lines `activeYAMLLines(of:)` keeps — so a commented-out `xcode-version:`
