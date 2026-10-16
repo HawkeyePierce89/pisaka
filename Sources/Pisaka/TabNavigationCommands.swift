@@ -18,9 +18,9 @@ import SwiftUI
 /// **Why a type of its own.** `PisakaApp`'s `.commands` builder held ten
 /// entries, the most a `CommandsBuilder` block accepted in the then-pinned
 /// Xcode 16.4 SDK; an eleventh compiled on a newer toolchain and failed on CI
-/// (`error: extra argument in call`). The ceiling is now whatever the pinned
-/// SDK declares (`app-shell.md`), and a new command type joins a `Group`
-/// whatever the figure. So this type and `FoldCommands`
+/// (`error: extra argument in call`). The working ceiling stays ten
+/// (`app-shell.md`), and a new command type joins a `Group` rather than
+/// adding an entry. So this type and `FoldCommands`
 /// share one entry, a `Group`, and the items live in a view of their own, as
 /// the LeetCode menu's do, so *it* observes the workspace and the scene's body
 /// does not re-render on every tab change.

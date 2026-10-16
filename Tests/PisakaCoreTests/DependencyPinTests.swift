@@ -69,8 +69,10 @@ import XCTest
 /// this file (`ReleaseWorkflowTests.testCIRefusesARewrittenPackageResolved`), on
 /// every run — from scratch on a cache miss, and its SwiftPM cache is keyed by
 /// the Xcode as well as by this file, so the first run under a new pin is one.
-/// Xcode 26.3's fresh-clone behaviour, as that step first observed it: recorded
-/// from the pull request that moved the pin (pending its CI run).
+/// Xcode 26.3's fresh-clone behaviour, as that step first observed it on the
+/// pull request that moved the pin: on a cache miss (key
+/// `spm-Xcode-26.3-…`, nothing restored) resolution left this v2 file
+/// byte-identical, so an unchanged pin set causes no rewrite under 26.3.
 final class DependencyPinTests: XCTestCase {
     /// A dependency whose *requirement* is a branch, so its recorded revision is
     /// the whole pin: the revision the project builds against, and the reason

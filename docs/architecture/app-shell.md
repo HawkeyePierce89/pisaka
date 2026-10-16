@@ -1501,14 +1501,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file outside the root builds none and reveals nothing.
     **The Window menu** gains the tab-navigation commands, which live in
     `TabNavigationCommands.swift` (below) and enter the scene's `.commands` builder
-    as one `Group` entry shared with `FoldCommands()`. **That builder's ceiling is
-    whatever the pinned Xcode's SDK declares** (`XcodePin`, `docs/RELEASING.md`):
-    on Xcode 26.3 it is _(to be read off the PR's CommandsBuilder probe)_. The
-    ceiling was found on the then-pinned Xcode 16.4 SDK, whose `CommandsBuilder`
-    declares `buildBlock` up to ten children: an eleventh entry compiled on a newer
-    local toolchain and failed on CI with `extra argument in call`. Whatever the
-    pinned figure, a new command type joins an existing `Group` rather than
-    adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
+    as one `Group` entry shared with `FoldCommands()`. **That builder holds ten
+    entries at most.** The ceiling was found on the then-pinned Xcode 16.4, whose
+    SDK's `CommandsBuilder` declares `buildBlock` up to ten children: an eleventh
+    entry compiled on a newer local toolchain and failed on CI with `extra
+    argument in call`. The pinned Xcode 26.3 (`XcodePin`, `docs/RELEASING.md`)
+    ships MacOSX26.2.sdk, whose `CommandsBuilder` declares the same `buildBlock`
+    overloads — none, one, and two through ten children — and no
+    `buildPartialBlock`, as read off its `swiftinterface` by a one-off CI probe on
+    the pull request that moved the pin. **The declarations are not the whole
+    rule**: the local Xcode 27.1's SDK declares the same ten and its compiler
+    still accepted eleven, so what a toolchain compiles is the compiler's answer,
+    not the SDK's. Whether 26.3's compiler accepts eleven was not tried; the
+    working ceiling is ten, and a new command type joins an existing `Group`
+    rather than adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
     before `keyDown`, SwiftTerm's `TerminalView` overrides `keyDown` but not
     `performKeyEquivalent` (read at the pinned revision), and the app's only two
     `performKeyEquivalent` overrides — the editor's text view and Local Changes'
