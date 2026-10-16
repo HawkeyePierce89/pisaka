@@ -78,19 +78,19 @@ The controller does not change. It still clears its own table and prefetches on 
 - Modify: `Sources/PisakaCore/LSPIntelligenceProvider.swift`
 - Modify: `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`
 
-- [ ] Add tests (they should fail before the implementation):
+- [x] Add tests (they should fail before the implementation):
   - **One resolve across three steps.** `fo` (request), then `foob` (narrow), then `fooba` (narrow), against a complete answer with a deferring item, resolving the top row after each step. `transport.requests(for: LSPMethod.resolveCompletionItem).count == 1`. The edits after the second and third steps equal what a fresh provider resolves for a fresh request at `foob` and at `fooba`, so the ranges are re-expressed for the longer word. Follow the `testANarrowedHandleResolvesWhatAFreshHandleResolves` pattern.
   - **A newer complete answer starts a fresh cache.** After a resolve, a fresh `completionAnswer(for:)` followed by resolving the same label costs exactly one more resolve.
   - **A failure is not cached.** Script `.fail(…)` and then `.reply(…)` for the resolve. The first resolve answers `[]`, and the next ask on a narrowed row sends a second request and answers the edits.
   - **A timeout is not cached.** Leave the resolve unanswered under the `quick` budgets so the first ask times out with `[]`, then script a reply. The next ask sends a second request.
   - **In-flight dedup.** Use the existing `onSend` + `Gate` pattern (as in the `foldRegions` folder-switch test), with no test seam on the provider: hold the first resolve's send in `onSend` with `gate.wait()`, start the first `resolveEdits`, `await gate.waitUntilReached()`, only then start a second `resolveEdits` for the same item through the narrowed handle, release the gate, and await both. Assert exactly one `completionItem/resolve` request on the transport and two equal, non-empty answers; a second request from the second caller would show up in that count.
   - **The existing superseded-handle test stays green.** `testAHandleFromASupersededListResolvesToNothing` still holds: a handle the shown and staged tables no longer hold answers `[]` before the cache is consulted.
-- [ ] Give `PendingResolve` an optional cache key (list handle, raw index). Give `publish` an optional `retainedHandle` parameter and record `entry.offset` under it for each deferred item. Pass `listToken` from `completionAnswer(for:)` when the response is complete, and `list.handle` from `narrowedList`.
-- [ ] Add the `ResolveCache` state beside `retainedList`, and replace it inside `retain`, under the same token check as the slot.
-- [ ] Add synchronous, lock-taking helpers for the cache: look up the result or the in-flight task, or register a new task; and complete a key by storing or dropping its result and removing its in-flight entry. Each helper checks that the cache still belongs to the key's list handle.
-- [ ] Change `resolveEdits(for:)` so it obtains the resolved item through the cache when the key matches the current cache, and through a direct `try? await` otherwise. Leave the edit construction and the `shifted` call unchanged.
-- [ ] Update the class doc comment's "only mutable state" sentence and the `PendingResolve` / `RetainedList` doc comments so they name the cache, its bound and the in-flight ownership cost.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] Give `PendingResolve` an optional cache key (list handle, raw index). Give `publish` an optional `retainedHandle` parameter and record `entry.offset` under it for each deferred item. Pass `listToken` from `completionAnswer(for:)` when the response is complete, and `list.handle` from `narrowedList`.
+- [x] Add the `ResolveCache` state beside `retainedList`, and replace it inside `retain`, under the same token check as the slot.
+- [x] Add synchronous, lock-taking helpers for the cache: look up the result or the in-flight task, or register a new task; and complete a key by storing or dropping its result and removing its in-flight entry. Each helper checks that the cache still belongs to the key's list handle.
+- [x] Change `resolveEdits(for:)` so it obtains the resolved item through the cache when the key matches the current cache, and through a direct `try? await` otherwise. Leave the edit construction and the `shifted` call unchanged.
+- [x] Update the class doc comment's "only mutable state" sentence and the `PendingResolve` / `RetainedList` doc comments so they name the cache, its bound and the in-flight ownership cost.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: Documentation corrections and the cache's doc entries
 

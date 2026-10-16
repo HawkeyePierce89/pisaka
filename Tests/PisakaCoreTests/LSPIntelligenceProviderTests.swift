@@ -2928,6 +2928,139 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(narrowedEdits, freshEdits)
     }
 
+    // MARK: - Resolve cache
+
+    /// The edits a fresh provider resolves for the top row of a fresh request at
+    /// `word` — the reference every cached answer must equal.
+    private func freshResolve(at word: String) async throws -> [CompletionEdit] {
+        let saved = harness
+        defer { harness = saved }
+        harness = Harness()
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let other = makeProvider()
+        let fresh = await other.completions(for: narrowingRequest(word))
+        return await other.resolveEdits(for: try XCTUnwrap(fresh.first))
+    }
+
+    /// `fo` asked, `foob` and `fooba` narrowed, the top row resolved after each
+    /// step: one resolve on the wire, and each narrowed answer re-expressed for
+    /// its own word exactly as a fresh request there would resolve it.
+    func testANarrowedRowIsResolvedFromTheRetainedListsCache() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let first = await provider.resolveEdits(for: try XCTUnwrap(answer.items.first))
+        XCTAssertEqual(first.map(\.newText), ["foobar", "import Bar\n"])
+
+        let foobAnswer = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let foob = await provider.resolveEdits(for: try XCTUnwrap(foobAnswer?.first))
+        let foobaAnswer = await provider.narrow(retained, for: narrowingRequest("fooba"))
+        let fooba = await provider.resolveEdits(for: try XCTUnwrap(foobaAnswer?.first))
+
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 1)
+        let freshFoob = try await freshResolve(at: "foob")
+        let freshFooba = try await freshResolve(at: "fooba")
+        XCTAssertFalse(freshFoob.isEmpty)
+        XCTAssertEqual(foob, freshFoob)
+        XCTAssertEqual(fooba, freshFooba)
+        XCTAssertEqual(fooba.first?.range.length, 5, "the primary edit covers `fooba`")
+    }
+
+    /// A newer complete answer is a new retained list, with a cache of its own.
+    func testANewerCompleteAnswerStartsAFreshResolveCache() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let first = await provider.completionAnswer(for: narrowingRequest("fo"))
+        _ = await provider.resolveEdits(for: try XCTUnwrap(first.items.first))
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 1)
+
+        let second = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let row = try XCTUnwrap(second.items.first)
+        XCTAssertEqual(row.text, "foobar")
+        let edits = await provider.resolveEdits(for: row)
+
+        XCTAssertFalse(edits.isEmpty)
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+    }
+
+    /// A failed resolve is not cached: the next ask on a narrowed row asks again.
+    func testAFailedResolveIsNotCached() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, [
+            .fail(LSPResponseError(code: .internalError, message: "internal error")),
+            .reply(narrowingResolve),
+        ])
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let failed = await provider.resolveEdits(for: try XCTUnwrap(answer.items.first))
+        XCTAssertTrue(failed.isEmpty)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let edits = await provider.resolveEdits(for: try XCTUnwrap(narrowed?.first))
+
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+        XCTAssertEqual(edits.map(\.newText), ["foobar", "import Bar\n"])
+    }
+
+    /// A resolve that timed out is not cached either.
+    func testATimedOutResolveIsNotCached() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, [.drop, .reply(narrowingResolve)])
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let timedOut = await provider.resolveEdits(for: try XCTUnwrap(answer.items.first))
+        XCTAssertTrue(timedOut.isEmpty)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let edits = await provider.resolveEdits(for: try XCTUnwrap(narrowed?.first))
+
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 2)
+        XCTAssertEqual(edits.map(\.newText), ["foobar", "import Bar\n"])
+    }
+
+    /// A second ask for an item whose resolve is still on the wire awaits that
+    /// resolve rather than sending its own.
+    ///
+    /// Staged through the transport's write hook: the first resolve is held
+    /// inside `send`, so the second caller provably asks while it is in flight.
+    func testASecondAskWhileTheResolveIsInFlightSharesIt() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let top = try XCTUnwrap(answer.items.first)
+        // On screen, as the controller would have it, so the narrow staging its
+        // own table leaves `top`'s handle resolvable.
+        provider.showCompletionList(answer.items)
+        let narrowedAnswer = await provider.narrow(retained, for: narrowingRequest("fo"))
+        let narrowedTop = try XCTUnwrap(narrowedAnswer?.first)
+        let gate = Gate()
+        // Only the first resolve is held: a second one on the wire is what the
+        // count below refuses, and holding it too would hang rather than fail.
+        transport.onSend { method in
+            guard method == LSPMethod.resolveCompletionItem, !gate.reached else { return }
+            gate.wait()
+        }
+
+        let firstAsk = Task { await provider.resolveEdits(for: top) }
+        await gate.waitUntilReached()
+        let secondAsk = Task { await provider.resolveEdits(for: narrowedTop) }
+        gate.release()
+        let first = await firstAsk.value
+        let second = await secondAsk.value
+
+        XCTAssertEqual(transport.requests(for: LSPMethod.resolveCompletionItem).count, 1)
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertEqual(first, second)
+    }
+
     /// An incomplete answer is never retained, so every keystroke asks again.
     func testAnIncompleteAnswerIsNotRetainedAndEveryKeystrokeAsks() async {
         transport.script(LSPMethod.completion, .reply(narrowingItems(isIncomplete: true)))
