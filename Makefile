@@ -19,9 +19,10 @@ SCHEME := Pisaka
 # workflow pin (docs/RELEASING.md). A newer local toolchain accepts code the
 # pinned one refuses, so the app-layer gates are only worth running under this
 # one. Override from the command line or the environment to point at another
-# copy of the same release; `toolchain` refuses when it is missing rather than
-# falling back to whatever xcode-select names.
-PINNED_XCODE ?= /Applications/Xcode_26.3.app
+# copy of the same release; `toolchain` refuses when it is missing, or is some
+# other release, rather than falling back to whatever xcode-select names.
+PINNED_XCODE_VERSION := 26.3
+PINNED_XCODE ?= /Applications/Xcode_$(PINNED_XCODE_VERSION).app
 
 .PHONY: help setup hooks toolchain generate test test-app lint build build-ios all
 
@@ -50,13 +51,19 @@ toolchain: hooks ## Refuse unless the Xcode CI pins is installed at PINNED_XCODE
 		echo "  make test-app PINNED_XCODE=/path/to/$(notdir $(PINNED_XCODE))"; \
 		exit 1; \
 	}
-	DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer xcodebuild -version
+	@actual="$$(DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -version | head -n 1)"; \
+	test "$$actual" = "Xcode $(PINNED_XCODE_VERSION)" || { \
+		echo "$(PINNED_XCODE) is $$actual, not the pinned Xcode $(PINNED_XCODE_VERSION)."; \
+		echo "A different release proves nothing about what CI accepts; point PINNED_XCODE="; \
+		echo "at a copy of Xcode $(PINNED_XCODE_VERSION) instead."; \
+		exit 1; \
+	}
 
 test: hooks ## Run the PisakaCore suite (no dependencies to install)
 	swift test
 
 test-app: toolchain generate ## Run the app-layer test bundle (PisakaAppTests)
-	DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_MACOS)' test
 
 lint: hooks ## Run the style gate exactly as CI runs it
@@ -66,11 +73,11 @@ generate: hooks ## Regenerate Pisaka.xcodeproj from project.yml
 	xcodegen generate
 
 build: toolchain generate ## Build the macOS app in the configuration that ships
-	DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_MACOS)' -configuration Release build
 
 build-ios: toolchain generate ## Build the iOS app for a device (what CI builds)
-	DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_IOS)' build
 
 all: lint test test-app build build-ios ## Everything CI runs, in CI's order

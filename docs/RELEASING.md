@@ -83,7 +83,7 @@ unsigned command below is the build-number mechanism, verified end to end.
 
 ```sh
 xcodegen generate
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
   -destination 'generic/platform=macOS' \
   -archivePath build.noindex/Pisaka-macOS.xcarchive \
   CURRENT_PROJECT_VERSION=7 \
@@ -471,9 +471,13 @@ the failure. 26.3 is the newest Xcode present on both the `macos-15` and the
 developer can also run, without the runner move in the same change; moving the
 jobs to `macos-26` is a separate follow-up. The `Makefile` runs every
 `xcodebuild` it issues under `/Applications/Xcode_26.3.app` through
-`DEVELOPER_DIR` and **refuses** when that Xcode is missing rather than falling
-back to `xcode-select`'s; installing it there is a human step on each
-development machine (or pass `PINNED_XCODE=/path/to/Xcode_26.3.app`).
+`DEVELOPER_DIR` and **refuses** when that Xcode is missing, or reports some
+other release, rather than falling back to `xcode-select`'s; installing it there
+is a human step on each development machine (or pass
+`PINNED_XCODE=/path/to/Xcode_26.3.app`). Every `xcodebuild` this document spells
+carries the same `DEVELOPER_DIR` prefix — the Sparkle re-derive below resolves
+packages, and a resolution under another Xcode can rewrite the committed
+`Package.resolved` into a schema CI then refuses.
 
 The workflow then, in order:
 
@@ -1210,7 +1214,7 @@ a pushed tag, after the archive. Re-derive them first:
 # it the resolve below fails with "does not exist" on a clean checkout — on the
 # one path whose alternative is guessing the two path lists.
 xcodegen generate
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
   -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
 FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
 

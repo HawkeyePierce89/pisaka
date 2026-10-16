@@ -599,15 +599,8 @@ final class LintConfigurationTests: XCTestCase {
                 """)
         }
 
-        func reachesHooks(_ target: String, seen: Set<String> = []) -> Bool {
-            guard !seen.contains(target) else { return false }
-            guard let deps = prerequisites[target] else { return false }
-            if deps.contains("hooks") { return true }
-            return deps.contains { reachesHooks($0, seen: seen.union([target])) }
-        }
-
         for target in prerequisites.keys.sorted() where target != "help" && target != "hooks" {
-            XCTAssertTrue(reachesHooks(target), """
+            XCTAssertTrue(scan.reaches("hooks", from: target), """
                 Makefile's `\(target)` target does not reach `hooks` through its \
                 prerequisites, so invoking it leaves this clone's hooks unwired — which \
                 is the whole reason the Makefile exists beside the raw commands
@@ -627,31 +620,39 @@ final class LintConfigurationTests: XCTestCase {
         let makefile = try read("Makefile")
         let scan = scanMakefile(makefile)
         let pinned = try XcodePin.pinnedVersion()
-        let prefix = "DEVELOPER_DIR=$(PINNED_XCODE)/Contents/Developer"
+        let prefix = "DEVELOPER_DIR=\"$(PINNED_XCODE)/Contents/Developer\""
 
         // Comment-stripped, unindented non-recipe lines: where make's assignments live.
         let topLevel = makefile.components(separatedBy: .newlines)
             .filter { !$0.hasPrefix("\t") }
             .map { String($0.prefix(while: { $0 != "#" })).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        let assignments = topLevel.filter {
-            $0.hasPrefix("PINNED_XCODE") && $0.dropFirst("PINNED_XCODE".count)
-                .trimmingCharacters(in: .whitespaces).first.map { "?:+!=".contains($0) } == true
+        func assignments(of variable: String) -> [String] {
+            topLevel.filter {
+                $0.hasPrefix(variable) && $0.dropFirst(variable.count)
+                    .trimmingCharacters(in: .whitespaces).first.map { "?:+!=".contains($0) } == true
+            }
         }
-        XCTAssertEqual(assignments.count, 1, """
-            the Makefile must assign PINNED_XCODE exactly once, as an overridable \
-            `PINNED_XCODE ?= /Applications/Xcode_\(pinned).app`; found \(assignments)
+        XCTAssertEqual(assignments(of: "PINNED_XCODE_VERSION"), ["PINNED_XCODE_VERSION := \(pinned)"], """
+            the Makefile must assign PINNED_XCODE_VERSION exactly once, as \
+            `PINNED_XCODE_VERSION := \(pinned)` — the version `toolchain` holds the selected \
+            Xcode to (XcodePin: \(pinned))
             """)
-        if let only = assignments.first {
+        let pinnedAssignments = assignments(of: "PINNED_XCODE")
+        XCTAssertEqual(pinnedAssignments.count, 1, """
+            the Makefile must assign PINNED_XCODE exactly once, as an overridable \
+            `PINNED_XCODE ?= /Applications/Xcode_$(PINNED_XCODE_VERSION).app`; found \(pinnedAssignments)
+            """)
+        if let only = pinnedAssignments.first {
             XCTAssertTrue(only.hasPrefix("PINNED_XCODE ?="), """
                 the Makefile assigns PINNED_XCODE with `\(only)`, which the command line \
                 or the environment cannot override as `?=` lets them
                 """)
             let value = only.components(separatedBy: "=").dropFirst().joined(separator: "=")
                 .trimmingCharacters(in: .whitespaces)
-            XCTAssertEqual(value, "/Applications/Xcode_\(pinned).app", """
+            XCTAssertEqual(value, "/Applications/Xcode_$(PINNED_XCODE_VERSION).app", """
                 the Makefile's PINNED_XCODE default must name the Xcode the workflows pin \
-                (XcodePin: \(pinned)) — set it to /Applications/Xcode_\(pinned).app
+                through PINNED_XCODE_VERSION — set it to /Applications/Xcode_$(PINNED_XCODE_VERSION).app
                 """)
         }
 
@@ -675,29 +676,43 @@ final class LintConfigurationTests: XCTestCase {
             longer reading the recipes it means to read
             """)
 
-        func reaches(_ goal: String, from target: String, seen: Set<String> = []) -> Bool {
-            if target == goal { return true }
-            guard !seen.contains(target), let deps = scan.prerequisites[target] else { return false }
-            return deps.contains { reaches(goal, from: $0, seen: seen.union([target])) }
-        }
         for target in invoking.sorted() {
-            XCTAssertTrue(reaches("toolchain", from: target), """
+            XCTAssertTrue(scan.reaches("toolchain", from: target), """
                 Makefile's `\(target)` runs xcodebuild but does not reach `toolchain` \
                 through its prerequisites, so a missing pinned Xcode is not refused first
                 """)
         }
 
-        let toolchain = try XCTUnwrap(scan.recipes["toolchain"], """
+        let toolchainCommands = try XCTUnwrap(scan.recipes["toolchain"], """
             the Makefile has no `toolchain` recipe — the refusal that keeps xcodebuild \
             off an unpinned Xcode
-            """).joined(separator: "\n")
-        XCTAssertTrue(toolchain.contains("test -d \"$(PINNED_XCODE)/Contents/Developer\""), """
-            the Makefile's `toolchain` recipe must test that $(PINNED_XCODE)/Contents/Developer \
-            is a directory before anything runs under it
             """)
-        XCTAssertTrue(toolchain.contains("exit 1"), """
-            the Makefile's `toolchain` recipe never reaches `exit 1`, so a missing pinned \
-            Xcode is reported and then built past
+        let toolchain = toolchainCommands.joined(separator: "\n")
+        // make ignores a failing command written `-cmd` (or `@-cmd`), so a refusal
+        // carrying that prefix reports the missing Xcode and then builds past it.
+        XCTAssertEqual(toolchainCommands.filter { $0.drop(while: { $0 == "@" }).hasPrefix("-") }, [], """
+            the Makefile's `toolchain` recipe must not prefix a command with `-` — make \
+            ignores that command's failure, so the refusal would be built past
+            """)
+        // The two refusals, each a test whose failure — and only its failure — runs
+        // the block that exits; `exit 1` is checked with the echoed text stripped, so
+        // a message merely mentioning it cannot stand in for it.
+        let unquoted = toolchainCommands.map { $0.replacingOccurrences(of: #"echo "[^"]*""#, with: "echo",
+                                                                        options: .regularExpression) }
+        let refusals = [
+            "test -d \"$(PINNED_XCODE)/Contents/Developer\" || {",
+            "test \"$$actual\" = \"Xcode $(PINNED_XCODE_VERSION)\" || {",
+        ]
+        for check in refusals {
+            XCTAssertEqual(unquoted.filter { $0.contains(check) && $0.contains("exit 1") }.count, 1, """
+                the Makefile's `toolchain` recipe must refuse with `\(check) …; exit 1; }` — \
+                the directory check catches a missing pinned Xcode, the version check one \
+                that is some other release
+                """)
+        }
+        XCTAssertTrue(toolchain.contains("actual=\"$$(\(prefix) xcodebuild -version | head -n 1)\""), """
+            the Makefile's `toolchain` recipe must read the version of the Xcode at \
+            PINNED_XCODE itself, under the same DEVELOPER_DIR every build uses
             """)
         XCTAssertTrue(occurrences(of: "PINNED_XCODE=", in: toolchain) > 0, """
             the Makefile's `toolchain` refusal must show the PINNED_XCODE= override
@@ -753,6 +768,13 @@ final class LintConfigurationTests: XCTestCase {
         let prerequisites: [String: [String]]
         let declaredPhony: Set<String>
         let recipes: [String: [String]]
+
+        /// Whether `goal` is `target` itself or reachable through its prerequisites.
+        func reaches(_ goal: String, from target: String, seen: Set<String> = []) -> Bool {
+            if target == goal { return true }
+            guard !seen.contains(target), let deps = prerequisites[target] else { return false }
+            return deps.contains { reaches(goal, from: $0, seen: seen.union([target])) }
+        }
     }
 
     /// Reads every rule out of the `Makefile`, refusing (by `XCTFail`) every shape

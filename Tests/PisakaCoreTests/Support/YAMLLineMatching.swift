@@ -67,3 +67,53 @@ func topLevelBlock(_ key: String, in text: String) -> [String]? {
     }
     return entries
 }
+
+/// A workflow's active lines with their indentation retained: blank and
+/// whole-line comment lines dropped, so a commented-out step or key cannot
+/// count, but a step's extent and its owning job are indentation facts.
+private func indentedActiveYAMLLines(of text: String) -> [String] {
+    text.components(separatedBy: .newlines).filter {
+        let trimmed = $0.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+    }
+}
+
+private func yamlIndent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+
+/// The ids of a workflow's jobs, in file order: every two-space key under the
+/// top-level `jobs:`.
+func workflowJobs(in text: String) -> [String] {
+    let lines = indentedActiveYAMLLines(of: text)
+    guard let start = lines.firstIndex(of: "jobs:") else { return [] }
+    return lines[(start + 1)...].prefix { yamlIndent($0) > 0 }
+        .filter { yamlIndent($0) == 2 && $0.hasSuffix(":") }
+        .map { String($0.trimmingCharacters(in: .whitespaces).dropLast()) }
+}
+
+/// The steps of one job, each as its trimmed active lines (the first being the
+/// `- ` line that opens it). One reading shared by every suite that asks what a
+/// job's steps are, so two rules can never read the same workflow differently.
+func workflowJobSteps(_ job: String, in text: String) -> [[String]] {
+    let lines = indentedActiveYAMLLines(of: text)
+    guard let jobs = lines.firstIndex(of: "jobs:") else { return [] }
+    let jobsBody = lines[(jobs + 1)...].prefix { yamlIndent($0) > 0 }
+    guard let start = jobsBody.firstIndex(of: "  \(job):") else { return [] }
+    let body = jobsBody[(start + 1)...].prefix { yamlIndent($0) > 2 }
+    guard let stepsKey = body.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "steps:" }) else {
+        return []
+    }
+    let keyIndent = yamlIndent(body[stepsKey])
+    let stepLines = body[(stepsKey + 1)...].prefix { yamlIndent($0) > keyIndent }
+    guard let stepIndent = stepLines.first.map(yamlIndent) else { return [] }
+
+    var steps: [[String]] = []
+    for line in stepLines {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if yamlIndent(line) == stepIndent, trimmed.hasPrefix("- ") {
+            steps.append([trimmed])
+        } else if !steps.isEmpty {
+            steps[steps.count - 1].append(trimmed)
+        }
+    }
+    return steps
+}

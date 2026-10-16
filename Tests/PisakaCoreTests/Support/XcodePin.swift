@@ -10,10 +10,14 @@ import Foundation
 /// version on its own authority; every other spelling of it is a reader checked
 /// against this value:
 ///
-/// - `docs/RELEASING.md`'s anchored ``Pinned toolchain: Xcode `X.Y` `` phrase
+/// - `docs/RELEASING.md`'s anchored ``Pinned toolchain: Xcode `X.Y` `` phrase,
+///   and every `xcodebuild` command line it spells, prefixed
+///   `DEVELOPER_DIR=/Applications/Xcode_X.Y.app/Contents/Developer`
 ///   (`ReleaseWorkflowTests.testReleasingDocNamesTheWorkflowPin`).
-/// - The `Makefile`'s `PINNED_XCODE ?= /Applications/Xcode_X.Y.app` default,
-///   under which every `xcodebuild` it issues runs
+/// - The `Makefile`'s `PINNED_XCODE_VERSION := X.Y`, which both names the
+///   `PINNED_XCODE ?= /Applications/Xcode_$(PINNED_XCODE_VERSION).app` default
+///   every `xcodebuild` it issues runs under and is what `toolchain` holds that
+///   Xcode's reported version to
 ///   (`LintConfigurationTests.testMakefileRunsXcodebuildUnderThePinnedXcode`).
 /// - `CLAUDE.md`'s Commands block, whose every `xcodebuild` command is prefixed
 ///   `DEVELOPER_DIR=/Applications/Xcode_X.Y.app/Contents/Developer`
@@ -27,10 +31,10 @@ import Foundation
 /// `CommandsBuilder` ceiling as read off that SDK, and `DependencyPinTests`'
 /// doc comment on that Xcode's fresh-clone `Package.resolved` behaviour.
 ///
-/// The workflows are read through `#filePath` with Foundation only, over the
-/// lines `activeYAMLLines(of:)` keeps — so a commented-out `xcode-version:`
-/// cannot count — but with their indentation retained, because a step's extent
-/// and its owning job are both indentation facts.
+/// The workflows are read through `#filePath` with Foundation only, through the
+/// shared `workflowJobs(in:)` / `workflowJobSteps(_:in:)` reading — so a
+/// commented-out `xcode-version:` cannot count, and a step's extent and its
+/// owning job come from the indentation that states them.
 enum XcodePin {
     /// The two workflows that install an Xcode, by file name under
     /// `.github/workflows/`.
@@ -56,7 +60,8 @@ enum XcodePin {
         var description: String {
             """
             The setup-xcode steps in \(XcodePin.workflows.joined(separator: " and ")) must all pin one \
-            Xcode, and each must carry exactly one `xcode-version:`. Found: \
+            Xcode, as an exact release (`26.3`), and each must carry exactly one \
+            `xcode-version:`. Found: \
             \(steps.isEmpty ? "no setup-xcode step at all" : steps.map(\.description).joined(separator: "; ")). \
             Set every one to the same version.
             """
@@ -78,12 +83,15 @@ enum XcodePin {
     }
 
     /// The single pinned version, or a `Disagreement` naming every site when the
-    /// steps carry more than one value, a step carries none or two, or there are
-    /// no steps.
+    /// steps carry more than one value, a step carries none or two, there are no
+    /// steps, or the one value is not an exact release (`26.3`, `16.4.1`) —
+    /// `latest-stable` or `26` in every step would agree with itself while
+    /// letting the runner image choose the toolchain.
     static func pinnedVersion() throws -> String {
         let all = try steps()
         let values = Set(all.flatMap(\.versions))
-        guard values.count == 1, all.allSatisfy({ $0.versions.count == 1 }), let only = values.first else {
+        guard values.count == 1, all.allSatisfy({ $0.versions.count == 1 }), let only = values.first,
+              only.range(of: #"^[0-9]+\.[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil else {
             throw Disagreement(steps: all)
         }
         return only
@@ -91,63 +99,17 @@ enum XcodePin {
 
     // MARK: - Parsing
 
+    /// Every `setup-xcode` step of one workflow, through the shared
+    /// `workflowJobSteps(_:in:)` reading.
     static func steps(in text: String, workflow: String) -> [Step] {
-        // The lines `activeYAMLLines` keeps, indentation retained.
-        let lines = text.components(separatedBy: .newlines).filter {
-            let trimmed = $0.trimmingCharacters(in: .whitespaces)
-            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
-        }
-
-        var found: [Step] = []
-        var job: String?
-        var inJobs = false
-        var stepIndent: Int?
-        var current: [String] = []
-
-        func flush() {
-            defer { current = [] }
-            guard let job, current.contains(where: { $0.hasPrefix("- uses: maxim-lobanov/setup-xcode@")
-                || $0.hasPrefix("uses: maxim-lobanov/setup-xcode@") }) else { return }
-            let versions = current.compactMap(versionValue(of:))
-            found.append(Step(workflow: workflow, job: job, versions: versions))
-        }
-
-        for line in lines {
-            let indent = line.prefix(while: { $0 == " " }).count
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            if indent == 0 {
-                flush()
-                inJobs = trimmed == "jobs:"
-                job = nil
-                stepIndent = nil
-                continue
-            }
-            guard inJobs else { continue }
-
-            if indent == 2, trimmed.hasSuffix(":") {
-                flush()
-                job = String(trimmed.dropLast())
-                stepIndent = nil
-                continue
-            }
-            if let open = stepIndent, indent < open {
-                // A job-level key after the steps: the last step has ended.
-                flush()
-                stepIndent = nil
-            }
-            if trimmed.hasPrefix("- ") {
-                if stepIndent == nil { stepIndent = indent }
-                if indent == stepIndent {
-                    flush()
-                    current = [trimmed]
-                    continue
+        workflowJobs(in: text).flatMap { job in
+            workflowJobSteps(job, in: text)
+                .filter { step in
+                    step.contains { $0.hasPrefix("- uses: maxim-lobanov/setup-xcode@")
+                        || $0.hasPrefix("uses: maxim-lobanov/setup-xcode@") }
                 }
-            }
-            if stepIndent != nil, !current.isEmpty { current.append(trimmed) }
+                .map { Step(workflow: workflow, job: job, versions: $0.compactMap(versionValue(of:))) }
         }
-        flush()
-        return found
     }
 
     /// `26.3` out of `xcode-version: '26.3'` (either quote, or none, with any

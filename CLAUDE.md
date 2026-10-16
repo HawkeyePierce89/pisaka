@@ -511,8 +511,9 @@ DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -projec
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
 push to `master`: `swift test` first, then — only when it is green — the macOS
-job (which runs the app-layer `PisakaAppTests` bundle first, then an unsigned
-build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
+job (which first refuses a `Package.resolved` the pinned Xcode's resolution
+rewrote — remedy in `DependencyPinTests`' doc comment — then runs the app-layer
+`PisakaAppTests` bundle, then an unsigned build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
 covering libgit2 linking) in parallel, plus an independent `lint` job
 (pinned SwiftLint 0.65.1, `--strict`, no `needs:`) that refuses style
 violations even when the pre-commit hook was bypassed or never installed. No

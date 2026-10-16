@@ -68,12 +68,19 @@ jobs:
           unzip -q xcodegen.zip
           sudo xcodegen/install.sh
           xcodegen --version
+      # The checkouts are keyed by the Xcode that resolved them as well as by the
+      # lock file, so the guard below never reads one toolchain's resolution
+      # through another's cache: the first run after a pin bump resolves from
+      # scratch under the new Xcode.
+      - name: Read the selected Xcode for the cache key
+        id: xcode
+        run: echo "version=$(xcodebuild -version | head -n 1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
       - name: Cache SwiftPM source packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: SourcePackages
-          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          key: spm-${{ steps.xcode.outputs.version }}-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ steps.xcode.outputs.version }}-
       - name: Generate Xcode project
         run: xcodegen generate
       - name: Resolve package dependencies
@@ -81,8 +88,10 @@ jobs:
       # Which schema resolution writes depends on the Xcode doing it, and a
       # rewrite (v2 into the legacy v1 shape) hides the one real pin change
       # inside a whole-file diff. This step is what observes the pinned Xcode's
-      # behaviour on every run: a fresh clone must leave the committed file
-      # byte-identical. DependencyPinTests' doc comment has the remedy.
+      # behaviour: resolution must leave the committed file byte-identical. It
+      # resolves from scratch on a cache miss (always the first run under a new
+      # pin, since the key names the Xcode) and over this Xcode's own cached
+      # checkouts otherwise. DependencyPinTests' doc comment has the remedy.
       - name: Package.resolved is unchanged by resolution
         run: |
           if ! git diff --exit-code -- Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved; then

@@ -216,6 +216,11 @@ server fetching JSON schemas while it runs.
 
 From-source prerequisites: a Swift 6.0+ toolchain (Xcode 16+) and
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+CI and the release build with one pinned Xcode, named in
+[`docs/RELEASING.md`](docs/RELEASING.md) ("Pinned toolchain"); `make test-app`,
+`make build` and `make build-ios` run under it at
+`/Applications/Xcode_<version>.app` and refuse when it is missing or is another
+release — point them at another copy with `PINNED_XCODE=/path/to/Xcode.app`.
 The app is built through an XcodeGen-generated Xcode project; there is no
 SwiftPM executable target.
 

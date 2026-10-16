@@ -64,11 +64,13 @@ import XCTest
 /// below are what catch getting either half wrong.
 ///
 /// What the pinned Xcode does today is no longer remembered here but observed:
-/// ci.yml's `build-macos` job resolves from a fresh clone and then runs
+/// ci.yml's `build-macos` job resolves and then runs
 /// `Package.resolved is unchanged by resolution`, a `git diff --exit-code` over
 /// this file (`ReleaseWorkflowTests.testCIRefusesARewrittenPackageResolved`), on
-/// every run. Xcode 26.3's fresh-clone behaviour, as that step first observed it:
-/// recorded from the pull request that moved the pin (pending its CI run).
+/// every run — from scratch on a cache miss, and its SwiftPM cache is keyed by
+/// the Xcode as well as by this file, so the first run under a new pin is one.
+/// Xcode 26.3's fresh-clone behaviour, as that step first observed it: recorded
+/// from the pull request that moved the pin (pending its CI run).
 final class DependencyPinTests: XCTestCase {
     /// A dependency whose *requirement* is a branch, so its recorded revision is
     /// the whole pin: the revision the project builds against, and the reason
