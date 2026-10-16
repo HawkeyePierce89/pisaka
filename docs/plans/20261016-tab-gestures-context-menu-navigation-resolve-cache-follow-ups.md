@@ -85,13 +85,13 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Modify: `Sources/PisakaCore/DisplayPath.swift`
 - Modify: `Tests/PisakaCoreTests/DisplayPathTests.swift`
 
-- [ ] `DisplayPath.relativePath(fileURL:projectRoot:) -> String?` returns the suffix below the root joined by `/`. It goes through the existing private `relativeComponents(of:under:)`, lexical probe first, so the containment decision and the spelling are the ones the path bar already uses. It answers nil for no url, no root, or a file outside the root.
-- [ ] `DisplayPath.tooltip(fileURL:projectRoot:) -> String` answers, in order:
+- [x] `DisplayPath.relativePath(fileURL:projectRoot:) -> String?` returns the suffix below the root joined by `/`. It goes through the existing private `relativeComponents(of:under:)`, lexical probe first, so the containment decision and the spelling are the ones the path bar already uses. It answers nil for no url, no root, or a file outside the root.
+- [x] `DisplayPath.tooltip(fileURL:projectRoot:) -> String` answers, in order:
   - the relative path;
   - otherwise the standardized absolute path. Absolute means not `~`-abbreviated: the tooltip is the place to see the full path, and A6 says absolute;
   - "Untitled" for no url, the same literal `components` already pins against `OpenFile.displayName`.
-- [ ] DisplayPath tests: a file three levels deep, a file directly under the root, a file outside the root (absolute, never `~`), no root, an untitled buffer, a root reached through a symlink against a canonical file url, and a root at `/`.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] DisplayPath tests: a file three levels deep, a file directly under the root, a file outside the root (absolute, never `~`), no root, an untitled buffer, a root reached through a symlink against a canonical file url, and a root at `/`.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: Core: the batch-close rule and the tab menu's availability
 
