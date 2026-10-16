@@ -358,6 +358,12 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onPointerExited = { [weak coordinator = context.coordinator] in
             coordinator?.pointerExitedEditor()
         }
+        // The word rule a double-click and the context menu ask is the
+        // buffer's language's; read through the coordinator so a tab switch
+        // is seen at once. Weak for the same retain-cycle reason.
+        textView.syntaxLanguage = { [weak coordinator = context.coordinator] in
+            coordinator?.language
+        }
 
         // ⌘⌥← / ⌘⌥→ → the coordinator's fold and unfold, and a click on a `…`
         // placeholder → the block behind it. All three answer `false` when there
@@ -495,10 +501,7 @@ struct CodeEditorView: NSViewRepresentable {
         // is made once the pointer has rested over an identifier for
         // `HoverContent.dwellDelay`.
         context.coordinator.attachHover(textView: textView)
-        context.coordinator.syncHover(
-            codeFont: editorFont(),
-            metrics: interfaceMetrics
-        )
+        context.coordinator.syncHover(codeFont: editorFont(), metrics: interfaceMetrics)
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -1286,6 +1289,7 @@ struct CodeEditorView: NSViewRepresentable {
             completion.noteProgrammaticEdit = { [weak self] isApplying in
                 self?.isApplyingProgrammaticEdit = isApplying
             }
+            completion.language = { [weak self] in self?.language }
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(windowDidResignKey(_:)),
@@ -1418,6 +1422,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// gets.
         func attachHover(textView: NSTextView) {
             hover.attach(textView: textView)
+            hover.language = { [weak self] in self?.language }
             hover.source = { [weak self] in
                 guard let self, let symbolIndex = self.symbolIndex else { return nil }
                 return HoverController.Source(
@@ -1510,7 +1515,7 @@ struct CodeEditorView: NSViewRepresentable {
         func goToDefinition(in textView: NSTextView, at offset: Int) {
             let text = textView.string
             guard let provider = symbolIndex?.provider,
-                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset)
+                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset, language: language)
             else {
                 PlatformFeedback.warning()
                 return
@@ -1645,7 +1650,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// be asked about an offset in it.
         private func caretQuery(in textView: NSTextView, at offset: Int) -> UsagesRequest? {
             let text = textView.string
-            guard let match = IdentifierScanner.identifier(in: text as NSString, at: offset) else {
+            guard let match = IdentifierScanner.identifier(in: text as NSString, at: offset, language: language) else {
                 return nil
             }
             return UsagesRequest(
@@ -3862,6 +3867,35 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// the pointer is no longer on it. Set by `CodeEditorView.makeNSView`.
     var onPointerExited: (() -> Void)?
 
+    /// The language of the buffer this view shows (`nil` = plain text), read at
+    /// the moment a word boundary is asked for — a double-click, the context
+    /// menu's identifier probe — so it is always the coordinator's current
+    /// one, not the one a tab switch left behind. Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's `language`; `nil` until
+    /// then, which is the language-blind rule.
+    var syntaxLanguage: (() -> SyntaxLanguage?)?
+
+    /// Word granularity is Core's `WordSelectionRule`: a double-click on an
+    /// identifier selects exactly that identifier, under the same language-aware
+    /// boundary rule ⌘-click, hover and completion use, and a drag snaps each
+    /// end that lies in an identifier to its bounds. `super` still runs first
+    /// and is the answer wherever no identifier is involved (a click on
+    /// punctuation or whitespace). Every other granularity — the triple-click's
+    /// paragraph, character drags — is passed through untouched.
+    override func selectionRange(
+        forProposedRange proposedCharRange: NSRange,
+        granularity: NSSelectionGranularity
+    ) -> NSRange {
+        let platformRange = super.selectionRange(forProposedRange: proposedCharRange, granularity: granularity)
+        guard granularity == .selectByWord else { return platformRange }
+        return WordSelectionRule.range(
+            proposed: proposedCharRange,
+            platformRange: platformRange,
+            text: string as NSString,
+            language: syntaxLanguage?()
+        )
+    }
+
     /// The hover feature's own tracking area, kept so it can be replaced rather
     /// than accumulated — `updateTrackingAreas` runs on every resize.
     private var hoverTrackingArea: NSTrackingArea?
@@ -4056,7 +4090,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// one question the three items' enablement asks.
     private func clickedIdentifierOffset() -> Int? {
         guard let offset = contextMenuOffset,
-              IdentifierScanner.identifier(in: string as NSString, at: offset) != nil
+              IdentifierScanner.identifier(in: string as NSString, at: offset, language: syntaxLanguage?()) != nil
         else { return nil }
         return offset
     }

@@ -84,15 +84,15 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/Pisaka/CodeEditorView.swift`, `Sources/Pisaka/CompletionController.swift`, `Sources/Pisaka/HoverController.swift`
 - Create: `Tests/PisakaAppTests/WordSelectionGranularityTests.swift`
 
-- [ ] Override `selectionRange(forProposedRange:granularity:)` in `EditorTextView`.
+- [x] Override `selectionRange(forProposedRange:granularity:)` in `EditorTextView`.
   - For `.selectByWord`, call `super`, then return `WordSelectionRule.range(…)` with the coordinator's language.
   - Every other granularity is passed through; triple-click (`.selectByParagraph`) is untouched.
-- [ ] Pass the coordinator's language at every macOS `IdentifierScanner` call site: the ⌘-click, hover and completion controllers, and the `validateMenuItem` probe.
-- [ ] App test over a headless `EditorTextView` (`EditorLayoutHarness`):
+- [x] Pass the coordinator's language at every macOS `IdentifierScanner` call site: the ⌘-click, hover and completion controllers, and the `validateMenuItem` probe.
+- [x] App test over a headless `EditorTextView` (`EditorLayoutHarness`):
   - word granularity on `z.object({…})`, `res.status`, `c$d` (TS);
   - a punctuation click equals `super`;
   - paragraph granularity unchanged.
-- [ ] Run `make test` and `make test-app` (no new failures beyond the eight known scale-1.8 assertions) before Task 3.
+- [x] Run `make test` and `make test-app` (no new failures beyond the eight known scale-1.8 assertions) before Task 3.
 
 ### Task 3: TSX as its own language (R4)
 

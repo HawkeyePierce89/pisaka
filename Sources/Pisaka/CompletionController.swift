@@ -218,6 +218,13 @@ final class CompletionController {
     /// `Coordinator.attachCompletion(textView:)`.
     var noteProgrammaticEdit: (Bool) -> Void = { _ in }
 
+    /// The buffer's language (`nil` = plain text), read wherever the caret's
+    /// word is measured — the keep-open gate, the request, the apply-time
+    /// re-validation, the anchor and the commit — so all of them cut the word
+    /// by the one language-aware boundary rule. Set by
+    /// `Coordinator.attachCompletion(textView:)`.
+    var language: () -> SyntaxLanguage? = { nil }
+
     /// The in-flight debounce/provider task; cancelled when a newer request lands.
     private var pendingTask: Task<Void, Never>?
 
@@ -308,9 +315,9 @@ final class CompletionController {
            let snap = snapshot {
             let nsText = textView.string as NSString
             let location = textView.selectedRange().location
-            let member = IdentifierScanner.memberContext(in: nsText, at: location)
+            let member = IdentifierScanner.memberContext(in: nsText, at: location, language: language)
             let prefixLocation = member?.prefixRange.location
-                ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location).location
+                ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location, language: language).location
             if prefixLocation == snap.prefixLocation {
                 // The one thing this path must still retire: a request whose
                 // prefix the move has just made false. `apply` would refuse its
@@ -377,9 +384,9 @@ final class CompletionController {
         // and `memberContext`'s own `prefixRange` is exactly what
         // `completionPrefixRange` reports here, so the two agree by construction
         // rather than by a second scan.
-        let member = IdentifierScanner.memberContext(in: nsText, at: caret.location)
+        let member = IdentifierScanner.memberContext(in: nsText, at: caret.location, language: language)
         let prefixRange = member?.prefixRange
-            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location, language: language)
         if member == nil,
            prefixRange.length < (explicit ? 0 : Self.minimumPrefixLength) {
             return refuse()
@@ -610,10 +617,10 @@ final class CompletionController {
         let caret = textView.selectedRange()
         guard caret.length == 0 else { return }
 
-        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location, language: language())
         guard nsText.substring(with: range) == request.prefix else { return }
 
-        guard IdentifierScanner.memberContext(in: nsText, at: caret.location).map(\.receiver)
+        guard IdentifierScanner.memberContext(in: nsText, at: caret.location, language: language()).map(\.receiver)
                 == request.member.map(\.receiver)
         else { return }
 
@@ -653,7 +660,7 @@ final class CompletionController {
         guard let textView else { return }
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
-        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location, language: language())
         let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
         presentationBaseline = PresentationBaseline(
             bufferVersion: bufferVersion,
@@ -862,7 +869,7 @@ final class CompletionController {
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         guard caret.length == 0 else { dismiss(); return false }
-        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location, language: language())
         // Same word *start*, not same word text — see the staleness paragraph
         // above: `update`'s keep-open gate is the rule commit answers to, so the
         // word may have grown or shrunk under the popup since the list was
@@ -936,7 +943,7 @@ final class CompletionController {
         case .insert:
             targetRange = prefixRange
         case .replace:
-            targetRange = IdentifierScanner.completionReplaceRange(in: nsText, at: caretLocation)
+            targetRange = IdentifierScanner.completionReplaceRange(in: nsText, at: caretLocation, language: language())
             if targetRange.length > prefixRange.length {
                 expectedSuffix = nsText.substring(
                     with: NSRange(location: NSMaxRange(prefixRange), length: targetRange.length - prefixRange.length)
