@@ -638,7 +638,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     The crumb starts where the tree starts, and a root-level file no longer reads
     as a bare name that only duplicates its tab (`project › main.py`, not
     `main.py`). Clickable segments, copying the path, the window proxy icon,
-    and an iOS bar are deliberately **out of scope** (follow-ups).
+    and an iOS bar are deliberately **out of scope** (follow-ups); copying a
+    path is offered by the tab menu instead (below), not by the bar.
+    Two further answers serve the macOS tabs. `relativePath(fileURL:projectRoot:)`
+    is the suffix below the root joined by `/` — no root name, unlike
+    `components` — and nil for no url, no root, or a file outside it. It goes
+    through the same private `relativeComponents(of:under:)`, lexical probe
+    first, so the containment decision and the spelling are exactly the bar's:
+    a file the bar shows relative to the root is a file the tab menu can copy
+    a relative path for and reveal in the tree (`TabCloseRule.MenuAvailability`,
+    `core-services.md`). `tooltip(fileURL:projectRoot:)` is a tab's hover text:
+    the relative path, otherwise the standardized absolute path, and
+    `"Untitled"` for a url-less buffer (the same literal `components` pins
+    against `OpenFile.displayName`). **The absolute fallback is deliberately not
+    `~`-abbreviated**, unlike the bar: the tooltip is the one place to read a
+    file's full path, and an abbreviated one would only repeat what the bar
+    already says. Covered by `DisplayPathTests` (three levels deep, directly
+    under the root, outside it, no root, untitled, a symlinked root against a
+    canonical file url, a root at `/`).
+  - `TreeRevealRule.swift` — which project-tree directories Reveal in Project
+    Tree expands, pure: `ancestors(of:root:)` answers every directory from the
+    opened root down to the file's parent, **root first and the root
+    included** — the root row is a disclosure group like any other and a
+    collapsed root would hide everything — so a file three levels deep answers
+    `[root, a, a/b, a/b/c]` and a file directly under the root `[root]`. **Each
+    answer is spelled the way the tree spells its rows**: the root exactly as
+    the user opened it, then one listing component appended per level, never
+    the canonical spelling — the tree's nodes are built from the opened root
+    and its listings, and a canonical url (`/private/tmp/…` for a `/tmp` root,
+    a symlink's referent) would match no row. Containment is `DisplayPath`'s
+    two-probe rule, so a root reached through a symlink or a `/private`
+    firmlink difference still answers, in the root's own spelling. Nil outside
+    the root and for the root itself (it is not inside itself). The app-side
+    `TreeRevealRequest` carries the answer to the tree (`app-window.md`).
+    Covered by `TreeRevealRuleTests`.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one

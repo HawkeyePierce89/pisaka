@@ -174,6 +174,10 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+O | Open a folder as a project                 |
 | Cmd+S       | Save                                       |
 | Cmd+W       | Close the active tab                       |
+| Cmd+Shift+] / Cmd+Shift+[ | Next / previous tab, wrapping (also Ctrl+Tab / Ctrl+Shift+Tab; macOS) |
+| Cmd+1…Cmd+8 | Select a tab by position (macOS)           |
+| Cmd+9       | Select the last tab (macOS)                |
+| Middle-click a tab | Close it (right-click for the tab menu; macOS) |
 | Cmd+D       | Duplicate the current line or selection (Show Diff when Local Changes has focus) |
 | Cmd+Down    | Jump to Source when Local Changes has focus |
 | Cmd+/       | Toggle comment                             |

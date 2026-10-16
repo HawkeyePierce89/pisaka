@@ -252,18 +252,18 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 
 ### Task 10: Update documentation
 
-- [ ] `docs/architecture/core-services.md`: add entries for `TabCloseRule.swift` (the commands, the tab-order targets, the stop-at-first-refusal walk, the menu availability, and why Close Saved needs no special case) and `TabNavigationRule.swift` (the wrap, ⌘9 as last, nil as disabled).
-- [ ] `docs/architecture/core-workspace.md`: update `DisplayPath.swift` with `relativePath` and `tooltip` (why the tooltip is absolute rather than `~`) and add a `TreeRevealRule.swift` entry (the tree's spelling, the root included).
-- [ ] `docs/architecture/app-window.md`: in the `TabListView`/`TabRowView` and `TabStripView` entries, document:
+- [x] `docs/architecture/core-services.md`: add entries for `TabCloseRule.swift` (the commands, the tab-order targets, the stop-at-first-refusal walk, the menu availability, and why Close Saved needs no special case) and `TabNavigationRule.swift` (the wrap, ⌘9 as last, nil as disabled).
+- [x] `docs/architecture/core-workspace.md`: update `DisplayPath.swift` with `relativePath` and `tooltip` (why the tooltip is absolute rather than `~`) and add a `TreeRevealRule.swift` entry (the tree's spelling, the root included).
+- [x] `docs/architecture/app-window.md`: in the `TabListView`/`TabRowView` and `TabStripView` entries, document:
   - the shared `TabActions`, the context menu, `TabMiddleClickCatcher` (its hit-test rule, its injectable event source, and why it closes on mouse-up), the ⌥-click on `TabStatusMark` and the tooltip;
   - the `ProjectTreeView` entry's one-shot `TreeRevealRequest` (token, ancestors, expansion on appear, causal scroll).
-- [ ] `docs/architecture/app-shell.md`: document the funnel's Bool result and `closeTabs`, the Window-menu tab commands, and `allowsAutomaticWindowTabbing = false` in `applicationWillFinishLaunching(_:)` with its reason.
-- [ ] `docs/FEATURES.md`:
+- [x] `docs/architecture/app-shell.md`: document the funnel's Bool result and `closeTabs`, the Window-menu tab commands, and `allowsAutomaticWindowTabbing = false` in `applicationWillFinishLaunching(_:)` with its reason.
+- [x] `docs/FEATURES.md`:
   - The tabs bullet: middle click, the context menu and its disabled states, ⌥-click, the four navigation chords with wrap-around, ⌘1…⌘8 / ⌘9, and the path tooltip.
   - The two "no copy-path action" sentences (the path bar description and the known-limitations entry): they stay true of the bar, but each now points at the tab menu's Copy Path / Copy Relative Path.
   - "No tab reordering or split views" stays.
-- [ ] `README.md`'s shortcut table: add ⌘⇧] / ⌘⇧[ (also ⌃Tab / ⌃⇧Tab), ⌘1…⌘8, ⌘9, and a "Middle-click a tab" row. The Welcome screen advertises none of these, so `WelcomeScreen.swift` is unchanged.
-- [ ] `CLAUDE.md`: add the index names only: `TabCloseRule.swift` and `TabNavigationRule.swift` under `core-services.md`, and `TreeRevealRule.swift` under `core-workspace.md`. Re-run `swift test` so `LintConfigurationTests` confirms the size bound.
+- [x] `README.md`'s shortcut table: add ⌘⇧] / ⌘⇧[ (also ⌃Tab / ⌃⇧Tab), ⌘1…⌘8, ⌘9, and a "Middle-click a tab" row. The Welcome screen advertises none of these, so `WelcomeScreen.swift` is unchanged.
+- [x] `CLAUDE.md`: add the index names only: `TabCloseRule.swift` and `TabNavigationRule.swift` under `core-services.md`, and `TreeRevealRule.swift` under `core-workspace.md`. Re-run `swift test` so `LintConfigurationTests` confirms the size bound.
 
 ## Post-Completion
 
