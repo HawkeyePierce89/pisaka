@@ -99,29 +99,29 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Create: `Sources/PisakaCore/TabCloseRule.swift`
 - Create: `Tests/PisakaCoreTests/TabCloseRuleTests.swift`
 
-- [ ] Add `public enum TabCloseCommand: CaseIterable, Sendable` with the cases `close`, `closeOthers`, `closeToTheRight`, `closeAll`, `closeSaved`.
-- [ ] Add `TabCloseRule.targets(_ command:, in files: [OpenFile], anchor: UUID) -> [UUID]`, always in tab order:
+- [x] Add `public enum TabCloseCommand: CaseIterable, Sendable` with the cases `close`, `closeOthers`, `closeToTheRight`, `closeAll`, `closeSaved`.
+- [x] Add `TabCloseRule.targets(_ command:, in files: [OpenFile], anchor: UUID) -> [UUID]`, always in tab order:
   - `close` → `[anchor]`
   - `closeOthers` → every tab except the anchor
   - `closeToTheRight` → the tabs after the anchor
   - `closeAll` → every tab
   - `closeSaved` → every tab whose `isDirty` is false, wherever it sits (the anchor included when clean)
   - An anchor that is not open → `[]`
-- [ ] Add `TabCloseRule.walk(_ targets: [UUID], closing: (UUID) -> Bool) -> [UUID]`. It calls `closing` in order and stops at the first `false`. It returns the ids actually closed. This is the single statement of "a Cancel stops the batch and leaves that tab and every later one open". Close Saved needs no special case: its targets are clean, so the funnel never prompts for them.
-- [ ] Add `TabCloseRule.MenuAvailability` (a struct of Bools), built from `(files, anchor, projectRoot)`:
+- [x] Add `TabCloseRule.walk(_ targets: [UUID], closing: (UUID) -> Bool) -> [UUID]`. It calls `closing` in order and stops at the first `false`. It returns the ids actually closed. This is the single statement of "a Cancel stops the batch and leaves that tab and every later one open". Close Saved needs no special case: its targets are clean, so the funnel never prompts for them.
+- [x] Add `TabCloseRule.MenuAvailability` (a struct of Bools), built from `(files, anchor, projectRoot)`:
   - each close command is enabled iff its `targets` is non-empty;
   - Copy Path and Reveal in Finder iff the anchor has a url;
   - Copy Relative Path and Reveal in Project Tree iff `DisplayPath.relativePath` (Task 2) answers non-nil;
   - Local History iff the anchor is `.text` with a url. This is the same condition `localHistoryTargetURL` applies to the active tab, stated once here for any tab.
-- [ ] Tests for the targets:
+- [x] Tests for the targets:
   - every command with the anchor first, in the middle and last; Close Tabs to the Right on the last tab is empty;
   - a lone tab: Close Others and Close Tabs to the Right are empty;
   - every tab dirty: Close Saved is empty;
   - a dirty/clean mix: Close Saved returns exactly the clean ones, in order;
   - an unknown anchor.
-- [ ] Tests for the walk: it stops at the first refusal and never calls `closing` again; it returns only the closed prefix; it handles an empty list; it closes everything when nothing is refused.
-- [ ] Tests for the availability: an untitled buffer, a viewer tab (Local History off, path items on), a lone tab, the last tab, and a file outside the project root (relative path and tree items off).
-- [ ] Run `swift test`; it must pass before Task 4.
+- [x] Tests for the walk: it stops at the first refusal and never calls `closing` again; it returns only the closed prefix; it handles an empty list; it closes everything when nothing is refused.
+- [x] Tests for the availability: an untitled buffer, a viewer tab (Local History off, path items on), a lone tab, the last tab, and a file outside the project root (relative path and tree items off).
+- [x] Run `swift test`; it must pass before Task 4.
 
 ### Task 4: Core: the tab-switch rule
 
