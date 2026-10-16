@@ -19,6 +19,14 @@ import Foundation
 ///   `DEVELOPER_DIR=/Applications/Xcode_X.Y.app/Contents/Developer`
 ///   (`LintConfigurationTests.testClaudeMdCommandsRunUnderThePinnedXcode`).
 ///
+/// Three prose sites also spell the version and are deliberately **not**
+/// readers: they record what that particular Xcode was observed to do, not
+/// which Xcode is pinned, so no rule holds them equal to this value and a bump
+/// owes each a hand revisit — the rest of `docs/RELEASING.md`'s toolchain
+/// paragraph (why that version, and the `Makefile`'s path), `app-shell.md`'s
+/// `CommandsBuilder` ceiling as read off that SDK, and `DependencyPinTests`'
+/// doc comment on that Xcode's fresh-clone `Package.resolved` behaviour.
+///
 /// The workflows are read through `#filePath` with Foundation only, over the
 /// lines `activeYAMLLines(of:)` keeps — so a commented-out `xcode-version:`
 /// cannot count — but with their indentation retained, because a step's extent
