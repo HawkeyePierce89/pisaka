@@ -86,7 +86,15 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the server failure record's (D44, `core-lsp.md`), five
+The most recent bump is the tab menu's, `file_length` 1935 → **1937** and
+`type_body_length` 1925 → **1930**: the close funnel `closeFile(id:)` now
+answers whether the tab is gone, `closeTabs` walks a tab-menu command's targets
+through it and stops at the first Cancel, and the scene hands `ContentView` one
+`TabActions` value in place of the bare `onClose`. The menu, the middle click and
+the ⌥-click live in `TabStripView.swift`, every decision in Core's `TabCloseRule`
+(`core-services.md`, `app-window.md`).
+
+The bump before it is the server failure record's (D44, `core-lsp.md`), five
 lines: `type_body_length` 1920 → **1925**, for the `LSPServerFailureModel` the
 scene stores, constructs in `init()`, wires to the workspace's
 `onFailureRecordsChange` in one line and hands to the Settings scene.

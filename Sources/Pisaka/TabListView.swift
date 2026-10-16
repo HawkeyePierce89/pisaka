@@ -25,7 +25,7 @@ import PisakaCore
 /// draws nothing between its children.)
 struct TabListView: View {
     @ObservedObject var model: WorkspaceModel
-    var onClose: (UUID) -> Void = { _ in }
+    var actions = TabActions()
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -40,8 +40,9 @@ struct TabListView: View {
                         file: file,
                         isActive: file.id == model.selectedID,
                         onSelect: { model.select(file.id) },
-                        onClose: { onClose(file.id) }
+                        onClose: { actions.close($0, file.id) }
                     )
+                    .tabGestures(file: file, files: model.openFiles, actions: actions)
                 }
             }
             // No top inset: the first row sits flush under the title bar, the

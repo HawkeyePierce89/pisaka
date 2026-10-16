@@ -23,7 +23,7 @@ struct TabRowView: View {
     let file: OpenFile
     let isActive: Bool
     let onSelect: () -> Void
-    let onClose: () -> Void
+    let onClose: (TabCloseCommand) -> Void
 
     @State private var isHovering = false
 

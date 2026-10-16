@@ -942,7 +942,10 @@ struct PisakaApp: App {
                 onActivateUsage: { activateUsage($0) },
                 onFindUsages: { findUsages($0) },
                 onRenameSymbol: { renameSymbol($0) },
-                onClose: { closeFile(id: $0) },
+                tabActions: TabActions(
+                    projectRoot: model.projectRoot, close: { closeTabs($0, anchor: $1) },
+                    revealInProjectTree: { _ in }, showLocalHistory: { showLocalHistory(for: $0) }
+                ),
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
                 recentProjects: { recentProjectRows() },
@@ -5166,15 +5169,19 @@ struct PisakaApp: App {
     }
 
     /// Close the file identified by `id`, confirming first when it has unsaved
-    /// changes. Used by both the tab close button and the Cmd+W menu command.
-    private func closeFile(id: UUID) {
+    /// changes. Used by the tab close button, the Cmd+W menu command and every
+    /// batch close (`closeTabs`). Answers whether the tab is gone: true for a clean
+    /// close, a successful Save and Don't Save; false for Cancel and a failed save,
+    /// which is what stops a batch (`TabCloseRule.walk`).
+    @discardableResult
+    private func closeFile(id: UUID) -> Bool {
         // Hand the tab's index entry back to disk once the close is settled,
         // whichever way it went. `forgetIndexedBuffer` checks that no tab still
         // shows the file, so the Cancel branch — and a second tab on the same file
         // — leave the buffer mark exactly where it is.
         let closingURL = model.openFiles.first { $0.id == id }?.url
         defer { forgetIndexedBuffer(closingURL) }
-        guard model.close(id: id) == .needsConfirmation else { return }
+        guard model.close(id: id) == .needsConfirmation else { return true }
         let name = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         // Suspend the regular autosave triggers across the close confirmation.
         // `NSAlert.runModal()` spins a nested event loop, during which the idle
@@ -5196,14 +5203,18 @@ struct PisakaApp: App {
             // left to protect and no next save to trim a spared line on: this write
             // is the file's last word. iOS's one save already answers the same way
             // for the same button.
-            if save(id: id, abandoningBuffer: true) {
-                model.close(id: id)
-            }
+            return save(id: id, abandoningBuffer: true) && model.close(id: id) == .closed
         case .dontSave:
-            model.close(id: id, force: true)
+            return model.close(id: id, force: true) == .closed
         case .cancel:
-            break
+            return false
         }
+    }
+
+    /// Run one tab-menu close command anchored on `anchor` through the one funnel,
+    /// stopping at the first tab the user keeps (`TabCloseRule`).
+    private func closeTabs(_ command: TabCloseCommand, anchor: UUID) {
+        TabCloseRule.walk(TabCloseRule.targets(command, in: model.openFiles, anchor: anchor)) { closeFile(id: $0) }
     }
 
     /// Flush every open buffer of a served language to its language server, so

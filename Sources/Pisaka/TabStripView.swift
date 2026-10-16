@@ -18,7 +18,7 @@ import PisakaCore
 /// own hairline, so the two cannot disagree.
 struct TabStripView: View {
     @ObservedObject var model: WorkspaceModel
-    var onClose: (UUID) -> Void = { _ in }
+    var actions = TabActions()
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -33,8 +33,9 @@ struct TabStripView: View {
                         file: file,
                         isActive: file.id == model.selectedID,
                         onSelect: { model.select(file.id) },
-                        onClose: { onClose(file.id) }
+                        onClose: { actions.close($0, file.id) }
                     )
+                    .tabGestures(file: file, files: model.openFiles, actions: actions)
                 }
             }
         }
@@ -73,7 +74,7 @@ private struct TabStripCell: View {
     let file: OpenFile
     let isActive: Bool
     let onSelect: () -> Void
-    let onClose: () -> Void
+    let onClose: (TabCloseCommand) -> Void
 
     @State private var isHovering = false
 
@@ -139,11 +140,14 @@ private struct TabStripCell: View {
 /// and the column show the same three facts about the same file, and two
 /// spellings of that precedence would drift the moment either is touched. It
 /// lives here, beside the strip that first stated the rule.
+///
+/// The mark closes its own tab; with ⌥ held it closes every *other* tab
+/// instead (Close Others), the command answering through the same funnel.
 struct TabStatusMark: View {
     let isHovering: Bool
     let isDirty: Bool
     let isActive: Bool
-    let onClose: () -> Void
+    let onClose: (TabCloseCommand) -> Void
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -168,7 +172,9 @@ struct TabStatusMark: View {
 
     /// The close mark, drawn in either of the two slots that claim it.
     private var closeMark: some View {
-        Button(action: onClose) {
+        Button {
+            onClose(NSEvent.modifierFlags.contains(.option) ? .closeOthers : .close)
+        } label: {
             DesignGlyphImage(.x, size: 12, slot: 12, role: .textSecondary)
         }
         .buttonStyle(.plain)
@@ -202,6 +208,146 @@ struct TabFileIcon: View {
             FileGlyph.forFile(named: file.url?.lastPathComponent ?? file.displayName),
             size: 13, slot: 13, role: .textSecondary
         )
+    }
+}
+
+/// What a tab's gestures and context menu can ask of the app, handed to both
+/// orientations by their host.
+///
+/// Every close — the mark, ⌥-click, the middle click and the menu's five items —
+/// arrives as one `close(command, anchor)` the app routes through its one close
+/// funnel (`TabCloseRule`), so a batch stops at the first Cancel. The pasteboard
+/// and Finder actions need nothing the app holds and are stated here as defaults;
+/// the tree reveal and Local History are the app's.
+struct TabActions {
+    /// The open project root, against which the relative path, the tooltip and
+    /// the menu's availability are judged.
+    var projectRoot: URL?
+    var close: (TabCloseCommand, UUID) -> Void = { _, _ in }
+    var revealInProjectTree: (URL) -> Void = { _ in }
+    var showLocalHistory: (URL) -> Void = { _ in }
+    /// Copy Path and Copy Relative Path: the string goes to the general pasteboard.
+    var copyToPasteboard: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+}
+
+extension View {
+    /// The gestures both orientations attach to a tab, in one place so the strip
+    /// and the column cannot drift: the middle click that closes it, the path
+    /// tooltip, and the context menu.
+    func tabGestures(file: OpenFile, files: [OpenFile], actions: TabActions) -> some View {
+        overlay(TabMiddleClickCatcher { actions.close(.close, file.id) })
+            .help(DisplayPath.tooltip(fileURL: file.url, projectRoot: actions.projectRoot))
+            .tabContextMenu(file: file, files: files, actions: actions)
+    }
+
+    /// A tab's context menu, answering right click and ⌃-click alike: the close
+    /// commands, the path commands, then Local History. Every item is disabled
+    /// from `TabCloseRule.MenuAvailability`, never hidden, and every action
+    /// takes the tab the menu was opened on, not the active one.
+    func tabContextMenu(file: OpenFile, files: [OpenFile], actions: TabActions) -> some View {
+        contextMenu {
+            let available = TabCloseRule.MenuAvailability(
+                files: files, anchor: file.id, projectRoot: actions.projectRoot
+            )
+            let relative = DisplayPath.relativePath(fileURL: file.url, projectRoot: actions.projectRoot)
+            // Grouped by `Section`s rather than separated by `Divider()`s, as
+            // every gated menu is: the menu draws its own separators.
+            Section {
+                ForEach(TabCloseCommand.allCases, id: \.self) { command in
+                    Button(command.menuTitle) { actions.close(command, file.id) }
+                        .disabled(!available.isEnabled(command))
+                }
+            }
+            Section {
+                Button("Copy Path") { if let url = file.url { actions.copyToPasteboard(url.path) } }
+                    .disabled(!available.copyPath)
+                Button("Copy Relative Path") { if let relative { actions.copyToPasteboard(relative) } }
+                    .disabled(!available.copyRelativePath)
+                Button("Reveal in Finder") { if let url = file.url { actions.revealInFinder(url) } }
+                    .disabled(!available.copyPath)
+                Button("Reveal in Project Tree") { if let url = file.url { actions.revealInProjectTree(url) } }
+                    .disabled(!available.copyRelativePath)
+            }
+            Section {
+                Button("Local History") { if let url = file.url { actions.showLocalHistory(url) } }
+                    .disabled(!available.localHistory)
+            }
+        }
+    }
+}
+
+private extension TabCloseCommand {
+    /// The command's item title in the tab menu.
+    var menuTitle: String {
+        switch self {
+        case .close: return "Close"
+        case .closeOthers: return "Close Others"
+        case .closeToTheRight: return "Close Tabs to the Right"
+        case .closeAll: return "Close All"
+        case .closeSaved: return "Close Saved"
+        }
+    }
+}
+
+/// Closes a tab on a middle click, laid over each tab in both orientations.
+///
+/// SwiftUI offers no other-button gesture, so this is the one AppKit view in the
+/// tab's stack. It claims a hit only while the event being dispatched is a
+/// center-button one, so every other event — left and right clicks, hover and
+/// tooltip tracking — falls through to the SwiftUI tab beneath it and selection,
+/// the close mark and the context menu are untouched. It draws nothing.
+struct TabMiddleClickCatcher: NSViewRepresentable {
+    let onMiddleClick: () -> Void
+
+    func makeNSView(context: Context) -> TabMiddleClickView {
+        let view = TabMiddleClickView()
+        view.onMiddleClick = onMiddleClick
+        return view
+    }
+
+    func updateNSView(_ view: TabMiddleClickView, context: Context) {
+        view.onMiddleClick = onMiddleClick
+    }
+}
+
+/// `TabMiddleClickCatcher`'s view.
+final class TabMiddleClickView: NSView {
+    /// The event being dispatched, read by `hitTest`. Injectable so a test can
+    /// hand it a synthesized event; AppKit's own answer otherwise.
+    var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
+    var onMiddleClick: () -> Void = {}
+
+    private static let otherMouseTypes: Set<NSEvent.EventType> = [
+        .otherMouseDown, .otherMouseDragged, .otherMouseUp
+    ]
+
+    /// Whether an event of `type` from button `buttonNumber` is the catcher's:
+    /// the three other-mouse types, from the center button.
+    static func claims(type: NSEvent.EventType, buttonNumber: Int) -> Bool {
+        otherMouseTypes.contains(type) && buttonNumber == 2
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // `buttonNumber` is only defined on mouse events — reading it off a key
+        // event raises — so the type is asked first.
+        guard let event = currentEvent(), Self.otherMouseTypes.contains(event.type),
+              Self.claims(type: event.type, buttonNumber: event.buttonNumber) else { return nil }
+        return super.hitTest(point)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
+    }
+
+    /// The tab closes on the release, and only when it lands inside the tab, as
+    /// a button would; it is never selected first.
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onMiddleClick() }
     }
 }
 

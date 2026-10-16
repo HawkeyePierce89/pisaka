@@ -167,36 +167,36 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Modify: `Sources/Pisaka/TabRowView.swift`
 - Create: `Tests/PisakaAppTests/TabMiddleClickTests.swift`
 
-- [ ] Make `closeFile(id:)` `@discardableResult -> Bool` ("the tab is gone"):
+- [x] Make `closeFile(id:)` `@discardableResult -> Bool` ("the tab is gone"):
   - true for `.closed`, for Save followed by a successful close, and for Don't Save;
   - false for Cancel and for a failed or cancelled save.
 
   The body and its autosave and `forgetIndexedBuffer` brackets stay as they are. ⌘W and the close mark keep calling it unchanged.
-- [ ] Add `closeTabs(_ command: TabCloseCommand, anchor: UUID)` in `PisakaApp`. It does nothing but `TabCloseRule.walk(TabCloseRule.targets(...)) { closeFile(id: $0) }`.
-- [ ] Add a `TabActions` value in `TabStripView.swift`: closures for close-batch, copy path, copy relative path, Reveal in Finder, Reveal in Project Tree and Local History, plus what is needed to build `TabCloseRule.MenuAvailability` (the project root). It replaces the bare `onClose` parameter that `TabStripView` / `TabListView` take today. `ContentView` gains one parameter and passes it through. `PisakaApp` builds it:
+- [x] Add `closeTabs(_ command: TabCloseCommand, anchor: UUID)` in `PisakaApp`. It does nothing but `TabCloseRule.walk(TabCloseRule.targets(...)) { closeFile(id: $0) }`.
+- [x] Add a `TabActions` value in `TabStripView.swift`: closures for close-batch, copy path, copy relative path, Reveal in Finder, Reveal in Project Tree and Local History, plus what is needed to build `TabCloseRule.MenuAvailability` (the project root). It replaces the bare `onClose` parameter that `TabStripView` / `TabListView` take today. `ContentView` gains one parameter and passes it through. `PisakaApp` builds it:
   - copy path: `NSPasteboard.general`, with `url.path`;
   - copy relative path: `NSPasteboard.general`, with `DisplayPath.relativePath`;
   - Reveal in Finder: `NSWorkspace.shared.activateFileViewerSelecting`;
   - Local History: `showLocalHistory(for:)`;
   - Reveal in Project Tree: Task 7.
-- [ ] Add one shared `tabContextMenu(file:files:actions:)` modifier in `TabStripView.swift` and apply it to both `TabStripCell` and `TabRowView`:
+- [x] Add one shared `tabContextMenu(file:files:actions:)` modifier in `TabStripView.swift` and apply it to both `TabStripCell` and `TabRowView`:
   - three sections separated by `Divider()`, in the order A2 lists;
   - every item `.disabled` from `MenuAvailability`, never hidden;
   - every action takes the tab the menu was opened on.
 
   SwiftUI's `.contextMenu` answers both right click and ⌃-click.
-- [ ] Middle click: add a `TabMiddleClickCatcher` (an `NSViewRepresentable`, in `TabStripView.swift`) laid over each cell and row.
+- [x] Middle click: add a `TabMiddleClickCatcher` (an `NSViewRepresentable`, in `TabStripView.swift`) laid over each cell and row.
   - The catcher's view carries an injectable event source, `var currentEvent: () -> NSEvent? = { NSApp.currentEvent }`, which `hitTest` reads instead of touching `NSApp.currentEvent` directly.
   - Its `hitTest` claims the point only when that event is an `otherMouseDown`/`otherMouseDragged`/`otherMouseUp` with `buttonNumber == 2`. That decision is a static `claims(type:buttonNumber:)`. Every other event (left, right, hover, tooltip tracking) passes through to SwiftUI, so selection, the close mark and the context menu are untouched.
   - The tab closes on `otherMouseUp` inside the catcher's bounds, through `actions.close(.close, anchor)`, which is the same funnel. It never calls `select`.
   - It draws nothing and has no `draw(_:)`.
-- [ ] ⌥-click: `TabStatusMark`'s close mark reads `NSEvent.modifierFlags.contains(.option)` in its action. With ⌥ held it runs `closeOthers` for its tab through `closeTabs`; otherwise it runs today's single close.
-- [ ] Tooltip: `.help(DisplayPath.tooltip(fileURL: file.url, projectRoot: root))` on the cell and the row. The close mark's own `.help("Close")` keeps winning over its small area.
-- [ ] Tests (`TabMiddleClickTests`, app bundle):
+- [x] ⌥-click: `TabStatusMark`'s close mark reads `NSEvent.modifierFlags.contains(.option)` in its action. With ⌥ held it runs `closeOthers` for its tab through `closeTabs`; otherwise it runs today's single close.
+- [x] Tooltip: `.help(DisplayPath.tooltip(fileURL: file.url, projectRoot: root))` on the cell and the row. The close mark's own `.help("Close")` keeps winning over its small area.
+- [x] Tests (`TabMiddleClickTests`, app bundle):
   - `claims` is true only for the three other-mouse types with button 2;
   - false for left, right and other button numbers;
   - a catcher view's `hitTest`, with its `currentEvent` source replaced by a closure returning a synthesized `CGEvent` center-button event wrapped through `NSEvent(cgEvent:)`, claims the point; the same view with a left-button event, and with a source returning nil, answers nil.
-- [ ] Run `swift test` (`ChromeThemeSourceGatingTests`, `ZoomSourceGatingTests` and `DrawDirtyRectSourceGatingTests` must stay green over the edited files), `swiftlint --strict`, and the PisakaAppTests bundle (`xcodegen generate` first for the new test file). All must pass before Task 7.
+- [x] Run `swift test` (`ChromeThemeSourceGatingTests`, `ZoomSourceGatingTests` and `DrawDirtyRectSourceGatingTests` must stay green over the edited files), `swiftlint --strict`, and the PisakaAppTests bundle (`xcodegen generate` first for the new test file). All must pass before Task 7.
 
 ### Task 7: App: Reveal in Project Tree
 

@@ -180,9 +180,11 @@ struct ContentView: View {
     /// (⌃⌘R or the editor's context menu). Wired to `PisakaApp`, which puts up
     /// the dialog and runs the gated apply. Default no-op for previews/tests.
     var onRenameSymbol: (UsagesRequest) -> Void = { _ in }
-    /// Invoked when a tab requests to close (button or command). Defaults to a
-    /// no-op so previews/tests can construct the view without the app wiring.
-    var onClose: (UUID) -> Void = { _ in }
+    /// What the tabs' gestures and context menu ask of the app: the batch
+    /// close through the one funnel, Reveal in Project Tree, Local History and
+    /// the project root they are judged against. Defaults to no-ops so
+    /// previews/tests can construct the view without the app wiring.
+    var tabActions = TabActions()
     /// Invoked when a project-tree file row is clicked. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onOpenFile: (URL) -> Void = { _ in }
@@ -1026,7 +1028,7 @@ struct ContentView: View {
                 // Its bounds are `TabColumnWidthRule`'s: the scaled tokens, the
                 // maximum also held to a third of the window.
                 TabColumnSplit(probe: tabColumnWidth, trailingMinimum: editorZoneMinimumWidth) {
-                    TabListView(model: model, onClose: onClose)
+                    TabListView(model: model, actions: tabActions)
                 } trailing: {
                     // Right zone: the editor zone for the selected tab, with the
                     // LeetCode statement beside it when there is one.
@@ -1057,7 +1059,7 @@ struct ContentView: View {
                         // Neither a height nor a divider here: the strip states
                         // its own height and draws its own rule, so the two
                         // cannot disagree.
-                        TabStripView(model: model, onClose: onClose)
+                        TabStripView(model: model, actions: tabActions)
                         editorZone
                     }
                     .frame(minWidth: editorZoneMinimumWidth, maxWidth: .infinity, maxHeight: .infinity)
