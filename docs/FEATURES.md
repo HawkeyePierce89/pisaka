@@ -503,8 +503,10 @@ user sees it.
   that do not, best-matching first, and the server's own order applies within each
   group. A capital you typed counts: `aBu` puts `ArrayBuffer` above `abuse`. Each
   row shows the server's detail (a signature or type) dimmed at the right. Committing with
-  **Enter** in the middle of a word replaces the rest of it only when the completion
-  ends with that rest. `foo|Baz` completed to `fooBaz` gives `fooBaz`, while
+  **Enter** in the middle of a word replaces the rest of it only when the server's
+  edit range reaches past the caret and the completion ends with that rest; an item
+  without a server range replaces only what you typed and leaves the rest of the
+  identifier standing. `foo|Baz` completed to `fooBaz` gives `fooBaz`, while
   `foo|Bar` gives `fooBazBar`; **Tab** still replaces the whole identifier.
   All of this is silent and optional. Every other language keeps the index's
   answers; so does Swift on a machine with no Xcode, in a project the server cannot

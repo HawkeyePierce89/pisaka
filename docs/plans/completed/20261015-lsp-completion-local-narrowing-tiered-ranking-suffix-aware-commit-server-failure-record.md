@@ -258,7 +258,7 @@ kind, snippet support, code action or inlay hint.
   It narrows only when all of these hold:
   - the word start is unchanged;
   - the new word is non-empty;
-  - the new word extends the old one or is a non-empty prefix of it;
+  - the new word extends or equals the answered one; a backspace below the answered word asks again;
   - no newline was inserted, no trigger character was typed, the caret did not
     jump, and the request is not explicit.
 

@@ -100,7 +100,7 @@ The controller does not change. It still clears its own table and prefetches on 
 - Modify: `docs/FEATURES.md`
 - Modify: `docs/plans/completed/20261015-lsp-completion-local-narrowing-tiered-ranking-suffix-aware-commit-server-failure-record.md`
 
-- [ ] **`core-lsp.md`:**
+- [x] **`core-lsp.md`:**
   - D40 gains one sentence: a resolve belongs to the retained list, so a narrowed row's resolve is answered from the list's cache with no second round trip.
   - The `LSPIntelligenceProvider` entry's retained-list paragraph gains the mechanics:
     - the key (list handle and raw index);
@@ -109,13 +109,13 @@ The controller does not change. It still clears its own table and prefetches on 
     - that a failure or a timeout is not cached;
     - the in-flight dedup, and its cost that a resolve going through the cache is not cancelled by its caller and is bounded by the resolve budget.
   - The "mutable state is the small resolve table" sentence names the cache too.
-- [ ] **`app-editor.md`:** the "Local narrowing" paragraph says that the prefetch on a narrowed answer still runs and is answered from the provider's cache, not by the server.
-- [ ] **`FEATURES.md`:** reword the Enter sentence:
+- [x] **`app-editor.md`:** the "Local narrowing" paragraph says that the prefetch on a narrowed answer still runs and is answered from the provider's cache, not by the server.
+- [x] **`FEATURES.md`:** reword the Enter sentence:
   - Enter replaces the rest of the word only when the server's edit range reaches past the caret and the completion ends with that rest.
   - An item without a server range replaces only the typed prefix on Enter and leaves the rest of the identifier standing.
   - Keep both examples, and keep the statement that Tab replaces the whole identifier.
-- [ ] **Completed plan:** rewrite line 261's bullet, and nothing else in that file, to: "the new word extends or equals the answered one; a backspace below the answered word asks again". The surrounding bullets already state the same word start and a non-empty word.
-- [ ] Run `swift test`, which includes `LintConfigurationTests`' doc-shape checks. `grep -n "non-empty prefix of it" docs/plans/completed/` must find nothing.
+- [x] **Completed plan:** rewrite line 261's bullet, and nothing else in that file, to: "the new word extends or equals the answered one; a backspace below the answered word asks again". The surrounding bullets already state the same word start and a non-empty word.
+- [x] Run `swift test`, which includes `LintConfigurationTests`' doc-shape checks. `grep -n "non-empty prefix of it" docs/plans/completed/` must find nothing.
 
 ### Task 3: Verify acceptance criteria
 
