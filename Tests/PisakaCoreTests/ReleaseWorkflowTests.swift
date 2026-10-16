@@ -2937,6 +2937,67 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Every job that installs an Xcode installs the same one, so the toolchain
+    /// that gates a pull request is the toolchain that archives the release.
+    ///
+    /// The set of `setup-xcode` sites is pinned by set equality, so a sixth step
+    /// fails here until it is named — a new job silently left on an older Xcode
+    /// is the drift this exists to refuse. The line count closes the other side:
+    /// an `xcode-version:` sitting outside any step would satisfy nothing and
+    /// mislead every reader. `XcodePin`'s doc comment is the authority and lists
+    /// the documents checked against it.
+    func testEveryWorkflowPinsTheSameXcode() throws {
+        let steps = try XcodePin.steps()
+
+        let sites = Set(steps.map { "\($0.workflow): \($0.job)" })
+        XCTAssertEqual(sites, [
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: build-ios",
+            "release.yml: test", "release.yml: release",
+        ], """
+            The jobs carrying a maxim-lobanov/setup-xcode step changed. Found: \(sites.sorted()). \
+            A new one must be named here — and pinned to the same Xcode — before it can ship.
+            """)
+        XCTAssertEqual(steps.count, sites.count, """
+            A job carries more than one setup-xcode step: \(steps.map(\.description)).
+            """)
+
+        for step in steps {
+            XCTAssertEqual(step.versions.count, 1, """
+                \(step.workflow)'s setup-xcode step in job `\(step.job)` must carry exactly one \
+                `xcode-version:`; it carries \(step.versions).
+                """)
+        }
+
+        let versions = Set(steps.flatMap(\.versions))
+        XCTAssertEqual(versions.count, 1, """
+            Every setup-xcode step in ci.yml and release.yml must pin the same Xcode. Found \
+            \(versions.sorted()) across: \(steps.map(\.description).joined(separator: "; ")).
+            """)
+
+        XCTAssertEqual(try XcodePin.versionLineCount(), steps.count, """
+            ci.yml and release.yml carry an active `xcode-version:` line outside any setup-xcode \
+            step. Move it into a step or delete it.
+            """)
+    }
+
+    /// `docs/RELEASING.md` names the toolchain once, in an anchored phrase, and
+    /// that phrase is held equal to the workflows' pin — so prose mentioning some
+    /// Xcode in passing cannot satisfy it, and a second anchored phrase (two
+    /// claims, one of which will go stale) fails.
+    func testReleasingDocNamesTheWorkflowPin() throws {
+        let pinned = try XcodePin.pinnedVersion()
+        let doc = try text(atRepositoryPath: "docs/RELEASING.md")
+
+        let regex = try NSRegularExpression(pattern: #"Pinned toolchain: Xcode `([^`]+)`"#)
+        let matches = regex.matches(in: doc, range: NSRange(doc.startIndex ..< doc.endIndex, in: doc))
+        let named = matches.compactMap { Range($0.range(at: 1), in: doc).map { String(doc[$0]) } }
+
+        XCTAssertEqual(named, [pinned], """
+            docs/RELEASING.md must carry exactly one ``Pinned toolchain: Xcode `\(pinned)` `` — the \
+            Xcode every setup-xcode step in ci.yml and release.yml installs. It carries \(named).
+            """)
+    }
+
     /// CI's macOS job builds the *shipping* configuration, and that is the only
     /// thing that compiles the updater before a tag exists.
     ///
