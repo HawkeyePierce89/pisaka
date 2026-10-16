@@ -119,11 +119,11 @@ The controller does not change. It still clears its own table and prefetches on 
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] Run `swift test`: green.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`: green, except for the pre-existing scale-1.8 layout assertions already recorded in the merged plan.
-- [ ] Run `swiftlint --strict` from the repository root: clean, with no in-file disables.
-- [ ] Confirm that acceptance criteria 1–3 map to the Task 1 tests, and 6–7 to the Task 2 edits.
-- [ ] Confirm that `CLAUDE.md` is unchanged and still under its 60,000-character limit.
+- [x] Run `swift test`: green.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`: green, except for the pre-existing scale-1.8 layout assertions already recorded in the merged plan. (316 tests; the only 8 failures are those scale-1.8 assertions in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests.)
+- [x] Run `swiftlint --strict` from the repository root: clean, with no in-file disables.
+- [x] Confirm that acceptance criteria 1–3 map to the Task 1 tests, and 6–7 to the Task 2 edits.
+- [x] Confirm that `CLAUDE.md` is unchanged and still under its 60,000-character limit.
 
 ### Task 4: Update documentation
 
