@@ -127,5 +127,5 @@ The controller does not change. It still clears its own table and prefetches on 
 
 ### Task 4: Update documentation
 
-- [ ] `README.md`: no user-facing change beyond the `FEATURES.md` correction. Confirm that it has no stale copy of the Enter sentence.
-- [ ] `CLAUDE.md`: no change needed. The resolve cache adds no new file, and the cross-cutting invariants do not mention it.
+- [x] `README.md`: no user-facing change beyond the `FEATURES.md` correction. Confirm that it has no stale copy of the Enter sentence. (Confirmed: README.md has no Enter/rest-of-word sentence.)
+- [x] `CLAUDE.md`: no change needed. The resolve cache adds no new file, and the cross-cutting invariants do not mention it.
