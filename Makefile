@@ -15,7 +15,18 @@ DESTINATION_IOS := generic/platform=iOS
 PROJECT := Pisaka.xcodeproj
 SCHEME := Pisaka
 
-.PHONY: help setup hooks generate test test-app lint build build-ios all
+# The Xcode every `xcodebuild` below runs under — the one CI and the release
+# workflow pin (docs/RELEASING.md). A newer local toolchain accepts code the
+# pinned one refuses, so the app-layer gates are only worth running under this
+# one. Override from the command line or the environment to point at another
+# copy of the same release; `toolchain` refuses when it is missing, or is some
+# other release, rather than falling back to whatever xcode-select names. The
+# version itself is `override`, so `make PINNED_XCODE_VERSION=…` cannot move
+# the release `toolchain` checks against — only the path is a caller's choice.
+override PINNED_XCODE_VERSION := 26.3
+PINNED_XCODE ?= /Applications/Xcode_$(PINNED_XCODE_VERSION).app
+
+.PHONY: help setup hooks toolchain generate test test-app lint build build-ios all
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -33,11 +44,28 @@ setup: hooks ## One-time clone setup: wire the git hooks, then check the linter
 hooks: ## Point this clone at the repository's tracked hooks
 	@git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true
 
+toolchain: hooks ## Refuse unless the Xcode CI pins is installed at PINNED_XCODE
+	@test -d "$(PINNED_XCODE)/Contents/Developer" || { \
+		echo "The pinned Xcode is missing: $(PINNED_XCODE)"; \
+		echo "It is the Xcode CI and the release workflow build with (docs/RELEASING.md),"; \
+		echo "and make never falls back to the system-selected one. Install it there, or point"; \
+		echo "make at another copy of the same release:"; \
+		echo "  make test-app PINNED_XCODE=/path/to/$(notdir $(PINNED_XCODE))"; \
+		exit 1; \
+	}
+	@actual="$$(DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -version | head -n 1)"; \
+	test "$$actual" = "Xcode $(PINNED_XCODE_VERSION)" || { \
+		echo "$(PINNED_XCODE) is $$actual, not the pinned Xcode $(PINNED_XCODE_VERSION)."; \
+		echo "A different release proves nothing about what CI accepts; point PINNED_XCODE="; \
+		echo "at a copy of Xcode $(PINNED_XCODE_VERSION) instead."; \
+		exit 1; \
+	}
+
 test: hooks ## Run the PisakaCore suite (no dependencies to install)
 	swift test
 
-test-app: generate ## Run the app-layer test bundle (PisakaAppTests)
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+test-app: toolchain generate ## Run the app-layer test bundle (PisakaAppTests)
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_MACOS)' test
 
 lint: hooks ## Run the style gate exactly as CI runs it
@@ -46,12 +74,12 @@ lint: hooks ## Run the style gate exactly as CI runs it
 generate: hooks ## Regenerate Pisaka.xcodeproj from project.yml
 	xcodegen generate
 
-build: generate ## Build the macOS app in the configuration that ships
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+build: toolchain generate ## Build the macOS app in the configuration that ships
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_MACOS)' -configuration Release build
 
-build-ios: generate ## Build the iOS app for a device (what CI builds)
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+build-ios: toolchain generate ## Build the iOS app for a device (what CI builds)
+	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_IOS)' build
 
 all: lint test test-app build build-ios ## Everything CI runs, in CI's order

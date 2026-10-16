@@ -1502,11 +1502,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **The Window menu** gains the tab-navigation commands, which live in
     `TabNavigationCommands.swift` (below) and enter the scene's `.commands` builder
     as one `Group` entry shared with `FoldCommands()`. **That builder holds ten
-    entries at most** on the Xcode 16.4 SDK CI builds with (`CommandsBuilder`
-    declares `buildBlock` up to ten children); an eleventh compiles on a newer
-    local toolchain and fails on CI with `extra argument in call`, which is how the
-    ceiling was found. A new command type joins an existing `Group` rather than
-    adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
+    entries at most.** The ceiling was found on the then-pinned Xcode 16.4, whose
+    SDK's `CommandsBuilder` declares `buildBlock` up to ten children: an eleventh
+    entry compiled on a newer local toolchain and failed on CI with `extra
+    argument in call`. The pinned Xcode 26.3 (`XcodePin`, `docs/RELEASING.md`)
+    ships MacOSX26.2.sdk, whose `CommandsBuilder` declares the same `buildBlock`
+    overloads — none, one, and two through ten children — and no
+    `buildPartialBlock`, as read off its `swiftinterface` by a one-off CI probe on
+    the pull request that moved the pin. **The declarations are not the whole
+    rule**: the local Xcode 27.1's SDK declares the same ten and its compiler
+    still accepted eleven, so what a toolchain compiles is the compiler's answer,
+    not the SDK's. Whether 26.3's compiler accepts eleven was not tried; the
+    working ceiling is ten, and a new command type joins an existing `Group`
+    rather than adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
     before `keyDown`, SwiftTerm's `TerminalView` overrides `keyDown` but not
     `performKeyEquivalent` (read at the pinned revision), and the app's only two
     `performKeyEquivalent` overrides — the editor's text view and Local Changes'

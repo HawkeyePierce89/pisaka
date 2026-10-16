@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '16.4'
+          xcode-version: '26.3'
       - name: Run PisakaCore tests
         run: swift test
 
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '16.4'
+          xcode-version: '26.3'
       - name: Install XcodeGen 2.45.4
         run: |
           curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
@@ -47,16 +47,36 @@ jobs:
           unzip -q xcodegen.zip
           sudo xcodegen/install.sh
           xcodegen --version
+      # The checkouts are keyed by the Xcode that resolved them as well as by the
+      # lock file, so the guard below never reads one toolchain's resolution
+      # through another's cache: the first run after a pin bump resolves from
+      # scratch under the new Xcode.
+      - name: Read the selected Xcode for the cache key
+        id: xcode
+        run: echo "version=$(xcodebuild -version | head -n 1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
       - name: Cache SwiftPM source packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: SourcePackages
-          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          key: spm-${{ steps.xcode.outputs.version }}-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ steps.xcode.outputs.version }}-
       - name: Generate Xcode project
         run: xcodegen generate
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+      # Which schema resolution writes depends on the Xcode doing it, and a
+      # rewrite (v2 into the legacy v1 shape) hides the one real pin change
+      # inside a whole-file diff. This step is what observes the pinned Xcode's
+      # behaviour: resolution must leave the committed file byte-identical. It
+      # resolves from scratch on a cache miss (always the first run under a new
+      # pin, since the key names the Xcode) and over this Xcode's own cached
+      # checkouts otherwise. DependencyPinTests' doc comment has the remedy.
+      - name: Package.resolved is unchanged by resolution
+        run: |
+          if ! git diff --exit-code -- Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved; then
+            echo "::error file=Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved::Resolving packages under the pinned Xcode rewrote the committed Package.resolved (diff above). Keep the resolved values and re-emit them in SwiftPM's v2 schema, as DependencyPinTests' doc comment describes; never commit the rewrite."
+            exit 1
+          fi
       # The app-layer test bundle that `swift test` structurally cannot cover: it
       # drives `NSTextView`/`NSLayoutManager`/`NSATSTypesetter` subclasses with
       # behaviour of their own (the bracket overlay, the folding typesetter),
@@ -285,7 +305,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
-          xcode-version: '16.4'
+          xcode-version: '26.3'
       - name: Install XcodeGen 2.45.4
         run: |
           curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip

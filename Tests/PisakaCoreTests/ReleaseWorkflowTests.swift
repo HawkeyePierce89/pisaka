@@ -2937,6 +2937,174 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Every job that installs an Xcode installs the same one, so the toolchain
+    /// that gates a pull request is the toolchain that archives the release.
+    ///
+    /// The set of `setup-xcode` sites is pinned by set equality, so a sixth step
+    /// fails here until it is named — a new job silently left on an older Xcode
+    /// is the drift this exists to refuse. The line count closes the other side:
+    /// an `xcode-version:` sitting outside any step would satisfy nothing and
+    /// mislead every reader. `XcodePin`'s doc comment is the authority and lists
+    /// the documents checked against it.
+    func testEveryWorkflowPinsTheSameXcode() throws {
+        let steps = try XcodePin.steps()
+
+        let sites = Set(steps.map { "\($0.workflow): \($0.job)" })
+        XCTAssertEqual(sites, [
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: build-ios",
+            "release.yml: test", "release.yml: release",
+        ], """
+            The jobs carrying a maxim-lobanov/setup-xcode step changed. Found: \(sites.sorted()). \
+            A new one must be named here — and pinned to the same Xcode — before it can ship.
+            """)
+        XCTAssertEqual(steps.count, sites.count, """
+            A job carries more than one setup-xcode step: \(steps.map(\.description)).
+            """)
+
+        for step in steps {
+            XCTAssertEqual(step.versions.count, 1, """
+                \(step.workflow)'s setup-xcode step in job `\(step.job)` must carry exactly one \
+                `xcode-version:`; it carries \(step.versions).
+                """)
+        }
+
+        let versions = Set(steps.flatMap(\.versions))
+        XCTAssertEqual(versions.count, 1, """
+            Every setup-xcode step in ci.yml and release.yml must pin the same Xcode. Found \
+            \(versions.sorted()) across: \(steps.map(\.description).joined(separator: "; ")).
+            """)
+
+        XCTAssertEqual(try XcodePin.versionLineCount(), steps.count, """
+            ci.yml and release.yml carry an active `xcode-version:` line outside any setup-xcode \
+            step. Move it into a step or delete it.
+            """)
+    }
+
+    /// `docs/RELEASING.md` names the toolchain once, in an anchored phrase, and
+    /// that phrase is held equal to the workflows' pin — so prose mentioning some
+    /// Xcode in passing cannot satisfy it, and a second anchored phrase (two
+    /// claims, one of which will go stale) fails. Every `xcodebuild` command it
+    /// spells is held to the same Xcode.
+    func testReleasingDocNamesTheWorkflowPin() throws {
+        let pinned = try XcodePin.pinnedVersion()
+        let doc = try text(atRepositoryPath: "docs/RELEASING.md")
+
+        let regex = try NSRegularExpression(pattern: #"Pinned toolchain: Xcode `([^`]+)`"#)
+        let matches = regex.matches(in: doc, range: NSRange(doc.startIndex ..< doc.endIndex, in: doc))
+        let named = matches.compactMap { Range($0.range(at: 1), in: doc).map { String(doc[$0]) } }
+
+        XCTAssertEqual(named, [pinned], """
+            docs/RELEASING.md must carry exactly one ``Pinned toolchain: Xcode `\(pinned)` `` — the \
+            Xcode every setup-xcode step in ci.yml and release.yml installs. It carries \(named).
+            """)
+
+        // Its commands run under that Xcode too: every line starting `xcodebuild`
+        // or a `DEVELOPER_DIR=` assignment is the prefixed spelling, so a recipe
+        // copied out of this document cannot resolve or archive under another one.
+        let prefix = "DEVELOPER_DIR=/Applications/Xcode_\(pinned).app/Contents/Developer xcodebuild"
+        let commands = doc.components(separatedBy: .newlines)
+            .filter { $0.hasPrefix("xcodebuild") || $0.hasPrefix("DEVELOPER_DIR=") }
+        XCTAssertGreaterThanOrEqual(commands.count, 2, """
+            docs/RELEASING.md holds \(commands.count) xcodebuild command lines; the archive and the \
+            Sparkle re-derive make two, so this rule is no longer reading the commands it means to read
+            """)
+        XCTAssertEqual(commands.filter { !$0.hasPrefix(prefix) }, [], """
+            every xcodebuild command in docs/RELEASING.md must start `\(prefix)`, or it runs under \
+            whatever Xcode xcode-select names
+            """)
+    }
+
+    /// CI resolves the packages under the pinned Xcode on every run — from
+    /// scratch on a cache miss, which the Xcode-keyed cache makes the first run
+    /// under any new pin — and that resolution must leave the committed
+    /// `Package.resolved` byte-identical. Which schema resolution writes depends on the Xcode doing
+    /// it (`DependencyPinTests`' doc comment), so this step is what observes the
+    /// pinned toolchain's behaviour — without it, a rewrite would only ever show
+    /// up on a developer's machine, as a whole-file diff hiding the one real pin
+    /// change.
+    ///
+    /// Read over comment-stripped lines and scoped to `build-macos`, the job
+    /// whose resolution feeds the app tests and the shipping build. The path is
+    /// held equal to the one the SwiftPM cache key hashes, so the guard and the
+    /// cache cannot come to name two different files, and it must exist — a
+    /// misspelled path makes `git diff` compare nothing and pass forever.
+    func testCIRefusesARewrittenPackageResolved() throws {
+        let steps = try Self.jobSteps("build-macos", in: "ci.yml")
+        let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
+                                    "ci.yml's `build-macos` job no longer resolves package dependencies")
+        let guardName = "- name: \(Self.resolvedGuardStepName)"
+        XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
+            ci.yml's `build-macos` job must run `\(Self.resolvedGuardStepName)` as the step directly \
+            after `Resolve package dependencies` — before anything else can touch the worktree, so a \
+            rewrite is attributed to resolution and nothing else.
+            """)
+        let step = try XCTUnwrap(steps.first(where: { $0.first == guardName }),
+                                 "ci.yml's `build-macos` job has no `\(Self.resolvedGuardStepName)` step")
+
+        let diffs = step.filter { $0.contains("git diff") }
+        XCTAssertFalse(diffs.isEmpty, "`\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
+        for diff in diffs {
+            XCTAssertTrue(diff.contains("--exit-code"), """
+                `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
+                rewritten Package.resolved prints a diff and the step still succeeds: \(diff)
+                """)
+        }
+        XCTAssertFalse(step.contains { $0.hasPrefix("continue-on-error") }, """
+            `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
+            survives failing observes nothing.
+            """)
+        XCTAssertFalse(step.contains { $0.hasPrefix("if:") }, """
+            `\(Self.resolvedGuardStepName)` must not carry an `if:` — a guard that can be skipped \
+            observes nothing on the runs it skips.
+            """)
+        for diff in diffs {
+            XCTAssertNil(diff.range(of: #"\|\|\s*(true|:)"#, options: .regularExpression), """
+                `\(Self.resolvedGuardStepName)` must not swallow `git diff`'s status with `|| true`: \(diff)
+                """)
+        }
+        // The failing diff has to fail the step: either the `if ! git diff` form
+        // whose `then` branch exits non-zero, or a bare `git diff --exit-code` that
+        // the run shell's `-e` turns into the step's failure.
+        let guarded = step.contains { $0.hasPrefix("if ! git diff --exit-code") }
+            ? step.contains { $0 == "exit 1" }
+            : diffs.contains { $0.hasPrefix("git diff --exit-code") && !$0.contains("||") && !$0.contains("&&") }
+        XCTAssertTrue(guarded, """
+            `\(Self.resolvedGuardStepName)` must fail when `git diff --exit-code` does — an \
+            `if ! git diff …; then … exit 1; fi`, or a bare `git diff --exit-code` line.
+            """)
+
+        let pathPattern = try NSRegularExpression(pattern: #" -- (\S+?);?(?:\s|$)"#)
+        let diffedPaths = Set(diffs.flatMap { line in
+            pathPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
+                .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
+        })
+        let keyPattern = try NSRegularExpression(pattern: #"hashFiles\('([^']+)'\)"#)
+        let hashed = Set(steps.joined().filter { $0.hasPrefix("key:") }.flatMap { line in
+            keyPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
+                .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
+        })
+        XCTAssertEqual(hashed.count, 1, "`build-macos`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
+        XCTAssertEqual(diffedPaths, hashed, """
+            `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
+            It diffs \(diffedPaths.sorted()); the cache key hashes \(hashed.sorted()).
+            """)
+        for path in diffedPaths {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: Self.repositoryRoot.appendingPathComponent(path).path), """
+                `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
+                `git diff` over a missing path compares nothing and passes on every run.
+                """)
+        }
+    }
+
+    private static let resolvedGuardStepName = "Package.resolved is unchanged by resolution"
+
+    /// The steps of one job in a workflow under `.github/workflows/`, read by the
+    /// shared `workflowJobSteps(_:in:)`.
+    private static func jobSteps(_ job: String, in workflow: String) throws -> [[String]] {
+        workflowJobSteps(job, in: try String(contentsOf: repositoryRoot.appendingPathComponent(
+            ".github/workflows/\(workflow)"), encoding: .utf8))
+    }
+
     /// CI's macOS job builds the *shipping* configuration, and that is the only
     /// thing that compiles the updater before a tag exists.
     ///

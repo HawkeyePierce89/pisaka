@@ -83,7 +83,7 @@ unsigned command below is the build-number mechanism, verified end to end.
 
 ```sh
 xcodegen generate
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
   -destination 'generic/platform=macOS' \
   -archivePath build.noindex/Pisaka-macOS.xcarchive \
   CURRENT_PROJECT_VERSION=7 \
@@ -453,11 +453,37 @@ refuses a tag that already has one, and a run that failed at or after the publis
 step leaves the release behind as a **draft** (below), which is invisible on the
 releases page's default view but still occupies the tag.
 
+**Pinned toolchain: Xcode `26.3`.** Every `maxim-lobanov/setup-xcode` step —
+three in `ci.yml` (`test`, `build-macos`, `build-ios`) and two here (`test`,
+`release`) — installs that one version, on the `macos-15` runner, and
+`ReleaseWorkflowTests` holds all five to a single value, with this sentence
+held equal to it (the set of steps is the authority; `XcodePin`, in the test
+support directory, lists every reader checked against it). The pin exists
+because the language the project may use is whatever *this* Xcode accepts, and a
+newer local toolchain proves nothing about it: a scene `.commands { }` builder
+grew an eleventh entry that compiled on the development machine's Xcode and
+failed on CI's with `extra argument in call`, because the SDK CI built with
+declared `CommandsBuilder.buildBlock` up to ten children only
+(`app-shell.md`). CI was on Xcode 16.4 then, and 16.4 cannot be installed on
+the development machine's macOS at all, so no local gate could have reproduced
+the failure. 26.3 is the newest Xcode present on both the `macos-15` and the
+`macos-26` runner images, so it is the closest CI can come to a toolchain a
+developer can also run, without the runner move in the same change; moving the
+jobs to `macos-26` is a separate follow-up. The `Makefile` runs every
+`xcodebuild` it issues under `/Applications/Xcode_26.3.app` through
+`DEVELOPER_DIR` and **refuses** when that Xcode is missing, or reports some
+other release, rather than falling back to `xcode-select`'s; installing it there
+is a human step on each development machine (or pass
+`PINNED_XCODE=/path/to/Xcode_26.3.app`). Every `xcodebuild` this document spells
+carries the same `DEVELOPER_DIR` prefix — the Sparkle re-derive below resolves
+packages, and a resolution under another Xcode can rewrite the committed
+`Package.resolved` into a schema CI then refuses.
+
 The workflow then, in order:
 
 - **`test` job** — `swift test`, pinned identically to `ci.yml` (same SHA-pinned
-  `actions/checkout` and `maxim-lobanov/setup-xcode`, Xcode `16.4`). Nothing is
-  built or published unless it is green.
+  `actions/checkout` and `maxim-lobanov/setup-xcode`, the pinned toolchain
+  above). Nothing is built or published unless it is green.
 - **`release` job** (`needs: test`, the only job with `contents: write`;
   the workflow's top level is `contents: read`) —
   - **Preflight, before anything expensive.** Ten refusals, each with an
@@ -1188,7 +1214,7 @@ a pushed tag, after the archive. Re-derive them first:
 # it the resolve below fails with "does not exist" on a clean checkout — on the
 # one path whose alternative is guessing the two path lists.
 xcodegen generate
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
   -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
 FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
 

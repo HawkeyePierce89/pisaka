@@ -471,8 +471,8 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`, `StubFileTree`, `Gate`,
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
-`ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc` and
-`DesignGlyphRecord`. A fake
+`ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc`,
+`DesignGlyphRecord` and `XcodePin`. A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
 writes into a `StubFileTree` must hop to the main actor first — two threads in one
 `Dictionary` is a corrupted hash table, not a flaky assertion.
@@ -487,30 +487,33 @@ Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read thro
 A `Makefile` wraps these as `make test` / `make test-app` / `make lint` /
 `make build`; its
 targets and a generated build phase both wire this clone's hooks
-(`style-lint.md`). The raw commands below stay the authority.
+(`style-lint.md`), and every `xcodebuild` it runs reads the pinned Xcode's path
+from `PINNED_XCODE`, refusing when it is missing. The raw commands below stay
+the authority, each run under the Xcode CI pins.
 
 ```sh
 swift test            # run the PisakaCore test suite (all platforms)
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test  # app-layer test bundle
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test  # app-layer test bundle
 
 # The app target is built through the XcodeGen project, not `swift build`/`run`:
 xcodegen generate     # regenerate Pisaka.xcodeproj from project.yml
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Release archive. The build number is overridden per upload and never committed.
 # This command archives unsigned: the committed configuration names no team and
 # no identity on purpose — the release workflow passes all of them (and the
 # hardened runtime) on its own command line. See docs/RELEASING.md.
-xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
+DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
   -archivePath build.noindex/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
 push to `master`: `swift test` first, then — only when it is green — the macOS
-job (which runs the app-layer `PisakaAppTests` bundle first, then an unsigned
-build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
+job (which first refuses a `Package.resolved` the pinned Xcode's resolution
+rewrote — remedy in `DependencyPinTests`' doc comment — then runs the app-layer
+`PisakaAppTests` bundle, then an unsigned build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
 covering libgit2 linking) in parallel, plus an independent `lint` job
 (pinned SwiftLint 0.65.1, `--strict`, no `needs:`) that refuses style
 violations even when the pre-commit hook was bypassed or never installed. No
@@ -608,6 +611,9 @@ owed are documented in `docs/RELEASING.md`.
   out on iOS (no subprocess). One gating suite is the only thing in the pipeline that can see
   the redirect rule (`app-ios.md`).
 - Target platforms are macOS 14+ and iOS/iPadOS 17+.
+- **The project's language is what the Xcode pinned on CI accepts** (`XcodePin`): a newer
+  local toolchain accepts what the pinned one refuses, so it proves nothing, and the
+  app-layer gates before a merge run under the pinned one (`docs/RELEASING.md`).
 - **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the single style
   authority (the nested `Tests/.swiftlint.yml` carries the test-tree exemptions; every
   relaxation lives in the config with its reason, never as scattered in-file disables). The

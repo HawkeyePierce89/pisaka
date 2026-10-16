@@ -16,9 +16,11 @@ import SwiftUI
 /// one so `MenuShortcutUniquenessTests` sees each chord.
 ///
 /// **Why a type of its own.** `PisakaApp`'s `.commands` builder held ten
-/// entries, the most a `CommandsBuilder` block accepts in the Xcode 16.4 SDK
-/// that CI builds with; an eleventh compiles on a newer toolchain and fails
-/// there (`error: extra argument in call`). So this type and `FoldCommands`
+/// entries, the most a `CommandsBuilder` block accepted in the then-pinned
+/// Xcode 16.4 SDK; an eleventh compiled on a newer toolchain and failed on CI
+/// (`error: extra argument in call`). The working ceiling stays ten
+/// (`app-shell.md`), and a new command type joins a `Group` rather than
+/// adding an entry. So this type and `FoldCommands`
 /// share one entry, a `Group`, and the items live in a view of their own, as
 /// the LeetCode menu's do, so *it* observes the workspace and the scene's body
 /// does not re-render on every tab change.
