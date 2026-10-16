@@ -2998,6 +2998,103 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// CI resolves the packages from a fresh clone under the pinned Xcode on
+    /// every run, and that resolution must leave the committed `Package.resolved`
+    /// byte-identical. Which schema resolution writes depends on the Xcode doing
+    /// it (`DependencyPinTests`' doc comment), so this step is what observes the
+    /// pinned toolchain's behaviour — without it, a rewrite would only ever show
+    /// up on a developer's machine, as a whole-file diff hiding the one real pin
+    /// change.
+    ///
+    /// Read over comment-stripped lines and scoped to `build-macos`, the job
+    /// whose resolution feeds the app tests and the shipping build. The path is
+    /// held equal to the one the SwiftPM cache key hashes, so the guard and the
+    /// cache cannot come to name two different files, and it must exist — a
+    /// misspelled path makes `git diff` compare nothing and pass forever.
+    func testCIRefusesARewrittenPackageResolved() throws {
+        let steps = try Self.jobSteps("build-macos", in: "ci.yml")
+        let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
+                                    "ci.yml's `build-macos` job no longer resolves package dependencies")
+        let guardName = "- name: \(Self.resolvedGuardStepName)"
+        XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
+            ci.yml's `build-macos` job must run `\(Self.resolvedGuardStepName)` as the step directly \
+            after `Resolve package dependencies` — before anything else can touch the worktree, so a \
+            rewrite is attributed to resolution and nothing else.
+            """)
+        let step = try XCTUnwrap(steps.first(where: { $0.first == guardName }),
+                                 "ci.yml's `build-macos` job has no `\(Self.resolvedGuardStepName)` step")
+
+        let diffs = step.filter { $0.contains("git diff") }
+        XCTAssertFalse(diffs.isEmpty, "`\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
+        for diff in diffs {
+            XCTAssertTrue(diff.contains("--exit-code"), """
+                `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
+                rewritten Package.resolved prints a diff and the step still succeeds: \(diff)
+                """)
+        }
+        XCTAssertFalse(step.contains { $0.hasPrefix("continue-on-error") }, """
+            `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
+            survives failing observes nothing.
+            """)
+
+        let pathPattern = try NSRegularExpression(pattern: #" -- (\S+?);?(?:\s|$)"#)
+        let guarded = Set(diffs.flatMap { line in
+            pathPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
+                .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
+        })
+        let keyPattern = try NSRegularExpression(pattern: #"hashFiles\('([^']+)'\)"#)
+        let hashed = Set(steps.joined().filter { $0.hasPrefix("key:") }.flatMap { line in
+            keyPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
+                .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
+        })
+        XCTAssertEqual(hashed.count, 1, "`build-macos`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
+        XCTAssertEqual(guarded, hashed, """
+            `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
+            It diffs \(guarded.sorted()); the cache key hashes \(hashed.sorted()).
+            """)
+        for path in guarded {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: Self.repositoryRoot.appendingPathComponent(path).path), """
+                `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
+                `git diff` over a missing path compares nothing and passes on every run.
+                """)
+        }
+    }
+
+    private static let resolvedGuardStepName = "Package.resolved is unchanged by resolution"
+
+    /// The steps of one job, each as its trimmed active lines (the first being
+    /// the `- ` line that opens it) — comments and blank lines dropped, so a
+    /// commented-out step or flag cannot count.
+    private static func jobSteps(_ job: String, in workflow: String) throws -> [[String]] {
+        let raw = try String(contentsOf: repositoryRoot.appendingPathComponent(".github/workflows/\(workflow)"),
+                             encoding: .utf8)
+            .components(separatedBy: .newlines)
+            .filter {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+            }
+        func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+        guard let start = raw.firstIndex(of: "  \(job):") else { return [] }
+        let body = raw[(start + 1)...].prefix { indent($0) > 2 }
+        guard let stepsKey = body.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "steps:" }) else {
+            return []
+        }
+        let keyIndent = indent(body[stepsKey])
+        let stepLines = body[(stepsKey + 1)...].prefix { indent($0) > keyIndent }
+        guard let stepIndent = stepLines.first.map(indent) else { return [] }
+
+        var steps: [[String]] = []
+        for line in stepLines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if indent(line) == stepIndent, trimmed.hasPrefix("- ") {
+                steps.append([trimmed])
+            } else if !steps.isEmpty {
+                steps[steps.count - 1].append(trimmed)
+            }
+        }
+        return steps
+    }
+
     /// CI's macOS job builds the *shipping* configuration, and that is the only
     /// thing that compiles the updater before a tag exists.
     ///

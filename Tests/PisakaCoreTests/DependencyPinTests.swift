@@ -51,15 +51,24 @@ import XCTest
 ///
 /// A practical note on producing that v2 file, learned while adding the Sparkle
 /// pin: which schema `xcodebuild -resolvePackageDependencies` *writes* depends on
-/// the local Xcode. CI's (16.4) writes v2; Xcode 26.x rewrites the whole file
-/// into the legacy v1 shape (`object.pins`/`repositoryURL`) whenever resolution
-/// actually has to change something — a fresh clone or a dropped
-/// `DerivedData/…/SourcePackages` then produces a 358-line diff in which the one
-/// real pin change is invisible. It leaves an already-correct v2 file alone, so
-/// this is only a hazard on the commit that adds or bumps a dependency. When it
-/// happens, keep the resolved *values* (they are the real resolution) and
-/// re-emit them in the v2 shape rather than committing the churn or hand-typing
-/// a revision — the assertions below are what catch getting either half wrong.
+/// the Xcode doing it. CI builds with the Xcode pinned in the workflows
+/// (`XcodePin`). When that pin was 16.4 it wrote v2; Xcode 26.x, used locally at
+/// the time, rewrote the whole file into the legacy v1 shape
+/// (`object.pins`/`repositoryURL`) whenever resolution actually had to change
+/// something — a fresh clone or a dropped `DerivedData/…/SourcePackages` then
+/// produced a 358-line diff in which the one real pin change was invisible. It
+/// left an already-correct v2 file alone, so the hazard was confined to the
+/// commit that adds or bumps a dependency. When it happens, keep the resolved
+/// *values* (they are the real resolution) and re-emit them in the v2 shape
+/// rather than committing the churn or hand-typing a revision — the assertions
+/// below are what catch getting either half wrong.
+///
+/// What the pinned Xcode does today is no longer remembered here but observed:
+/// ci.yml's `build-macos` job resolves from a fresh clone and then runs
+/// `Package.resolved is unchanged by resolution`, a `git diff --exit-code` over
+/// this file (`ReleaseWorkflowTests.testCIRefusesARewrittenPackageResolved`), on
+/// every run. Xcode 26.3's fresh-clone behaviour, as that step first observed it:
+/// recorded from the pull request that moved the pin (pending its CI run).
 final class DependencyPinTests: XCTestCase {
     /// A dependency whose *requirement* is a branch, so its recorded revision is
     /// the whole pin: the revision the project builds against, and the reason

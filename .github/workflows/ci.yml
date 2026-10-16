@@ -57,6 +57,17 @@ jobs:
         run: xcodegen generate
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+      # Which schema resolution writes depends on the Xcode doing it, and a
+      # rewrite (v2 into the legacy v1 shape) hides the one real pin change
+      # inside a whole-file diff. This step is what observes the pinned Xcode's
+      # behaviour on every run: a fresh clone must leave the committed file
+      # byte-identical. DependencyPinTests' doc comment has the remedy.
+      - name: Package.resolved is unchanged by resolution
+        run: |
+          if ! git diff --exit-code -- Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved; then
+            echo "::error file=Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved::Resolving packages under the pinned Xcode rewrote the committed Package.resolved (diff above). Keep the resolved values and re-emit them in SwiftPM's v2 schema, as DependencyPinTests' doc comment describes; never commit the rewrite."
+            exit 1
+          fi
       # The app-layer test bundle that `swift test` structurally cannot cover: it
       # drives `NSTextView`/`NSLayoutManager`/`NSATSTypesetter` subclasses with
       # behaviour of their own (the bracket overlay, the folding typesetter),
