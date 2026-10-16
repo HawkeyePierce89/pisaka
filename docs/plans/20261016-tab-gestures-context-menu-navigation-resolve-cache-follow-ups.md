@@ -153,9 +153,9 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Create: `Sources/PisakaCore/TreeRevealRule.swift`
 - Create: `Tests/PisakaCoreTests/TreeRevealRuleTests.swift`
 
-- [ ] `TreeRevealRule.ancestors(of fileURL: URL, root: URL) -> [URL]?` answers the directories from the root down to the file's parent, inclusive of the root. Each is spelled as the tree spells its rows: the opened root with components appended. It uses the same two-probe containment through `CanonicalPath`. It answers nil outside the root or for the root itself.
-- [ ] TreeRevealRule tests: three levels deep answers `[root, a, a/b, a/b/c]` in that order; a file at the root level answers `[root]`; outside the root answers nil; a symlinked root answers the root's own spelling; a `/private` firmlink difference.
-- [ ] Run `swift test`; it must pass before Task 6.
+- [x] `TreeRevealRule.ancestors(of fileURL: URL, root: URL) -> [URL]?` answers the directories from the root down to the file's parent, inclusive of the root. Each is spelled as the tree spells its rows: the opened root with components appended. It uses the same two-probe containment through `CanonicalPath`. It answers nil outside the root or for the root itself.
+- [x] TreeRevealRule tests: three levels deep answers `[root, a, a/b, a/b/c]` in that order; a file at the root level answers `[root]`; outside the root answers nil; a symlinked root answers the root's own spelling; a `/private` firmlink difference.
+- [x] Run `swift test`; it must pass before Task 6.
 
 ### Task 6: App: the close funnel reports its outcome; middle click, ⌥-click, tooltip and context menu in both orientations
 

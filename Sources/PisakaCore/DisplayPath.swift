@@ -98,7 +98,7 @@ public enum DisplayPath {
     /// sides spelled differently (a root opened through a symlink against a
     /// canonically spelled file, and the reverse), or paths differing only by a
     /// `/private` firmlink prefix.
-    private static func relativeComponents(of url: URL, under ancestor: URL) -> [String]? {
+    static func relativeComponents(of url: URL, under ancestor: URL) -> [String]? {
         if let suffix = CanonicalPath.relativeComponents(
             of: url.standardizedFileURL.pathComponents,
             under: ancestor.standardizedFileURL.pathComponents
