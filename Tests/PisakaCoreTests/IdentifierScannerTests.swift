@@ -384,4 +384,140 @@ final class IdentifierScannerTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - The language-aware rule
+
+    /// `nil` is the language-free rule exactly; only the JavaScript family adds
+    /// scalars, and it adds exactly `$` and `#`.
+    func testOnlyTheJavaScriptFamilyAddsWordScalars() {
+        for language in SyntaxLanguage.allCases {
+            let expected: Set<UnicodeScalar> = [.javascript, .typescript].contains(language) ? ["$", "#"] : []
+            XCTAssertEqual(language.extraWordScalars, expected, "\(language)")
+        }
+    }
+
+    func testDollarAndHashAreWordCharactersInJavaScriptAndTypeScriptOnly() {
+        for language in [SyntaxLanguage.javascript, .typescript] {
+            XCTAssertTrue(IdentifierScanner.isIdentifierStart("$", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifierStart("#", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifierContinuation("$", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifierContinuation("#", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifier("$store", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifier("#privateField", language: language))
+            XCTAssertTrue(IdentifierScanner.isIdentifier("c$d", language: language))
+        }
+        for language in [SyntaxLanguage.swift, .shell, .python, nil] {
+            XCTAssertFalse(IdentifierScanner.isIdentifierStart("$", language: language))
+            XCTAssertFalse(IdentifierScanner.isIdentifierContinuation("#", language: language))
+            XCTAssertFalse(IdentifierScanner.isIdentifier("$store", language: language))
+            XCTAssertFalse(IdentifierScanner.isIdentifier("c$d", language: language))
+        }
+    }
+
+    func testDollarAndHashNamesAreOneWordInJavaScriptAndSplitInSwift() {
+        let source = text("$store + c$d + this.#privateField")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 2, language: .javascript)?.text, "$store")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 2, language: .swift)?.text, "store")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 9, language: .typescript)?.text, "c$d")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 9, language: .swift)?.text, "c")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 25, language: .typescript)?.text, "#privateField")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 25, language: .swift)?.text, "privateField")
+        XCTAssertEqual(
+            IdentifierScanner.words(in: source, limit: 10, language: .javascript),
+            ["$store", "c$d", "this", "#privateField"]
+        )
+        XCTAssertEqual(
+            IdentifierScanner.words(in: source, limit: 10, language: .swift),
+            ["store", "c", "d", "this", "privateField"]
+        )
+    }
+
+    /// The containing probe is the mouse's: the `.` after `z` contains no
+    /// identifier, though one *ends* there.
+    func testContainingProbeHasNoEndingAtFallback() {
+        let source = text("z.object")
+        XCTAssertNil(IdentifierScanner.identifier(in: source, containing: 1))
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 1)?.text, "z")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, containing: 0)?.text, "z")
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, containing: 2)?.text, "object")
+        XCTAssertNil(IdentifierScanner.identifier(in: source, containing: source.length))
+        XCTAssertNil(IdentifierScanner.identifier(in: text(""), containing: 0))
+    }
+
+    /// Every operator the platform's prose rule runs a word across ends an
+    /// identifier here, in every language.
+    func testPunctuationSeparatesIdentifiersInEveryLanguage() {
+        let cases: [(String, Int, String)] = [
+            ("res.status", 1, "res"), ("res.status", 6, "status"),
+            ("user?.name", 7, "name"), ("user?.name", 2, "user"),
+            ("Foo::bar", 6, "bar"), ("Foo::bar", 1, "Foo"),
+            ("ptr->field", 7, "field"), ("ptr->field", 0, "ptr"),
+            ("Date.now()", 6, "now"), ("Date.now()", 2, "Date"),
+            ("snake_case_name", 6, "snake_case_name"),
+        ]
+        for language in [SyntaxLanguage.javascript, .swift, .rust, nil] {
+            for (source, offset, expected) in cases {
+                XCTAssertEqual(
+                    IdentifierScanner.identifier(in: text(source), containing: offset, language: language)?.text,
+                    expected,
+                    "\(source) @\(offset) in \(String(describing: language))"
+                )
+            }
+        }
+    }
+
+    /// The sample the double-click defect was reported against: each name in
+    /// the chain is its own word.
+    func testFriendListSchemaChainSplitsIntoItsNames() {
+        let source = text("const friendListSchema = z.object({ items: z.array(z.string()).default([]) })")
+        let names = ["friendListSchema", "z", "object", "array", "string", "default"]
+        for name in names {
+            let location = source.range(of: name == "z" ? "z." : name).location
+            let match = IdentifierScanner.identifier(in: source, containing: location, language: .typescript)
+            XCTAssertEqual(match?.text, name)
+        }
+    }
+
+    func testDigitsTrimAndUnicodeHoldUnderALanguage() {
+        XCTAssertEqual(IdentifierScanner.identifier(in: text("9foo"), containing: 0, language: .javascript)?.text, "foo")
+        XCTAssertNil(IdentifierScanner.identifier(in: text("123"), containing: 1, language: .javascript))
+        XCTAssertEqual(IdentifierScanner.identifier(in: text("имя.x"), containing: 1, language: .javascript)?.text, "имя")
+        let decomposed = "nu\u{0301}mero"
+        XCTAssertEqual(
+            IdentifierScanner.identifier(in: text(decomposed), containing: 2, language: .typescript)?.text,
+            decomposed
+        )
+    }
+
+    func testCompletionRangesCoverDollarAndHashInJavaScript() {
+        let source = text("this.#cou")
+        XCTAssertEqual(
+            IdentifierScanner.completionPrefixRange(in: source, at: source.length, language: .javascript),
+            NSRange(location: 5, length: 4)
+        )
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: source, at: source.length, language: .javascript),
+            IdentifierScanner.MemberContext(receiver: "this", prefixRange: NSRange(location: 5, length: 4))
+        )
+        let dollar = text("$sto + 1")
+        XCTAssertEqual(
+            IdentifierScanner.completionPrefixRange(in: dollar, at: 4, language: .typescript),
+            NSRange(location: 0, length: 4)
+        )
+        XCTAssertEqual(
+            IdentifierScanner.completionReplaceRange(in: text("$st$re"), at: 3, language: .typescript),
+            NSRange(location: 0, length: 6)
+        )
+    }
+
+    /// The shell adds nothing: `$FOO` is an expansion of `FOO`, which is the
+    /// word completion must see.
+    func testShellDollarStillCompletesTheVariableName() {
+        let source = text("echo $FOO")
+        XCTAssertEqual(
+            IdentifierScanner.completionPrefixRange(in: source, at: source.length, language: .shell),
+            NSRange(location: 6, length: 3)
+        )
+        XCTAssertEqual(IdentifierScanner.identifier(in: source, at: 7, language: .shell)?.text, "FOO")
+    }
 }

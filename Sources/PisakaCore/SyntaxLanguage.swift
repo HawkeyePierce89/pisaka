@@ -93,6 +93,25 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         }
     }
 
+    /// The scalars this language adds to `IdentifierScanner`'s boundary rule,
+    /// each counting as both an identifier *start* and a *continuation*.
+    ///
+    /// Only the JavaScript family adds any: `$` is an ordinary identifier
+    /// character there (`$store`, `c$d`) and `#` begins a private name
+    /// (`#privateField`), so a double-click, a usage scan or a completion prefix
+    /// that split on them would cut a name in half. Every other language adds
+    /// nothing, and in particular the shell does not — `$FOO` is an expansion
+    /// of `FOO`, which is the word completion and ⌘-click must see. The rule
+    /// itself stays in `IdentifierScanner`; this is only its per-language data.
+    public var extraWordScalars: Set<UnicodeScalar> {
+        switch self {
+        case .javascript, .typescript: return SyntaxLanguage.javaScriptWordScalars
+        default: return []
+        }
+    }
+
+    private static let javaScriptWordScalars: Set<UnicodeScalar> = ["$", "#"]
+
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
     /// case-insensitive. Returns `nil` for an empty or unknown extension.

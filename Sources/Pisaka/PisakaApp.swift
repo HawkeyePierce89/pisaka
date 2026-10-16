@@ -3362,7 +3362,7 @@ struct PisakaApp: App {
             // operation refuses before it costs anything, and this one costs the
             // most.
             guard !revertInFlight() else { return }
-            guard let newName = promptForNewName(replacing: request.identifier) else { return }
+            guard let newName = promptForNewName(replacing: request.identifier, language: language) else { return }
             // **Read before the request goes out, never after it comes back.**
             // This map is the baseline every *other* file's plan is built
             // against, so it has to be the text the server computed its answer
@@ -3413,11 +3413,11 @@ struct PisakaApp: App {
     ///
     /// Both reasons are inline in the dialog rather than an alert after OK,
     /// because both are knowable while the user types.
-    private func promptForNewName(replacing oldName: String) -> String? {
+    private func promptForNewName(replacing oldName: String, language: SyntaxLanguage) -> String? {
         FilePanels.promptName(
             title: "Rename “\(oldName)”",
             defaultValue: oldName,
-            validator: { RenameNameRule.rejection(of: $0, replacing: oldName) }
+            validator: { RenameNameRule.rejection(of: $0, replacing: oldName, language: language) }
         )
     }
 

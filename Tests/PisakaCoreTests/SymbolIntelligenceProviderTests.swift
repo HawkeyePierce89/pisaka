@@ -945,6 +945,15 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             symbol("foo.o", kind: .target, in: "Makefile")))
     }
 
+    /// A `$`-named symbol is a candidate in the JavaScript family, by the same
+    /// language-aware rule that decides what the caret is completing.
+    func testADollarNamedSymbolIsACandidateOnlyInTheJavaScriptFamily() {
+        let store = symbol("$store", kind: .variable, in: "app.js")
+        XCTAssertTrue(SymbolIntelligenceProvider.isCompletionCandidate(store, language: .javascript))
+        XCTAssertFalse(SymbolIntelligenceProvider.isCompletionCandidate(store, language: .swift))
+        XCTAssertFalse(SymbolIntelligenceProvider.isCompletionCandidate(store))
+    }
+
     /// What the member path does when the rule removes its *last* candidate: the
     /// existing empty-`ranked` branch opens, and buffer words answer a member
     /// request. That is the pre-existing degradation, not a new one — but it is

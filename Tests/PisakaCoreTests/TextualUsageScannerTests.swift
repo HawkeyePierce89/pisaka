@@ -84,6 +84,24 @@ final class TextualUsageScannerTests: XCTestCase {
         XCTAssertEqual(ranges(of: "foo", in: "foofoo"), [])
     }
 
+    // MARK: - The language's word rule
+
+    /// In a JavaScript file `$store` is one word, so `store` is not found inside
+    /// it and `$store` is; without a language the old rule holds.
+    func testTheFileLanguageDecidesWhetherDollarJoinsAWord() {
+        let text = "$store.get(store)" as NSString
+        XCTAssertEqual(
+            TextualUsageScanner.matches(of: "store", in: text, language: .javascript).map(\.range),
+            [NSRange(location: 11, length: 5)]
+        )
+        XCTAssertEqual(
+            TextualUsageScanner.matches(of: "$store", in: text, language: .javascript).map(\.range),
+            [NSRange(location: 0, length: 6)]
+        )
+        XCTAssertEqual(TextualUsageScanner.matches(of: "store", in: text).count, 2)
+        XCTAssertEqual(TextualUsageScanner.matches(of: "$store", in: text), [])
+    }
+
     // MARK: - Unicode
 
     func testFindsANonASCIIIdentifier() {

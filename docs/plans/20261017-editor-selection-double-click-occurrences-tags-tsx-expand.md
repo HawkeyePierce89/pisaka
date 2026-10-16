@@ -58,25 +58,25 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/PisakaCore/SyntaxLanguage.swift`
 - Create/modify: `Tests/PisakaCoreTests/IdentifierScannerTests.swift`, `Tests/PisakaCoreTests/WordSelectionRuleTests.swift`
 
-- [ ] Add `SyntaxLanguage.extraWordScalars` (or an equivalent small enum):
+- [x] Add `SyntaxLanguage.extraWordScalars` (or an equivalent small enum):
   - `$` and `#` for `.javascript`, `.typescript` and (after Task 3) `.tsx`;
   - empty for every other language.
-- [ ] Give every `IdentifierScanner` entry point an optional `language: SyntaxLanguage? = nil` parameter: `isIdentifierStart`/`Continuation`, `isIdentifier`, `identifier(in:at:)`, `completionPrefixRange`, `completionReplaceRange`, `words`, `memberContext`.
+- [x] Give every `IdentifierScanner` entry point an optional `language: SyntaxLanguage? = nil` parameter: `isIdentifierStart`/`Continuation`, `isIdentifier`, `identifier(in:at:)`, `completionPrefixRange`, `completionReplaceRange`, `words`, `memberContext`.
   - The extra scalars count as both start and continuation. This stays the one statement of the rule.
   - `nil` keeps today's set exactly, so iOS call sites stay untouched; that is a stated limit.
-- [ ] Add `IdentifierScanner.identifier(in:containing:language:)`. It is only the first probe: the identifier containing the character at the offset, with no "ending at" fallback. A click on `.` right after `z` must not select `z`.
-- [ ] Create `WordSelectionRule.range(proposed:platformRange:text:language:) -> NSRange`, the word-granularity answer.
+- [x] Add `IdentifierScanner.identifier(in:containing:language:)`. It is only the first probe: the identifier containing the character at the offset, with no "ending at" fallback. A click on `.` right after `z` must not select `z`.
+- [x] Create `WordSelectionRule.range(proposed:platformRange:text:language:) -> NSRange`, the word-granularity answer.
   - A click (empty or one-character proposal) on an identifier character returns that identifier.
   - On a drag, each end that lies in an identifier snaps to that identifier's bounds. An end that does not keeps the platform's bound.
   - When neither end is in an identifier, it returns `platformRange` unchanged, which is AppKit's behaviour.
-- [ ] Thread `language:` through `TextualUsageScanner.matches` (`isWholeWord`) and the scanner calls in `SymbolIntelligenceProvider` (harvest + candidate filter), `LSPIntelligenceProvider` and `FindUsagesModel`/`RenameEditPlan`, using the language each already holds.
-- [ ] Tests:
+- [x] Thread `language:` through `TextualUsageScanner.matches` (`isWholeWord`) and the scanner calls in `SymbolIntelligenceProvider` (harvest + candidate filter), `LSPIntelligenceProvider` and `FindUsagesModel`/`RenameEditPlan`, using the language each already holds.
+- [x] Tests:
   - periods, `?.`, `::`, `->`, `_`, digits/trim, Unicode letters, combining marks;
   - `$store`, `c$d` and `#privateField` as one word in JS/TS but split in Swift;
   - the `friendListSchema` sample (`z`, `object`, `array`, `string`, `default` each alone) and `res.status`, `Date.now()`;
   - completion prefix/replace ranges over `$`/`#` in JS/TS, and shell `$FOO|` still completing `FOO`;
   - drag snapping at both ends, and a punctuation click returning the platform range.
-- [ ] Run `make test`; it must pass before Task 2.
+- [x] Run `make test`; it must pass before Task 2.
 
 ### Task 2: Double-click override in the editor (app)
 

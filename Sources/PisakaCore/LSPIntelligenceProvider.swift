@@ -563,7 +563,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // instead of burning a cooperative-pool thread on a popover nobody will see.
         guard !Task.isCancelled, let content = HoverContent(response) else { return nil }
 
-        return HoverAnswer(content: content, range: anchorRange(for: response, in: source, at: request.offset))
+        return HoverAnswer(
+            content: content,
+            range: anchorRange(for: response, in: source, at: request.offset, language: language)
+        )
     }
 
     /// The buffer range a hover answer is about.
@@ -590,13 +593,14 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     private func anchorRange(
         for response: LSPHoverResponse,
         in source: NSString,
-        at offset: Int
+        at offset: Int,
+        language: SyntaxLanguage
     ) -> NSRange {
         if let range = response.range {
             let mapped = LSPPositionMap.range(for: range, in: source)
             if NSLocationInRange(offset, mapped) { return mapped }
         }
-        if let identifier = IdentifierScanner.identifier(in: source, at: offset) {
+        if let identifier = IdentifierScanner.identifier(in: source, at: offset, language: language) {
             return identifier.range
         }
         return NSRange(location: min(max(offset, 0), source.length), length: 0)

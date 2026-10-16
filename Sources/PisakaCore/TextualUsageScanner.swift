@@ -73,8 +73,12 @@ public enum TextualUsageScanner {
     /// because the ranges are handed to a text view: a match found by folding a
     /// decomposed accent into a precomposed one would name a span of a different
     /// length than the identifier the caller asked about.
-    public static func matches(of identifier: String, in text: NSString) -> [Match] {
-        guard IdentifierScanner.isIdentifier(identifier), text.length > 0 else { return [] }
+    ///
+    /// `language` is the scanned file's: the word rule is the scanner's for that
+    /// language, so in a JavaScript file `$store` is one word and `store` is not
+    /// found inside it. `nil` is the language-free rule.
+    public static func matches(of identifier: String, in text: NSString, language: SyntaxLanguage? = nil) -> [Match] {
+        guard IdentifierScanner.isIdentifier(identifier, language: language), text.length > 0 else { return [] }
 
         let needle = identifier as NSString
         guard needle.length <= text.length else { return [] }
@@ -93,7 +97,7 @@ public enum TextualUsageScanner {
             let found = text.range(of: identifier, options: .literal, range: remaining)
             guard found.location != NSNotFound else { break }
 
-            if isWholeWord(found, of: identifier, in: text) {
+            if isWholeWord(found, of: identifier, in: text, language: language) {
                 ranges.append(found)
             }
             // Advance past this occurrence rather than past its start: identifiers
@@ -119,8 +123,12 @@ public enum TextualUsageScanner {
 
     /// Whether the occupied range really is a standalone word — the one question
     /// this file asks, delegated whole to the scanner that owns the answer.
-    private static func isWholeWord(_ range: NSRange, of identifier: String, in text: NSString) -> Bool {
-        guard let word = IdentifierScanner.identifier(in: text, at: range.location) else { return false }
+    private static func isWholeWord(
+        _ range: NSRange, of identifier: String, in text: NSString, language: SyntaxLanguage?
+    ) -> Bool {
+        guard let word = IdentifierScanner.identifier(in: text, at: range.location, language: language) else {
+            return false
+        }
         return word.range == range && word.text == identifier
     }
 }
