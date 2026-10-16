@@ -200,10 +200,18 @@ file_length:
 # arguments, inside the scene's `body` and so inside the struct body, moving it
 # by exactly what `file_length` did — and to 1919 with Local History's
 # thirty-nine, every one of them inside the struct body, moving it by exactly
-# what `file_length` did again.
+# what `file_length` did again — and to 1920 with the polite quit's one line
+# (D43), the closure installed on the app delegate inside the scene's
+# start-once block. The one time the two did not move together: the delegate
+# that closure feeds left this file for `AppDelegate.swift` in the same change,
+# so `file_length` fell rather than rose. Then to 1925 with the server failure
+# record's five (D44): the model's stored property, its construction and
+# assignment in `init()`, the one-line sink installed on the workspace, and the
+# argument handing it to the Settings scene — all inside the struct body;
+# `file_length` absorbed them inside the slack the delegate's move left.
 type_body_length:
-  warning: 1919
-  error: 1919
+  warning: 1925
+  error: 1925
 
 function_body_length:
   warning: 140

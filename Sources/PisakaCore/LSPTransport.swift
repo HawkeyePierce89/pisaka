@@ -36,11 +36,35 @@ public protocol LSPTransport: AnyObject, Sendable {
     /// server.
     func send(_ data: Data) throws
 
+    /// Close the server's stdin, and nothing else — no signal, no stream finish.
+    ///
+    /// The polite half of the shutdown (D43): after `exit` the session closes the
+    /// input so a server that reads to EOF can leave on its own, then waits — at
+    /// most one grace — for `incomingBytes` to end before `terminate()`. Must be
+    /// idempotent, and must not overtake a write already handed to `send`, or the
+    /// `exit` it follows is dropped. A `send` after it throws `notRunning`.
+    func closeInput()
+
     /// Stop the server, unconditionally and without a handshake — the session has
     /// already sent `shutdown`/`exit` if it was going to. Must be idempotent (the
     /// session calls it on every terminal path) and must finish `incomingBytes`,
     /// because a stream that never ends is a read task that never exits.
     func terminate()
+
+    /// What the server wrote to stderr, and how its process ended (D44) — read
+    /// only to fill `LSPServerFailureRecord`, never interpreted and never shown
+    /// except passively on the settings page.
+    ///
+    /// Consumed once, by `LSPWorkspace`, like `incomingBytes`. The stream should
+    /// finish once the process is gone; a transport with no process behind it
+    /// keeps the default, an empty stream that is already finished.
+    var errorOutput: AsyncStream<LSPErrorOutputEvent> { get }
+}
+
+public extension LSPTransport {
+    var errorOutput: AsyncStream<LSPErrorOutputEvent> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 /// Why bytes could not move.

@@ -2,20 +2,6 @@
 import SwiftUI
 import PisakaCore
 
-/// Promotes the process to a regular GUI app when launched as a bare SwiftPM
-/// executable (`swift run`). Without this it runs as an accessory process: no
-/// Dock icon and the menu bar stays owned by the launching terminal.
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-}
-
 @main
 struct PisakaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -206,6 +192,11 @@ struct PisakaApp: App {
     /// back on the republish path for value nothing in this scene shows; the
     /// surfaces that show diagnostics observe it themselves.
     private let diagnostics: DiagnosticsModel
+
+    /// Each language server's stderr tail and last exit (D44), shown passively on
+    /// the Language Servers settings page and nowhere else. A plain stored
+    /// reference for `diagnostics`' reason: the settings page observes it itself.
+    private let lspFailures: LSPServerFailureModel
 
     /// Schedules the push channel's sync (D30): every open buffer of a served
     /// language is flushed to its server behind a 400 ms debounce, and
@@ -447,6 +438,12 @@ struct PisakaApp: App {
         lspWorkspace.onDiagnostics = { [diagnostics] event in
             diagnostics.receive(event)
         }
+        // D44's sink, in the same mould: a record changes, the settings row
+        // re-derives its sentence. No alert, banner or notification is reachable
+        // from here — the model's only reader is that row.
+        let lspFailures = LSPServerFailureModel()
+        self.lspFailures = lspFailures
+        lspWorkspace.onFailureRecordsChange = { [lspFailures] in lspFailures.receive($0) }
         let lspDocumentSync = LSPDocumentSyncController(
             model: diagnostics,
             workspace: lspWorkspace
@@ -1210,6 +1207,11 @@ struct PisakaApp: App {
                 // bottom is exactly the kind of one-shot, data-losing-if-skipped
                 // work that must not rest on one. `AutosaveController` registers its
                 // own termination observer the same way, for the same reason.)
+                // The polite quit (D43): `applicationShouldTerminate` holds the
+                // termination for `shutdownAll()`, so a server is asked to leave
+                // and given the time to, rather than signalled from the observer
+                // below — which stays as the fallback for whatever this missed.
+                appDelegate.languageServerTeardown = { lspWorkspace.hasLiveServers ? lspWorkspace.shutdownAll : nil }
                 NotificationCenter.default.addObserver(
                     forName: NSApplication.willTerminateNotification,
                     object: nil,
@@ -1241,7 +1243,10 @@ struct PisakaApp: App {
                         // `terminateNow()` rather than the graceful `shutdownAll()`
                         // — this is the last notification AppKit posts, so a `Task`
                         // wrapping the `async` teardown would never be picked up;
-                        // see the method's own note.
+                        // see the method's own note. The graceful one has normally
+                        // run already, from `applicationShouldTerminate` (D43), and
+                        // this is then a no-op; it is the fallback for a quit that
+                        // never asked the delegate.
                         lspWorkspace.terminateNow()
                         // And whatever the Go seams have running — a `go install`
                         // in flight, or a login shell still printing its `PATH`.
@@ -1653,6 +1658,7 @@ struct PisakaApp: App {
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
+                failures: lspFailures,
                 installEngine: lspInstallEngine,
                 leetCode: leetCode
             )

@@ -31,6 +31,8 @@ final class LSPWorkspaceTests: XCTestCase {
         var initializeDelay: TimeInterval = 0
         /// Answer `initialize` at all. `false` stages a handshake that times out.
         var answersInitialize = true
+        /// Every server launched from here on ignores `exit` and stdin EOF (D43).
+        var ignoresExit = false
 
         func makeTransport(
             _ description: LSPServerDescription,
@@ -48,6 +50,7 @@ final class LSPWorkspaceTests: XCTestCase {
             )
             // So a `shutdownAll` in a test costs a round trip and not a budget.
             transport.script(LSPMethod.shutdown, .reply(.null))
+            if ignoresExit { transport.ignoreExit() }
             transports.append(transport)
             return transport
         }
@@ -90,11 +93,13 @@ final class LSPWorkspaceTests: XCTestCase {
     private func makeWorkspace(
         harness: ServerHarness,
         registry: LSPServerRegistry = .standard,
-        root: URL? = nil
+        root: URL? = nil,
+        budgets: LSPSession.Budgets = LSPWorkspaceTests.quick,
+        exitGraceWait: @escaping @Sendable (TimeInterval) async -> Void = LSPSession.sleep
     ) -> LSPWorkspace {
         let workspace = LSPWorkspace(
             registry: registry,
-            budgets: LSPWorkspaceTests.quick,
+            budgets: budgets,
             processID: 4242,
             transportFactory: { [harness] description, launchRoot in
                 try harness.makeTransport(description, launchRoot)
@@ -102,7 +107,8 @@ final class LSPWorkspaceTests: XCTestCase {
             delay: { [weak self] seconds in
                 self?.recordedDelays.append(seconds)
                 if let hook = self?.onDelay { await hook() }
-            }
+            },
+            exitGraceWait: exitGraceWait
         )
         workspace.prepareForFolderChange(root: root ?? self.root)
         return workspace
@@ -1010,6 +1016,38 @@ final class LSPWorkspaceTests: XCTestCase {
         )
     }
 
+    /// A quit held for `shutdownAll()` (D43) must not sit out a handshake: the
+    /// launch's epoch is already stale, so its process is killed at once rather
+    /// than waited on for up to a whole handshake budget — and a handshake cut
+    /// short that way is superseded, not failed, so it charges no restart.
+    func testShutdownAllKillsALaunchThatIsStillHandshakingInsteadOfWaitingOnIt() async {
+        let harness = ServerHarness()
+        harness.initializeDelay = 30
+        // A handshake budget far past the rendezvous below, so only the kill —
+        // never the budget running out — can end this handshake in time.
+        let patient = LSPSession.Budgets(handshake: 60, definition: 1, completion: 1, resolve: 1, shutdown: 1)
+        let workspace = makeWorkspace(harness: harness, budgets: patient)
+
+        let pending = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+        let handshaking = harness.latest
+
+        async let teardown: Void = workspace.shutdownAll()
+        await waitFor("the handshaking server to be killed") { handshaking.isTerminated }
+        await teardown
+        let prepared = await pending.value
+
+        XCTAssertNil(prepared)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertFalse(workspace.hasLiveServers)
+        XCTAssertTrue(workspace.failureRecordList.isEmpty, "a superseded handshake is not a failure")
+
+        harness.initializeDelay = 0
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertTrue(recordedDelays.isEmpty, "superseded is not failed")
+        XCTAssertEqual(workspace.liveServerCount, 1)
+    }
+
     /// A request *waiting on somebody else's launch* when the folder changes is
     /// answered by that launch's refusal and starts nothing of its own.
     ///
@@ -1079,6 +1117,143 @@ final class LSPWorkspaceTests: XCTestCase {
         // And it stays given up for the rest of the run.
         _ = await workspace.prepare(url: greeterFile, language: .swift, text: "b")
         XCTAssertEqual(harness.launches.count, 4)
+    }
+
+    // MARK: - Failure records (D44)
+
+    func testAfterFourFailuresTheRecordHoldsTheExitCodeAndTheBoundedTail() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        for attempt in 1...4 {
+            let transport = harness.latest
+            if attempt == 4 {
+                // Past the ring's bound, so the record must have dropped the
+                // first three lives' lines and kept this one's newest bytes.
+                transport.writeError(Data(repeating: UInt8(ascii: "x"), count: LSPServerFailureRecord.capacity))
+                transport.writeError("fatal: last words\n")
+            } else {
+                transport.writeError("crash \(attempt)\n")
+            }
+            transport.reportExit(code: Int32(attempt))
+            await waitFor("life \(attempt)'s exit to reach the record") {
+                workspace.failureRecord(serverID: "sourcekit-lsp")?.lastExitCode == Int32(attempt)
+            }
+            await crash(transport)
+            _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        }
+
+        XCTAssertTrue(workspace.isUnavailable(.swift))
+        let record = workspace.failureRecordList.first
+        XCTAssertEqual(workspace.failureRecordList.count, 1)
+        XCTAssertEqual(record?.serverID, "sourcekit-lsp")
+        XCTAssertEqual(record?.failureCount, 4)
+        XCTAssertEqual(record?.isRetired, true)
+        XCTAssertEqual(record?.lastExitCode, 4)
+        XCTAssertEqual(record?.tail.count, LSPServerFailureRecord.capacity)
+        XCTAssertEqual(record?.text.hasSuffix("fatal: last words\n"), true)
+        XCTAssertEqual(record?.text.contains("crash 1"), false)
+        XCTAssertEqual(record?.statusSentence, "Stopped after 4 failures · exit code 4")
+        XCTAssertEqual(published.last, workspace.failureRecordList, "the sink saw the final state")
+    }
+
+    /// A crashed process that keeps talking after its successor started must not
+    /// write into the successor's record: the record follows the live source.
+    func testAPredecessorsLateOutputStaysOutOfItsSuccessorsRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let predecessor = harness.latest
+        await crash(predecessor)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let successor = harness.latest
+        XCTAssertFalse(predecessor === successor)
+
+        // Yielded first, so its consumer is queued on the main actor ahead of the
+        // successor's: without the source guard these land before "fresh".
+        predecessor.writeError("stale\n")
+        predecessor.reportExit(code: 99)
+        successor.writeError("fresh\n")
+        await waitFor("the successor's line to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.text.contains("fresh") == true
+        }
+
+        let record = workspace.failureRecord(serverID: "sourcekit-lsp")
+        XCTAssertEqual(record?.text, "fresh\n")
+        XCTAssertNil(record?.lastExitCode)
+    }
+
+    /// A registry update that changes a server (an uninstall here, a version bump
+    /// alike) drops its record and tells the sink, so a reinstall starts silent.
+    func testARegistryUpdateDropsAStaleServersRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+        await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP, downloaded()]))
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        harness.latest.writeError("boom\n")
+        harness.latest.reportExit(code: 1)
+        await waitFor("the exit to reach the record") {
+            workspace.failureRecord(serverID: "typescript-language-server")?.lastExitCode == 1
+        }
+        await crash(harness.latest)
+        // The restart fails too, so the record survives rather than being cleared
+        // by a handshake that answered.
+        harness.launchError = .launchFailed("gone")
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertEqual(workspace.failureRecordList.first?.serverID, "typescript-language-server")
+
+        await workspace.updateRegistry(.standard)
+
+        XCTAssertTrue(workspace.failureRecordList.isEmpty)
+        XCTAssertNil(workspace.failureRecord(serverID: "typescript-language-server"))
+        XCTAssertEqual(published.last, [], "the sink was not told the record went")
+    }
+
+    func testASuccessfulRestartClearsTheRecord() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        var published: [[LSPServerFailureRecord]] = []
+        workspace.onFailureRecordsChange = { published.append($0) }
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        harness.latest.writeError("boom\n")
+        await waitFor("the stderr line to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.text == "boom\n"
+        }
+        XCTAssertTrue(published.isEmpty, "a healthy server's log is not announced")
+
+        await crash(harness.latest)
+        // The crash is counted by the request that notices it, and the record
+        // is read inside that request's backoff — after the count, before the
+        // handshake that clears it.
+        var duringBackoff: [LSPServerFailureRecord] = []
+        onDelay = { duringBackoff = workspace.failureRecordList }
+
+        let restarted = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertNotNil(restarted)
+        XCTAssertEqual(duringBackoff.first?.text, "boom\n")
+        XCTAssertEqual(duringBackoff.first?.failureCount, 1)
+        XCTAssertTrue(workspace.failureRecordList.isEmpty)
+        XCTAssertEqual(published.last, [], "the clear is published so the row goes quiet")
+    }
+
+    func testALaunchFailureRecordsTheFactorysReason() async {
+        let harness = ServerHarness()
+        harness.launchError = .launchFailed("sourcekit-lsp not found")
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+
+        let record = workspace.failureRecordList.first
+        XCTAssertEqual(record?.failureCount, 1)
+        XCTAssertEqual(record?.text.contains("sourcekit-lsp not found"), true)
     }
 
     /// Two requests in flight over one crash cost **one** restart between them.
@@ -1277,6 +1452,195 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertFalse(workspace.canServe(.typescript))
         XCTAssertFalse(workspace.canServe(.javascript))
         XCTAssertTrue(workspace.canServe(.swift))
+    }
+
+    /// D43: each goodbye may cost a whole exit grace now, so the sessions are torn
+    /// down side by side. Two servers that both ignore `exit` must have *both*
+    /// graces running before either is released — in turn, the second wait could
+    /// only start once the first was let go, and the gate would never see two.
+    func testShutdownAllWaitsOutEveryExitGraceConcurrently() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()]),
+            exitGraceWait: graces.wait
+        )
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let b = 2")
+        XCTAssertEqual(workspace.liveServerCount, 2)
+        XCTAssertTrue(workspace.hasLiveServers)
+        let transports = harness.transports
+
+        let teardown = Task { await workspace.shutdownAll() }
+        await waitFor("both exit graces to start") { graces.started.count == 2 }
+        XCTAssertFalse(transports.contains { $0.isTerminated }, "nothing is signalled inside its grace")
+        XCTAssertTrue(transports.allSatisfy { $0.isInputClosed })
+        // Each session still closed its own documents before saying goodbye.
+        for transport in transports {
+            XCTAssertEqual(transport.notifications(for: LSPMethod.didClose).count, 1)
+        }
+
+        graces.release()
+        await teardown.value
+
+        XCTAssertTrue(transports.allSatisfy { $0.isTerminated })
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// A quit landing inside a folder switch's teardown finds `hasLiveServers`
+    /// true and nothing of its own to stop. It must still wait for the servers
+    /// that teardown is saying goodbye to, or AppKit proceeds to `terminateNow()`
+    /// and signals them inside their grace.
+    func testAShutdownAllDuringAnotherWaitsForItsTeardown() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(harness: harness, exitGraceWait: graces.wait)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let transport = harness.latest
+
+        let folderSwitch = Task { await workspace.shutdownAll() }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        XCTAssertTrue(workspace.hasLiveServers, "a quit now would hold for a teardown")
+
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit's teardown to wait on the switch's") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned)
+        XCTAssertFalse(transport.isTerminated, "nothing is signalled inside its grace")
+
+        graces.release()
+        await quit.value
+        await folderSwitch.value
+
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// The last teardown's resume is scheduled, not run: a third call starting
+    /// before the parked one gets the actor back is a teardown in flight, and
+    /// the parked call must wait it out too rather than return on a stale wake.
+    func testAParkedShutdownAllWaitsOutATeardownStartedBeforeItWakes() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let first = GraceGate()
+        let third = GraceGate()
+        defer { first.release(); third.release() }
+        // The first grace is the folder switch's; every later one is the third call's.
+        let workspace = makeWorkspace(harness: harness, exitGraceWait: { grace in
+            if first.started.isEmpty {
+                await first.wait(grace)
+            } else {
+                await third.wait(grace)
+            }
+        })
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+
+        let folderSwitch = Task { await workspace.shutdownAll() }
+        await waitFor("the first exit grace to start") { first.started.count == 1 }
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit to park") { workspace.parkedShutdownCount == 1 }
+
+        // A server the third call will be saying goodbye to.
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let survivor = harness.latest
+        var thirdCall: Task<Void, Never>?
+        workspace.willResumeShutdownWaiters = {
+            workspace.willResumeShutdownWaiters = nil
+            thirdCall = Task { await workspace.shutdownAll() }
+        }
+
+        first.release()
+        await folderSwitch.value
+        await waitFor("the third call's grace to start") { third.started.count == 1 }
+        await waitFor("the woken quit to park again") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned, "the quit returned inside the third call's teardown")
+        XCTAssertFalse(survivor.isTerminated)
+
+        third.release()
+        await quit.value
+        await thirdCall?.value
+        XCTAssertTrue(survivor.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// A registry swap's teardown is a teardown too: it empties the maps a quit
+    /// reads its own share off and leaves the retiring process in `transports`, so
+    /// a quit landing inside its grace must wait it out like any other.
+    func testAShutdownAllDuringARegistryTeardownWaitsForIt() async throws {
+        let harness = ServerHarness()
+        harness.ignoresExit = true
+        let graces = GraceGate()
+        defer { graces.release() }
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()]),
+            exitGraceWait: graces.wait
+        )
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        let removal = Task { await workspace.updateRegistry(.standard) }
+        await waitFor("the exit grace to start") { graces.started.count == 1 }
+        XCTAssertTrue(workspace.hasLiveServers, "a quit now would hold for a teardown")
+
+        var quitReturned = false
+        let quit = Task {
+            await workspace.shutdownAll()
+            quitReturned = true
+        }
+        await waitFor("the quit to wait on the registry's teardown") { workspace.parkedShutdownCount == 1 }
+        XCTAssertFalse(quitReturned)
+        XCTAssertFalse(transport.isTerminated, "nothing is signalled inside its grace")
+
+        graces.release()
+        await quit.value
+        await removal.value
+
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertFalse(workspace.hasLiveServers)
+    }
+
+    /// Stopping a relaunch mid-handshake is Pisaka's signal, not the server's
+    /// failure: the record keeps the exit code of the crash it is about.
+    func testAKilledRelaunchDoesNotOverwriteTheCrashsExitCode() async {
+        let harness = ServerHarness()
+        let patient = LSPSession.Budgets(handshake: 60, definition: 1, completion: 1, resolve: 1, shutdown: 1)
+        let workspace = makeWorkspace(harness: harness, budgets: patient)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let crashed = harness.latest
+        crashed.reportExit(code: 1)
+        await waitFor("the exit to reach the record") {
+            workspace.failureRecord(serverID: "sourcekit-lsp")?.lastExitCode == 1
+        }
+        await crash(crashed)
+
+        harness.initializeDelay = 30
+        let relaunch = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the relaunch to start") { harness.launches.count == 2 }
+        let handshaking = harness.latest
+        XCTAssertTrue(workspace.feedsFailureRecord(handshaking))
+
+        await workspace.shutdownAll()
+        _ = await relaunch.value
+
+        XCTAssertTrue(handshaking.isTerminated)
+        XCTAssertFalse(workspace.feedsFailureRecord(handshaking), "its teardown signal would reach the record")
+        let record = workspace.failureRecord(serverID: "sourcekit-lsp")
+        XCTAssertEqual(record?.lastExitCode, 1)
+        XCTAssertEqual(record?.failureCount, 1)
     }
 
     /// Un-registering is not forgetting: the process has to stop, or it outlives the

@@ -61,6 +61,15 @@ import PisakaCore
 /// no member position on either side. Neither a caret moved to open space (where
 /// the partial word is also empty) nor one moved to a different `other.` can
 /// inherit a member list, and an ordinary list cannot be served after a dot.
+///
+/// **Local narrowing.** A language server's *complete* answer
+/// (`CompletionAnswer.retained`) is kept for as long as the user keeps typing
+/// in the word it answered. Whether a keystroke narrows that list or asks again
+/// is `CompletionNarrowingRule`'s decision, never this class's; a narrow skips
+/// the debounce (it is a re-rank of a list already in memory) but answers to the
+/// same generation token, and a `nil` narrow falls through to an ordinary,
+/// debounced request. The 150 ms debounce and the provider's 1.5 s budget are
+/// untouched for every request that still goes out.
 @MainActor
 final class CompletionController {
 
@@ -159,6 +168,21 @@ final class CompletionController {
 
     private var snapshot: Snapshot?
 
+    /// The complete list the provider kept for the current word, the provider
+    /// that issued it, and where the caret and the buffer's length stood when it
+    /// last answered — the baseline a keystroke is compared against to tell
+    /// typing from a caret that jumped (see `narrowableList`).
+    private struct RetainedState {
+        let list: RetainedCompletionList
+        let provider: CodeIntelligenceProviding
+        let caretLocation: Int
+        let textLength: Int
+    }
+
+    /// Cleared by every `dismiss()` — and so by `reset()`, the tab switch and the
+    /// completion-off switch — and by any keystroke the rule does not narrow.
+    private var retained: RetainedState?
+
     /// Edits that arrived from a background `completionItem/resolve`, keyed by
     /// the row's displayed string — the D4 prefetch's landing place. Cleared with
     /// the list they belong to.
@@ -196,6 +220,11 @@ final class CompletionController {
 
     /// The in-flight debounce/provider task; cancelled when a newer request lands.
     private var pendingTask: Task<Void, Never>?
+
+    /// The prefix `pendingTask` asks about, read only while that task is set:
+    /// the same-word caret-move path retires the request when the word under
+    /// the caret no longer reads this way.
+    private var pendingPrefix: String?
 
     /// Monotonic token guarding an answer against a newer request that landed
     /// while the provider was being awaited.
@@ -244,8 +273,9 @@ final class CompletionController {
     /// word — most importantly onto the far side of a just-typed `.`, whose old
     /// snapshot answers the pre-dot word — legitimately starts a *new* question:
     /// the stale list is dropped and the fresh request still goes out. A caret
-    /// move that stays inside the same word start invalidates nothing either:
-    /// the early return below it leaves the visible rows standing untouched.
+    /// move that stays inside the same word start leaves the visible rows
+    /// standing untouched, retiring only an in-flight request whose prefix the
+    /// move has made false.
     ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
@@ -259,8 +289,9 @@ final class CompletionController {
         caretMove: Bool
     ) {
         // A bare caret move that stays inside the very word the list serves
-        // supersedes *nothing*: the rows stay committable and any answer still
-        // travelling behind its debounce belongs to exactly that word. The full
+        // supersedes nothing *shown*: the rows stay committable, and an answer
+        // still travelling behind its debounce for the prefix now under the
+        // caret belongs to exactly that word. The full
         // entry below would strand the panel on its stale list until the next
         // keystroke (the narrowed answer cancelled) and kill the standing
         // rows' prefetched resolves — the same D4 damage `invalidatePendingRequest`
@@ -280,12 +311,38 @@ final class CompletionController {
             let member = IdentifierScanner.memberContext(in: nsText, at: location)
             let prefixLocation = member?.prefixRange.location
                 ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location).location
-            if prefixLocation == snap.prefixLocation { return }
+            if prefixLocation == snap.prefixLocation {
+                // The one thing this path must still retire: a request whose
+                // prefix the move has just made false. `apply` would refuse its
+                // answer, so its debounce and its round trip are spent for
+                // nothing, and it would still reach the provider's ordering
+                // tokens ahead of the next real question. (The visible rows'
+                // resolve handles are safe either way: a provider adopts a new
+                // table only through `showCompletionList`, which a refused
+                // answer never reaches.)
+                // Compared as text rather than refused outright, because typing
+                // reaches here too, and its selection change must not cancel the
+                // request that very keystroke sent for the same prefix.
+                let typed = nsText.substring(
+                    with: NSRange(location: prefixLocation, length: location - prefixLocation)
+                )
+                if pendingTask != nil, typed != pendingPrefix {
+                    pendingTask?.cancel()
+                    pendingTask = nil
+                    provider?.supersedeCompletionRequests()
+                }
+                return
+            }
         }
 
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        // Retire the cancelled request in the provider too, *now*: the
+        // replacement may not ask for a debounce, and an answer landing in
+        // between must not replace the resolve handles of the rows still shown
+        // — which live with `resolveSource`, the provider that issued them.
+        resolveSource?.supersedeCompletionRequests()
         let token = generation
         // A keystroke ends the previous completion session: its previews are
         // history, its prefetched imports answer a word that is no longer being
@@ -356,8 +413,18 @@ final class CompletionController {
         // buffer; the next keystroke or ⌃Space asks afresh.
         if caretMove { return }
 
+        let typed = nsText.substring(with: prefixRange)
+        let narrowable = narrowableList(
+            provider: provider,
+            nsText: nsText,
+            caretLocation: caret.location,
+            prefixRange: prefixRange,
+            typed: typed,
+            explicit: explicit
+        )
+
         let request = CompletionRequest(
-            prefix: nsText.substring(with: prefixRange),
+            prefix: typed,
             fileURL: fileURL,
             text: contents,
             language: language,
@@ -367,7 +434,87 @@ final class CompletionController {
             // end of `prefixRange` by construction, so the two agree.
             offset: caret.location
         )
-        dispatch(request, provider: provider, explicit: explicit, token: token)
+        if let narrowable {
+            narrow(narrowable, request: request, provider: provider, token: token)
+        } else {
+            dispatch(request, provider: provider, explicit: explicit, token: token)
+        }
+    }
+
+    /// The retained list this keystroke narrows, or `nil` — having then
+    /// forgotten the retained list — when `CompletionNarrowingRule` says to ask
+    /// again or to drop it.
+    ///
+    /// The rule's inputs that are not plain facts of the buffer are read off the
+    /// baseline the last answer recorded. Typing at the caret moves the caret by
+    /// exactly as much as it changes the buffer's length (a keystroke, a
+    /// backspace, a paste); anything else — an arrow key or a click followed by
+    /// typing, an edit somewhere else — is a caret that jumped. The text typed
+    /// since the baseline is what the trigger-character and newline questions
+    /// are asked of. A list issued by a different provider is never handed to
+    /// this one: its handle is not this provider's to interpret.
+    ///
+    /// `.dropRetained` only forgets the list: the caller carries on down the
+    /// path it always takes for this word, exactly as before narrowing existed.
+    private func narrowableList(
+        provider: CodeIntelligenceProviding,
+        nsText: NSString,
+        caretLocation: Int,
+        prefixRange: NSRange,
+        typed: String,
+        explicit: Bool
+    ) -> RetainedCompletionList? {
+        guard let state = retained else { return nil }
+        guard state.provider === provider else {
+            retained = nil
+            return nil
+        }
+        let caretDelta = caretLocation - state.caretLocation
+        let caretJumped = caretDelta != nsText.length - state.textLength
+        let inserted = !caretJumped && caretDelta > 0
+            ? nsText.substring(with: NSRange(location: state.caretLocation, length: caretDelta))
+            : ""
+        let decision = CompletionNarrowingRule.decide(
+            retained: state.list,
+            wordStart: prefixRange.location,
+            typed: typed,
+            explicit: explicit,
+            typedTriggerCharacter: inserted.contains("."),
+            insertedNewline: inserted.contains { $0.isNewline },
+            caretJumped: caretJumped
+        )
+        switch decision {
+        case .narrow:
+            return state.list
+        case .request, .dropRetained:
+            retained = nil
+            return nil
+        }
+    }
+
+    /// Re-rank the retained list for the word now typed, without a debounce and
+    /// without asking anyone, behind the same generation-token check a request
+    /// answers to. A `nil` narrow (the provider replaced, restarted or retired
+    /// the list, or nothing in it matches) forgets the list and falls through to
+    /// an ordinary debounced request under the same token.
+    private func narrow(
+        _ list: RetainedCompletionList,
+        request: CompletionRequest,
+        provider: CodeIntelligenceProviding,
+        token: Int
+    ) {
+        pendingPrefix = request.prefix
+        pendingTask = Task { [weak self] in
+            let items = await provider.narrow(list, for: request)
+            guard let self, !Task.isCancelled, token == self.generation else { return }
+            guard let items else {
+                self.retained = nil
+                self.dispatch(request, provider: provider, explicit: false, token: token)
+                return
+            }
+            self.pendingTask = nil
+            self.apply(request, items: items, retained: list, provider: provider, token: token)
+        }
     }
 
     /// An early return for "this context cannot offer completions": drop any
@@ -388,16 +535,17 @@ final class CompletionController {
         explicit: Bool,
         token: Int
     ) {
+        pendingPrefix = request.prefix
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
             if !explicit {
                 try? await Task.sleep(for: interval)
                 if Task.isCancelled { return }
             }
-            let items = await provider.completions(for: request)
+            let answer = await provider.completionAnswer(for: request)
             guard let self, !Task.isCancelled, token == self.generation else { return }
             self.pendingTask = nil
-            self.apply(request, items: items, provider: provider, token: token)
+            self.apply(request, items: answer.items, retained: answer.retained, provider: provider, token: token)
         }
     }
 
@@ -420,14 +568,20 @@ final class CompletionController {
     /// word test everywhere there is no partial word at all: in open space, after
     /// a `(`, at the start of a line, and after every other dot in the buffer),
     /// but `worker.na`'s member-only list is just as wrong over an unrelated `na`.
+    ///
+    /// `retained` is the list a complete answer handed out (or the one a narrow
+    /// re-ranked); it is kept only when the answer is actually shown, with the
+    /// live caret and buffer length as the next keystroke's baseline.
     private func apply(
         _ request: CompletionRequest,
         items: [CompletionItem],
+        retained list: RetainedCompletionList?,
         provider: CodeIntelligenceProviding,
         token: Int
     ) {
         let rows = CompletionRow.rows(for: items, language: request.language)
         guard !rows.isEmpty else {
+            retained = nil
             snapshot = nil
             panel.dismiss()
             return
@@ -463,7 +617,19 @@ final class CompletionController {
                 == request.member.map(\.receiver)
         else { return }
 
+        // Shown from here on: only now may the provider let these rows' resolve
+        // table displace the one the previous rows' handles live in.
+        provider.showCompletionList(rows.map { $0.item })
         prefetchResolves(for: rows.map { $0.item }, provider: provider, token: token)
+
+        retained = list.map {
+            RetainedState(
+                list: $0,
+                provider: provider,
+                caretLocation: caret.location,
+                textLength: nsText.length
+            )
+        }
 
         let selection = CompletionPopupSelection(count: rows.count)
         snapshot = Snapshot(
@@ -635,7 +801,9 @@ final class CompletionController {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        resolveSource?.supersedeCompletionRequests()
         snapshot = nil
+        retained = nil
         presentationBaseline = nil
         panel.dismiss()
         forgetList()
@@ -933,8 +1101,8 @@ final class CompletionController {
         bufferVersion += 1
     }
 
-    /// Drop everything (snapshot, pending request, panel) — tab teardown and the
-    /// completion-off switch.
+    /// Drop everything (snapshot, retained list, pending request, panel) — tab
+    /// teardown and the completion-off switch.
     func reset() {
         dismiss()
     }
@@ -961,6 +1129,7 @@ final class CompletionController {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
+        resolveSource?.supersedeCompletionRequests()
     }
 
     /// Forget everything that belongs to the currently-offered list: its

@@ -1791,6 +1791,97 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["annotations:\n  ", "attach:\n  ", "image:\n  "])
     }
 
+    /// The recorded `Gree` transcript, whole: the three items that answer `Gree`
+    /// come first — the literal prefix, then the two boundary matches by
+    /// `sortText` — and the seven that answer nothing are all still there below,
+    /// in D6's own order (`sortText`, then the server's array order).
+    func testRecordedGreeAnswerOrdersTheMatchedPartitionsFirstAndKeepsEveryOtherItemBelow() async throws {
+        transport.script(LSPMethod.completion, .reply(try fixtureResult("completion-identifier.json")))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), [
+            "Greeter",
+            "dsGreeting",
+            "kCFStringTransformLatinGreek",
+            "REG_UNGREEDY",
+            "MACH_PORT_STATUS_FLAG_REVIVE",
+            "SADB_EXT_MIGRATE_ADDRESS_DST",
+            "SADB_EXT_MIGRATE_ADDRESS_SRC",
+            "CSSMERR_CSP_MISSING_ATTR_SEED",
+            "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+            "VM_MEMORY_MALLOC_LARGE_REUSED",
+        ])
+        XCTAssertEqual(
+            items.map { FuzzyMatch.partition(of: $0.text, matching: "Gree") },
+            [.caseSensitivePrefix, .boundary, .boundary] + Array(repeating: .noMatch, count: 7)
+        )
+    }
+
+    /// `yaml-language-server`'s real shape at full size: 93 schema properties, no
+    /// `sortText`, the same answer whatever is typed. `image` is alphabetically
+    /// last, yet it is the only item answering `ima`, so it heads the list; the
+    /// rest follow alphabetically, and the cap is reached from the top.
+    func testTheFullYAMLAnswerPutsTheOneMatchingKeyFirstAndCapsFromTheTop() async {
+        let others = (0..<92).map { String(format: "annotation_%02d", $0) }
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array((others + ["image"]).map(schemaPropertyItemJSON(label:))),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        let limit = SymbolIntelligenceProvider.defaultCompletionLimit
+        XCTAssertEqual(items.count, limit)
+        XCTAssertEqual(
+            items.map(\.text),
+            ["image:\n  "] + others.prefix(limit - 1).map { "\($0):\n  " }
+        )
+    }
+
+    /// A capital the user typed and the candidate ignores outranks any
+    /// `sortText`: `aBu` puts `ArrayBuffer` above `abuse` even though the server
+    /// ranked `abuse` first.
+    func testACaseMismatchItemSitsBelowAMismatchFreeOneWhateverItsSortText() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(label: "abuse", sortText: "0"),
+                completionItemJSON(label: "ArrayBuffer", sortText: "9"),
+            ]),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "aBu", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["ArrayBuffer", "abuse"])
+    }
+
+    /// The server's `detail` reaches the item verbatim, and an item without one
+    /// carries `nil` — no synthesized detail.
+    func testDetailRoundTripsFromTheServersItem() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(label: "Greeter", sortText: "0", detail: "struct Greeter"),
+                completionItemJSON(label: "Greeting", sortText: "1"),
+            ]),
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["Greeter", "Greeting"])
+        XCTAssertEqual(items.map(\.detail), ["struct Greeter", nil])
+    }
+
     // MARK: - Multi-line insertion
 
     /// `yaml-language-server` spells the lines after the first **relative to the
@@ -2203,6 +2294,100 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    // MARK: - Completion: insert or replace
+
+    /// A one-line buffer with `foo` typed before a standing suffix; the caret
+    /// sits after `foo`, at character 11.
+    private func suffixRequest(_ text: String) -> CompletionRequest {
+        completionRequest(prefix: "foo", offset: 11, text: text)
+    }
+
+    /// What committing `item` writes: its own edits through the plan, or — for
+    /// an edit-less item — its text over the typed word, as AppKit would.
+    private func commit(_ item: CompletionItem, to text: String) throws -> String {
+        let typedWord = NSRange(location: 8, length: 3)
+        let buffer = NSMutableString(string: text)
+        guard !item.edits.isEmpty else {
+            buffer.replaceCharacters(in: typedWord, with: item.text)
+            return buffer as String
+        }
+        let plan = try CompletionEditPlan.make(
+            edits: item.edits, in: text as NSString, replacing: typedWord, typed: "foo"
+        ).get()
+        for edit in plan.edits { buffer.replaceCharacters(in: edit.range, with: edit.newText) }
+        return buffer as String
+    }
+
+    private func range(_ line: Int, _ start: Int, _ endLine: Int, _ end: Int) -> JSONValue {
+        .object([
+            "start": .object(["line": .int(line), "character": .int(start)]),
+            "end": .object(["line": .int(endLine), "character": .int(end)]),
+        ])
+    }
+
+    /// One item over `fooBaz`, spelled either as a plain `TextEdit` reaching to
+    /// character 14 or as an `InsertReplaceEdit` (insert 8…11, replace 8…14).
+    private func fooBazItem(insertReplace: Bool) -> JSONValue {
+        let edit: JSONValue = insertReplace
+            ? .object(["newText": .string("fooBaz"), "insert": range(0, 8, 0, 11), "replace": range(0, 8, 0, 14)])
+            : .object(["newText": .string("fooBaz"), "range": range(0, 8, 0, 14)])
+        return .object([
+            "label": .string("fooBaz"),
+            "sortText": .string("100"),
+            "kind": .int(LSPCompletionItemKind.struct.rawValue),
+            "textEdit": edit,
+        ])
+    }
+
+    /// `foo|Bar` + `fooBaz` keeps `Bar`; `foo|Baz` + `fooBaz` does not double it
+    /// — for both spellings of the server's edit.
+    func testTheReplaceRangeReachesPastTheCaretOnlyOverTheCompletionsOwnSuffix() async throws {
+        // One provider for every case: the scripted transport backs one session,
+        // and each request re-syncs it to its own text.
+        let provider = makeProvider()
+        for insertReplace in [false, true] {
+            for (text, expected) in [
+                ("let x = fooBar", "let x = fooBazBar"),
+                ("let x = fooBaz", "let x = fooBaz"),
+                ("let x = foobaz", "let x = fooBaz"),
+            ] {
+                transport.script(LSPMethod.completion, .reply(.object([
+                    "items": .array([fooBazItem(insertReplace: insertReplace)]),
+                ])))
+                let items = await provider.completions(for: suffixRequest(text))
+                let item = try XCTUnwrap(items.first, "\(text), insertReplace: \(insertReplace)")
+                XCTAssertEqual(
+                    try commit(item, to: text),
+                    expected,
+                    "\(text), insertReplace: \(insertReplace)"
+                )
+            }
+        }
+    }
+
+    /// An edit the request text does not have — a line past the last one, a
+    /// character past its line's end, a range over a line break — is dropped
+    /// while the list is built rather than offered and refused at commit; the
+    /// neighbour still arrives.
+    func testAnItemWhoseEditDoesNotFitTheRequestTextIsDropped() async throws {
+        let text = "let x = foo\nbar"
+        let provider = makeProvider()
+        for badRange in [range(5, 8, 5, 11), range(0, 8, 0, 40), range(0, 8, 1, 3)] {
+            transport.script(LSPMethod.completion, .reply(.object([
+                "items": .array([
+                    .object([
+                        "label": .string("fooBad"),
+                        "sortText": .string("100"),
+                        "textEdit": .object(["newText": .string("fooBad"), "range": badRange]),
+                    ]),
+                    completionItemJSON(label: "fooGood", sortText: "101"),
+                ]),
+            ])))
+            let items = await provider.completions(for: suffixRequest(text))
+            XCTAssertEqual(items.map(\.text), ["fooGood"], "\(badRange)")
+        }
+    }
+
     // MARK: - Completion: what the row reads
 
     /// tsserver's member shape, authored rather than recorded (sourcekit-lsp
@@ -2367,8 +2552,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                 completionItemJSON(
                     label: "greet",
                     sortText: "101",
-                    // Empty, at the caret: nothing to drop, so it reads `.greet`.
-                    textEdit: (startLine: 4, startCharacter: 27, endLine: 4, endCharacter: 27),
+                    // The typed word alone: it starts where the typed word
+                    // does, so there is no head to drop and it reads `.greet`.
+                    textEdit: (startLine: 4, startCharacter: 22, endLine: 4, endCharacter: 27),
                     textEditNewText: ".greet"
                 ),
             ]),
@@ -2606,6 +2792,413 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     }
 
     // MARK: - Inline item construction
+
+    // MARK: - Local narrowing
+
+    /// Poll `condition` until it holds, failing loudly on timeout rather than
+    /// passing vacuously.
+    private func waitFor(
+        _ description: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+    }
+
+    /// The buffer with `word` typed on line 2, and the request for its end.
+    private func narrowingRequest(_ word: String, lead: String = "") -> CompletionRequest {
+        let text = "import A\nlet x = \(lead)\(word)\nprint(x)\n"
+        let caret = (text as NSString).range(of: "\n", options: [], range: NSRange(location: 9, length: 20)).location
+        return completionRequest(prefix: word, offset: caret, text: text)
+    }
+
+    /// Four items a server answering `fo` might send: one deferring its import to
+    /// a resolve, one carrying it outright, one plain, and one matching nothing.
+    private func narrowingItems(isIncomplete: Bool = false, extra: [JSONValue] = []) -> JSONValue {
+        var deferred = completionItemJSON(label: "foobar", sortText: "1")
+        if case .object(var object) = deferred {
+            object["data"] = .object(["itemId": .int(1)])
+            deferred = .object(object)
+        }
+        var importing = completionItemJSON(label: "foobaz", sortText: "2", detail: "Baz")
+        if case .object(var object) = importing {
+            object["additionalTextEdits"] = .array([
+                .object(["newText": .string("import Baz\n"), "range": range(0, 0, 0, 0)]),
+            ])
+            importing = .object(object)
+        }
+        return .object([
+            "isIncomplete": .bool(isIncomplete),
+            "items": .array([
+                deferred,
+                importing,
+                completionItemJSON(label: "food", sortText: "3"),
+                completionItemJSON(label: "bar", sortText: "4"),
+            ] + extra),
+        ])
+    }
+
+    /// What resolving `foobar` adds: its import.
+    private var narrowingResolve: JSONValue {
+        .object([
+            "label": .string("foobar"),
+            "additionalTextEdits": .array([
+                .object(["newText": .string("import Bar\n"), "range": range(0, 0, 0, 0)]),
+            ]),
+        ])
+    }
+
+    private func withoutHandle(_ items: [CompletionItem]) -> [CompletionItem] {
+        items.map {
+            CompletionItem(
+                text: $0.text,
+                kind: $0.kind,
+                isFromCurrentFile: $0.isFromCurrentFile,
+                edits: $0.edits,
+                displayText: $0.displayText,
+                detail: $0.detail
+            )
+        }
+    }
+
+    /// Typing `fo` → `foo` → `foob` against a complete answer asks the server
+    /// once, and the `foob` narrowing is exactly what a fresh `foob` request over
+    /// the same items answers — rows, edits, and what their handles resolve to.
+    func testTypingOnInsideACompleteAnswerAsksOnceAndNarrowsToWhatAFreshAnswerWouldBe() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        XCTAssertEqual(retained.typed, "fo")
+        XCTAssertEqual(answer.items.map(\.text), ["foobar", "foobaz", "food", "bar"])
+
+        let fooAnswer = await provider.narrow(retained, for: narrowingRequest("foo"))
+
+        let foo = try XCTUnwrap(fooAnswer)
+        XCTAssertEqual(foo.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        let foobAnswer = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let foob = try XCTUnwrap(foobAnswer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1, "nothing was asked again")
+
+        harness = Harness()
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let fresh = await makeProvider().completions(for: narrowingRequest("foob"))
+
+        XCTAssertEqual(withoutHandle(foob), withoutHandle(fresh))
+        XCTAssertEqual(foob.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        let importEdits = try XCTUnwrap(foob.first { $0.text == "foobaz" }).edits
+        XCTAssertEqual(importEdits.map(\.newText), ["foobaz", "import Baz\n"])
+        XCTAssertEqual(importEdits.first?.range.length, 4, "the primary edit covers `foob`, not `fo`")
+
+        let narrowedResolve = await provider.resolveEdits(for: try XCTUnwrap(foob.first))
+        XCTAssertEqual(narrowedResolve.map(\.newText), ["foobar", "import Bar\n"])
+        XCTAssertEqual(narrowedResolve.first?.range.length, 4)
+    }
+
+    /// The narrowed handle resolves exactly what a fresh `foob` list's handle
+    /// resolves, against the same buffer.
+    func testANarrowedHandleResolvesWhatAFreshHandleResolves() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+        let narrowedAnswer = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let narrowed = try XCTUnwrap(narrowedAnswer)
+        let narrowedEdits = await provider.resolveEdits(for: try XCTUnwrap(narrowed.first))
+
+        harness = Harness()
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let other = makeProvider()
+        let fresh = await other.completions(for: narrowingRequest("foob"))
+        let freshEdits = await other.resolveEdits(for: try XCTUnwrap(fresh.first))
+
+        XCTAssertFalse(freshEdits.isEmpty)
+        XCTAssertEqual(narrowedEdits, freshEdits)
+    }
+
+    /// An incomplete answer is never retained, so every keystroke asks again.
+    func testAnIncompleteAnswerIsNotRetainedAndEveryKeystrokeAsks() async {
+        transport.script(LSPMethod.completion, .reply(narrowingItems(isIncomplete: true)))
+        let provider = makeProvider()
+
+        for word in ["fo", "foo", "foob"] {
+            let answer = await provider.completionAnswer(for: narrowingRequest(word))
+            XCTAssertNil(answer.retained, word)
+            XCTAssertFalse(answer.items.isEmpty, word)
+        }
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 3)
+    }
+
+    /// A backspace inside the answered word narrows too; the retained list is
+    /// never consumed by narrowing it.
+    func testABackspaceInsideTheWordNarrowsWithNoRequest() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        _ = await provider.narrow(retained, for: narrowingRequest("foob"))
+        let foo = await provider.narrow(retained, for: narrowingRequest("foo"))
+        let fo = await provider.narrow(retained, for: narrowingRequest("fo"))
+
+        XCTAssertEqual(foo?.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        XCTAssertEqual(fo?.map(\.text), ["foobar", "foobaz", "food", "bar"])
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1)
+    }
+
+    /// A list the list-time drop trimmed is not the server's whole answer, so it
+    /// is not retained even though the server called it complete.
+    func testATrimmedListIsNotRetained() async {
+        let unfit: JSONValue = .object([
+            "label": .string("fooBad"),
+            "sortText": .string("0"),
+            "textEdit": .object(["newText": .string("fooBad"), "range": range(9, 8, 9, 10)]),
+        ])
+        transport.script(LSPMethod.completion, .reply(narrowingItems(extra: [unfit])))
+        let provider = makeProvider()
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+
+        XCTAssertFalse(answer.items.isEmpty)
+        XCTAssertFalse(answer.items.contains { $0.text == "fooBad" })
+        XCTAssertNil(answer.retained)
+    }
+
+    /// The cap does not hide a drop: an unapplicable item sorted below the cut
+    /// still trims the list, so it is not retained either.
+    func testAnUnapplicableItemBelowTheCapStillTrimsTheList() async {
+        let unfit: JSONValue = .object([
+            "label": .string("fooBad"),
+            "sortText": .string("9"),
+            "textEdit": .object(["newText": .string("fooBad"), "range": range(9, 8, 9, 10)]),
+        ])
+        transport.script(LSPMethod.completion, .reply(narrowingItems(extra: [unfit])))
+        let provider = makeProvider(completionLimit: 2)
+
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+
+        XCTAssertEqual(answer.items.count, 2)
+        XCTAssertNil(answer.retained)
+    }
+
+    /// A newer list replaces the retained one, so the older handle narrows nothing.
+    func testANewerListRetiresTheOlderHandle() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let firstAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let first = try XCTUnwrap(firstAnswer)
+        let secondAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let second = try XCTUnwrap(secondAnswer)
+
+        let stale = await provider.narrow(first, for: narrowingRequest("foo"))
+        let current = await provider.narrow(second, for: narrowingRequest("foo"))
+        XCTAssertNil(stale)
+        XCTAssertNotNil(current)
+    }
+
+    /// A word that no longer starts where the answered one did is not this list's.
+    func testANarrowForAWordStartingElsewhereAnswersNil() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        let moved = await provider.narrow(retained, for: narrowingRequest("foo", lead: " "))
+        XCTAssertNil(moved)
+    }
+
+    /// Once the session that answered has gone, its list narrows nothing — its
+    /// rows and handles belong to a process that no longer exists.
+    func testAfterTheSessionDiesTheRetainedListNarrowsNothing() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+        let before = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNotNil(before)
+
+        transport.closeStream()
+        // The session marks itself terminated before it terminates its transport,
+        // so this is the causal point after which it can no longer be running.
+        await waitFor("the session to notice EOF") { self.transport.isTerminated }
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNil(narrowed, "a dead session's list still narrowed")
+        XCTAssertEqual(transport.requests(for: LSPMethod.completion).count, 1)
+    }
+
+    /// A folder switch retires the list too, whatever its session is doing.
+    func testAFolderSwitchRetiresTheRetainedList() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        await lastWorkspace?.prepareForFolderChange(root: URL(fileURLWithPath: "/private/tmp/elsewhere"))
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNil(narrowed)
+    }
+
+    /// A narrowing that leaves every item in `noMatch` is a question worth asking
+    /// the server again, not an empty popup.
+    func testANarrowMatchingNothingAnswersNil() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        let provider = makeProvider()
+        let retainedAnswer = await provider.completionAnswer(for: narrowingRequest("fo")).retained
+        let retained = try XCTUnwrap(retainedAnswer)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+    }
+
+    /// A discarded narrow leaves the visible list's handles alone: the popup
+    /// keeps showing those rows while the ordinary request runs, and committing
+    /// one must still resolve its auto-import.
+    func testANarrowMatchingNothingKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the discarded narrow took the visible list's handle")
+    }
+
+    /// A refused narrow still orders the table: an older answer landing after it
+    /// is one the controller discards, so it must not take the handles of the rows
+    /// the popup keeps showing while the ordinary request runs.
+    func testAnOlderAnswerLandingAfterARefusedNarrowKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let older = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the older request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("fox"))
+        XCTAssertNil(narrowed)
+
+        let pending = try XCTUnwrap(transport.requests(for: LSPMethod.completion).last)
+        transport.emit(.response(LSPResponseMessage(id: pending.id, result: narrowingItems())))
+        let late = await older.value
+        XCTAssertFalse(late.items.isEmpty, "the older answer was not staged")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the older answer took the visible list's handle")
+    }
+
+    /// The table is reserved when a request is *asked*, not when it decides: an
+    /// older answer landing while a newer question is still in flight — a narrow
+    /// still checking its session, or an ordinary request still at the server — is
+    /// one the controller discards, so it must not take the handles of the rows
+    /// the popup keeps showing meanwhile.
+    func testAnOlderAnswerLandingWhileANewerRequestIsInFlightKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop, .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let older = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the older request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        // The same text, so the older answer is not refused as stale on arrival.
+        let newer = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the newer request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 3
+        }
+
+        let requests = transport.requests(for: LSPMethod.completion)
+        transport.emit(.response(LSPResponseMessage(id: requests[1].id, result: narrowingItems())))
+        let late = await older.value
+
+        XCTAssertFalse(late.items.isEmpty, "the older answer was not staged")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the older answer took the visible list's handle")
+
+        transport.emit(.response(LSPResponseMessage(id: requests[2].id, result: narrowingItems())))
+        _ = await newer.value
+    }
+
+    /// A request the editor cancelled is retired when it is cancelled, not when
+    /// the replacement is asked a debounce later: its answer landing in between
+    /// is one the controller discards, so it must take neither the handles nor
+    /// the retained list of the rows the popup keeps showing meanwhile.
+    func testAnAnswerLandingAfterSupersedeKeepsTheVisibleListsHandlesAndRetainedList() async throws {
+        transport.script(LSPMethod.completion, [.reply(narrowingItems()), .drop])
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let answer = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let retained = try XCTUnwrap(answer.retained)
+        let shown = try XCTUnwrap(answer.items.first)
+
+        let cancelled = Task { await provider.completionAnswer(for: narrowingRequest("fo")) }
+        await waitFor("the cancelled request to reach the server") {
+            self.transport.requests(for: LSPMethod.completion).count == 2
+        }
+        provider.supersedeCompletionRequests()
+
+        let pending = try XCTUnwrap(transport.requests(for: LSPMethod.completion).last)
+        transport.emit(.response(LSPResponseMessage(id: pending.id, result: narrowingItems())))
+        let late = await cancelled.value
+        XCTAssertFalse(late.items.isEmpty, "the cancelled answer was not staged")
+        XCTAssertNil(late.retained, "the cancelled answer replaced the retained list")
+
+        let edits = await provider.resolveEdits(for: shown)
+        XCTAssertFalse(edits.isEmpty, "the cancelled answer took the visible list's handle")
+        let narrowed = await provider.narrow(retained, for: narrowingRequest("foo"))
+        XCTAssertNotNil(narrowed, "the cancelled answer took the retained list")
+    }
+
+    /// The reverse of the window above: the newer answer stages its table before
+    /// any cancellation reaches it, and the editor then discards it — or commits a
+    /// visible row before its continuation runs. Until the editor shows the newer
+    /// rows, the visible ones keep resolving; once it does, only the shown rows'
+    /// handles do.
+    func testAnAnswerStagedButNeverShownKeepsTheVisibleListsHandles() async throws {
+        transport.script(LSPMethod.completion, .reply(narrowingItems()))
+        transport.script(LSPMethod.resolveCompletionItem, .reply(narrowingResolve))
+        let provider = makeProvider()
+        let first = await provider.completionAnswer(for: narrowingRequest("fo"))
+        provider.showCompletionList(first.items)
+        let visible = try XCTUnwrap(first.items.first { $0.resolveHandle != nil })
+
+        let discarded = await provider.completionAnswer(for: narrowingRequest("fo"))
+        let staged = try XCTUnwrap(discarded.items.first { $0.resolveHandle != nil })
+        XCTAssertNotEqual(staged.resolveHandle, visible.resolveHandle)
+        let kept = await provider.resolveEdits(for: visible)
+        XCTAssertFalse(kept.isEmpty, "an answer never shown took the visible list's handle")
+
+        provider.showCompletionList(discarded.items)
+        let adopted = await provider.resolveEdits(for: staged)
+        XCTAssertFalse(adopted.isEmpty, "showing the staged answer lost its handles")
+        let retired = await provider.resolveEdits(for: visible)
+        XCTAssertTrue(retired.isEmpty, "a list no longer shown still resolves")
+    }
 
     /// One `yaml-language-server` property completion, as that server really
     /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text

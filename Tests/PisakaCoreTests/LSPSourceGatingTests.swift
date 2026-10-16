@@ -28,8 +28,9 @@ import XCTest
 /// rewording the documentation to appease a test — is the wrong direction
 /// entirely. String literals are stripped for the same reason.
 ///
-/// **One rule is not about the platform split**: the consent bar binds no
-/// keyboard shortcut, a property no build and no bitmap can see.
+/// **Two rules are not about the platform split**: the consent bar binds no
+/// keyboard shortcut, and the server failure record (D44) reaches no alert,
+/// banner or notification API — two properties no build and no bitmap can see.
 final class LSPSourceGatingTests: XCTestCase {
     /// The app-side files that must exist and must be macOS-gated. Named
     /// explicitly *as well as* discovered, so a rename does not quietly empty the
@@ -104,6 +105,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPRustProvisioning.swift",
         "LSPRustToolchain.swift",
         "LSPServerDescription.swift",
+        "LSPServerFailureRecord.swift",
         "LSPSession.swift",
         "LSPTransport.swift",
         "LSPWorkspace.swift",
@@ -166,6 +168,34 @@ final class LSPSourceGatingTests: XCTestCase {
             code.contains("keyboardShortcut"),
             "LSPConsentBanner.swift binds a key; a default button there turns Return in the editor into consent"
         )
+    }
+
+    /// D44's record is passive by contract: shown on the server's settings row and
+    /// nowhere else, so D7's "no alerts, no banners — ever" survives it. The three
+    /// files it flows through — where it is kept, what it is, where it is drawn —
+    /// must not name an alert or notification API. Stripped text, because each of
+    /// those files says in prose which APIs it refuses.
+    func testTheFailureRecordReachesNoAlertBannerOrNotification() throws {
+        let files = [
+            "Sources/PisakaCore/LSPWorkspace.swift",
+            "Sources/PisakaCore/LSPServerFailureRecord.swift",
+            "Sources/Pisaka/LSPServerSettingsView.swift",
+        ]
+        for path in files {
+            let url = Self.repositoryRoot.appendingPathComponent(path)
+            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            XCTAssertTrue(code.contains("LSPServerFailure"), "\(path) no longer handles the record; the rule checks nothing")
+            for token in ["NSAlert", "UNUserNotificationCenter", "NSUserNotification"] {
+                XCTAssertFalse(
+                    Self.containsToken(token, in: code),
+                    "\(path) uses \(token); the failure record is shown passively on its row (D44)"
+                )
+            }
+            XCTAssertFalse(
+                code.contains(".alert("),
+                "\(path) presents an alert; the failure record is shown passively on its row (D44)"
+            )
+        }
     }
 
     // MARK: - The Core half

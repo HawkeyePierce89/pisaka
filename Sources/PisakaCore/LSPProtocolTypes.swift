@@ -650,11 +650,16 @@ public struct LSPTextEdit: Equatable, Hashable, Sendable, Codable {
 /// `TextEdit` (one `range`) and `InsertReplaceEdit` (an `insert` range and a
 /// `replace` range).
 ///
-/// `insertReplaceSupport` is *not* advertised, so only the first should ever
-/// arrive; the second is decoded anyway because a server that sends it despite
-/// that would otherwise take the whole completion list down with it. `range`
-/// resolves to `replace` in that case — replacing the typed token is what the
-/// editor does with the primary edit either way.
+/// `insertReplaceSupport` is advertised, so a server may answer with either.
+/// `range` holds `replace` for an `InsertReplaceEdit` and `insertRange` its
+/// `insert`; which of the two the primary edit uses is not decided here but by
+/// `CompletionEditPlan.primaryRange`, from the text past the caret. A plain
+/// `TextEdit` leaves `insertRange` `nil` and the provider derives it.
+///
+/// Encoding writes back the spelling that arrived — `insert`/`replace` when
+/// `insertRange` is set, `range` otherwise — because the item is echoed on
+/// `completionItem/resolve`, and a server is entitled to read its own shape
+/// there.
 public struct LSPCompletionEdit: Equatable, Hashable, Sendable, Codable {
     public var range: LSPRange
     /// The narrower `insert` range of an `InsertReplaceEdit`, when that is what
@@ -683,12 +688,16 @@ public struct LSPCompletionEdit: Equatable, Hashable, Sendable, Codable {
         }
     }
 
-    /// Written back in the plain `TextEdit` spelling — the only one this client
-    /// sends, and the one every server accepts on a `completionItem/resolve`
-    /// echo.
+    /// Written back in the spelling it arrived in, so a resolve echo is
+    /// faithful.
     public func encode(to encoder: Swift.Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(range, forKey: .range)
+        if let insertRange {
+            try container.encode(insertRange, forKey: .insert)
+            try container.encode(range, forKey: .replace)
+        } else {
+            try container.encode(range, forKey: .range)
+        }
         try container.encode(newText, forKey: .newText)
     }
 }
@@ -1318,7 +1327,7 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
         try item.encode(false, forKey: "commitCharactersSupport")
         try item.encode(false, forKey: "deprecatedSupport")
         try item.encode(false, forKey: "preselectSupport")
-        try item.encode(false, forKey: "insertReplaceSupport")
+        try item.encode(true, forKey: "insertReplaceSupport")
         try item.encode(["plaintext"], forKey: "documentationFormat")
         var resolve = item.nestedContainer(keyedBy: StringKey.self, forKey: "resolveSupport")
         try resolve.encode(["detail", "additionalTextEdits"], forKey: "properties")

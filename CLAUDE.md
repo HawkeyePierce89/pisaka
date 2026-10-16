@@ -95,8 +95,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D39:
-  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D44:
+  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
   `SHA256.swift`, `LSPProvisioningManifest.swift`, `LSPInstallLayout.swift`, `LSPInstallEngine.swift`, `LSPProvisioning.swift`
@@ -154,7 +154,7 @@ headlessly in `Tests/PisakaAppTests`.
   `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift`, `Platform/LicenseCatalogLoader.swift`, `Platform/LicenseTextView.swift`, `Platform/SymbolQueryCatalog.swift`, `Platform/SymbolExtractor.swift`, `Platform/SymbolIndexController.swift`, `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift`, `iOS/BranchSwitcherView_iOS.swift`, `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift`, `iOS/CompletionBar_iOS.swift`, `iOS/DefinitionRoute_iOS.swift`, `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift`, `iOS/LibGit2Service.swift`, `iOS/KeychainCredentialStore.swift`, `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift`, `iOS/AcknowledgementsView_iOS.swift`, `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift`, `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift`, `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift`
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
-  `PisakaApp.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
+  `PisakaApp.swift`, `AppDelegate.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
 
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half):
   `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift`, `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift`
@@ -217,7 +217,7 @@ because nothing else states them.
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
   behind a background walk.
-- **Language servers** (`core-lsp.md`, D1–D10 + D17–D39): one server per `(server, root)`, started
+- **Language servers** (`core-lsp.md`, D1–D10 + D17–D44): one server per `(server, root)`, started
   lazily and never twice; registration is dynamic, and un-registering one shuts its process
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab

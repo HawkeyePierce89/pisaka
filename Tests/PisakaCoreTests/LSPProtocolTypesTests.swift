@@ -253,7 +253,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             "commitCharactersSupport":false,\
             "deprecatedSupport":false,\
             "documentationFormat":["plaintext"],\
-            "insertReplaceSupport":false,\
+            "insertReplaceSupport":true,\
             "preselectSupport":false,\
             "resolveSupport":{"properties":["detail","additionalTextEdits"]},\
             "snippetSupport":false},\
@@ -1241,9 +1241,8 @@ final class LSPProtocolTypesTests: XCTestCase {
     }
 
     func testAnInsertReplaceEditDecodesToItsReplaceRange() throws {
-        // `insertReplaceSupport` is not advertised, so this should never arrive;
-        // if it does, replacing the typed token is the behaviour that matches
-        // what the primary edit does everywhere else.
+        // `insertReplaceSupport` is advertised: `range` carries `replace`,
+        // `insertRange` carries `insert`, and the provider chooses between them.
         let response = try JSONDecoder().decode(
             LSPCompletionResponse.self,
             from: (
@@ -1256,6 +1255,30 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(edit.range.end, LSPPosition(line: 0, character: 5))
         XCTAssertEqual(edit.insertRange?.end, LSPPosition(line: 0, character: 2))
         XCTAssertEqual(edit.newText, "xy")
+    }
+
+    /// The resolve echo writes back the spelling that arrived: an
+    /// `InsertReplaceEdit` stays `insert`/`replace`, a `TextEdit` stays `range`.
+    func testACompletionEditReEncodesInTheSpellingItArrivedIn() throws {
+        let insertReplace = Data(
+            (#"{"newText":"xy","#
+                + #""insert":{"start":{"line":0,"character":1},"end":{"line":0,"character":2}},"#
+                + #""replace":{"start":{"line":0,"character":1},"end":{"line":0,"character":5}}}"#).utf8
+        )
+        let decoded = try JSONDecoder().decode(LSPCompletionEdit.self, from: insertReplace)
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["newText", "insert", "replace"])
+        XCTAssertEqual(try JSONDecoder().decode(LSPCompletionEdit.self, from: encoded), decoded)
+
+        let plain = LSPCompletionEdit(
+            range: LSPRange(start: LSPPosition(line: 0, character: 1), end: LSPPosition(line: 0, character: 2)),
+            newText: "xy"
+        )
+        let plainObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(plain)) as? [String: Any]
+        )
+        XCTAssertEqual(Set(plainObject.keys), ["newText", "range"])
     }
 
     // MARK: - completionItem/resolve

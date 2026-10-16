@@ -840,6 +840,19 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertTrue(items.isEmpty)
     }
 
+    /// `detail` is the LSP provider's alone: a tree-sitter item never carries one.
+    func testTreeSitterItemsCarryNoDetail() {
+        let store = index([
+            "a.swift": [symbol("serviceName", kind: .property, in: "a.swift", at: 10)]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("ser", from: "b.swift"),
+            in: store
+        )
+        XCTAssertFalse(items.isEmpty)
+        XCTAssertTrue(items.allSatisfy { $0.detail == nil })
+    }
+
     /// The kind-independent half: whatever captured it, a name that cannot be
     /// typed as one word cannot be inserted as one.
     func testNamesThatAreNotOneIdentifierAreNeverOfferedAsCompletions() {

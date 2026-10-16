@@ -25,6 +25,44 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// Completion candidates for the prefix in `request`, best first, already
     /// capped by the provider.
     func completions(for request: CompletionRequest) async -> [CompletionItem]
+    /// `completions(for:)`'s list, plus — when the answer is one the editor may
+    /// keep narrowing locally — the token that names it (`RetainedCompletionList`).
+    ///
+    /// Defaulted to the plain list with `retained: nil`: only a language server
+    /// hands out a list that is *complete* for a prefix (`isIncomplete == false`),
+    /// and only such a list can answer a longer prefix without being asked again.
+    /// The tree-sitter provider and both iOS surfaces therefore never retain
+    /// anything, and their behaviour is exactly `completions(for:)`'s.
+    func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer
+    /// The list `retained` names, re-ranked for the word `request` now carries,
+    /// without asking anyone — or `nil` when it cannot be, which the caller reads
+    /// as "make an ordinary request".
+    ///
+    /// Defaulted to `nil`, for `completionAnswer`'s reason: a provider that never
+    /// retains a list has nothing to narrow.
+    func narrow(_ retained: RetainedCompletionList, for request: CompletionRequest) async -> [CompletionItem]?
+    /// Every completion question asked before this call is superseded: none of
+    /// their answers may replace state the provider keeps for the list on screen.
+    ///
+    /// Synchronous on purpose, so the editor calls it at the very moment it
+    /// cancels a request — not when the replacement is finally asked, a debounce
+    /// later. Cancelling a request is itself forwarded asynchronously, so an
+    /// answer can still land in that window, and without this it would replace
+    /// the shown rows' resolve handles (and D4's auto-import with them).
+    ///
+    /// Defaulted to nothing, for `resolveEdits`' reason: only a provider that
+    /// keeps per-list state has anything to protect.
+    func supersedeCompletionRequests()
+    /// The editor has just put `items` on screen as the completion list.
+    ///
+    /// Synchronous, and called only once the editor has decided to show an
+    /// answer — after every staleness check it applies — so a provider keeping
+    /// per-list state learns which list the visible rows came from rather than
+    /// guessing it from which answer it computed last. An answer the editor
+    /// discards never reaches this, so it cannot displace the rows still shown.
+    ///
+    /// Defaulted to nothing, for `supersedeCompletionRequests`' reason.
+    func showCompletionList(_ items: [CompletionItem])
     /// The buffer edits `item` performs, for an item the provider deferred to a
     /// second round trip (`CompletionItem.resolveHandle`).
     ///
@@ -96,6 +134,16 @@ public protocol CodeIntelligenceProviding: AnyObject {
 }
 
 public extension CodeIntelligenceProviding {
+    func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer {
+        CompletionAnswer(items: await completions(for: request), retained: nil)
+    }
+
+    func narrow(_ retained: RetainedCompletionList, for request: CompletionRequest) async -> [CompletionItem]? {
+        nil
+    }
+
+    func supersedeCompletionRequests() {}
+    func showCompletionList(_ items: [CompletionItem]) {}
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
     func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
     func references(for request: UsagesRequest) async -> [UsageResult] { [] }
@@ -379,6 +427,16 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// The LSP `label` is never this string: `greet(name: String)` written into
     /// the buffer by the fallback path is not a completion, it is damage.
     public let displayText: String
+    /// The server's one-line description of the item — a signature, a type, a
+    /// module — drawn dimmed beside the row, or `nil` when there is none.
+    ///
+    /// **Display-only, and strictly so**: it never takes part in dedup (that is
+    /// keyed by `text`), matching, ranking or any edit, and the resolve path never
+    /// rewrites it — two items differing only here behave exactly as if it did
+    /// not exist. Only the LSP provider fills it, from the server's own `detail`
+    /// and never a synthesized one; tree-sitter and both iOS surfaces leave it
+    /// `nil`.
+    public let detail: String?
 
     /// `edits` and `resolveHandle` are defaulted so the tree-sitter provider and
     /// both iOS surfaces are untouched by phase 2a; `displayText` is defaulted to
@@ -391,7 +449,8 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         isFromCurrentFile: Bool,
         edits: [CompletionEdit] = [],
         resolveHandle: Int? = nil,
-        displayText: String? = nil
+        displayText: String? = nil,
+        detail: String? = nil
     ) {
         self.text = text
         self.kind = kind
@@ -399,6 +458,44 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         self.edits = edits
         self.resolveHandle = resolveHandle
         self.displayText = displayText ?? text
+        self.detail = detail
+    }
+}
+
+/// A completion answer: the rows, and the token for narrowing them locally.
+public struct CompletionAnswer: Equatable, Sendable {
+    /// What `completions(for:)` returns for the same request.
+    public let items: [CompletionItem]
+    /// Non-`nil` only for a complete language-server answer that lost no item to
+    /// the list-time drop and came from the session that is still live — the one
+    /// kind of list that already holds everything a longer prefix can match.
+    /// Always `nil` for a fallback (tree-sitter) answer.
+    public let retained: RetainedCompletionList?
+
+    public init(items: [CompletionItem], retained: RetainedCompletionList?) {
+        self.items = items
+        self.retained = retained
+    }
+}
+
+/// The editor's handle on a list the provider kept, and the two facts
+/// `CompletionNarrowingRule` decides by.
+///
+/// `handle` is opaque, like `CompletionItem.resolveHandle`: the editor never
+/// interprets it and hands it back to the provider that issued it, which answers
+/// `nil` once a newer list has replaced the one it names.
+public struct RetainedCompletionList: Equatable, Hashable, Sendable {
+    public let handle: Int
+    /// The UTF-16 offset of the typed word's first character in the buffer the
+    /// list was answered for.
+    public let wordStart: Int
+    /// The typed word the list was answered for.
+    public let typed: String
+
+    public init(handle: Int, wordStart: Int, typed: String) {
+        self.handle = handle
+        self.wordStart = wordStart
+        self.typed = typed
     }
 }
 

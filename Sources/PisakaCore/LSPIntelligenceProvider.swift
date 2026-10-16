@@ -85,6 +85,31 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         /// land in the same coordinates the primary one did.
         let text: String
         let typedWord: NSRange
+        /// The length the typed word had grown or shrunk to when the item was
+        /// published by `narrow` rather than by a request, so the resolved edits
+        /// are re-expressed against the same buffer the published ones were —
+        /// `nil` for a list published straight from a request.
+        let narrowedLength: Int?
+    }
+
+    /// The last complete list a request published, kept so the next keystroke
+    /// inside the same word can be answered from it (`narrow`).
+    ///
+    /// Everything the list was built from is kept rather than the rows it
+    /// became: narrowing re-runs the whole of `publish` with the new prefix, so a
+    /// row the cap cut from the first answer can be the best match of the second.
+    /// The raw items are never mutated.
+    private struct RetainedList {
+        let handle: Int
+        let items: [LSPCompletionItem]
+        /// The request text and typed word every offset was computed against.
+        let text: String
+        let typedWord: NSRange
+        let session: LSPSession
+        let serverResolves: Bool
+        /// The request generation the list was answered under — a folder switch
+        /// retires it even while its session is still being torn down.
+        let generation: Int
     }
 
     private let workspace: LSPWorkspace
@@ -93,13 +118,24 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
 
     private let lock = NSLock()
     private var nextResolveHandle = 1
-    /// The current list's deferred items, replaced wholesale when a new list is
-    /// published — so a handle can only ever name an item from the list the popup
-    /// is actually showing, and the table cannot grow with the session.
-    private var pendingResolves: [Int: PendingResolve] = [:]
-    /// The request-ordering token of the list `pendingResolves` belongs to, and
-    /// the one behind the next request — the generation-token discipline, applied
-    /// to the one piece of state a completion leaves behind.
+    /// Two tables of deferred items, so a handle can only ever name an item from
+    /// the list the popup shows or the newest answer it has not yet decided on,
+    /// and neither table can grow with the session.
+    ///
+    /// The newest answer's table is *staged*, replaced wholesale by every newer
+    /// answer; it becomes the *shown* table only when the editor says it put
+    /// those rows on screen (`showCompletionList`). Publishing straight into the
+    /// one table the shown rows resolve through would let an answer the editor
+    /// goes on to discard — its request cancelled after the answer was computed
+    /// but before the editor's continuation ran — wipe those rows' handles, and
+    /// with them D4's auto-import: the provider cannot tell from here whether
+    /// its answer will be shown.
+    private var stagedResolves: [Int: PendingResolve] = [:]
+    private var shownResolves: [Int: PendingResolve] = [:]
+    /// The newest request-ordering token *asked* — reserved at claim, so only that
+    /// request may still replace `stagedResolves` — and the one behind the next
+    /// request: the generation-token discipline, applied to the one piece of state
+    /// a completion leaves behind.
     ///
     /// Two completion requests overlap as a matter of course: the router abandons
     /// one at its deadline and it keeps running, the next keystroke asks again.
@@ -109,6 +145,11 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// silently, since a missing handle reads exactly like a superseded one.
     private var nextListToken = 0
     private var publishedListToken = 0
+    /// The retained list, and the request-ordering token of the request whose
+    /// answer decided it: a newer list replaces it — with `nil` when that list is
+    /// not one that may be retained — and an older one landing late does not.
+    private var retainedList: RetainedList?
+    private var retainedListToken = 0
 
     public init(
         workspace: LSPWorkspace,
@@ -642,6 +683,16 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// committed to a member access — and the editor has already decided which
     /// this is, in the one place that can see the caret.
     public func completions(for request: CompletionRequest) async -> [CompletionItem] {
+        await completionAnswer(for: request).items
+    }
+
+    /// `completions(for:)`'s list, retained for local narrowing when the server
+    /// said it was complete and `publish` dropped none of it.
+    ///
+    /// A trimmed list is not retained even though the server called it complete:
+    /// what was dropped was dropped *for this request text*, and the item that
+    /// could not be applied here might well be the one a longer prefix wants.
+    public func completionAnswer(for request: CompletionRequest) async -> CompletionAnswer {
         // Claimed before the first hop, so the table below is ordered by when the
         // question was *asked* rather than by when it happened to be answered.
         let listToken = claimListToken()
@@ -653,7 +704,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                   language: language,
                   text: request.text
               )
-        else { return [] }
+        else { return CompletionAnswer(items: [], retained: nil) }
 
         let source = request.text as NSString
         let position = LSPPositionMap.position(forOffset: offset, in: source)
@@ -663,13 +714,15 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                 position: position,
                 context: request.member == nil ? .invoked : .dot
             )
-        ) else { return [] }
+        ) else { return CompletionAnswer(items: [], retained: nil) }
         // The same staleness gate the definition path applies, and for the sharper
         // consequence: a completion list is not merely displayed, its items carry
         // *edits* in buffer coordinates, and edits derived from a document the
         // server was talked out of — or from a project the user has left — would be
         // applied to the file.
-        guard await workspace.stillHolds(prepared) else { return [] }
+        guard await workspace.stillHolds(prepared) else {
+            return CompletionAnswer(items: [], retained: nil)
+        }
 
         // A member context already carries the range a completion replaces, and
         // it is the same range the ordinary path reconstructs — see
@@ -682,15 +735,128 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         )
         let resolves = await prepared.session.capabilities?.resolvesCompletionItems ?? false
 
-        return publish(
+        let published = publish(
             response.items,
             typed: request.prefix,
             typedWord: typedWord,
             in: source,
             session: prepared.session,
-            serverResolves: resolves,
+            serverResolves: resolves
+        )
+        stageResolves(published.deferred, listToken: listToken)
+        let retained = retain(
+            response.isIncomplete || published.trimmed ? nil : RetainedList(
+                handle: listToken,
+                items: response.items,
+                text: request.text,
+                typedWord: typedWord,
+                session: prepared.session,
+                serverResolves: resolves,
+                generation: prepared.generation
+            ),
             listToken: listToken
         )
+        return CompletionAnswer(
+            items: published.items,
+            retained: retained.map {
+                RetainedCompletionList(
+                    handle: $0.handle,
+                    wordStart: typedWord.location,
+                    typed: request.prefix
+                )
+            }
+        )
+    }
+
+    /// The list `retained` names, re-published for the word `request` carries,
+    /// with no request.
+    ///
+    /// The same `publish` a fresh answer goes through — partition, D6's order,
+    /// dedup, the cap, the resolve table — run over the kept items with the new
+    /// prefix. Every offset is computed against the *retained* request text, then
+    /// re-expressed for the new word's length through
+    /// `CompletionEdit.shifted(afterReplacingTypedWord:withLength:)`; the word's
+    /// start is the same by the time this is asked (`CompletionNarrowingRule`), so
+    /// the only thing that moved is everything past it.
+    ///
+    /// `nil` — "make an ordinary request" — when the handle is not the current
+    /// list's, when the request's word does not start where the retained one
+    /// did, when the session that answered is no longer the live one (a restart,
+    /// a retirement, a folder switch), or when nothing in the list matches the
+    /// new word at all: a server's complete answer for `fo` holding nothing for
+    /// `fox` is a question worth asking it again, not an empty popup.
+    public func narrow(
+        _ retained: RetainedCompletionList,
+        for request: CompletionRequest
+    ) async -> [CompletionItem]? {
+        // Claimed — and so reserved — before the first hop: the popup keeps the
+        // previous rows while this runs, and on a refusal while the ordinary
+        // request runs, so an older answer landing at any point after this line
+        // must not replace the table those rows' handles live in.
+        let listToken = claimListToken()
+        guard let published = await narrowedList(retained, for: request) else { return nil }
+        stageResolves(published.deferred, listToken: listToken)
+        return published.items
+    }
+
+    /// Retire every request asked so far without claiming one: the editor
+    /// cancelled them, but an answer can still be on its way and reach
+    /// `stageResolves` or `retain` before the replacement request
+    /// claims its token a debounce later. Moving both watermarks here refuses
+    /// those answers, and leaves the table and the retained list untouched for
+    /// the rows still on screen.
+    public func supersedeCompletionRequests() {
+        lock.lock()
+        defer { lock.unlock() }
+        nextListToken += 1
+        publishedListToken = nextListToken
+        retainedListToken = nextListToken
+    }
+
+    /// `narrow`'s list, or `nil` for every reason it gives one — before the
+    /// resolve table is touched.
+    private func narrowedList(
+        _ retained: RetainedCompletionList,
+        for request: CompletionRequest
+    ) async -> PublishedList? {
+        guard let offset = request.offset, let list = retainedList(retained.handle) else { return nil }
+        let length = (request.prefix as NSString).length
+        guard length > 0, offset - length == list.typedWord.location else { return nil }
+        // Both halves: the workspace notices a crash only when the next request
+        // reaches for the session, so until then a dead one is still filed under
+        // its key — and a live one may have been replaced or retired.
+        guard await workspace.isLive(list.session, generation: list.generation),
+              await list.session.isRunning
+        else { return nil }
+
+        let published = publish(
+            list.items,
+            typed: request.prefix,
+            typedWord: list.typedWord,
+            in: list.text as NSString,
+            session: list.session,
+            serverResolves: list.serverResolves,
+            narrowedLength: length
+        )
+        // Refused before the table is touched: a `nil` leaves the popup showing
+        // the previous rows while the ordinary request runs, and committing one
+        // of those must still find its handle — or its auto-import is lost.
+        guard published.matched else { return nil }
+        return published
+    }
+
+    /// What `publish` built: the rows, and whether any item the server sent was
+    /// dropped as unapplicable to the request text — which makes the list less
+    /// than the server's whole answer.
+    private struct PublishedList {
+        let items: [CompletionItem]
+        let trimmed: Bool
+        /// Whether any item the server sent matched the typed word at all — in a
+        /// partition above `noMatch`, whether or not it was then published.
+        let matched: Bool
+        /// The resolve table for `items`, which the caller installs only once it
+        /// has decided to show them.
+        let deferred: [Int: PendingResolve]
     }
 
     /// D6's order, D6's hygiene, and the resolve bookkeeping — the whole of what
@@ -702,8 +868,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         in text: NSString,
         session: LSPSession,
         serverResolves: Bool,
-        listToken: Int
-    ) -> [CompletionItem] {
+        narrowedLength: Int? = nil
+    ) -> PublishedList {
         // **Matching is the client's job, and a server is not required to have
         // done it.** sourcekit-lsp, tsserver and pyright answer a prefix with the
         // items that answer *that* prefix, which is why this could go unasked for
@@ -716,28 +882,34 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // the one key that answers it, is below the cut and never seen.
         //
         // So the one matcher every other candidate source goes through is asked
-        // here too — and it decides *one* thing: which half of the list the cap
-        // may reach first. It is deliberately neither a filter nor a ranking key.
-        // Not a filter, because a server's own matching may legitimately be
+        // here too — and what it yields is **a partition, not a filter**: the
+        // closed, ordered `FuzzyMatch.Partition` (literal prefix, then
+        // case-insensitive prefix, then boundary, then subsequence; the same four
+        // again with a capital the candidate ignored; then no match at all), which
+        // sits *above* D6 and decides which part of the list the cap reaches
+        // first. Not a filter, because a server's own matching may legitimately be
         // looser than this one's boundary rule and dropping what it chose to send
         // would be this client overruling it: the recorded sourcekit-lsp
         // transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`, seven
         // of its ten items match nothing here, and they still belong in a list
-        // that has room for them. Not a ranking key, because within each half D6
-        // stands untouched — `sortText` still decides, and the server's own array
-        // order still breaks a tie. The key is `filterText ?? label`, the spec's
-        // own filtering key, never the inserted text: a YAML object property
-        // inserts `services:\n  `, and asking whether *that* answers `ser` asks
-        // something else. An empty prefix puts every item in the same half, which is the
-        // bare-dot member case and the deliberate "show me everything".
-        let matched = items.map { item in
-            typed.isEmpty || FuzzyMatch.matches(item.filterText ?? item.label, query: typed)
+        // that has room for them — in `noMatch`, below the rest. Within each
+        // partition D6 stands untouched — `sortText` still decides, and the
+        // server's own array order still breaks a tie. The key is
+        // `filterText ?? label`, the spec's own filtering key, never the inserted
+        // text: a YAML object property inserts `services:\n  `, and asking whether
+        // *that* answers `ser` asks something else. An empty prefix puts every
+        // item in the same partition, which is the bare-dot member case and the
+        // deliberate "show me everything".
+        let partition = items.map { item in
+            FuzzyMatch.partition(of: item.filterText ?? item.label, matching: typed)
         }
         // `sorted(by:)` is not documented as stable, and the server's array order
         // is meaningful on a tie (it is the order it decided to send them in), so
         // the index is carried as the last key rather than trusted.
         let ordered = items.enumerated().sorted { lhs, rhs in
-            if matched[lhs.offset] != matched[rhs.offset] { return matched[lhs.offset] }
+            if partition[lhs.offset] != partition[rhs.offset] {
+                return partition[lhs.offset] < partition[rhs.offset]
+            }
             return lhs.element.rankingKey == rhs.element.rankingKey
                 ? lhs.offset < rhs.offset
                 : lhs.element.rankingKey < rhs.element.rankingKey
@@ -745,6 +917,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
 
         var seen = Set<String>()
         var results: [CompletionItem] = []
+        var trimmed = false
         var deferred: [Int: PendingResolve] = [:]
         var handle = claimResolveHandles(count: items.count)
         // One table for the whole list rather than one per mapped range: see the
@@ -770,12 +943,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // text; inserting it is not a guess. Absent means plain text, per the
             // spec.
             guard item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax else { continue }
-            let primary = primaryRange(
+            // An edit that cannot be applied to the request text is dropped here,
+            // where it would otherwise become a row the commit refuses. The list
+            // is then no longer everything the server said, which is what
+            // `trimmed` records.
+            guard let primary = primaryRange(
                 for: item,
                 typedWord: typedWord,
                 in: text,
                 lineStarts: lineStarts
-            )
+            ) else {
+                trimmed = true
+                continue
+            }
             let inserted = Self.insertedText(
                 of: item,
                 forInsertionAt: primary.location,
@@ -831,7 +1011,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     session: session,
                     item: item,
                     text: text as String,
-                    typedWord: typedWord
+                    typedWord: typedWord,
+                    narrowedLength: narrowedLength
                 )
                 handle += 1
             }
@@ -844,22 +1025,53 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     // adds no key of its own, so the flag is inert here rather
                     // than false in some interesting sense.
                     isFromCurrentFile: false,
-                    edits: itemEdits,
+                    edits: Self.shifted(itemEdits, from: typedWord, to: narrowedLength),
                     resolveHandle: resolveHandle,
                     // Computed above, where it is also a drop rule. Nothing else
                     // reads it: the dedup key, the cap and the edits are the
                     // inserted text's, so what reaches the buffer is untouched.
-                    displayText: display
+                    displayText: display,
+                    // The server's own, verbatim; display-only, like the row.
+                    detail: item.detail
                 )
             )
             if results.count == completionLimit { break }
         }
+        // The cap stops the loop, not the question `trimmed` answers: an item
+        // below the cut that cannot be applied still makes the list less than the
+        // server's whole answer, and a narrowing would lift it above the cut only
+        // to drop it there. Applicability reads the request text and typed word
+        // alone — never `typed` — so asking it here answers it for every later
+        // narrowing of the same list too.
+        if !trimmed {
+            trimmed = items.contains { item in
+                (item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax)
+                    && primaryRange(for: item, typedWord: typedWord, in: text, lineStarts: lineStarts) == nil
+            }
+        }
 
-        // The items are returned either way — a superseded list still answers the
-        // caller that asked for it, and that caller discards it on its own
-        // generation token. Only the *shared* table is refused to an older list.
-        replacePendingResolves(with: deferred, listToken: listToken)
-        return results
+        // The table is handed back rather than installed here: a narrow that
+        // matched nothing is discarded, and must not take the visible list's
+        // handles with it. Installing it is `stageResolves`, which
+        // refuses an older list — the items still answer the caller that asked,
+        // and that caller discards them on its own generation token.
+        return PublishedList(
+            items: results,
+            trimmed: trimmed,
+            matched: partition.contains { $0 != .noMatch },
+            deferred: deferred
+        )
+    }
+
+    /// `edits` re-expressed for a typed word that has grown or shrunk to
+    /// `length` since they were computed — or untouched, for `nil`.
+    private static func shifted(
+        _ edits: [CompletionEdit],
+        from typedWord: NSRange,
+        to length: Int?
+    ) -> [CompletionEdit] {
+        guard let length else { return edits }
+        return edits.map { $0.shifted(afterReplacingTypedWord: typedWord, withLength: length) }
     }
 
     /// The edits an item performs, in buffer coordinates — or none at all.
@@ -908,17 +1120,52 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         ] + additional
     }
 
-    /// The range the item's own text replaces: the server's if it named one,
-    /// otherwise the word the user typed.
+    /// The range the item's own text replaces — the server's if it named one,
+    /// otherwise the word the user typed — or `nil` when the server's edit
+    /// cannot be applied to the text the request carried.
+    ///
+    /// The ranges are mapped **exactly**, never clamped: this is the edit written
+    /// to the file, and a range the clamp moved is a range the server did not
+    /// name. Which of the item's two ranges is used is
+    /// `CompletionEditPlan.primaryRange`'s rule (a plain `TextEdit`'s insert
+    /// range is its own range trimmed at the caret). The item is refused when
+    /// either range does not fit the text, when the server's range spans more
+    /// than one line, or when the chosen range does not cover both the typed
+    /// word's start and the caret — the shapes `make` would refuse at commit
+    /// anyway, now refused while the list is built so the row is never offered.
+    /// The caret is the typed word's end, on both request paths.
     private func primaryRange(
         for item: LSPCompletionItem,
         typedWord: NSRange,
         in text: NSString,
         lineStarts: [Int]
-    ) -> NSRange {
-        item.textEdit
-            .map { LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts) }
-            ?? typedWord
+    ) -> NSRange? {
+        guard let edit = item.textEdit else { return typedWord }
+        let caret = NSMaxRange(typedWord)
+        guard edit.range.start.line == edit.range.end.line,
+              edit.insertRange.map({ $0.start.line == $0.end.line }) ?? true,
+              let replace = LSPPositionMap.exactRange(for: edit.range, in: text, lineStarts: lineStarts)
+        else { return nil }
+        let insert: NSRange
+        if let insertRange = edit.insertRange {
+            guard let mapped = LSPPositionMap.exactRange(for: insertRange, in: text, lineStarts: lineStarts)
+            else { return nil }
+            insert = mapped
+        } else {
+            insert = NSRange(
+                location: replace.location,
+                length: max(0, min(NSMaxRange(replace), caret) - replace.location)
+            )
+        }
+        let chosen = CompletionEditPlan.primaryRange(
+            insert: insert,
+            replace: replace,
+            caret: caret,
+            newText: item.insertedText,
+            in: text
+        )
+        guard chosen.location <= typedWord.location, NSMaxRange(chosen) >= caret else { return nil }
+        return chosen
     }
 
     /// What the item puts in the buffer, indentation included — the one place
@@ -1060,13 +1307,15 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // the resolved item contributes exactly the half it is allowed to.
         let text = pending.text as NSString
         let lineStarts = LSPPositionMap.lineStarts(in: text)
-        let primary = primaryRange(
+        // Published items passed this rule against this very text, so `nil`
+        // cannot occur; answering `[]` is still the safe reading if it did.
+        guard let primary = primaryRange(
             for: pending.item,
             typedWord: pending.typedWord,
             in: text,
             lineStarts: lineStarts
-        )
-        return edits(
+        ) else { return [] }
+        let resolvedEdits = edits(
             insertedText: Self.insertedText(
                 of: pending.item,
                 forInsertionAt: primary.location,
@@ -1079,6 +1328,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             in: text,
             lineStarts: lineStarts
         )
+        return Self.shifted(resolvedEdits, from: pending.typedWord, to: pending.narrowedLength)
     }
 
     /// The deferred item behind a handle, if it belongs to the list currently
@@ -1090,17 +1340,53 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     private func pendingResolve(_ handle: Int) -> PendingResolve? {
         lock.lock()
         defer { lock.unlock() }
-        return pendingResolves[handle]
+        return stagedResolves[handle] ?? shownResolves[handle]
     }
 
-    /// Hand the table to `listToken`'s list, unless a *newer* request has already
-    /// published over it — see `publishedListToken`.
-    private func replacePendingResolves(with deferred: [Int: PendingResolve], listToken: Int) {
+    /// Stage the table of `listToken`'s list, unless a *newer* request has been
+    /// asked since — see `publishedListToken`. Equality is this request's own
+    /// reservation: `claimListToken` moved the watermark to it. The shown table
+    /// is left alone; see `stagedResolves`.
+    private func stageResolves(_ deferred: [Int: PendingResolve], listToken: Int) {
         lock.lock()
         defer { lock.unlock() }
-        guard listToken > publishedListToken else { return }
+        guard listToken >= publishedListToken else { return }
         publishedListToken = listToken
-        pendingResolves = deferred
+        stagedResolves = deferred
+    }
+
+    /// The editor put `items` on screen: from now on their handles, and only
+    /// theirs, are the shown table. Each is looked up in both tables — the rows
+    /// are the staged answer's, or (a re-presentation) the shown one's — so a
+    /// handle neither holds stays unresolvable.
+    public func showCompletionList(_ items: [CompletionItem]) {
+        lock.lock()
+        defer { lock.unlock() }
+        var shown: [Int: PendingResolve] = [:]
+        for handle in items.compactMap(\.resolveHandle) {
+            shown[handle] = stagedResolves[handle] ?? shownResolves[handle]
+        }
+        shownResolves = shown
+    }
+
+    /// Hand the retained slot to `listToken`'s answer — `list`, or `nil` when it
+    /// may not be retained — unless a newer request already decided it. Returns
+    /// what this answer may tell its caller it retained.
+    private func retain(_ list: RetainedList?, listToken: Int) -> RetainedList? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard listToken > retainedListToken else { return nil }
+        retainedListToken = listToken
+        retainedList = list
+        return list
+    }
+
+    /// The retained list, if `handle` still names it.
+    private func retainedList(_ handle: Int) -> RetainedList? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let retainedList, retainedList.handle == handle else { return nil }
+        return retainedList
     }
 
     /// The next request's ordering token. Monotonic and never reused, like the
@@ -1109,6 +1395,11 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         lock.lock()
         defer { lock.unlock() }
         nextListToken += 1
+        // Reserved as it is claimed, with the table left in place: every older
+        // answer still in flight is one the controller will discard, so none of
+        // them may replace the handles of the rows shown until this one decides —
+        // and a refusal or a failure decides to keep them.
+        publishedListToken = nextListToken
         return nextListToken
     }
 

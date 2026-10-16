@@ -115,6 +115,12 @@ public actor LSPSession {
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
         public var shutdown: TimeInterval
+        /// How long a server is given to leave after `exit` and a closed stdin
+        /// before `terminate()` signals it (D43). Not a request budget — nothing
+        /// answers `exit` — but the window in which the byte stream ending is the
+        /// server's own doing rather than ours. A server whose stream has already
+        /// ended costs none of it.
+        public var exitGrace: TimeInterval
 
         public init(
             handshake: TimeInterval = 20,
@@ -125,7 +131,8 @@ public actor LSPSession {
             references: TimeInterval = 3,
             rename: TimeInterval = 20,
             foldingRange: TimeInterval = 1.5,
-            shutdown: TimeInterval = 2
+            shutdown: TimeInterval = 2,
+            exitGrace: TimeInterval = 2
         ) {
             self.handshake = handshake
             self.definition = definition
@@ -136,6 +143,7 @@ public actor LSPSession {
             self.rename = rename
             self.foldingRange = foldingRange
             self.shutdown = shutdown
+            self.exitGrace = exitGrace
         }
 
         /// D7's numbers.
@@ -192,6 +200,14 @@ public actor LSPSession {
     /// Raised for the length of `shutdown()`, so the polite exchange can still
     /// use the wire while new work is refused.
     private var isShuttingDown = false
+    /// The shutdown parked on the stream's end (D43), resumed exactly once —
+    /// by `close(reason:)` when the stream ends inside the grace, or by the
+    /// grace running out, whichever lands first.
+    private var exitWaiter: CheckedContinuation<Void, Never>?
+    private var graceTask: Task<Void, Never>?
+    /// The grace wait itself — `Task.sleep` in the app, a gate in the tests, so
+    /// "terminated only after the grace" is asserted causally rather than timed.
+    private let exitGraceWait: @Sendable (TimeInterval) async -> Void
 
     /// JSON-RPC ids are ours to choose and only have to be unique per connection;
     /// counting up makes a transcript readable and a test able to assert the
@@ -210,12 +226,23 @@ public actor LSPSession {
     /// never changed afterwards: it is pinned data, not a settings surface.
     private var configuration: JSONValue?
 
-    public init(transport: LSPTransport, budgets: Budgets = .standard) {
+    public init(
+        transport: LSPTransport,
+        budgets: Budgets = .standard,
+        exitGraceWait: @escaping @Sendable (TimeInterval) async -> Void = LSPSession.sleep
+    ) {
         self.transport = transport
         self.budgets = budgets
+        self.exitGraceWait = exitGraceWait
         var escaped: AsyncStream<LSPServerNotification>.Continuation!
         self.notifications = AsyncStream(bufferingPolicy: .unbounded) { escaped = $0 }
         self.notificationsContinuation = escaped
+    }
+
+    /// The default grace wait: a plain sleep, cut short by cancellation — which
+    /// is how a stream that ended first releases it.
+    public static let sleep: @Sendable (TimeInterval) async -> Void = { seconds in
+        try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
     }
 
     // MARK: - State
@@ -538,13 +565,18 @@ public actor LSPSession {
 
     // MARK: - Shutting down
 
-    /// The polite exit: `shutdown`, then `exit`, then kill the process anyway.
+    /// The polite exit: `shutdown`, then `exit`, then stdin closed, then wait —
+    /// at most `budgets.exitGrace` — for the server to leave, then kill the
+    /// process anyway (D43).
     ///
     /// Ordered, not optional. A server is entitled to flush state on `shutdown`,
-    /// and `exit` is what lets it end with status 0; `transport.terminate()`
-    /// afterwards is the guarantee — not the request — that nothing outlives the
-    /// app, which is the difference between this and hoping a well-behaved server
-    /// exits on its own.
+    /// and `exit` is what lets it end with status 0 — but only if it is given the
+    /// time to: signalling in the same turn as `exit` turned every polite goodbye
+    /// into a SIGTERM. So the read loop's end of stream is raced against the grace,
+    /// and `transport.terminate()` afterwards is the guarantee — not the request —
+    /// that nothing outlives the app. A server whose stream has already ended
+    /// costs no wait at all, and pending requests are failed once, through the
+    /// idempotent `close(reason:)`.
     ///
     /// Never throws: every caller is a lifecycle path (folder switch, app
     /// termination) with nothing useful to do about a server that will not say
@@ -556,8 +588,31 @@ public actor LSPSession {
         }
         isShuttingDown = true
         _ = try? await perform(LSPMethod.shutdown, params: nil, timeout: budgets.shutdown)
+        guard phase != .terminated else { return }
         try? send(.notification(LSPNotificationMessage(method: LSPMethod.exit)))
+        transport.closeInput()
+        await waitForStreamEnd()
         close(reason: .notRunning)
+    }
+
+    /// Park until the byte stream ends or the grace runs out. Returns at once
+    /// when the session is already over — the stream ending is what closes it.
+    private func waitForStreamEnd() async {
+        guard phase != .terminated else { return }
+        let grace = budgets.exitGrace
+        let wait = exitGraceWait
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            exitWaiter = continuation
+            graceTask = Task { [weak self] in
+                await wait(grace)
+                await self?.releaseExitWaiter()
+            }
+        }
+    }
+
+    private func releaseExitWaiter() {
+        exitWaiter?.resume()
+        exitWaiter = nil
     }
 
     /// Stop now, without the handshake — the crash path and the "we gave up" path.
@@ -573,6 +628,11 @@ public actor LSPSession {
         phase = .terminated
         closureReason = reason
         isShuttingDown = false
+        // The stream ended inside the grace (or something else ended the
+        // session): the shutdown parked on it goes on without waiting it out.
+        graceTask?.cancel()
+        graceTask = nil
+        releaseExitWaiter()
 
         let waiting = pending
         pending.removeAll()
@@ -700,7 +760,9 @@ public actor LSPSession {
 
     /// The byte stream ended: the process exited, crashed, or was terminated.
     private func handleStreamEnd() {
-        close(reason: closureReason ?? .connectionClosed)
+        // Mid-shutdown, the stream ending is the server doing what `exit` asked —
+        // the same ending `shutdown()` would have recorded, not a crash.
+        close(reason: closureReason ?? (isShuttingDown ? .notRunning : .connectionClosed))
     }
 
     // MARK: - Writing

@@ -86,7 +86,21 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is Local History's path record, thirty-nine lines:
+The most recent bump is the server failure record's (D44, `core-lsp.md`), five
+lines: `type_body_length` 1920 → **1925**, for the `LSPServerFailureModel` the
+scene stores, constructs in `init()`, wires to the workspace's
+`onFailureRecordsChange` in one line and hands to the Settings scene.
+`file_length` did not rise: the slack the delegate's move left (below) absorbed
+the five lines.
+
+The bump before it is the polite quit's (D43, `core-lsp.md`), one line:
+`type_body_length` 1919 → **1920**, for the closure the scene's start-once block
+installs on the app delegate so `applicationShouldTerminate` can wait for
+`shutdownAll()`. `file_length` did not rise with it, the one time the two have
+not moved together: the delegate left `PisakaApp.swift` for `AppDelegate.swift`
+in the same change, taking more lines out of the file than the closure put in.
+
+The bump before it is Local History's path record, thirty-nine lines:
 `file_length` 1896 → **1935**, `type_body_length` 1880 → **1919**, for the move's
 `followMove` hook, the delete's capture ahead of `removeItem`, the restore's
 recreate of a missing file (it consults the writer gate, which only `PisakaApp`
@@ -97,7 +111,7 @@ outlived its file's delete already holding the revision, which re-reads the
 tab's baseline when that save fails so the tab turns dirty. The prompts live in `LocalHistoryPrompts.swift` and every
 decision in Core (`core-local-history.md`).
 
-The bump before it is the Welcome screen, three lines: `file_length`
+The bump before that is the Welcome screen, three lines: `file_length`
 1893 → **1896**, `type_body_length` 1877 → **1880**, for the three `ContentView`
 arguments that hand the Open…, New File and Open Problem… commands' own actions
 to the screen's rows. The view, the Welcome/workspace switch and every title,
