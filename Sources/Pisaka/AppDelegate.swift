@@ -17,6 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var languageServerTeardown: (@MainActor () -> (@MainActor () async -> Void)?)?
     private var isAwaitingTeardown = false
 
+    /// Native window tabbing is off before any window exists. The app has one
+    /// `WindowGroup` window and its own editor tabs; left on, AppKit adds Window
+    /// menu "Show Next Tab / Show Previous Tab" items bound to ⌃Tab / ⌃⇧Tab, which
+    /// no source scan can see and which would take those chords from the
+    /// editor-tab commands. `MenuShortcutUniquenessTests` pins this assignment.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

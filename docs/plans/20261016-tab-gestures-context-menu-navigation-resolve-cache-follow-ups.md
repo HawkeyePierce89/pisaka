@@ -224,21 +224,22 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Modify: `Tests/PisakaCoreTests/MenuShortcutUniquenessTests.swift`
 - Create: `Tests/PisakaAppTests/TabChordPassThroughTests.swift`
 
-- [ ] Add a `CommandGroup(before: .windowList)` in the Window menu with these items, each `.disabled` when its `TabNavigationRule` answer is nil:
+- [x] Add a `CommandGroup(before: .windowList)` in the Window menu with these items, each `.disabled` when its `TabNavigationRule` answer is nil:
   - "Show Next Tab" `.keyboardShortcut("]", modifiers: [.command, .shift])`, and a second "Show Next Tab" `.keyboardShortcut(.tab, modifiers: .control)`. Two items, following the View menu's duplicated Zoom In precedent;
   - "Show Previous Tab" `.keyboardShortcut("[", modifiers: [.command, .shift])` and `.keyboardShortcut(.tab, modifiers: [.control, .shift])`;
   - a "Select Tab" submenu with "Tab 1"…"Tab 8" (`"1"`…`"8"`, `.command`) and "Last Tab" (`"9"`, `.command`). Each is spelled as its own literal declaration, never generated in a loop, so the uniqueness scan sees all nine.
-- [ ] Add `applicationWillFinishLaunching(_:)` to `AppDelegate` and set `NSWindow.allowsAutomaticWindowTabbing = false` there, before any window exists. The app has exactly one `WindowGroup` window. Left on, AppKit adds its own Window-menu "Show Next Tab / Show Previous Tab" items bound to ⌃Tab / ⌃⇧Tab for native window tabs. Those items are invisible to the source scan and would take the chord from ours.
-- [ ] Extend `MenuShortcutUniquenessTests`:
+- [x] Add `applicationWillFinishLaunching(_:)` to `AppDelegate` and set `NSWindow.allowsAutomaticWindowTabbing = false` there, before any window exists. The app has exactly one `WindowGroup` window. Left on, AppKit adds its own Window-menu "Show Next Tab / Show Previous Tab" items bound to ⌃Tab / ⌃⇧Tab for native window tabs. Those items are invisible to the source scan and would take the chord from ours.
+- [x] Extend `MenuShortcutUniquenessTests`:
   - The pattern also matches the `KeyEquivalent` constant form (`.keyboardShortcut(.tab, modifiers: …)`), so the ⌃Tab chords are in the set. `FoldCommands`' arrow chords join the set too; they collide with nothing.
   - Rewrite the doc comment's "what is matched" paragraph to match.
+  - The `.return` constant stays excluded beside the semantic forms: ⌘Return is bound per sheet/pane in three places by design.
   - Add one assertion, over comment-stripped text, that `AppDelegate.swift` assigns `allowsAutomaticWindowTabbing = false`, with the reason in the suite's doc comment.
-- [ ] Verify the chords reach the menu. `SwiftTerm`'s `TerminalView` overrides `keyDown` but not `performKeyEquivalent`, and the menu is consulted before `keyDown`; record that by reading the source at the pinned revision. In `TabChordPassThroughTests` (app bundle), synthesize the new chord events (⌘⇧], ⌘⇧[, ⌃Tab, ⌃⇧Tab, ⌘1, ⌘8, ⌘9) and assert that `performKeyEquivalent` returns false for them on:
+- [x] Verify the chords reach the menu. `SwiftTerm`'s `TerminalView` overrides `keyDown` but not `performKeyEquivalent`, and the menu is consulted before `keyDown`; record that by reading the source at the pinned revision. In `TabChordPassThroughTests` (app bundle), synthesize the new chord events (⌘⇧], ⌘⇧[, ⌃Tab, ⌃⇧Tab, ⌘1, ⌘8, ⌘9) and assert that `performKeyEquivalent` returns false for them on:
   - the editor's text view subclass, made first responder in a test window;
   - Local Changes' outline view subclass.
 
-  These are the app's only `performKeyEquivalent` overrides.
-- [ ] Run `swift test`, `swiftlint --strict` and the PisakaAppTests bundle; all must pass before Task 9.
+  These are the app's only `performKeyEquivalent` overrides. (Local Changes' override is on `LocalChangesFocusAnchorView`, the panel's focus anchor rather than an outline view; it lost its `private` so the bundle can construct it. The suite also carries a control asserting the anchor's own ⌘D is consumed, so the pass-through assertions cannot be vacuous.)
+- [x] Run `swift test`, `swiftlint --strict` and the PisakaAppTests bundle; all must pass before Task 9. (`file_length` 1944 → 2000 and `type_body_length` 1937 → 1993, measured, recorded in `.swiftlint.yml`, `LintConfigurationTests` and `style-lint.md`; the app bundle fails only the pre-existing scale-1.8 and branch-popover assertions.)
 
 ### Task 9: Verify acceptance criteria
 
