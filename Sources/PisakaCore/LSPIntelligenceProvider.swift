@@ -123,6 +123,11 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         let list: Int
         var resolved: [Int: LSPCompletionItem] = [:]
         var inFlight: [Int: Task<LSPCompletionItem?, Never>] = [:]
+        /// The items a second ask found in flight and joined — the step a test
+        /// waits on to know that ask has arrived, since joining sends nothing it
+        /// could observe on the wire. A set of raw indices, so it is bounded by
+        /// the list like the rest of the cache and dropped with it.
+        var joined: Set<Int> = []
     }
 
     /// The last complete list a request published, kept so the next keystroke
@@ -187,14 +192,12 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// The retained list's resolves — replaced with the slot, `nil` when nothing
     /// is retained.
     private var resolveCache: ResolveCache?
-    /// How many asks joined a resolve already in flight rather than starting
-    /// one — the step count a test waits on to know a second ask has arrived,
-    /// since joining sends nothing it could observe on the wire.
-    private var joinedResolves = 0
+    /// How many of the retained list's items a second ask joined in flight
+    /// (`ResolveCache.joined`); `0` when nothing is retained.
     var joinedResolveCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return joinedResolves
+        return resolveCache?.joined.count ?? 0
     }
 
     public init(
@@ -1414,7 +1417,7 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard resolveCache?.list == key.list else { return .bypass }
         if let item = resolveCache?.resolved[key.index] { return .resolved(item) }
         if let task = resolveCache?.inFlight[key.index] {
-            joinedResolves += 1
+            resolveCache?.joined.insert(key.index)
             return .inFlight(task)
         }
         let session = pending.session

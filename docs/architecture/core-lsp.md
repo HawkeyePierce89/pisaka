@@ -2131,9 +2131,11 @@ capability beyond `insertReplaceSupport` came with any of it.
     1.5 s resolve budget expires — bounded, most likely wanted by the next narrow,
     and discarded by a cancelled controller task anyway. A resolve without a key
     keeps the ordinary cancellation. Joining sends nothing a test could observe on
-    the wire, so the provider counts each join behind an `internal`
-    `joinedResolveCount` — the causal signal the sharing test waits on before it
-    releases the first resolve.
+    the wire, so the cache records each joined item's raw index — a set bounded
+    by the list and dropped with it, never a running counter — read through an
+    `internal` `joinedResolveCount`: the causal signal the sharing test waits on
+    before it releases the first resolve, without which that test could release
+    the gate before the second ask arrived and pass on a cache hit instead.
 
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the
     editor surfaces hold, and the whole of phase 2a's user-visible contract.
