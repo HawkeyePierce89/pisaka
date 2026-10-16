@@ -633,10 +633,16 @@ final class LintConfigurationTests: XCTestCase {
                     .trimmingCharacters(in: .whitespaces).first.map { "?:+!=".contains($0) } == true
             }
         }
-        XCTAssertEqual(assignments(of: "PINNED_XCODE_VERSION"), ["PINNED_XCODE_VERSION := \(pinned)"], """
+        // The version is `override`: a command-line `PINNED_XCODE_VERSION=27.1` would
+        // otherwise move both the default path and the release `toolchain` checks
+        // against, and every app-layer gate would run on an unpinned toolchain.
+        XCTAssertEqual(
+            topLevel.filter { $0.contains("PINNED_XCODE_VERSION") && !$0.contains("$(PINNED_XCODE_VERSION)") },
+            ["override PINNED_XCODE_VERSION := \(pinned)"],
+            """
             the Makefile must assign PINNED_XCODE_VERSION exactly once, as \
-            `PINNED_XCODE_VERSION := \(pinned)` — the version `toolchain` holds the selected \
-            Xcode to (XcodePin: \(pinned))
+            `override PINNED_XCODE_VERSION := \(pinned)` — the version `toolchain` holds the \
+            selected Xcode to (XcodePin: \(pinned)), which no command-line assignment may move
             """)
         let pinnedAssignments = assignments(of: "PINNED_XCODE")
         XCTAssertEqual(pinnedAssignments.count, 1, """

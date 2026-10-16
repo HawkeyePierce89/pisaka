@@ -20,8 +20,10 @@ SCHEME := Pisaka
 # pinned one refuses, so the app-layer gates are only worth running under this
 # one. Override from the command line or the environment to point at another
 # copy of the same release; `toolchain` refuses when it is missing, or is some
-# other release, rather than falling back to whatever xcode-select names.
-PINNED_XCODE_VERSION := 26.3
+# other release, rather than falling back to whatever xcode-select names. The
+# version itself is `override`, so `make PINNED_XCODE_VERSION=…` cannot move
+# the release `toolchain` checks against — only the path is a caller's choice.
+override PINNED_XCODE_VERSION := 26.3
 PINNED_XCODE ?= /Applications/Xcode_$(PINNED_XCODE_VERSION).app
 
 .PHONY: help setup hooks toolchain generate test test-app lint build build-ios all

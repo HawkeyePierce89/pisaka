@@ -274,12 +274,16 @@ packages:
   #     `swift-DEVELOPMENT-SNAPSHOT-…` series, and `exactVersion:` matches none
   #     of them. The revision below is tag `swift-6.2.2-RELEASE`.
   #
-  #   * **It is deliberately not the newest release.** `swift-6.3-RELEASE` and
-  #     later raise the manifest to `// swift-tools-version:6.2`, which the
-  #     SwiftPM in CI's pinned Xcode 16.4 refuses to read — resolution fails
-  #     before a single file compiles. `swift-6.2.2-RELEASE` is the newest
-  #     revision whose manifest is still `swift-tools-version:5.7`. Moving past
-  #     it means moving CI's Xcode first; the two are one change, not two.
+  #   * **It is not the newest release, and the reason it was chosen is now
+  #     history.** `swift-6.3-RELEASE` and later raise the manifest to
+  #     `// swift-tools-version:6.2`, which the SwiftPM in the then-pinned
+  #     Xcode 16.4 refused to read; `swift-6.2.2-RELEASE` was the newest
+  #     revision whose manifest is still `swift-tools-version:5.7`. CI's pinned
+  #     Xcode (26.3, Swift 6.2.3 — `docs/RELEASING.md`) reads 6.2 manifests, so
+  #     nothing forces this revision any longer. It stays only because a bump
+  #     is a dependency change of its own — a new revision, a re-resolved
+  #     Package.resolved, its swift-cmark requirement and license re-checked —
+  #     deliberately not bundled with the toolchain move.
   #
   #   * **Its manifest requires swift-cmark by branch**, and that requirement
   #     reaches this project the way Neon's SwiftTreeSitter requirement does:

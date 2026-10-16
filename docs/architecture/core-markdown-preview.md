@@ -326,10 +326,13 @@ is at most one `EditorTextView` per window.
 
 `swift-markdown` is pinned in `project.yml` **by revision, not by version**,
 because the repository publishes no semantic versions — its tags are the Swift
-toolchain's own. The pin is tag `swift-6.2.2-RELEASE`, deliberately not the
-newest: `swift-6.3-RELEASE` and later raise the manifest to
-`swift-tools-version:6.2`, which the SwiftPM in CI's pinned Xcode refuses to
-read, so moving past it means moving CI's Xcode first and the two are one change.
+toolchain's own. The pin is tag `swift-6.2.2-RELEASE`, not the newest:
+`swift-6.3-RELEASE` and later raise the manifest to `swift-tools-version:6.2`,
+which the SwiftPM in the then-pinned Xcode 16.4 refused to read. CI now pins
+Xcode 26.3 (Swift 6.2.3), which reads it, so that reason is history; the pin
+stays only because moving it is a dependency bump of its own — new revision,
+re-resolved `Package.resolved`, its swift-cmark requirement and license
+re-checked — deliberately not bundled with the toolchain move.
 
 Its manifest requires `swift-cmark` **by branch** (`release/6.2` — a frozen
 release branch, but a branch), which reaches this project exactly as Neon's

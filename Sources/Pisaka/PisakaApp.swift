@@ -1383,9 +1383,9 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
-            // The two self-contained command types, as one entry: this builder
-            // accepts ten entries at most on the Xcode 16.4 SDK CI builds with,
-            // and the ten are spent. `Group` is a `Commands` when its content is.
+            // The two self-contained command types, as one entry: this builder's
+            // ceiling is the pinned Xcode SDK's (ten on 16.4, where it was found;
+            // app-shell.md). `Group` is a `Commands` when its content is.
             Group {
                 // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the
                 // item above. Both live entirely in `FoldCommands.swift` — they
