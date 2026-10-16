@@ -87,12 +87,14 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 passes needed, and not four hundred (`core-database-viewer.md`).
 
 The most recent bump is the tab navigation commands', `file_length` 1944 →
-**2000** and `type_body_length` 1937 → **1993**: the Window menu's four Show
-Next / Previous Tab items (⌘⇧] and ⌃Tab, ⌘⇧[ and ⌃⇧Tab) and the Select Tab
-submenu's nine items, each spelled as its own declaration so
-`MenuShortcutUniquenessTests` sees every chord, plus four small helpers asking
-Core's `TabNavigationRule` which tab each selects (`core-services.md`,
-`app-shell.md`).
+**1947** and `type_body_length` 1937 → **1940**: three lines, the
+`TabNavigationCommands(model:)` entry and the two braces of the `Group` it
+shares with `FoldCommands`. The Window menu's thirteen items (Show
+Next / Previous Tab twice each, the nine Select Tab items) and the four helpers
+asking Core's `TabNavigationRule` which tab each selects live in
+`TabNavigationCommands.swift`, not here — the scene's `.commands` builder was
+already at the ten entries the Xcode 16.4 SDK accepts, so that type shares one
+`Group` entry with `FoldCommands` (`core-services.md`, `app-shell.md`).
 
 The bump before it is Reveal in Project Tree's, `file_length` 1937 →
 **1944** and `type_body_length` 1930 → **1937**: the scene holds the latest

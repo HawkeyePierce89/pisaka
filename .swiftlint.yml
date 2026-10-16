@@ -176,16 +176,16 @@ line_length:
 # `revealInProjectTree(id:url:)` that selects the tab and assigns the next
 # request; building the request, the expansion and the scroll live in
 # `ProjectTreeView.swift` (`TreeRevealRequest`), the ancestors in Core's
-# `TreeRevealRule`. Then 2000 with the tab navigation commands: the Window
-# menu's four Show Next / Previous Tab items (⌘⇧] and ⌃Tab, ⌘⇧[ and ⌃⇧Tab)
-# and the Select Tab submenu's nine, each spelled as its own declaration so
-# `MenuShortcutUniquenessTests` sees every chord, plus the four small helpers
-# asking Core's `TabNavigationRule` for the tab each selects. The number tracks the one file that
+# `TreeRevealRule`. Then 1947 with the tab navigation commands: three lines,
+# the `TabNavigationCommands(model:)` entry and the two braces of the `Group`
+# it shares with `FoldCommands`, because the Window menu's thirteen items and
+# their four helpers live in `TabNavigationCommands.swift` — the `.commands`
+# builder was already at its ten-entry ceiling. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 2000
-  error: 2000
+  warning: 1947
+  error: 1947
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -230,12 +230,12 @@ file_length:
 # `onClose` argument it replaces. The two rules count differently, so
 # `file_length` measured two lines more for the same change; both are the
 # measured numbers. Then to 1937 with Reveal in Project Tree's seven, the same
-# seven `file_length` counts. Then to 1993 with the tab navigation commands'
-# fifty-six, the same fifty-six `file_length` counts: the Window-menu group
-# lands inside the `.commands` builder and its helpers inside the struct.
+# seven `file_length` counts. Then to 1940 with the tab navigation commands'
+# three, the same three `file_length` counts: the `TabNavigationCommands(model:)`
+# entry and its `Group`'s two braces inside the `.commands` builder.
 type_body_length:
-  warning: 1993
-  error: 1993
+  warning: 1940
+  error: 1940
 
 function_body_length:
   warning: 140

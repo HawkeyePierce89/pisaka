@@ -136,9 +136,9 @@ final class MenuShortcutUniquenessTests: XCTestCase {
                        "⌘⌥P is LeetCode > Open Problem…")
     }
 
-    /// The tab-navigation chords, each held by `PisakaApp.swift` alone: the two
-    /// adjacent moves in both spellings and the nine Select Tab items. The
-    /// constant form is what makes ⌃Tab / ⌃⇧Tab visible here at all.
+    /// The tab-navigation chords, each held by `TabNavigationCommands.swift`
+    /// alone: the two adjacent moves in both spellings and the nine Select Tab
+    /// items. The constant form is what makes ⌃Tab / ⌃⇧Tab visible here at all.
     func testTheTabNavigationChordsAreDeclaredOnceEach() throws {
         let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
         var chords = [
@@ -148,7 +148,7 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         chords += (1...9).map { "\($0) + .command" }
         for chord in chords {
             let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
-            XCTAssertEqual(declarations.map(\.location), ["PisakaApp.swift"], chord)
+            XCTAssertEqual(declarations.map(\.location), ["TabNavigationCommands.swift"], chord)
         }
     }
 

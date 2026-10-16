@@ -1383,65 +1383,19 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
-            // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the item
-            // above. Both live entirely in `FoldCommands.swift` — they carry no
-            // state and reach the focused editor through the first responder, so
-            // there is nothing for this scene to hand them.
-            FoldCommands()
+            // The two self-contained command types, as one entry: this builder
+            // accepts ten entries at most on the Xcode 16.4 SDK CI builds with,
+            // and the ten are spent. `Group` is a `Commands` when its content is.
+            Group {
+                // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the
+                // item above. Both live entirely in `FoldCommands.swift` — they
+                // carry no state and reach the focused editor through the first
+                // responder, so there is nothing for this scene to hand them.
+                FoldCommands()
 
-            // Tab navigation, in the Window menu above its window list. Every
-            // answer is `TabNavigationRule`'s, and a nil answer is the item's
-            // disabled state. Two items per adjacent move, following the Zoom
-            // In precedent below: ⌘⇧] is the chord the menu displays, ⌃Tab the
-            // one muscle memory reaches for. ⌃Tab is ours only because
-            // `AppDelegate` turns automatic window tabbing off — otherwise
-            // AppKit's own "Show Next Tab" would claim it. The nine Select Tab
-            // items are spelled one by one so the uniqueness scan sees each.
-            CommandGroup(before: .windowList) {
-                Button("Show Next Tab") { selectAdjacentTab(forward: true) }
-                    .keyboardShortcut("]", modifiers: [.command, .shift])
-                    .disabled(adjacentTab(forward: true) == nil)
-                Button("Show Next Tab") { selectAdjacentTab(forward: true) }
-                    .keyboardShortcut(.tab, modifiers: .control)
-                    .disabled(adjacentTab(forward: true) == nil)
-                Button("Show Previous Tab") { selectAdjacentTab(forward: false) }
-                    .keyboardShortcut("[", modifiers: [.command, .shift])
-                    .disabled(adjacentTab(forward: false) == nil)
-                Button("Show Previous Tab") { selectAdjacentTab(forward: false) }
-                    .keyboardShortcut(.tab, modifiers: [.control, .shift])
-                    .disabled(adjacentTab(forward: false) == nil)
-
-                Menu("Select Tab") {
-                    Button("Tab 1") { selectTab(at: 1) }
-                        .keyboardShortcut("1", modifiers: .command)
-                        .disabled(positionalTab(1) == nil)
-                    Button("Tab 2") { selectTab(at: 2) }
-                        .keyboardShortcut("2", modifiers: .command)
-                        .disabled(positionalTab(2) == nil)
-                    Button("Tab 3") { selectTab(at: 3) }
-                        .keyboardShortcut("3", modifiers: .command)
-                        .disabled(positionalTab(3) == nil)
-                    Button("Tab 4") { selectTab(at: 4) }
-                        .keyboardShortcut("4", modifiers: .command)
-                        .disabled(positionalTab(4) == nil)
-                    Button("Tab 5") { selectTab(at: 5) }
-                        .keyboardShortcut("5", modifiers: .command)
-                        .disabled(positionalTab(5) == nil)
-                    Button("Tab 6") { selectTab(at: 6) }
-                        .keyboardShortcut("6", modifiers: .command)
-                        .disabled(positionalTab(6) == nil)
-                    Button("Tab 7") { selectTab(at: 7) }
-                        .keyboardShortcut("7", modifiers: .command)
-                        .disabled(positionalTab(7) == nil)
-                    Button("Tab 8") { selectTab(at: 8) }
-                        .keyboardShortcut("8", modifiers: .command)
-                        .disabled(positionalTab(8) == nil)
-                    Button("Last Tab") { selectTab(at: 9) }
-                        .keyboardShortcut("9", modifiers: .command)
-                        .disabled(positionalTab(9) == nil)
-                }
-
-                Divider()
+                // Tab navigation, in the Window menu above its window list; its
+                // items observe the workspace in `TabNavigationCommands.swift`.
+                TabNavigationCommands(model: model)
             }
 
             CommandMenu("View") {
@@ -5236,25 +5190,6 @@ struct PisakaApp: App {
     private func closeSelected() {
         guard let id = model.selectedID else { return }
         closeFile(id: id)
-    }
-
-    /// The tab ⌘⇧] / ⌃Tab (`forward`) or ⌘⇧[ / ⌃⇧Tab would select; nil
-    /// disables the item.
-    private func adjacentTab(forward: Bool) -> UUID? {
-        TabNavigationRule.adjacent(in: model.openFiles.map(\.id), selected: model.selectedID, forward: forward)
-    }
-
-    private func selectAdjacentTab(forward: Bool) {
-        if let id = adjacentTab(forward: forward) { model.select(id) }
-    }
-
-    /// The tab ⌘`number` would select (9 is the last tab); nil disables the item.
-    private func positionalTab(_ number: Int) -> UUID? {
-        TabNavigationRule.positional(number, in: model.openFiles.map(\.id))
-    }
-
-    private func selectTab(at number: Int) {
-        if let id = positionalTab(number) { model.select(id) }
     }
 
     /// Close the file identified by `id`, confirming first when it has unsaved

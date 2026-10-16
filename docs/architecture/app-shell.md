@@ -1499,23 +1499,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     selects the tab — so the tree's `TreeSelection` highlights the row — and then
     assigns the next `TreeRevealRequest` to one `@State`, its token monotonic; a
     file outside the root builds none and reveals nothing.
-    **The Window menu** gains a `CommandGroup(before: .windowList)`: Show Next Tab
-    twice (⌘⇧] and ⌃Tab), Show Previous Tab twice (⌘⇧[ and ⌃⇧Tab) — two items per
-    move on the Zoom In precedent above, ⌘⇧] being the chord the menu displays and
-    ⌃Tab the one muscle memory reaches for — and a Select Tab submenu with Tab 1…Tab
-    8 (⌘1…⌘8) and Last Tab (⌘9), then a `Divider()`. Every item selects
-    `TabNavigationRule`'s answer and is `.disabled` from that same answer being nil,
-    so nothing is ever enabled and inert. The nine positional items are spelled one
-    literal declaration each, never generated in a loop, so
-    `MenuShortcutUniquenessTests` sees all nine; it also matches the
-    `KeyEquivalent` constant form, which is what puts the two ⌃Tab chords in its
-    set. The chords reach the menu whatever holds focus: the menu is consulted
+    **The Window menu** gains the tab-navigation commands, which live in
+    `TabNavigationCommands.swift` (below) and enter the scene's `.commands` builder
+    as one `Group` entry shared with `FoldCommands()`. **That builder holds ten
+    entries at most** on the Xcode 16.4 SDK CI builds with (`CommandsBuilder`
+    declares `buildBlock` up to ten children); an eleventh compiles on a newer
+    local toolchain and fails on CI with `extra argument in call`, which is how the
+    ceiling was found. A new command type joins an existing `Group` rather than
+    adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
     before `keyDown`, SwiftTerm's `TerminalView` overrides `keyDown` but not
     `performKeyEquivalent` (read at the pinned revision), and the app's only two
     `performKeyEquivalent` overrides — the editor's text view and Local Changes'
     `LocalChangesFocusAnchorView` — answer false for every new chord, which
     `TabChordPassThroughTests` (app bundle) asserts, with a control that the
     anchor's own ⌘D is still consumed so the pass-through cannot be vacuous.
+  - `TabNavigationCommands.swift` — the Window menu's tab-navigation commands, a
+    `Commands` type placing one `CommandGroup(before: .windowList)`: Show Next Tab
+    twice (⌘⇧] and ⌃Tab), Show Previous Tab twice (⌘⇧[ and ⌃⇧Tab) — two items per
+    move on the View menu's Zoom In precedent, ⌘⇧] being the chord the menu
+    displays and ⌃Tab the one muscle memory reaches for — and a Select Tab submenu
+    with Tab 1…Tab 8 (⌘1…⌘8) and Last Tab (⌘9), then one `Divider()` (the one
+    shape a `Commands` builder renders as a single separator; a `Section` draws
+    one on each side, measured for the LeetCode menu). Every item selects
+    `TabNavigationRule`'s answer (`core-services.md`) and is `.disabled` from that
+    same answer being nil, so nothing is ever enabled and inert. The nine
+    positional items are spelled one literal declaration each, never generated in
+    a loop, so `MenuShortcutUniquenessTests` sees all nine; it also matches the
+    `KeyEquivalent` constant form, which is what puts the two ⌃Tab chords in its
+    set, and pins every tab chord to this file alone. The items live in a private
+    view of their own, `TabNavigationItems`, holding the workspace as
+    `@ObservedObject` — the LeetCode menu's pattern — so *it* re-renders on a tab
+    change and the scene's body does not; the `Commands` type itself holds the
+    model unobserved and hands it down. ⌃Tab is this file's only because
+    `AppDelegate` turns native window tabbing off (next entry).
   - `AppDelegate.swift` — the `NSApplicationDelegate` behind
     `@NSApplicationDelegateAdaptor`: promotes the process to a regular GUI app,
     quits when the last window closes, and is **the one place a quit is held**
