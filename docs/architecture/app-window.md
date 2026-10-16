@@ -1480,6 +1480,52 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     it in either appearance. The Refresh button is a **deliberate deviation**:
     the design draws the project label alone, but a restyle does not remove a
     working control, and this is the tree's one manual re-read path.
+
+    **Reveal in Project Tree** (the tab menu's item, `app-shell.md`) reaches the
+    tree as one optional, one-shot `TreeRevealRequest`, declared app-side in this
+    file: a monotonic `token`, the `target` file and its `ancestors` — every
+    directory from the opened root down to the target's parent, root included,
+    which is `TreeRevealRule.ancestors` (`core-workspace.md`), spelled the way the
+    tree spells its rows. `init?(after:revealing:root:)` builds the next request
+    (the previous token plus one, so revealing the same file twice is two requests
+    and the second re-expands what the user collapsed in between; nil without a
+    root or outside it), and the target is the last ancestor plus the file's name,
+    so it too is the row's own spelling. `expands(_:)`, `targets(_:)` and
+    `rowID(_:)` compare **standardized paths**, not urls: a listing spells a
+    directory with a trailing slash and an appended component does not, and the
+    two must still match — that logic is why `TreeRevealRequestTests` (app bundle)
+    exists. They are asked of each node's `revealURL` — the opened root plus one
+    listing *name* per level — never of its listed `url`: a listing may spell its
+    entries under a resolved parent (`/tmp` lists as `/private/tmp`), which the
+    request, spelled under the root as opened, does not share. The file row keeps
+    its listed url as its scroll id. The request **expands and scrolls; it never selects**: the app selects
+    the tab first, so the existing `TreeSelection` highlights the row — one
+    selection, not a second spelling of it. It is handed down the recursion beside
+    `selection`. A `DirectoryNodeView` whose url the request `expands` sets
+    `isExpanded = true` from both `.onChange(of: reveal)` and `.onAppear` — a node
+    already on screen sees the request change, but a child created by its parent's
+    expansion exists only after the request arrived and sees it only on appear —
+    and remembers the token it honoured, acting once per request. Expansion runs
+    through the ordinary `onChange(of: isExpanded)` → `loadChildren()` path, so
+    lazy loading and the `treeRevision` refresh are unchanged. **The scroll is
+    causal, not timed**: file rows carry `.id(TreeRevealRequest.rowID(url))`, and
+    the target row reports `onRevealed(token, id)` from its `.onAppear` (its folder
+    just expanded) and from `.onChange(of: reveal)` (already on screen);
+    `ProjectTreeView` then scrolls the existing `ScrollViewReader` to it at
+    `.center` — the reader wraps the `ScrollView`, since a proxy drives only the
+    scroll views its reader contains. That report also **withdraws the request** — the tree records the
+    completed token and hands `nil` down from then on — so a node the user later
+    collapses, or one rebuilt by a re-expansion of its parent, is never re-opened
+    by a request already honoured. **A request that cannot be honoured is
+    withdrawn too**: every ancestor node checks its listing for the row the request
+    needs there (`step(below:)` — the next ancestor, or the target inside the
+    deepest) after `loadChildren()` and, already expanded, when the request
+    arrives, and reports `onRevealed(token, nil)` when it is missing — a file under
+    the excluded `.git`, one deleted while its tab stays open — or present with
+    the wrong kind: an ancestor step must list as a directory and the target as a
+    non-directory, or no row would ever continue or complete the request. The
+    listing is matched by entry name, for the resolved-parent reason above. Without that, a request whose row never appears would
+    stay live and re-expand every rebuilt folder the user collapsed. The `"draft-row"` scroll id is unchanged.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
@@ -1769,6 +1815,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the same reason and pinned by the same suite — `ChromeThemeSourceGatingTests`
     holds the icon rule to one spelling by set equality, having found it pasted
     into both. Every number goes through `metrics.scaled(_:)`.
+    A row carries the same `tabGestures(file:files:actions:)` the strip's cell
+    does — the middle click, the path tooltip and the context menu, all three
+    described under `TabStripView.swift` below — so the two orientations cannot
+    drift. `TabListView` takes a `TabActions` in place of the bare `onClose` it
+    took before, and hands it to each row and to its `TabStatusMark`.
   - `TabStripView.swift` — the horizontal tab strip above the editor, and the
     **first surface drawn entirely from the chrome colour roles** through the
     SwiftUI environment path (`@Environment(\.chromeTheme)`, `core-theme.md`). It
@@ -1817,6 +1868,51 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     stay local and scaled, as the sweep guide permits: they are this surface's
     numbers, not chrome measurements another surface could drift from
     (`core-theme.md`, step 3).
+
+    **The tab gestures**, shared by both orientations and living here beside
+    `TabStatusMark` and `TabFileIcon` so no new app file joins the chrome-theme
+    and zoom gating inventories. **`TabActions`** is what a tab can ask of the app
+    and replaces the bare `onClose` both orientations took: the project root (the
+    menu's availability, the relative path and the tooltip are judged against it),
+    one `close(command, anchor)` that `PisakaApp` routes into `closeTabs` — so
+    every close, the mark, ⌥-click, the middle click and the five menu items
+    alike, goes through the one funnel and a batch stops at the first Cancel —
+    the tree reveal and Local History, both the app's, and the pasteboard and
+    Finder actions, which need nothing the app holds and are stated here as
+    defaults (`NSPasteboard.general`, `NSWorkspace.activateFileViewerSelecting`).
+    `ContentView` gains two parameters — `tabActions`, passed to the strip or the
+    column, and `treeReveal`, passed to `ProjectTreeView` as `reveal:`.
+    `tabGestures(file:files:actions:)` attaches all three gestures in one place.
+    **The context menu** (`tabContextMenu`) answers right click and ⌃-click alike,
+    SwiftUI's `.contextMenu` doing both: three groups — the five close commands
+    from `TabCloseCommand.allCases`, then Copy Path / Copy Relative Path / Reveal
+    in Finder / Reveal in Project Tree, then Local History — grouped by `Section`s
+    rather than separated by `Divider()`s, as every gated menu is, the menu drawing
+    its own separators. Every item is `.disabled` from
+    `TabCloseRule.MenuAvailability` and **never hidden**, and every action takes
+    the tab the menu was opened on, not the active one. **The middle click** is
+    `TabMiddleClickCatcher`, an `NSViewRepresentable` laid over each cell and row,
+    because SwiftUI offers no other-button gesture; it is the one AppKit view in a
+    tab's stack, draws nothing and has no `draw(_:)`. Its `TabMiddleClickView`'s
+    `hitTest` claims the point **only while the event being dispatched** is an
+    `otherMouseDown`/`otherMouseDragged`/`otherMouseUp` from button 2 — the
+    decision is the static `claims(type:buttonNumber:)`, and the type is asked
+    before `buttonNumber`, which raises on a non-mouse event — so every other
+    event, left and right clicks, hover and tooltip tracking, falls through to the
+    SwiftUI tab beneath and selection, the close mark and the context menu are
+    untouched. The event comes from an **injectable source**, `currentEvent: () ->
+    NSEvent?` defaulting to `NSApp.currentEvent`, so `TabMiddleClickTests` (app
+    bundle) can hand `hitTest` a synthesized center-button `CGEvent` and assert it
+    claims the point, while a left-button event and a nil source answer nil. **It
+    closes on mouse-up**, inside its own bounds, as a button does: a press can be
+    abandoned by dragging off the tab, and closing on the down would act before
+    the user had finished the gesture. It never selects the tab first. **⌥-click**
+    on the close mark: `TabStatusMark`'s button reads
+    `NSEvent.modifierFlags.contains(.option)` and asks for `.closeOthers` with ⌥
+    held, `.close` otherwise. **The tooltip** is `.help(DisplayPath.tooltip(...))`
+    on the cell and the row — the relative path, an absolute one outside the root,
+    "Untitled" — while the close mark's own `.help("Close")` keeps winning over its
+    small area.
   - `BreadcrumbBarView.swift` — the breadcrumb bar above the editor: the open
     file's path starting with the opened project root's name, the way the project
     tree does (`project › backend › src › dialogs.service.ts`), or an abbreviated absolute path when

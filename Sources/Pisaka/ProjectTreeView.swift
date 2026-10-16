@@ -68,6 +68,10 @@ struct ProjectTreeView: View {
     /// which decides (through `MoveDropRule`) and performs the move; this view
     /// only reports the gesture.
     var onMove: (URL, URL) -> Void = { _, _ in }
+    /// The latest Reveal in Project Tree request, or nil for none. Handed down
+    /// the recursion beside the selection while it is live (see
+    /// `TreeRevealRequest`).
+    var reveal: TreeRevealRequest?
 
     /// The state a drag in flight carries, shared by every row: the source row
     /// and the memoized decision for the folder the pointer is over. Held here,
@@ -78,6 +82,12 @@ struct ProjectTreeView: View {
 
     @State private var draft: TreeEditDraft?
     @State private var draftAppearedTrigger: Int = 0
+    /// The token of the last reveal whose target row reported itself on screen,
+    /// or whose path an ancestor's listing turned out not to hold. From then on
+    /// the request is withdrawn from the recursion, so a node the user collapses
+    /// — or one rebuilt by a later re-expansion of its parent — is never
+    /// re-expanded by a request already honoured or one that cannot be.
+    @State private var completedRevealToken: Int?
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -174,8 +184,10 @@ struct ProjectTreeView: View {
     }
 
     private func tree(root: URL) -> some View {
-        ScrollView {
-            ScrollViewReader { proxy in
+        // The reader wraps the scroll view, not the other way round: a proxy
+        // drives only the scroll views its reader contains.
+        ScrollViewReader { proxy in
+            ScrollView {
                 // A plain VStack (not LazyVStack): the tree is already lazy
                 // via DisclosureGroup, which only reads a directory on
                 // expansion. A lazy container could discard an off-screen
@@ -186,6 +198,7 @@ struct ProjectTreeView: View {
                     DirectoryNodeView(
                         model: model,
                         url: root,
+                        revealURL: root,
                         name: root.lastPathComponent,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
@@ -201,6 +214,15 @@ struct ProjectTreeView: View {
                         draft: $draft,
                         dragSession: dragSession,
                         selection: TreeSelection(model.selectedFile?.url),
+                        reveal: liveReveal,
+                        onRevealed: { token, target in
+                            guard completedRevealToken != token else { return }
+                            completedRevealToken = token
+                            guard let target else { return }
+                            withAnimation {
+                                proxy.scrollTo(target, anchor: .center)
+                            }
+                        },
                         isRoot: true,
                         startsExpanded: true
                     )
@@ -217,10 +239,91 @@ struct ProjectTreeView: View {
                     }
                 }
             }
+            .onChange(of: model.projectRoot) { _ in
+                draft = nil
+            }
         }
-        .onChange(of: model.projectRoot) { _ in
-            draft = nil
-        }
+    }
+
+    /// The reveal request while its target row has not yet reported itself.
+    private var liveReveal: TreeRevealRequest? {
+        guard let reveal, reveal.token != completedRevealToken else { return nil }
+        return reveal
+    }
+}
+
+/// One Reveal in Project Tree request: the tab's file as the tree spells its
+/// row, and every directory from the root down to that row's parent
+/// (`TreeRevealRule.ancestors`). The token is monotonic, so revealing the same
+/// file twice is two requests — the second re-expands what the user collapsed
+/// in between.
+///
+/// It expands and scrolls; it never selects. The row is highlighted by
+/// `TreeSelection`, because the app selects the tab before it builds the
+/// request — one selection, not a second spelling of it.
+///
+/// Both questions compare standardized *paths*: a listing spells a directory
+/// with a trailing slash, an appended component does not, and the two must
+/// still match. They are asked of a node's `revealURL` — the opened root plus
+/// one listing name per level — never of its listed `url`, because a listing
+/// may spell its entries under a resolved parent (`/tmp` lists as
+/// `/private/tmp`) the request does not share.
+struct TreeRevealRequest: Equatable {
+    let token: Int
+    let target: URL
+    let ancestors: [URL]
+
+    /// The request that follows `previous` for the file at `fileURL`: the next
+    /// token, the ancestors `TreeRevealRule` answers, and the target spelled as
+    /// the tree spells the row — the last ancestor plus the file's name. Nil
+    /// without a root or for a file outside it.
+    init?(after previous: TreeRevealRequest?, revealing fileURL: URL, root: URL?) {
+        guard let root,
+              let ancestors = TreeRevealRule.ancestors(of: fileURL, root: root),
+              let parent = ancestors.last else { return nil }
+        token = (previous?.token ?? 0) + 1
+        target = parent.appendingPathComponent(fileURL.lastPathComponent)
+        self.ancestors = ancestors
+    }
+
+    /// Whether the directory row at `url` is one the request expands.
+    func expands(_ url: URL) -> Bool {
+        step(below: url) != nil
+    }
+
+    /// Whether the file row at `url` is the one being revealed.
+    func targets(_ url: URL) -> Bool {
+        Self.rowID(url) == Self.rowID(target)
+    }
+
+    /// The row the request needs inside the directory at `url` — the next
+    /// ancestor, or the target inside the deepest one — or nil when the request
+    /// does not expand `url`.
+    func step(below url: URL) -> URL? {
+        let path = Self.rowID(url)
+        guard let index = ancestors.firstIndex(where: { Self.rowID($0) == path }) else { return nil }
+        return index + 1 < ancestors.count ? ancestors[index + 1] : target
+    }
+
+    /// Whether a listing of the directory at `url` lacks the row the request
+    /// needs there — an excluded entry (`.git`), a deleted file, or an entry of
+    /// the wrong kind: an ancestor step must be a directory and the target must
+    /// not be, or no row would ever continue or complete the request. The tree
+    /// then withdraws the request, which would otherwise stay live and
+    /// re-expand rebuilt folders the user collapsed.
+    ///
+    /// Entries are matched by **name**, not by url: the listing may spell them
+    /// under a resolved parent the request does not share.
+    func isUnreachable(below url: URL, listing: [DirectoryEntry]) -> Bool {
+        guard let step = step(below: url) else { return false }
+        let needsDirectory = Self.rowID(step) != Self.rowID(target)
+        return !listing.contains { $0.name == step.lastPathComponent && $0.isDirectory == needsDirectory }
+    }
+
+    /// The scroll id a file row carries, so the tree can scroll to the target
+    /// without a second spelling of it.
+    static func rowID(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 }
 
@@ -282,6 +385,10 @@ struct TreeSelection: Equatable {
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
     let url: URL
+    /// This node as a reveal request spells it — the opened root, then one
+    /// listing name per level — which `url` need not be: a listing may spell
+    /// its entries under a resolved parent (`/tmp` lists as `/private/tmp`).
+    let revealURL: URL
     let name: String
     let onOpenFile: (URL) -> Void
     let onNewFile: (URL, String) -> Void
@@ -304,6 +411,12 @@ private struct DirectoryNodeView: View {
     /// url at all when no tab is open, or when the active tab has no file on
     /// disk.
     let selection: TreeSelection
+    /// The live reveal request, handed down beside `selection`, or nil.
+    let reveal: TreeRevealRequest?
+    /// Reported by the target file row once it is on screen, with the request's
+    /// token and the row's scroll id; the tree then scrolls to it. A nil id
+    /// withdraws a request this node's listing shows cannot be honoured.
+    let onRevealed: (Int, String?) -> Void
     /// The project root row offers only create actions (New File / New Folder);
     /// nested directories also offer Rename / Delete. It is also the one folder
     /// row that is a drop *target* without being a drag *source*.
@@ -312,6 +425,9 @@ private struct DirectoryNodeView: View {
 
     @State private var isExpanded: Bool
     @State private var children: [DirectoryEntry]?
+    /// The token of the last reveal request this node expanded for, so it acts
+    /// on each request once and never fights a later collapse by the user.
+    @State private var honouredRevealToken: Int?
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -325,6 +441,7 @@ private struct DirectoryNodeView: View {
     init(
         model: WorkspaceModel,
         url: URL,
+        revealURL: URL,
         name: String,
         onOpenFile: @escaping (URL) -> Void,
         onNewFile: @escaping (URL, String) -> Void,
@@ -340,12 +457,15 @@ private struct DirectoryNodeView: View {
         draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
         selection: TreeSelection,
+        reveal: TreeRevealRequest?,
+        onRevealed: @escaping (Int, String?) -> Void,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
         siblings: [String] = []
     ) {
         self.model = model
         self.url = url
+        self.revealURL = revealURL
         self.name = name
         self.onOpenFile = onOpenFile
         self.onNewFile = onNewFile
@@ -361,6 +481,8 @@ private struct DirectoryNodeView: View {
         self._draft = draft
         self.dragSession = dragSession
         self.selection = selection
+        self.reveal = reveal
+        self.onRevealed = onRevealed
         self.isRoot = isRoot
         self.siblings = siblings
         _isExpanded = State(initialValue: startsExpanded)
@@ -402,6 +524,7 @@ private struct DirectoryNodeView: View {
                     DirectoryNodeView(
                         model: model,
                         url: entry.url,
+                        revealURL: revealURL.appendingPathComponent(entry.name),
                         name: entry.name,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
@@ -417,6 +540,8 @@ private struct DirectoryNodeView: View {
                         draft: $draft,
                         dragSession: dragSession,
                         selection: selection,
+                        reveal: reveal,
+                        onRevealed: onRevealed,
                         siblings: currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
@@ -444,6 +569,12 @@ private struct DirectoryNodeView: View {
                         isSelected: selection.contains(entry.url)
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
+                    .id(TreeRevealRequest.rowID(entry.url))
+                    // Causal, not timed: the target row reports itself when it
+                    // appears (its folder just expanded) or, already on screen,
+                    // when the request arrives.
+                    .onAppear { reportIfRevealed(entry) }
+                    .onChange(of: reveal) { _ in reportIfRevealed(entry) }
                 }
             }
         } label: {
@@ -545,9 +676,14 @@ private struct DirectoryNodeView: View {
                 isExpanded = true
             }
         }
+        // A reveal expands every ancestor of its target. A node already on
+        // screen sees the request change; a node created by its parent's
+        // expansion sees it only on appear, so both ask.
+        .onChange(of: reveal) { _ in expandIfRevealed() }
         // A node seeded as expanded (the root) starts `isExpanded == true`, so
         // `onChange` never fires for it — load its children on first appearance.
         .onAppear {
+            expandIfRevealed()
             if isExpanded && children == nil {
                 loadChildren()
             }
@@ -568,6 +704,31 @@ private struct DirectoryNodeView: View {
         }
     }
 
+    /// Expand this node once for a reveal request naming it. Expansion goes
+    /// through the ordinary `onChange(of: isExpanded)` → `loadChildren()` path.
+    private func expandIfRevealed() {
+        guard let reveal, reveal.token != honouredRevealToken, reveal.expands(revealURL) else { return }
+        honouredRevealToken = reveal.token
+        isExpanded = true
+        // Already expanded with a listing in hand: no `loadChildren()` follows,
+        // so the reachability check runs here.
+        withdrawRevealIfUnreachable()
+    }
+
+    /// Withdraw the live reveal when this node's listing lacks the row it needs
+    /// here (`TreeRevealRequest.isUnreachable`).
+    private func withdrawRevealIfUnreachable() {
+        guard let reveal, let children, reveal.isUnreachable(below: revealURL, listing: children) else { return }
+        onRevealed(reveal.token, nil)
+    }
+
+    /// Tell the tree the reveal's target row is on screen. The row is matched
+    /// in the request's spelling and scrolled to by its own scroll id.
+    private func reportIfRevealed(_ entry: DirectoryEntry) {
+        guard let reveal, reveal.targets(revealURL.appendingPathComponent(entry.name)) else { return }
+        onRevealed(reveal.token, TreeRevealRequest.rowID(entry.url))
+    }
+
     /// Read this directory's contents through the model. A read failure must
     /// not crash the view: we beep and leave `children` unset (mirroring the
     /// error handling in `PisakaApp`). Leaving it `nil` rather than caching an
@@ -585,6 +746,7 @@ private struct DirectoryNodeView: View {
         do {
             let listing = try model.children(of: url)
             children = listing
+            withdrawRevealIfUnreachable()
 
             // A successful reload can lose the draft just as thoroughly as a
             // collapse or an `ENOENT` does — the entry the draft is drawn at, or

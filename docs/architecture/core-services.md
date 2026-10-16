@@ -778,6 +778,49 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     two. Covered by `TabColumnWidthRuleTests` — the tokens at scale 1.0 and 1.8,
     the third binding on a narrow window at both scales, the ideal pulled down
     with it, the floor, and min ≤ ideal ≤ max across a sweep.
+  - `TabCloseRule.swift` — every decision behind the macOS tab menu's close
+    commands and its enabled states, pure. `TabCloseCommand` is closed and
+    `CaseIterable`: `close`, `closeOthers`, `closeToTheRight`, `closeAll`,
+    `closeSaved` — the menu draws its five items from `allCases`, in that
+    order. `targets(_:in:anchor:)` names the ids a command closes, **always in
+    tab order**: Close is the anchor alone, Close Others every tab but the
+    anchor, Close Tabs to the Right the tabs after it, Close All every tab, and
+    Close Saved every tab whose `isDirty` is false wherever it sits — the anchor
+    included when it is clean, and a `.viewer` tab always, since it can never be
+    dirty. An anchor that is not open answers `[]` for every command.
+    `walk(_:closing:)` calls the app's close funnel for each target in order
+    and **stops at the first `false`**, answering the ids actually closed —
+    always a prefix of the targets. It is the single statement of "a Cancel
+    stops the batch and leaves that tab and every later one open": the funnel
+    answers false for Cancel and for a failed or cancelled save, so the user
+    is never asked about a later tab after declining an earlier one. **Close
+    Saved needs no special case**: its targets are clean, so the funnel closes
+    each without prompting and the walk never meets a refusal from a prompt
+    (it would still stop on one, for a tab dirtied between the menu and the
+    close). `MenuAvailability(files:anchor:projectRoot:)` is the menu's enabled
+    state, built for the tab the menu was opened on, not the active one: each
+    close item iff its `targets` is non-empty (so Close Others and Close Tabs
+    to the Right are off on a lone tab, the latter on the last tab, and Close
+    Saved when every tab is dirty); Copy Path and Reveal in Finder iff the tab
+    has a url; Copy Relative Path and Reveal in Project Tree iff
+    `DisplayPath.relativePath` answers (a file inside the open root); Local
+    History iff the tab is `.text` with a url — the condition
+    `localHistoryTargetURL` applies to the active tab, stated once here for any
+    tab. Items are disabled from it, never hidden. Applied by `closeTabs` and
+    the shared tab context menu (`app-shell.md`, `app-window.md`). Covered by
+    `TabCloseRuleTests`.
+  - `TabNavigationRule.swift` — which tab a tab-switch command selects, pure.
+    `adjacent(in:selected:forward:)` answers the tab after or before the
+    selected one and **wraps at both ends**; with fewer than two tabs it
+    answers nil — there is nothing to move to — and a selection that is nil or
+    not open answers the first tab forward, the last backward.
+    `positional(_:in:)` answers ⌘1…⌘8's nth tab (nil past the count), and
+    **⌘9 is the last tab** whatever the count, the macOS tab convention, so
+    ⌘9 with three tabs is the third and with twelve the twelfth; anything
+    outside 1…9, or no tabs, answers nil. **Nil is the disabled state**: the
+    Window menu draws each item `.disabled` from the same answer its action
+    selects, so an item can never be enabled and do nothing
+    (`app-shell.md`). Covered by `TabNavigationRuleTests`.
   - `LicenseNotice.swift` — the third-party-license domain behind the
     Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
     `name`, `origin`, `version`, `revision`, `spdx`, `file`, plus `originURL` —

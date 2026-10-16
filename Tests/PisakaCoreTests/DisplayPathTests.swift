@@ -373,6 +373,61 @@ final class DisplayPathTests: XCTestCase {
             Array(sibling.standardizedFileURL.pathComponents.dropFirst())
         )
     }
+
+    // MARK: - Relative path and tooltip
+
+    func testRelativePathOfAFileThreeLevelsDeepJoinsTheSuffixWithSlashes() {
+        let file = URL(fileURLWithPath: "/Users/tester/dev/proj/backend/src/api/a.ts")
+        let root = URL(fileURLWithPath: "/Users/tester/dev/proj")
+        XCTAssertEqual(DisplayPath.relativePath(fileURL: file, projectRoot: root), "backend/src/api/a.ts")
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: file, projectRoot: root), "backend/src/api/a.ts")
+    }
+
+    func testRelativePathOfAFileDirectlyUnderTheRootIsItsName() {
+        let file = URL(fileURLWithPath: "/Users/tester/dev/proj/main.ts")
+        let root = URL(fileURLWithPath: "/Users/tester/dev/proj")
+        XCTAssertEqual(DisplayPath.relativePath(fileURL: file, projectRoot: root), "main.ts")
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: file, projectRoot: root), "main.ts")
+    }
+
+    /// Outside the root the tooltip is the full absolute path — never `~`,
+    /// even for a file under the home directory the breadcrumb abbreviates.
+    func testFileOutsideTheRootHasNoRelativePathAndAnAbsoluteTooltip() {
+        let file = URL(fileURLWithPath: "/Users/tester/notes/../notes/todo.md")
+        let root = URL(fileURLWithPath: "/Users/tester/dev/proj")
+        XCTAssertNil(DisplayPath.relativePath(fileURL: file, projectRoot: root))
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: file, projectRoot: root), "/Users/tester/notes/todo.md")
+    }
+
+    func testNoRootHasNoRelativePathAndAnAbsoluteTooltip() {
+        let file = URL(fileURLWithPath: "/Users/tester/dev/proj/main.ts")
+        XCTAssertNil(DisplayPath.relativePath(fileURL: file, projectRoot: nil))
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: file, projectRoot: nil), "/Users/tester/dev/proj/main.ts")
+    }
+
+    func testUntitledBufferHasNoRelativePathAndTheUntitledTooltip() {
+        let root = URL(fileURLWithPath: "/Users/tester/dev/proj")
+        XCTAssertNil(DisplayPath.relativePath(fileURL: nil, projectRoot: root))
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: nil, projectRoot: root), "Untitled")
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: nil, projectRoot: root), OpenFile(url: nil).displayName)
+    }
+
+    func testRootOpenedThroughSymlinkGivesTheRelativePathOfACanonicallySpelledFile() throws {
+        let fixture = try SymlinkFixture()
+        defer { fixture.cleanUp() }
+
+        XCTAssertEqual(DisplayPath.relativePath(fileURL: fixture.realFile, projectRoot: fixture.link), "src/a.swift")
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: fixture.realFile, projectRoot: fixture.link), "src/a.swift")
+    }
+
+    /// A root at `/` contributes no name, so the relative path is the
+    /// absolute path without its leading separator.
+    func testRootAtTheFilesystemRootGivesThePathWithoutTheLeadingSeparator() {
+        let file = URL(fileURLWithPath: "/etc/hosts")
+        let root = URL(fileURLWithPath: "/")
+        XCTAssertEqual(DisplayPath.relativePath(fileURL: file, projectRoot: root), "etc/hosts")
+        XCTAssertEqual(DisplayPath.tooltip(fileURL: file, projectRoot: root), "etc/hosts")
+    }
 }
 
 /// A real on-disk directory with a symlinked alias of the project root:

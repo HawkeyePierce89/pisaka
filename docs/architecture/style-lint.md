@@ -86,7 +86,33 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the server failure record's (D44, `core-lsp.md`), five
+The most recent bump is the tab navigation commands', `file_length` 1944 →
+**1947** and `type_body_length` 1937 → **1940**: three lines, the
+`TabNavigationCommands(model:)` entry and the two braces of the `Group` it
+shares with `FoldCommands`. The Window menu's thirteen items (Show
+Next / Previous Tab twice each, the nine Select Tab items) and the four helpers
+asking Core's `TabNavigationRule` which tab each selects live in
+`TabNavigationCommands.swift`, not here — the scene's `.commands` builder was
+already at the ten entries the Xcode 16.4 SDK accepts, so that type shares one
+`Group` entry with `FoldCommands` (`core-services.md`, `app-shell.md`).
+
+The bump before it is Reveal in Project Tree's, `file_length` 1937 →
+**1944** and `type_body_length` 1930 → **1937**: the scene holds the latest
+`TreeRevealRequest`, hands it to `ContentView`, and its five-line
+`revealInProjectTree(id:url:)` selects the tab and assigns the next request.
+Building the request, the expansion and the scroll live in
+`ProjectTreeView.swift`, the ancestors in Core's `TreeRevealRule`
+(`core-workspace.md`, `app-window.md`).
+
+The bump before that is the tab menu's, `file_length` 1935 → **1937** and
+`type_body_length` 1925 → **1930**: the close funnel `closeFile(id:)` now
+answers whether the tab is gone, `closeTabs` walks a tab-menu command's targets
+through it and stops at the first Cancel, and the scene hands `ContentView` one
+`TabActions` value in place of the bare `onClose`. The menu, the middle click and
+the ⌥-click live in `TabStripView.swift`, every decision in Core's `TabCloseRule`
+(`core-services.md`, `app-window.md`).
+
+The one before that is the server failure record's (D44, `core-lsp.md`), five
 lines: `type_body_length` 1920 → **1925**, for the `LSPServerFailureModel` the
 scene stores, constructs in `init()`, wires to the workspace's
 `onFailureRecordsChange` in one line and hands to the Settings scene.

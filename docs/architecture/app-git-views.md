@@ -798,7 +798,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the header Commit button's single condition, and `openCommitDialog` re-checks
     the project root and every one of its gates anyway. The **focus anchor** is a
     private `LocalChangesFocusAnchor: NSViewRepresentable` and its `NSView`
-    (`LocalChangesFocusAnchorView`), placed behind the panel's outer `VStack` via
+    (`LocalChangesFocusAnchorView`, internal rather than private so
+    `TabChordPassThroughTests` (app bundle) can construct it), placed behind the panel's outer `VStack` via
     `.background(...)` — not on the list — so focus survives placeholder states and
     an empty change list. The `NSView` is non-drawing, answers `nil` from
     `hitTest` (never stands between the pointer and a row), hidden from

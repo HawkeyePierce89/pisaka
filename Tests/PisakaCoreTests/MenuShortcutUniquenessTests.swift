@@ -15,15 +15,26 @@ import XCTest
 /// unreachable on precisely the tabs the preview cared about. The fix moved one
 /// of them; this suite is what keeps the next command from re-creating it.
 ///
-/// **What is matched, and what is deliberately not.** Only the *character*
-/// form — `.keyboardShortcut("p", modifiers: […])` — which is the form a menu
-/// command uses. The semantic forms (`.cancelAction`, `.defaultAction`) and the
-/// `KeyEquivalent` constants (`.return`, `.leftArrow`) are excluded by the
-/// pattern rather than by an exception list: the first two are Esc and Return
-/// bound *per sheet*, where sharing them across sheets is the whole point, and
-/// the arrow constants are a distinguishable spelling this rule has never had a
-/// collision in. `FoldCommands`' four arrow chords therefore sit outside the
-/// set, which is stated here rather than left to be inferred.
+/// **What is matched, and what is deliberately not.** The *character* form —
+/// `.keyboardShortcut("p", modifiers: […])` — which is the form most menu
+/// commands use, and the `KeyEquivalent` *constant* form —
+/// `.keyboardShortcut(.tab, modifiers: .control)` — which is how the Window
+/// menu's ⌃Tab / ⌃⇧Tab tab commands and `FoldCommands`' four arrow chords are
+/// spelled; a constant is recorded under its dotted name (`.tab`), which no
+/// single character can equal. Two spellings stay outside the set, excluded by
+/// the pattern rather than by an exception list: the semantic forms
+/// (`.cancelAction`, `.defaultAction`), which carry no `modifiers:`, and the
+/// `.return` constant. All three are Esc and Return bound *per sheet or per
+/// pane* — ⌘Return commits in the commit dialog, the merge window and the SQL
+/// console alike — where sharing them across surfaces is the whole point.
+///
+/// **One chord source no scan can see.** AppKit's native window tabbing adds
+/// its own Window-menu "Show Next Tab / Show Previous Tab" items bound to
+/// ⌃Tab / ⌃⇧Tab, which would take those chords from the editor-tab commands
+/// without any declaration in `Sources/Pisaka`. `AppDelegate` turns it off in
+/// `applicationWillFinishLaunching(_:)`, and
+/// `testAutomaticWindowTabbingIsTurnedOff` pins that assignment over
+/// comment-stripped text, so the comment explaining it cannot keep it green.
 ///
 /// The scan strips **comments only, keeping string literals** — the same stated
 /// exception `GitHubSourceGatingTests` makes for the `gh` vocabulary, and for
@@ -64,7 +75,7 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         }
 
         let pattern = try NSRegularExpression(
-            pattern: #"\.keyboardShortcut\("(.)",\s*modifiers:\s*(\[[^\]]*\]|\.[a-zA-Z]+)\)"#
+            pattern: #"\.keyboardShortcut\(("."|\.(?!return\b)[a-zA-Z]+),\s*modifiers:\s*(\[[^\]]*\]|\.[a-zA-Z]+)\)"#
         )
 
         var found: [Shortcut] = []
@@ -77,7 +88,8 @@ final class MenuShortcutUniquenessTests: XCTestCase {
                 let key = try XCTUnwrap(Range(match.range(at: 1), in: code))
                 let modifiers = try XCTUnwrap(Range(match.range(at: 2), in: code))
                 found.append(Shortcut(
-                    key: String(code[key]),
+                    // A character keeps its quotes off; a constant keeps its dot.
+                    key: String(code[key]).trimmingCharacters(in: CharacterSet(charactersIn: "\"")),
                     modifiers: String(code[modifiers]),
                     location: url.lastPathComponent
                 ))
@@ -122,5 +134,35 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         let openProblem = try XCTUnwrap(byChord["p + .command .option"], "⌘⌥P is declared by nothing")
         XCTAssertEqual(openProblem.map(\.location), ["LeetCodeOpenProblemSheet.swift"],
                        "⌘⌥P is LeetCode > Open Problem…")
+    }
+
+    /// The tab-navigation chords, each held by `TabNavigationCommands.swift`
+    /// alone: the two adjacent moves in both spellings and the nine Select Tab
+    /// items. The constant form is what makes ⌃Tab / ⌃⇧Tab visible here at all.
+    func testTheTabNavigationChordsAreDeclaredOnceEach() throws {
+        let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
+        var chords = [
+            "] + .command .shift", "[ + .command .shift",
+            ".tab + .control", ".tab + .control .shift",
+        ]
+        chords += (1...9).map { "\($0) + .command" }
+        for chord in chords {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["TabNavigationCommands.swift"], chord)
+        }
+    }
+
+    /// AppKit's native window tabbing would bind its own ⌃Tab / ⌃⇧Tab items,
+    /// invisible to the scan above; `AppDelegate` must turn it off. Read over
+    /// comment-stripped text, so the doc comment naming the setting cannot keep
+    /// this green after the assignment is deleted.
+    func testAutomaticWindowTabbingIsTurnedOff() throws {
+        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/AppDelegate.swift")
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+        XCTAssertTrue(code.contains("func applicationWillFinishLaunching("),
+                      "the assignment must run before any window exists")
+        XCTAssertNotNil(code.range(
+            of: #"NSWindow\.allowsAutomaticWindowTabbing\s*=\s*false"#, options: .regularExpression
+        ), "AppDelegate no longer turns native window tabbing off — AppKit's ⌃Tab items would return")
     }
 }

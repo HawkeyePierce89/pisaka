@@ -3595,7 +3595,9 @@ session is retained, and never a fallback answer; the tree-sitter provider and i
 inherit defaults that retain nothing and narrow nothing. A resolve belongs to the
 retained list too: a narrowed row whose item was already resolved, or is being
 resolved, for the same list is answered from that list's cache with no second round
-trip, so a narrowed keystroke does not re-send the top rows' prefetch.
+trip, so a narrowed keystroke does not re-send the top rows' prefetch. None of
+this engages for Swift, whose server marks every list incomplete (Known limits,
+"Swift completion never narrows").
 
 **D41 — An item that cannot be applied is dropped when the list is built, and
 dropping anything makes the answer incomplete.** The commit-time refusal in
@@ -3675,6 +3677,18 @@ request that notices it, not at the moment the process dies.
   `false` for a list it actually truncated will narrow to fewer items than a fresh
   request would have offered, until something the rule treats as new — a moved
   word start, a trigger character, an explicit invocation — asks it again.
+- **Swift completion never narrows** (D40). With the sourcekit-lsp shipped in the
+  Xcode 27.0 toolchain, every completion list observed on 2026-10-16 carried
+  `isIncomplete: true`, across four scenarios: a member access with a typed prefix,
+  a bare dot, a top-level identifier, and a prefix matching a single item. So D40's
+  narrowing and the retained list's resolve cache do not engage for Swift: every
+  keystroke costs the ordinary debounced request plus its prefetched resolves,
+  exactly as before D40. This was observed, not inferred from the server's source —
+  a request-counting pipe transport under Core's own `LSPWorkspace`/`LSPSession`,
+  re-runnable whenever the toolchain changes. The cache's hit path is therefore
+  verified only through `ScriptedLSPTransport` until a complete-list server is run
+  against it. Honouring `isIncomplete` is still correct: the server filters on its
+  side and asks to be asked again.
 - **The failure record lives for the app run only** (D44). It is never written to
   disk or the session, so a server that failed before a relaunch shows nothing
   after it until it fails again; and a crash is counted when the next request

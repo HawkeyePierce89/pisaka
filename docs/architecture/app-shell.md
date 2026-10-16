@@ -42,8 +42,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and now spells ⌘⌥P (`core-markdown-preview.md`). That collision was invisible
     to every gate the pipeline had — two commands declaring one chord compile,
     link and launch, and AppKit simply gives it to one of them — so
-    `MenuShortcutUniquenessTests` now reads every character key equivalent in
-    `Sources/Pisaka` and refuses a repeat. Nothing else about the
+    `MenuShortcutUniquenessTests` now reads every character key equivalent, and every
+    `KeyEquivalent` constant except `.return`, in `Sources/Pisaka` and refuses a repeat. Nothing else about the
     preview is in this file: the pane, the split and the divider are
     `ContentView`'s, and every decision is Core's. `togglePanel(.terminal)` creates the first session
     (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists
@@ -1482,6 +1482,56 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `awaitAccountResolution()` and raises the login sheet only when the settled
     state is not signed in, because the optimistic one would have a stored-but-dead
     session open nothing (`core-leetcode.md`, L27). The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated. `MainWindowChrome(model: model)` is **chained onto that same line** rather than added on one of its own — `PisakaApp.swift` is exactly at its `file_length` ceiling — and is a sibling marker with its own entry below, not a change to the frame one.
+
+    **The tabs' close funnel, batch closes and navigation.** `closeFile(id:)` is
+    `@discardableResult -> Bool`, answering "the tab is gone": true for a clean
+    close, for Save followed by a successful close and for Don't Save; false for
+    Cancel and for a failed or cancelled save. Its body and its autosave and
+    `forgetIndexedBuffer` brackets are unchanged, and ⌘W and the close mark still
+    call it and ignore the answer. The answer exists for **`closeTabs(_:anchor:)`**,
+    which does nothing but `TabCloseRule.walk(TabCloseRule.targets(...)) {
+    closeFile(id: $0) }` (`core-services.md`): every tab-menu command, ⌥-click on
+    the close mark and the middle click arrive there through the `TabActions` the
+    scene builds for `ContentView` (`app-window.md`), so a batch prompts tab by tab
+    in tab order and the first Cancel leaves that tab and every later one open.
+    The same `TabActions` carries Local History (`showLocalHistory(for:)`, the one
+    entry point) and Reveal in Project Tree, `revealInProjectTree(id:url:)`, which
+    selects the tab — so the tree's `TreeSelection` highlights the row — and then
+    assigns the next `TreeRevealRequest` to one `@State`, its token monotonic; a
+    file outside the root builds none and reveals nothing.
+    **The Window menu** gains the tab-navigation commands, which live in
+    `TabNavigationCommands.swift` (below) and enter the scene's `.commands` builder
+    as one `Group` entry shared with `FoldCommands()`. **That builder holds ten
+    entries at most** on the Xcode 16.4 SDK CI builds with (`CommandsBuilder`
+    declares `buildBlock` up to ten children); an eleventh compiles on a newer
+    local toolchain and fails on CI with `extra argument in call`, which is how the
+    ceiling was found. A new command type joins an existing `Group` rather than
+    adding an entry. The chords reach the menu whatever holds focus: the menu is consulted
+    before `keyDown`, SwiftTerm's `TerminalView` overrides `keyDown` but not
+    `performKeyEquivalent` (read at the pinned revision), and the app's only two
+    `performKeyEquivalent` overrides — the editor's text view and Local Changes'
+    `LocalChangesFocusAnchorView` — answer false for every new chord, which
+    `TabChordPassThroughTests` (app bundle) asserts, with a control that the
+    anchor's own ⌘D is still consumed so the pass-through cannot be vacuous.
+  - `TabNavigationCommands.swift` — the Window menu's tab-navigation commands, a
+    `Commands` type placing one `CommandGroup(before: .windowList)`: Show Next Tab
+    twice (⌘⇧] and ⌃Tab), Show Previous Tab twice (⌘⇧[ and ⌃⇧Tab) — two items per
+    move on the View menu's Zoom In precedent, ⌘⇧] being the chord the menu
+    displays and ⌃Tab the one muscle memory reaches for — and a Select Tab submenu
+    with Tab 1…Tab 8 (⌘1…⌘8) and Last Tab (⌘9), then one `Divider()` (the one
+    shape a `Commands` builder renders as a single separator; a `Section` draws
+    one on each side, measured for the LeetCode menu). Every item selects
+    `TabNavigationRule`'s answer (`core-services.md`) and is `.disabled` from that
+    same answer being nil, so nothing is ever enabled and inert. The nine
+    positional items are spelled one literal declaration each, never generated in
+    a loop, so `MenuShortcutUniquenessTests` sees all nine; it also matches the
+    `KeyEquivalent` constant form, which is what puts the two ⌃Tab chords in its
+    set, and pins every tab chord to this file alone. The items live in a private
+    view of their own, `TabNavigationItems`, holding the workspace as
+    `@ObservedObject` — the LeetCode menu's pattern — so *it* re-renders on a tab
+    change and the scene's body does not; the `Commands` type itself holds the
+    model unobserved and hands it down. ⌃Tab is this file's only because
+    `AppDelegate` turns native window tabbing off (next entry).
   - `AppDelegate.swift` — the `NSApplicationDelegate` behind
     `@NSApplicationDelegateAdaptor`: promotes the process to a regular GUI app,
     quits when the last window closes, and is **the one place a quit is held**
@@ -1499,6 +1549,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     teardown it finds nothing to kill. Moved out of `PisakaApp.swift` when it
     gained this behaviour, which is also what kept that file under its
     `file_length` ceiling (`style-lint.md`).
+    **Native window tabbing is off**: `applicationWillFinishLaunching(_:)` sets
+    `NSWindow.allowsAutomaticWindowTabbing = false`, before any window exists, the
+    only moment it decides anything. The app has exactly one `WindowGroup` window
+    and its own editor tabs; left on, AppKit adds its own Window-menu "Show Next
+    Tab / Show Previous Tab" items bound to ⌃Tab / ⌃⇧Tab for native window tabs.
+    Those items are invisible to any source scan and would take the chords from
+    the editor-tab commands above. `MenuShortcutUniquenessTests` pins the
+    assignment over comment-stripped text.
 
   - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
     hand because the standard window-frame autosave is unusable here twice over

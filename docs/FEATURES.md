@@ -110,6 +110,23 @@ user sees it.
   per-tab close button. On macOS the column opens 220 points wide and can be
   widened to at most a third of the window, and the window's centred title names
   the project and the focused file (`pisaka — ContentView.swift`).
+- Tab gestures and navigation (macOS, both tab orientations): a middle click
+  closes a tab (asking first when it has unsaved changes), and hovering a tab shows
+  its path — relative to the project, absolute for a file outside it, or
+  "Untitled". Right-click (or Control-click) a tab for its menu: Close, Close
+  Others, Close Tabs to the Right, Close All and Close Saved; Copy Path, Copy
+  Relative Path, Reveal in Finder and Reveal in Project Tree; and Local History.
+  Items that cannot apply are shown disabled rather than hidden — Close Tabs to the
+  Right on the last tab, the path items on an "Untitled" buffer, the relative-path
+  and tree items for a file outside the project, Local History on a database tab.
+  A batch close asks about each unsaved tab in turn, and Cancel stops it there,
+  leaving that tab and every later one open. Option-click a tab's close button to
+  close the others. Reveal in Project Tree expands every folder down to the file,
+  highlights its row and scrolls it into view. Cmd+Shift+] / Cmd+Shift+[ (also
+  Ctrl+Tab / Ctrl+Shift+Tab) move to the next / previous tab and wrap around at
+  both ends; Cmd+1…Cmd+8 select a tab by position and Cmd+9 selects the last tab.
+  The navigation commands live in the Window menu too (Show Next Tab, Show
+  Previous Tab, Select Tab).
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
   line-number gutter on the left that tracks scrolling, edits, and the system
   light/dark appearance.
@@ -153,8 +170,8 @@ user sees it.
   bar keeps a fixed height so the editor never jumps. It appears with either tab
   orientation (in the horizontal layout it sits under the tab strip) and is hidden
   when no file is open. The segments are display-only for now — they are not
-  clickable, there is no copy-path action, and the bar is macOS-only (no iOS
-  version yet).
+  clickable, the bar itself has no copy-path action (the tab menu's Copy Path /
+  Copy Relative Path does that), and the bar is macOS-only (no iOS version yet).
 - Auto-indent: pressing Enter inherits the current line's indentation, adds one
   indent step after an opening bracket (`{`/`(`/`[`), and splits a freshly
   indented line between a bracket pair; typing a closing bracket (`}`/`)`/`]`)
@@ -499,7 +516,8 @@ user sees it.
   a symbol that needs an `import` inserts the import line together with the symbol —
   caret after the symbol, and a single Cmd+Z undoes both. While you keep typing in
   the same word, a list the server said was complete is narrowed on the spot rather
-  than asked for again. Candidates that match what you typed sit above the ones
+  than asked for again — but only for servers whose answer is complete; the Swift
+  server's lists never are, so Swift completion asks again on every keystroke. Candidates that match what you typed sit above the ones
   that do not, best-matching first, and the server's own order applies within each
   group. A capital you typed counts: `aBu` puts `ArrayBuffer` above `abuse`. Each
   row shows the server's detail (a signature or type) dimmed at the right. Committing with
@@ -927,7 +945,7 @@ user sees it.
   twice, and the state you would have lost is the one under the "Save" row above.
   Open the history with **File ▸ Local History…** (Cmd+Shift+H) for the
   active tab, or with the **"Local History"** item on a file's context menu in the
-  project tree. The window lists that file's revisions newest first, each with the
+  project tree or on a tab's context menu. The window lists that file's revisions newest first, each with the
   event that took it and both a relative ("2 hours ago") and an absolute
   timestamp; selecting one shows a side-by-side diff of that revision against what
   the file holds *now* — the open buffer if a tab has it, including unsaved edits,
@@ -1882,8 +1900,9 @@ and iPhone. The feature scope landed so far:
 - No tab reordering or split views, and no drag-and-drop outside the project
   tree.
 - The path bar above the editor is macOS-only and read-only: its breadcrumb
-  segments are not clickable, there is no "copy path" action or window proxy
-  icon, and iOS has no equivalent bar.
+  segments are not clickable, the bar has no "copy path" action (the tab menu's
+  Copy Path / Copy Relative Path offers one) and no window proxy icon, and iOS has
+  no equivalent bar.
 - Automatic file-change detection covers the project tree on macOS only. Local
   Changes, the Git Log, and open editor tabs are still refreshed on demand — an
   external edit to a file you have open does not reload its tab, and the git

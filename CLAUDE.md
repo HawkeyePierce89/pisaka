@@ -81,7 +81,7 @@ entry when you change behavior.**
 All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
-  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`
+  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
   `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`
@@ -117,7 +117,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
 
 `docs/architecture/core-services.md` — terminal/run/test, settings, session:
-  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `LicenseNotice.swift`, `MainWindowInitialFrameRule.swift`, `WelcomeScreen.swift`, `PisakaCore.swift`
+  `TerminalLaunch.swift` / `TerminalTabs.swift`, `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift`, `BottomPanel.swift`, `BottomPanelHeightRule.swift`, `DiffWindowTitle.swift`, `TabOrientation.swift` / `ThemePreference.swift`, `SettingsStore.swift`, `EditorSession.swift`, `RecentProject.swift`, `ScopedFileAccess.swift`, `TabLayout.swift`, `MainWindowTitle.swift`, `TabColumnWidthRule.swift`, `TabCloseRule.swift`, `TabNavigationRule.swift`, `LicenseNotice.swift`, `MainWindowInitialFrameRule.swift`, `WelcomeScreen.swift`, `PisakaCore.swift`
 
 `docs/architecture/core-local-history.md` — Local History (Core + app halves, macOS only):
   `LocalHistorySnapshot.swift`, `LocalHistoryLayout.swift`, `LocalHistoryPolicy.swift`, `LocalHistoryStore.swift`, `LocalHistoryModel.swift`, `LocalHistoryBrowserModel.swift`
@@ -154,7 +154,7 @@ headlessly in `Tests/PisakaAppTests`.
   `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift`, `Platform/LicenseCatalogLoader.swift`, `Platform/LicenseTextView.swift`, `Platform/SymbolQueryCatalog.swift`, `Platform/SymbolExtractor.swift`, `Platform/SymbolIndexController.swift`, `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift`, `iOS/BranchSwitcherView_iOS.swift`, `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift`, `iOS/CompletionBar_iOS.swift`, `iOS/DefinitionRoute_iOS.swift`, `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift`, `iOS/LibGit2Service.swift`, `iOS/KeychainCredentialStore.swift`, `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift`, `iOS/AcknowledgementsView_iOS.swift`, `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift`, `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift`, `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift`
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
-  `PisakaApp.swift`, `AppDelegate.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
+  `PisakaApp.swift`, `TabNavigationCommands.swift`, `AppDelegate.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
 
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half):
   `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift`, `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift`

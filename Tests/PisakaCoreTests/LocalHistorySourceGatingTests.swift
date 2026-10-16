@@ -427,8 +427,9 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
         XCTAssertEqual(
             try occurrences(of: "showLocalHistory\\(for:", in: app),
-            3,
-            "The three open sites are the File menu item, the project tree's row callback and Deleted Files…, "
+            4,
+            "The four open sites are the File menu item, the project tree's row callback, the tab menu's "
+                + "TabActions and Deleted Files…, "
                 + "and all must reach the same handler: there is one window and one browser model behind it, so "
                 + "a second open path is a second way to leave the two disagreeing about which file is shown."
         )
@@ -442,6 +443,13 @@ final class LocalHistorySourceGatingTests: XCTestCase {
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("onShowLocalHistory", in: content),
             "ContentView threads the tree's callbacks; a row action it does not carry cannot reach the app."
+        )
+        let tabs = try code(ofFileNamed: "TabStripView.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "actions\\.showLocalHistory\\(", in: tabs),
+            1,
+            "The tab menu offers Local History by calling TabActions, which the app wires to the same handler; "
+                + "the declaration alone is not the menu item."
         )
     }
 

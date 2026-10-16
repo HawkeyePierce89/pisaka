@@ -699,7 +699,7 @@ private struct LocalChangesFocusAnchor: NSViewRepresentable {
 /// double-click and context-menu items use. Cmd+Down additionally hands
 /// keyboard focus to the editor.
 @MainActor
-private final class LocalChangesFocusAnchorView: NSView {
+final class LocalChangesFocusAnchorView: NSView {
     var selectedFile: ChangedFile?
     var repositoryRoot: URL?
     var onOpenDiff: (ChangedFile) -> Void

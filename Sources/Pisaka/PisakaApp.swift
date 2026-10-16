@@ -782,6 +782,10 @@ struct PisakaApp: App {
     /// commands share one source of truth; toggled via `togglePanel(_:)`.
     @State private var bottomPanel: BottomPanel?
 
+    /// The latest Reveal in Project Tree request, handed to the tree. Its token
+    /// is monotonic, so revealing the same file twice is two requests.
+    @State private var treeReveal: TreeRevealRequest?
+
     /// Whether the commit dialog sheet is up. Raised by `openCommitDialog()` after
     /// the load has been kicked off, lowered by a successful commit, Cancel or Esc.
     @State private var isCommitDialogPresented = false
@@ -942,7 +946,11 @@ struct PisakaApp: App {
                 onActivateUsage: { activateUsage($0) },
                 onFindUsages: { findUsages($0) },
                 onRenameSymbol: { renameSymbol($0) },
-                onClose: { closeFile(id: $0) },
+                tabActions: TabActions(
+                    projectRoot: model.projectRoot, close: { closeTabs($0, anchor: $1) },
+                    revealInProjectTree: { revealInProjectTree(id: $0, url: $1) }, showLocalHistory: { showLocalHistory(for: $0) }
+                ),
+                treeReveal: treeReveal,
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
                 recentProjects: { recentProjectRows() },
@@ -1375,11 +1383,20 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
-            // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the item
-            // above. Both live entirely in `FoldCommands.swift` — they carry no
-            // state and reach the focused editor through the first responder, so
-            // there is nothing for this scene to hand them.
-            FoldCommands()
+            // The two self-contained command types, as one entry: this builder
+            // accepts ten entries at most on the Xcode 16.4 SDK CI builds with,
+            // and the ten are spent. `Group` is a `Commands` when its content is.
+            Group {
+                // Fold (⌘⌥←) and Unfold (⌘⌥→), in the same Edit group as the
+                // item above. Both live entirely in `FoldCommands.swift` — they
+                // carry no state and reach the focused editor through the first
+                // responder, so there is nothing for this scene to hand them.
+                FoldCommands()
+
+                // Tab navigation, in the Window menu above its window list; its
+                // items observe the workspace in `TabNavigationCommands.swift`.
+                TabNavigationCommands(model: model)
+            }
 
             CommandMenu("View") {
                 // The three zoom items. Each resolves the zone from the pointer
@@ -2753,6 +2770,16 @@ struct PisakaApp: App {
     }
 
     // MARK: - Local History
+
+    /// Reveal in Project Tree from the tab menu: select the tab — so the tree's
+    /// existing `TreeSelection` highlights its row, the one selection rather
+    /// than a second — then hand the tree the next request. A file outside the
+    /// root builds none and reveals nothing; the menu item is disabled for it.
+    private func revealInProjectTree(id: UUID, url: URL) {
+        guard let request = TreeRevealRequest(after: treeReveal, revealing: url, root: model.projectRoot) else { return }
+        model.select(id)
+        treeReveal = request
+    }
 
     /// Open the Local History window on `url`, or retarget the one already open.
     ///
@@ -5166,15 +5193,19 @@ struct PisakaApp: App {
     }
 
     /// Close the file identified by `id`, confirming first when it has unsaved
-    /// changes. Used by both the tab close button and the Cmd+W menu command.
-    private func closeFile(id: UUID) {
+    /// changes. Used by the tab close button, the Cmd+W menu command and every
+    /// batch close (`closeTabs`). Answers whether the tab is gone: true for a clean
+    /// close, a successful Save and Don't Save; false for Cancel and a failed save,
+    /// which is what stops a batch (`TabCloseRule.walk`).
+    @discardableResult
+    private func closeFile(id: UUID) -> Bool {
         // Hand the tab's index entry back to disk once the close is settled,
         // whichever way it went. `forgetIndexedBuffer` checks that no tab still
         // shows the file, so the Cancel branch — and a second tab on the same file
         // — leave the buffer mark exactly where it is.
         let closingURL = model.openFiles.first { $0.id == id }?.url
         defer { forgetIndexedBuffer(closingURL) }
-        guard model.close(id: id) == .needsConfirmation else { return }
+        guard model.close(id: id) == .needsConfirmation else { return true }
         let name = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         // Suspend the regular autosave triggers across the close confirmation.
         // `NSAlert.runModal()` spins a nested event loop, during which the idle
@@ -5196,14 +5227,18 @@ struct PisakaApp: App {
             // left to protect and no next save to trim a spared line on: this write
             // is the file's last word. iOS's one save already answers the same way
             // for the same button.
-            if save(id: id, abandoningBuffer: true) {
-                model.close(id: id)
-            }
+            return save(id: id, abandoningBuffer: true) && model.close(id: id) == .closed
         case .dontSave:
-            model.close(id: id, force: true)
+            return model.close(id: id, force: true) == .closed
         case .cancel:
-            break
+            return false
         }
+    }
+
+    /// Run one tab-menu close command anchored on `anchor` through the one funnel,
+    /// stopping at the first tab the user keeps (`TabCloseRule`).
+    private func closeTabs(_ command: TabCloseCommand, anchor: UUID) {
+        TabCloseRule.walk(TabCloseRule.targets(command, in: model.openFiles, anchor: anchor)) { closeFile(id: $0) }
     }
 
     /// Flush every open buffer of a served language to its language server, so

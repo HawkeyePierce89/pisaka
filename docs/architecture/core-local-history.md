@@ -1186,7 +1186,7 @@ changes.)
     left **dirty**: the ordinary save funnel puts the restored text on disk when
     the user saves or the autosave fires, which is what keeps this feature a
     reader that takes no writer gate.
-  - **Three open sites, one window.** File ▸ Local History… (⌘⇧H), disabled without
+  - **Four open sites, one window.** File ▸ Local History… (⌘⇧H), disabled without
     a *titled, text* selected tab — stricter than every other item in that group
     on purpose, because an enabled item over an untitled buffer would open a
     window saying the file has no history when what is true is that it has no
@@ -1198,8 +1198,11 @@ changes.)
     a `.db` that is not SQLite was an ordinary text tab before the viewer existed
     and can carry real revisions. Alongside it,
     a "Local History" item on a project-tree file row's context menu, threaded
-    from `ContentView` as `onShowLocalHistory`; and File ▸ **Deleted Files…**
-    (below). All three go through one
+    from `ContentView` as `onShowLocalHistory`; a "Local History" item on a
+    tab's context menu, enabled by `TabCloseRule.MenuAvailability` under the
+    same titled-text condition for the tab the menu was opened on and threaded
+    as `TabActions.showLocalHistory`; and File ▸ **Deleted Files…**
+    (below). All four go through one
     `showLocalHistory(for:)`, which starts the listing *before* showing the window
     (one directory read on a background queue) so an already-open window never
     shows the previous file's revisions for a frame.
@@ -1447,8 +1450,8 @@ history, just not the newest one.
     routed through `SaveTransformController` with no second file naming
     `beginSaveTransformRewrite`/`replaceCharacters`; the restore asking
     `policy.capture(` exactly once, so it cannot replace a buffer the store would
-    refuse to snapshot; all three open sites present (the File menu item, the
-    tree's row and Deleted Files…); the project tree's delete capture,
+    refuse to snapshot; all four open sites present (the File menu item, the
+    tree's row, the tab menu and Deleted Files…); the project tree's delete capture,
     `captureBeforeDelete(` named at exactly one site, inside `deleteItem`, before
     that body's `removeItem(` and never awaited or handed to a `Task` or a queue
     ahead of it — that number pinned cross-file against this sentence; the

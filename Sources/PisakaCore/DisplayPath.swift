@@ -53,6 +53,33 @@ public enum DisplayPath {
         return absoluteComponents(of: fileURL)
     }
 
+    /// The path of `fileURL` below `projectRoot`, joined by `/`
+    /// (`backend/src/dialogs.service.ts`) — the tab menu's Copy Relative Path.
+    ///
+    /// `nil` for a url-less buffer, no open root, or a file not strictly inside
+    /// the root. Containment and spelling are the breadcrumb's own, through
+    /// `relativeComponents(of:under:)` — lexical probe first — so the copied
+    /// text never disagrees with the bar above the editor.
+    public static func relativePath(fileURL: URL?, projectRoot: URL?) -> String? {
+        guard let fileURL, let projectRoot,
+              let suffix = relativeComponents(of: fileURL, under: projectRoot)
+        else { return nil }
+        return suffix.joined(separator: "/")
+    }
+
+    /// A tab's hover text: the relative path when the file lives inside the
+    /// root, otherwise the standardized absolute path, and `"Untitled"` for a
+    /// url-less buffer (the same literal `components` pins against
+    /// `OpenFile.displayName`).
+    ///
+    /// The absolute fallback is deliberately *not* `~`-abbreviated, unlike the
+    /// breadcrumb: the tooltip is the one place to read a file's full path.
+    public static func tooltip(fileURL: URL?, projectRoot: URL?) -> String {
+        guard let fileURL else { return "Untitled" }
+        return relativePath(fileURL: fileURL, projectRoot: projectRoot)
+            ?? fileURL.standardizedFileURL.path
+    }
+
     /// The components of `url` strictly below `ancestor`, or `nil` when it does
     /// not live inside it. Lexical probe first, canonical fallback.
     ///
@@ -71,7 +98,7 @@ public enum DisplayPath {
     /// sides spelled differently (a root opened through a symlink against a
     /// canonically spelled file, and the reverse), or paths differing only by a
     /// `/private` firmlink prefix.
-    private static func relativeComponents(of url: URL, under ancestor: URL) -> [String]? {
+    static func relativeComponents(of url: URL, under ancestor: URL) -> [String]? {
         if let suffix = CanonicalPath.relativeComponents(
             of: url.standardizedFileURL.pathComponents,
             under: ancestor.standardizedFileURL.pathComponents
