@@ -171,12 +171,17 @@ line_length:
 # `TabActions` value in place of the bare `onClose`. The menu, its availability,
 # the middle click and the ⌥-click live in `TabStripView.swift`, and every
 # decision — which tabs, in what order, what is enabled — in Core's
-# `TabCloseRule`. The number tracks the one file that
+# `TabCloseRule`. Then 1944 with Reveal in Project Tree: the request the
+# scene holds, the argument handing it to `ContentView`, and the five-line
+# `revealInProjectTree(id:url:)` that selects the tab and assigns the next
+# request; building the request, the expansion and the scroll live in
+# `ProjectTreeView.swift` (`TreeRevealRequest`), the ancestors in Core's
+# `TreeRevealRule`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1937
-  error: 1937
+  warning: 1944
+  error: 1944
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -220,10 +225,11 @@ file_length:
 # funnel's Bool answer, `closeTabs`, and the `TabActions` argument, less the
 # `onClose` argument it replaces. The two rules count differently, so
 # `file_length` measured two lines more for the same change; both are the
-# measured numbers.
+# measured numbers. Then to 1937 with Reveal in Project Tree's seven, the same
+# seven `file_length` counts.
 type_body_length:
-  warning: 1930
-  error: 1930
+  warning: 1937
+  error: 1937
 
 function_body_length:
   warning: 140

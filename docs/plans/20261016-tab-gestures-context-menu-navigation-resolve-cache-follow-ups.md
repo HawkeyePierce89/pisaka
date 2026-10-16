@@ -205,16 +205,16 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Modify: `Sources/Pisaka/ContentView.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Add `struct TreeRevealRequest: Equatable { token: Int; target: URL; ancestors: [URL] }`, app-side in `ProjectTreeView.swift`. `PisakaApp` holds it as one `@State` with a monotonic token. Reveal in Project Tree does two things:
+- [x] Add `struct TreeRevealRequest: Equatable { token: Int; target: URL; ancestors: [URL] }`, app-side in `ProjectTreeView.swift`. `PisakaApp` holds it as one `@State` with a monotonic token. Reveal in Project Tree does two things:
   - selects the tab (`model.select(id)`), so the existing `TreeSelection` highlights the row; this is the one selection, not a second spelling;
   - assigns a new request built from `TreeRevealRule.ancestors`.
-- [ ] `ProjectTreeView` and `DirectoryNodeView` take `reveal: TreeRevealRequest?`, handed down the recursion beside `selection`.
+- [x] `ProjectTreeView` and `DirectoryNodeView` take `reveal: TreeRevealRequest?`, handed down the recursion beside `selection`.
   - A node whose standardized url is in `ancestors` sets `isExpanded = true` in both `.onChange(of: reveal)` and `.onAppear`, because a child node created by its parent's expansion sees the request only on appear.
   - Each node remembers the last token it honoured in `@State`, so a later collapse by the user is never fought by a stale request.
   - Expansion goes through the existing `onChange(of: isExpanded)` → `loadChildren()` path. Lazy loading and the `treeRevision` refresh are unchanged.
-- [ ] Scrolling is causal, not timed. The file row whose url matches `reveal.target` (standardized) reports `onRevealed(token)` from its `.onAppear` and from `.onChange(of: reveal)` (for a row already on screen). `ProjectTreeView` then calls `proxy.scrollTo(target, anchor: .center)` on the existing `ScrollViewReader`. File rows gain `.id(url)` for that; the existing `"draft-row"` id stays.
-- [ ] Tests: the ancestor computation is `TreeRevealRuleTests` (Task 5), including the three-level case acceptance criterion 7 names. Add a `TreeRevealRequest` equality and token test only if the type carries logic beyond its fields; otherwise none. The SwiftUI wiring is glue, untested by convention.
-- [ ] Run `swift test`, `swiftlint --strict` and the PisakaAppTests bundle; all must pass before Task 8.
+- [x] Scrolling is causal, not timed. The file row whose url matches `reveal.target` (standardized) reports `onRevealed(token)` from its `.onAppear` and from `.onChange(of: reveal)` (for a row already on screen). `ProjectTreeView` then calls `proxy.scrollTo(target, anchor: .center)` on the existing `ScrollViewReader`. File rows gain `.id(url)` for that; the existing `"draft-row"` id stays. (Done as `.id(TreeRevealRequest.rowID(url))`, the standardized path, so a listing's spelling and the request's always agree.)
+- [x] Tests: the ancestor computation is `TreeRevealRuleTests` (Task 5), including the three-level case acceptance criterion 7 names. Add a `TreeRevealRequest` equality and token test only if the type carries logic beyond its fields; otherwise none. The SwiftUI wiring is glue, untested by convention. (The type carries the path matching and the next-request constructor, so `TreeRevealRequestTests` in the app bundle pins them.)
+- [x] Run `swift test`, `swiftlint --strict` and the PisakaAppTests bundle; all must pass before Task 8.
 
 ### Task 8: App: tab navigation commands, window tabbing off, the uniqueness suite sees every chord
 

@@ -782,6 +782,10 @@ struct PisakaApp: App {
     /// commands share one source of truth; toggled via `togglePanel(_:)`.
     @State private var bottomPanel: BottomPanel?
 
+    /// The latest Reveal in Project Tree request, handed to the tree. Its token
+    /// is monotonic, so revealing the same file twice is two requests.
+    @State private var treeReveal: TreeRevealRequest?
+
     /// Whether the commit dialog sheet is up. Raised by `openCommitDialog()` after
     /// the load has been kicked off, lowered by a successful commit, Cancel or Esc.
     @State private var isCommitDialogPresented = false
@@ -944,8 +948,9 @@ struct PisakaApp: App {
                 onRenameSymbol: { renameSymbol($0) },
                 tabActions: TabActions(
                     projectRoot: model.projectRoot, close: { closeTabs($0, anchor: $1) },
-                    revealInProjectTree: { _ in }, showLocalHistory: { showLocalHistory(for: $0) }
+                    revealInProjectTree: { revealInProjectTree(id: $0, url: $1) }, showLocalHistory: { showLocalHistory(for: $0) }
                 ),
+                treeReveal: treeReveal,
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
                 recentProjects: { recentProjectRows() },
@@ -2756,6 +2761,16 @@ struct PisakaApp: App {
     }
 
     // MARK: - Local History
+
+    /// Reveal in Project Tree from the tab menu: select the tab — so the tree's
+    /// existing `TreeSelection` highlights its row, the one selection rather
+    /// than a second — then hand the tree the next request. A file outside the
+    /// root builds none and reveals nothing; the menu item is disabled for it.
+    private func revealInProjectTree(id: UUID, url: URL) {
+        guard let request = TreeRevealRequest(after: treeReveal, revealing: url, root: model.projectRoot) else { return }
+        model.select(id)
+        treeReveal = request
+    }
 
     /// Open the Local History window on `url`, or retarget the one already open.
     ///

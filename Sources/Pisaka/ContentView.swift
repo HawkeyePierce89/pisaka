@@ -185,6 +185,9 @@ struct ContentView: View {
     /// the project root they are judged against. Defaults to no-ops so
     /// previews/tests can construct the view without the app wiring.
     var tabActions = TabActions()
+    /// The latest Reveal in Project Tree request, owned by `PisakaApp` and
+    /// handed to the tree. Nil for previews/tests and before the first reveal.
+    var treeReveal: TreeRevealRequest?
     /// Invoked when a project-tree file row is clicked. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onOpenFile: (URL) -> Void = { _ in }
@@ -1019,7 +1022,8 @@ struct ContentView: View {
                 onRun: onRun,
                 onRunTest: onRunTest,
                 onShowLocalHistory: onShowLocalHistory,
-                onMove: onMove
+                onMove: onMove,
+                reveal: treeReveal
             )
         } trailing: {
             switch settings.tabOrientation {

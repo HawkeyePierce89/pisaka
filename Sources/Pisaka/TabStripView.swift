@@ -224,7 +224,9 @@ struct TabActions {
     /// the menu's availability are judged.
     var projectRoot: URL?
     var close: (TabCloseCommand, UUID) -> Void = { _, _ in }
-    var revealInProjectTree: (URL) -> Void = { _ in }
+    /// Reveal in Project Tree for the tab with this id and url: the app selects
+    /// that tab and expands the tree down to its row.
+    var revealInProjectTree: (UUID, URL) -> Void = { _, _ in }
     var showLocalHistory: (URL) -> Void = { _ in }
     /// Copy Path and Copy Relative Path: the string goes to the general pasteboard.
     var copyToPasteboard: (String) -> Void = { text in
@@ -269,7 +271,7 @@ extension View {
                     .disabled(!available.copyRelativePath)
                 Button("Reveal in Finder") { if let url = file.url { actions.revealInFinder(url) } }
                     .disabled(!available.copyPath)
-                Button("Reveal in Project Tree") { if let url = file.url { actions.revealInProjectTree(url) } }
+                Button("Reveal in Project Tree") { if let url = file.url { actions.revealInProjectTree(file.id, url) } }
                     .disabled(!available.copyRelativePath)
             }
             Section {
