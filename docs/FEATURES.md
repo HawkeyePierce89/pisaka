@@ -499,7 +499,8 @@ user sees it.
   a symbol that needs an `import` inserts the import line together with the symbol —
   caret after the symbol, and a single Cmd+Z undoes both. While you keep typing in
   the same word, a list the server said was complete is narrowed on the spot rather
-  than asked for again. Candidates that match what you typed sit above the ones
+  than asked for again — but only for servers whose answer is complete; the Swift
+  server's lists never are, so Swift completion asks again on every keystroke. Candidates that match what you typed sit above the ones
   that do not, best-matching first, and the server's own order applies within each
   group. A capital you typed counts: `aBu` puts `ArrayBuffer` above `abuse`. Each
   row shows the server's detail (a signature or type) dimmed at the right. Committing with

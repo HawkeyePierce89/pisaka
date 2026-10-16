@@ -64,20 +64,20 @@ Part B is Markdown only. It records the review findings from the resolve-cache b
 - Modify: `docs/FEATURES.md`
 - Modify: `docs/plans/completed/20261016-lsp-completion-resolve-cache-for-the-retained-list.md`
 
-- [ ] `core-lsp.md` `## Known limits`: add an entry next to "Local narrowing trusts `isIncomplete`". It says:
+- [x] `core-lsp.md` `## Known limits`: add an entry next to "Local narrowing trusts `isIncomplete`". It says:
   - With the sourcekit-lsp shipped in the Xcode 27.0 toolchain, every completion list observed on 2026-10-16 carried `isIncomplete: true`.
   - The four scenarios were a member access with a typed prefix, a bare dot, a top-level identifier, and a prefix matching a single item.
   - Consequence: D40's narrowing and the retained list's resolve cache do not engage for Swift. Every keystroke costs the ordinary debounced request plus its prefetched resolves, exactly as before D40.
   - This was observed, not inferred from the server's source. Method, in one sentence: a request-counting pipe transport under Core's own `LSPWorkspace`/`LSPSession`, re-runnable when the toolchain changes.
   - The cache's hit path is verified only through `ScriptedLSPTransport` until a complete-list server is run against it.
   - Honouring `isIncomplete` is correct: the server filters on its side and asks to be asked again.
-- [ ] D40's paragraph: add one clause pointing at that known-limit entry.
-- [ ] `docs/FEATURES.md`, the completion bullet's sentence "a list the server said was complete is narrowed on the spot": state that this applies only to servers whose answer is complete, and that the Swift server's lists never are, so Swift completion asks again on every keystroke. `README.md` does not state the behaviour, so it is not touched.
-- [ ] Completed plan, the Task 1 in-flight dedup bullet: rewrite it to say the test waits on the provider's `internal` join count as its causal signal. Give the reason: a wire-only observation (counting `completionItem/resolve` sends) could pass just as well when the second caller was answered from a finished cache entry, so it cannot prove the two callers shared one in-flight resolve. Remove the claim that the provider carries no seam. Nothing else in that file changes.
-- [ ] Completed plan, the Task 2 verification bullet: stop quoting the stale phrase verbatim. Spell the grep with a bracket class (`grep -rn "non-empty prefix[ ]of it" docs/plans/completed/`), so the pattern still finds the phrase but never matches its own line.
-- [ ] Verify: `grep -rn "non-empty prefix[ ]of it" docs/plans/completed/` prints nothing, and `grep -n "no test seam" docs/plans/completed/20261016-lsp-completion-resolve-cache-for-the-retained-list.md` prints nothing.
-- [ ] Confirm `git diff --stat` touches only `.md` files.
-- [ ] Run `swift test` (it includes `LintConfigurationTests`' doc-shape checks); it must pass before Task 2.
+- [x] D40's paragraph: add one clause pointing at that known-limit entry.
+- [x] `docs/FEATURES.md`, the completion bullet's sentence "a list the server said was complete is narrowed on the spot": state that this applies only to servers whose answer is complete, and that the Swift server's lists never are, so Swift completion asks again on every keystroke. `README.md` does not state the behaviour, so it is not touched.
+- [x] Completed plan, the Task 1 in-flight dedup bullet: rewrite it to say the test waits on the provider's `internal` join count as its causal signal. Give the reason: a wire-only observation (counting `completionItem/resolve` sends) could pass just as well when the second caller was answered from a finished cache entry, so it cannot prove the two callers shared one in-flight resolve. Remove the claim that the provider carries no seam. Nothing else in that file changes.
+- [x] Completed plan, the Task 2 verification bullet: stop quoting the stale phrase verbatim. Spell the grep with a bracket class (`grep -rn "non-empty prefix[ ]of it" docs/plans/completed/`), so the pattern still finds the phrase but never matches its own line.
+- [x] Verify: `grep -rn "non-empty prefix[ ]of it" docs/plans/completed/` prints nothing, and `grep -n "no test seam" docs/plans/completed/20261016-lsp-completion-resolve-cache-for-the-retained-list.md` prints nothing.
+- [x] Confirm `git diff --stat` touches only `.md` files.
+- [x] Run `swift test` (it includes `LintConfigurationTests`' doc-shape checks); it must pass before Task 2.
 
 ### Task 2: Core: the relative path and the tooltip
 
