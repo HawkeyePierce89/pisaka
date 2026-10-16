@@ -40,7 +40,8 @@ public enum LanguageKeywords {
         switch language {
         case .swift: return swift
         case .javascript: return javaScript
-        case .typescript: return typeScript
+        // TSX is TypeScript with JSX: the same reserved words, one list.
+        case .typescript, .tsx: return typeScript
         case .python: return python
         case .dockerfile: return dockerfile
         case .go: return go

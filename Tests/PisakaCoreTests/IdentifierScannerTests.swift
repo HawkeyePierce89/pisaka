@@ -391,13 +391,13 @@ final class IdentifierScannerTests: XCTestCase {
     /// scalars, and it adds exactly `$` and `#`.
     func testOnlyTheJavaScriptFamilyAddsWordScalars() {
         for language in SyntaxLanguage.allCases {
-            let expected: Set<UnicodeScalar> = [.javascript, .typescript].contains(language) ? ["$", "#"] : []
+            let expected: Set<UnicodeScalar> = [.javascript, .typescript, .tsx].contains(language) ? ["$", "#"] : []
             XCTAssertEqual(language.extraWordScalars, expected, "\(language)")
         }
     }
 
-    func testDollarAndHashAreWordCharactersInJavaScriptAndTypeScriptOnly() {
-        for language in [SyntaxLanguage.javascript, .typescript] {
+    func testDollarAndHashAreWordCharactersInTheJavaScriptFamilyOnly() {
+        for language in [SyntaxLanguage.javascript, .typescript, .tsx] {
             XCTAssertTrue(IdentifierScanner.isIdentifierStart("$", language: language))
             XCTAssertTrue(IdentifierScanner.isIdentifierStart("#", language: language))
             XCTAssertTrue(IdentifierScanner.isIdentifierContinuation("$", language: language))

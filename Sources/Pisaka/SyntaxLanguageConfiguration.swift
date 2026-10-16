@@ -11,6 +11,7 @@ import TreeSitterSwift
 import TreeSitterJSON
 import TreeSitterJavaScript
 import TreeSitterTypeScript
+import TreeSitterTSX
 import TreeSitterPython
 import TreeSitterGo
 import TreeSitterRust
@@ -90,6 +91,8 @@ enum SyntaxLanguageConfiguration {
             return try LanguageConfiguration(tree_sitter_javascript(), name: "JavaScript")
         case .typescript:
             return try makeTypeScriptConfiguration()
+        case .tsx:
+            return try makeTSXConfiguration()
         case .json:
             return try LanguageConfiguration(tree_sitter_json(), name: "JSON")
         case .markdown:
@@ -149,30 +152,69 @@ enum SyntaxLanguageConfiguration {
     /// keywords). Comments, strings, numbers, functions, operators, and the
     /// common keywords live in the JavaScript grammar's highlights, which the
     /// TypeScript grammar is a superset of. Without composing them, ordinary
-    /// JavaScript syntax in a `.ts`/`.tsx` file renders as plain text.
+    /// JavaScript syntax in a `.ts` file renders as plain text.
     ///
     /// JavaScript patterns are placed first so the TypeScript-specific ones that
     /// follow take precedence on overlapping nodes. If either bundle's queries
     /// can't be read or the merged query fails to compile, this degrades to the
     /// TypeScript-only configuration rather than failing.
     private static func makeTypeScriptConfiguration() throws -> LanguageConfiguration {
-        let language = Language(tree_sitter_typescript())
-        let base = try LanguageConfiguration(language, name: "TypeScript")
+        try makeComposedConfiguration(
+            Language(tree_sitter_typescript()),
+            name: "TypeScript",
+            bundleName: "TreeSitterTypeScript_TreeSitterTypeScript",
+            layers: [
+                ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights.scm"),
+                ("TreeSitterTypeScript_TreeSitterTypeScript", "highlights.scm"),
+            ]
+        )
+    }
 
-        guard
-            let jsHighlights = highlightsQueryData(
-                bundleNamed: "TreeSitterJavaScript_TreeSitterJavaScript"
-            ),
-            let tsHighlights = highlightsQueryData(
-                bundleNamed: "TreeSitterTypeScript_TreeSitterTypeScript"
-            )
-        else {
-            return base
+    /// Builds the TSX configuration: the TSX grammar — TypeScript plus JSX, from
+    /// the same package — with three highlight layers composed in this order:
+    /// JavaScript's `highlights.scm`, JavaScript's `highlights-jsx.scm` (the
+    /// `@tag`/`@attribute` captures, which neither TypeScript query carries),
+    /// then TypeScript's `highlights.scm`, last so its captures win on
+    /// overlapping nodes exactly as they do for `.ts`.
+    ///
+    /// The bundle is `TreeSitterTypeScript_TreeSitterTSX`, not the
+    /// `TreeSitterTSX_TreeSitterTSX` the name convention would derive, because
+    /// the target lives in the TypeScript package; it copies the same `queries/`
+    /// directory, so the TypeScript layer is read from it. Degrades exactly as
+    /// the TypeScript configuration does.
+    private static func makeTSXConfiguration() throws -> LanguageConfiguration {
+        try makeComposedConfiguration(
+            Language(tree_sitter_tsx()),
+            name: "TSX",
+            bundleName: "TreeSitterTypeScript_TreeSitterTSX",
+            layers: [
+                ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights.scm"),
+                ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights-jsx.scm"),
+                ("TreeSitterTypeScript_TreeSitterTSX", "highlights.scm"),
+            ]
+        )
+    }
+
+    /// A configuration whose highlights query is `layers` concatenated in order
+    /// — each a (resource bundle, query file) pair — over `language`'s own
+    /// bundled queries. Any unreadable layer or a merged query that fails to
+    /// compile returns the grammar's own configuration rather than failing.
+    private static func makeComposedConfiguration(
+        _ language: Language,
+        name: String,
+        bundleName: String,
+        layers: [(bundle: String, file: String)]
+    ) throws -> LanguageConfiguration {
+        let base = try LanguageConfiguration(language, name: name, bundleName: bundleName)
+
+        var merged = Data()
+        for (index, layer) in layers.enumerated() {
+            guard let data = queryData(bundleNamed: layer.bundle, fileNamed: layer.file) else {
+                return base
+            }
+            if index > 0 { merged.append(Data("\n".utf8)) }
+            merged.append(data)
         }
-
-        var merged = jsHighlights
-        merged.append(Data("\n".utf8))
-        merged.append(tsHighlights)
 
         guard let mergedQuery = try? Query(language: language, data: merged) else {
             return base
@@ -180,7 +222,7 @@ enum SyntaxLanguageConfiguration {
 
         var queries = base.queries
         queries[.highlights] = mergedQuery
-        return LanguageConfiguration(language, name: "TypeScript", queries: queries)
+        return LanguageConfiguration(language, name: name, queries: queries)
     }
 
     /// Resolves a configuration for a sub-language referenced by a tree-sitter
@@ -227,11 +269,12 @@ enum SyntaxLanguageConfiguration {
 
     private static var injectionCache: [String: LanguageConfiguration] = [:]
 
-    /// Reads the `highlights.scm` data from a grammar's SPM resource bundle.
+    /// Reads one query file (`highlights.scm` unless named) from a grammar's
+    /// SPM resource bundle.
     ///
     /// Mirrors SwiftTreeSitter's own bundle-path resolution (the `queries`
     /// directory location differs between SwiftPM and Xcode builds).
-    private static func highlightsQueryData(bundleNamed bundleName: String) -> Data? {
+    private static func queryData(bundleNamed bundleName: String, fileNamed fileName: String = "highlights.scm") -> Data? {
         guard let bundleURL = Bundle.main.url(forResource: bundleName, withExtension: "bundle") else {
             return nil
         }
@@ -241,8 +284,7 @@ enum SyntaxLanguageConfiguration {
             ? shortQueries
             : bundleURL.appendingPathComponent("Contents/Resources/queries", isDirectory: true)
 
-        let highlights = queriesDir.appendingPathComponent("highlights.scm")
-        return try? Data(contentsOf: highlights)
+        return try? Data(contentsOf: queriesDir.appendingPathComponent(fileName))
     }
 }
 

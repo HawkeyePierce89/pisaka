@@ -362,6 +362,20 @@ final class SymbolQueryTests: XCTestCase {
             "variable_declaration", "variable_declarator",
         ], anonymous: ["const", "let"], fields: ["body", "key", "name", "value"]),
 
+        // TSX is the TypeScript query repeated over the TSX grammar, which
+        // names the same nodes, so its pin is TypeScript's own set.
+        .tsx: (named: [
+            "abstract_class_declaration", "abstract_method_signature", "arrow_function",
+            "class_body", "class_declaration", "enum_assignment", "enum_body", "enum_declaration",
+            "export_statement", "function_declaration", "function_expression", "function_signature",
+            "generator_function_declaration", "identifier", "interface_body",
+            "interface_declaration", "internal_module", "lexical_declaration", "method_definition",
+            "method_signature", "module", "nested_identifier", "pair",
+            "private_property_identifier", "program", "property_identifier", "property_signature",
+            "public_field_definition", "type_alias_declaration", "type_identifier",
+            "variable_declaration", "variable_declarator",
+        ], anonymous: ["const", "let"], fields: ["body", "key", "name", "value"]),
+
         .python: (named: [
             "assignment", "block", "class_definition", "decorated_definition",
             "expression_statement", "function_definition", "identifier", "module",

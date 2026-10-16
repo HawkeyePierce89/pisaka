@@ -48,6 +48,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case swift
     case javascript
     case typescript
+    case tsx
     case json
     case markdown
     case python
@@ -75,6 +76,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         case .swift: return "Swift"
         case .javascript: return "JavaScript"
         case .typescript: return "TypeScript"
+        case .tsx: return "TSX"
         case .json: return "JSON"
         case .markdown: return "Markdown"
         case .python: return "Python"
@@ -105,7 +107,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     /// itself stays in `IdentifierScanner`; this is only its per-language data.
     public var extraWordScalars: Set<UnicodeScalar> {
         switch self {
-        case .javascript, .typescript: return SyntaxLanguage.javaScriptWordScalars
+        case .javascript, .typescript, .tsx: return SyntaxLanguage.javaScriptWordScalars
         default: return []
         }
     }
@@ -170,7 +172,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "mjs": .javascript,
         "cjs": .javascript,
         "ts": .typescript,
-        "tsx": .typescript,
+        "tsx": .tsx,
         "json": .json,
         "md": .markdown,
         "markdown": .markdown,

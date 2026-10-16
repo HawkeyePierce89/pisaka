@@ -341,8 +341,8 @@ final class LSPWorkspaceTests: XCTestCase {
         )
     }
 
-    /// `.tsx` and `.jsx` share a `SyntaxLanguage` case with their plain
-    /// counterparts, and must not share a `languageId`.
+    /// `.tsx` is its own `SyntaxLanguage` and `.jsx` shares JavaScript's, and
+    /// neither may share a `languageId` with its plain counterpart.
     ///
     /// `typescript-language-server` hands the id straight to tsserver as a script
     /// kind, and corrects a wrong one only when it is not a mode it recognises —
@@ -352,7 +352,7 @@ final class LSPWorkspaceTests: XCTestCase {
     /// is the one thing `RoutingIntelligenceProvider` cannot fall back from.
     func testTheJSXAndTSXFlavoursAreOpenedUnderTheirOwnLanguageIDs() async throws {
         let cases: [(String, SyntaxLanguage, String)] = [
-            ("view.tsx", .typescript, "typescriptreact"),
+            ("view.tsx", .tsx, "typescriptreact"),
             ("view.ts", .typescript, "typescript"),
             ("view.jsx", .javascript, "javascriptreact"),
             ("view.js", .javascript, "javascript"),
@@ -360,7 +360,7 @@ final class LSPWorkspaceTests: XCTestCase {
         ]
         let fake = LSPServerDescription(
             id: "fake-tsls",
-            languages: [.typescript, .javascript],
+            languages: [.typescript, .tsx, .javascript],
             launch: .executable(path: "/usr/local/bin/fake-tsls"),
             arguments: ["--stdio"]
         )

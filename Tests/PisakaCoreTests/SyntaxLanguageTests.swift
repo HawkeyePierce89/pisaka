@@ -12,7 +12,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "mjs": .javascript,
             "cjs": .javascript,
             "ts": .typescript,
-            "tsx": .typescript,
+            "tsx": .tsx,
             "json": .json,
             "md": .markdown,
             "markdown": .markdown,
@@ -413,6 +413,26 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SymbolIndexModel.indexableLanguage(forFileName: "Makefile"), .make)
     }
 
+    // MARK: - TSX
+
+    /// `.tsx` is its own case, parsed with the TSX grammar, while `.ts` stays
+    /// TypeScript and `.jsx` stays JavaScript (whose grammar already parses JSX).
+    func testTSXIsItsOwnLanguageAndItsNeighboursAreUnchanged() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "App.tsx"), .tsx)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "src/App.TSX"), .tsx)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "app.ts"), .typescript)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "App.jsx"), .javascript)
+        XCTAssertEqual(SyntaxLanguage.tsx.rawValue, "tsx")
+        XCTAssertEqual(SyntaxLanguage.tsx.displayName, "TSX")
+    }
+
+    /// TSX is JavaScript-family for the boundary rule, so `$`/`#` stay inside a name.
+    func testTSXCarriesTheJavaScriptWordScalars() {
+        XCTAssertEqual(SyntaxLanguage.tsx.extraWordScalars, SyntaxLanguage.typescript.extraWordScalars)
+        XCTAssertEqual(SyntaxLanguage.tsx.extraWordScalars, ["$", "#"])
+        XCTAssertTrue(IdentifierScanner.isIdentifier("$store", language: .tsx))
+    }
+
     // MARK: - displayName
 
     /// Every case's readout name, pinned as a whole table so a new case cannot
@@ -420,6 +440,7 @@ final class SyntaxLanguageTests: XCTestCase {
     func testEveryDisplayName() {
         let expected: [SyntaxLanguage: String] = [
             .swift: "Swift", .javascript: "JavaScript", .typescript: "TypeScript",
+            .tsx: "TSX",
             .json: "JSON", .markdown: "Markdown", .python: "Python", .go: "Go",
             .rust: "Rust", .html: "HTML", .css: "CSS", .yaml: "YAML",
             .dockerfile: "Dockerfile", .dotenv: "Dotenv", .gitignore: "Gitignore",

@@ -108,7 +108,8 @@ final class SyntaxContextVocabularyTests: XCTestCase {
     }
 
     func testStringsSuppressCompletionIsTrueForGatedLanguages() {
-        for language in [SyntaxLanguage.swift, .javascript, .typescript, .python, .go, .rust, .css, .sql, .dockerfile] as [SyntaxLanguage] {
+        let gated: [SyntaxLanguage] = [.swift, .javascript, .typescript, .tsx, .python, .go, .rust, .css, .sql, .dockerfile]
+        for language in gated {
             XCTAssertTrue(
                 SyntaxContextVocabulary.stringsSuppressCompletion(for: language),
                 "\(language.rawValue) should gate strings"
@@ -233,7 +234,7 @@ final class SyntaxContextVocabularyTests: XCTestCase {
         // starts a comment went unstated.
         XCTAssertEqual(Set(byAnchor.keys),
                        [.anywhere, .trueLineStart, .afterIndent, .afterWhitespace, .atWordStart])
-        XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .python, .go, .rust, .sql, .make])
+        XCTAssertEqual(byAnchor[.anywhere], [.swift, .javascript, .typescript, .tsx, .python, .go, .rust, .sql, .make])
         XCTAssertEqual(byAnchor[.trueLineStart], [.gitignore])
         XCTAssertEqual(byAnchor[.afterIndent], [.dockerfile, .dotenv, .editorconfig])
         // yaml keeps `.afterWhitespace` — the reading is correct there, and

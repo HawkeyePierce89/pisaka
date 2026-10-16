@@ -602,7 +602,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
             seen.formUnion(server.languages)
         }
         XCTAssertEqual(
-            seen, [.typescript, .javascript, .python, .yaml],
+            seen, [.typescript, .tsx, .javascript, .python, .yaml],
             "the served language set changed"
         )
     }
@@ -614,7 +614,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         let base = "/tmp/pisaka-servers"
 
         XCTAssertEqual(description.id, "typescript-language-server")
-        XCTAssertEqual(description.languages, [.typescript, .javascript])
+        XCTAssertEqual(description.languages, [.typescript, .tsx, .javascript])
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/typescript-language-server/5.3.0/node_modules/typescript-language-server/lib/cli.mjs",

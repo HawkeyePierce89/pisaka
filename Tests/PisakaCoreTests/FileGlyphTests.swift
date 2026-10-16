@@ -9,6 +9,7 @@ final class FileGlyphTests: XCTestCase {
         .swift: ("main.swift", .fileCode),
         .javascript: ("index.js", .fileCode),
         .typescript: ("app.ts", .fileCode),
+        .tsx: ("App.tsx", .fileCode),
         .json: ("package.json", .fileCode),
         .markdown: ("README.md", .fileText),
         .python: ("script.py", .fileCode),

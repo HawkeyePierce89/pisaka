@@ -1222,7 +1222,7 @@ final class LSPProvisioningModelTests: XCTestCase {
         let registry = harness.model.registry
         XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP)
         XCTAssertFalse(registry.servesLanguage(.python))
-        XCTAssertEqual(registry.servedLanguages, [.swift, .typescript, .javascript])
+        XCTAssertEqual(registry.servedLanguages, [.swift, .typescript, .tsx, .javascript])
         XCTAssertEqual(harness.state(of: .python), .absent)
         XCTAssertEqual(harness.model.row(for: .python)?.consent, .unasked)
         XCTAssertNotNil(harness.model.consentPrompt(forOpening: .python))
@@ -1267,7 +1267,7 @@ final class LSPProvisioningModelTests: XCTestCase {
         )
         XCTAssertEqual(
             harness.model.rows.map(\.languages),
-            [[.typescript, .javascript], [.python], [.yaml]]
+            [[.typescript, .tsx, .javascript], [.python], [.yaml]]
         )
         XCTAssertEqual(harness.model.rows.map(\.state), [.absent, .absent, .absent])
         XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false, false])

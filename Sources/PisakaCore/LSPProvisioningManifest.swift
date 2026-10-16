@@ -712,7 +712,7 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// something this layer provisions, replaces or can interfere with.
     public var languages: Set<SyntaxLanguage> {
         switch self {
-        case .typescript: return [.typescript, .javascript]
+        case .typescript: return [.typescript, .tsx, .javascript]
         case .python: return [.python]
         case .yaml: return [.yaml]
         }

@@ -103,19 +103,19 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Tests/PisakaCoreTests/SymbolQueryTests.swift` (pinned node names), `LanguageKeywordsTests`, `SyntaxLanguageTests`, `LSPServerRegistryTests`, and any `allCases` set-equality suite that fails
 - Create: `Tests/PisakaAppTests/TSXGrammarQueryTests.swift`
 
-- [ ] Add `SyntaxLanguage.tsx`. `.ts` stays `.typescript` and `.jsx` stays `.javascript`. Add `.tsx` to the JS-family word scalars from Task 1.
-- [ ] In `SyntaxLanguageConfiguration`, import `TreeSitterTSX` and add `makeTSXConfiguration()`.
+- [x] Add `SyntaxLanguage.tsx`. `.ts` stays `.typescript` and `.jsx` stays `.javascript`. Add `.tsx` to the JS-family word scalars from Task 1.
+- [x] In `SyntaxLanguageConfiguration`, import `TreeSitterTSX` and add `makeTSXConfiguration()`.
   - It runs over `tree_sitter_tsx()` with `name: "TSX"` and bundle `TreeSitterTypeScript_TreeSitterTSX`.
   - Highlights are composed in this order: JS `highlights.scm`, then JS `highlights-jsx.scm`, then TS `highlights.scm`.
   - Factor the merge helper out of `makeTypeScriptConfiguration()` so the TS path stays byte-for-byte the same.
-- [ ] Add `Resources/Queries/tsx/symbols.scm` under the shared capture convention, starting from the TypeScript query.
-- [ ] Check that the LSP `languageId` for `.tsx` stays `typescriptreact`, and that `canServe(.tsx)` routes to typescript-language-server.
-- [ ] App test that executes the shipped grammar:
+- [x] Add `Resources/Queries/tsx/symbols.scm` under the shared capture convention, starting from the TypeScript query.
+- [x] Check that the LSP `languageId` for `.tsx` stays `typescriptreact`, and that `canServe(.tsx)` routes to typescript-language-server.
+- [x] App test that executes the shipped grammar:
   - `Queries/tsx/symbols.scm` compiles against TSX and yields a component symbol for a sample;
   - the merged TSX highlights query compiles;
   - a JSX element in a `.tsx` sample parses without `ERROR` nodes, and its tag name and attribute are captured as `@tag`/`@attribute`.
-- [ ] Core tests: the extension map, the display name, the keyword/symbols set equalities, the LSP id and the server language set.
-- [ ] Run `make test` and `make test-app` before Task 4.
+- [x] Core tests: the extension map, the display name, the keyword/symbols set equalities, the LSP id and the server language set.
+- [x] Run `make test` and `make test-app` before Task 4.
 
 ### Task 4: Colours and the overlay layers (R7)
 

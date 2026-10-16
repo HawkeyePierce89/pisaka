@@ -702,9 +702,9 @@ public final class LSPWorkspace {
             version = try await flush(
                 uri: uri,
                 text: text,
-                // Resolved from the *file*, not the language: `.tsx` and `.jsx`
-                // share a `SyntaxLanguage` case with their plain counterparts but
-                // not an LSP id (see `lspLanguageID(forFileNamed:)`).
+                // Resolved from the *file*, not the language: `.jsx` shares
+                // JavaScript's `SyntaxLanguage` case but not its LSP id (see
+                // `lspLanguageID(forFileNamed:)`).
                 languageID: language.lspLanguageID(forFileNamed: url.lastPathComponent),
                 session: session,
                 key: key,

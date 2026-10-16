@@ -41,7 +41,7 @@ public enum SyntaxContextVocabulary {
     public enum LineAnchor: Equatable, Sendable {
         /// The token starts a comment wherever it appears.
         /// Held by every language whose comment token is unambiguous:
-        /// swift, javascript, typescript, python, go, rust, sql, make.
+        /// swift, javascript, typescript, tsx, python, go, rust, sql, make.
         case anywhere
         /// Only at column zero — offset 0 or immediately after a line
         /// separator, with no whitespace tolerated before the token.
@@ -147,7 +147,7 @@ public enum SyntaxContextVocabulary {
 
     // MARK: - Accessors
 
-    /// The vocabulary for `language`, covering all 18 `SyntaxLanguage` cases.
+    /// The vocabulary for `language`, covering all 19 `SyntaxLanguage` cases.
     public static func vocabulary(for language: SyntaxLanguage) -> Vocabulary {
         Vocabulary(
             stringForms: stringForms(for: language),
@@ -161,7 +161,7 @@ public enum SyntaxContextVocabulary {
         switch language {
         case .swift:
             return swiftStringForms
-        case .javascript, .typescript:
+        case .javascript, .typescript, .tsx:
             return jsStringForms
         case .python:
             return pythonStringForms
@@ -198,7 +198,7 @@ public enum SyntaxContextVocabulary {
         switch language {
         case .swift:
             return [.line(token: "//", anchor: .anywhere), .block(open: "/*", close: "*/", nestable: true)]
-        case .javascript, .typescript:
+        case .javascript, .typescript, .tsx:
             return [.line(token: "//", anchor: .anywhere), .block(open: "/*", close: "*/", nestable: false)]
         case .python:
             return [.line(token: "#", anchor: .anywhere)]
@@ -274,7 +274,7 @@ public enum SyntaxContextVocabulary {
         switch language {
         case .json, .yaml, .html, .dotenv, .shell:
             return false
-        case .swift, .javascript, .typescript, .python, .go, .rust, .css, .sql, .dockerfile:
+        case .swift, .javascript, .typescript, .tsx, .python, .go, .rust, .css, .sql, .dockerfile:
             return true
         case .markdown, .gitignore, .editorconfig, .make:
             return false
