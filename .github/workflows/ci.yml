@@ -40,6 +40,27 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: '26.3'
+      # One-off probe: reads the pinned SDK's CommandsBuilder declarations so
+      # app-shell.md can state the `.commands` ceiling for this toolchain. It
+      # must not survive the PR, which is why no suite pins it.
+      - name: TEMPORARY — print CommandsBuilder arities (remove before merge)
+        run: |
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "SDK: $sdk"
+          for framework in SwiftUI SwiftUICore; do
+            dir="$sdk/System/Library/Frameworks/$framework.framework"
+            if [ ! -d "$dir" ]; then echo "$framework.framework: absent"; continue; fi
+            for interface in $(find "$dir" -name '*.swiftinterface'); do
+              echo "== $interface"
+              sed -n '/CommandsBuilder {/,/^}/p' "$interface" \
+                | (grep -E 'buildBlock|buildPartialBlock' || true) \
+                | while IFS= read -r line; do
+                    count=$(printf '%s\n' "$line" | (grep -oE 'C[0-9]+ *: *(SwiftUI\.)?Commands' || true) | wc -l | tr -d ' ')
+                    echo "[$count generic Commands parameters] $line"
+                  done
+            done
+          done
       - name: Install XcodeGen 2.45.4
         run: |
           curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip

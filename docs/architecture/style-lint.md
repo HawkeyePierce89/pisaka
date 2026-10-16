@@ -93,8 +93,9 @@ shares with `FoldCommands`. The Window menu's thirteen items (Show
 Next / Previous Tab twice each, the nine Select Tab items) and the four helpers
 asking Core's `TabNavigationRule` which tab each selects live in
 `TabNavigationCommands.swift`, not here — the scene's `.commands` builder was
-already at the ten entries the Xcode 16.4 SDK accepts, so that type shares one
-`Group` entry with `FoldCommands` (`core-services.md`, `app-shell.md`).
+already at the ten entries the then-pinned Xcode 16.4 SDK accepted, so that
+type shares one `Group` entry with `FoldCommands` (`core-services.md`,
+`app-shell.md`).
 
 The bump before it is Reveal in Project Tree's, `file_length` 1937 →
 **1944** and `type_body_length` 1930 → **1937**: the scene holds the latest
