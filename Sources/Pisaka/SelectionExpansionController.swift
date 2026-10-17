@@ -12,7 +12,10 @@ import SwiftTreeSitter
 /// ladder. A tree not yet parsed is asked for off the main actor and the step
 /// lands when it arrives — reading the selection *then*, so a second press
 /// waiting on the same parse steps from wherever the first left it — and beeps
-/// itself if the parse was superseded or nothing was left to take.
+/// itself if the parse was superseded or nothing was left to take. A selection
+/// change this controller did not make, or a character edit, while the parse
+/// is in flight supersedes the waiting step silently (`intentGeneration`): the
+/// press asked about a selection the user has since abandoned.
 ///
 /// **The history.** Only this controller's own selection moves keep it; any
 /// other selection change (a click, an arrow key, a find) and any character
@@ -36,6 +39,11 @@ final class SelectionExpansionController {
     /// observer keeps the history for exactly those moves.
     private var isApplying = false
 
+    /// Advanced by every selection change this controller did not make and by
+    /// every character edit; a cold step captures it at the press and lands
+    /// only if it is unchanged, so a click during the parse is never expanded.
+    private var intentGeneration = 0
+
     init(coordinator: CodeEditorView.Coordinator) {
         self.coordinator = coordinator
     }
@@ -58,9 +66,11 @@ final class SelectionExpansionController {
         }
         let text = textView.string
         let textGeneration = snapshot.editGeneration
+        let intent = intentGeneration
         pendingStep = Task { [weak self] in
             let tree = await snapshot.tree(text: text, language: language, fileID: fileID, generation: textGeneration)
-            guard let self, let tree, self.coordinator?.fileID == fileID, self.coordinator?.language == language,
+            guard let self, self.intentGeneration == intent else { return }
+            guard let tree, self.coordinator?.fileID == fileID, self.coordinator?.language == language,
                   self.expand(over: tree, language: language)
             else {
                 PlatformFeedback.warning()
@@ -148,13 +158,16 @@ final class SelectionExpansionController {
     }
 
     @objc private func selectionDidChange(_ notification: Notification) {
-        if !isApplying { history.reset() }
+        guard !isApplying else { return }
+        history.reset()
+        intentGeneration += 1
     }
 
     @objc private func storageDidProcessEditing(_ notification: Notification) {
         guard let storage = notification.object as? NSTextStorage,
               storage.editedMask.contains(.editedCharacters) else { return }
         history.reset()
+        intentGeneration += 1
     }
 }
 

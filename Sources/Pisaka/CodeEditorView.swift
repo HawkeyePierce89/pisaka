@@ -751,6 +751,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.prunePerFileState(keeping: openFileIDs)
 
         let language = SyntaxLanguage(forFileName: fileName)
+        // Before `updateHighlighter` below re-records the coordinator's language.
+        let caretHighlightsReset = context.coordinator.resetCaretHighlights(ifRetargeted: retargetedBuffer, language: language)
 
         // Replace the contents when the file changed, or when the model's text
         // diverged from the view (e.g. an external save/load). Avoid clobbering
@@ -1064,6 +1066,15 @@ struct CodeEditorView: NSViewRepresentable {
         // the range in the previous tab's text.
         context.coordinator.applyReveal(reveal.request, fileID: fileID)
 
+        // Ask the caret highlights again for whatever this update replaced or
+        // retargeted. Deliberately after the buffer swap: the swap's full-range
+        // edit cancels any settle already queued, and a restored selection
+        // equal to the outgoing one sends no selection change to queue another,
+        // so asking earlier would leave the highlights blank until the caret
+        // moved. The settle reads the live buffer, caret, URL and language when
+        // its debounce fires.
+        context.coordinator.scheduleCaretHighlightSettle(when: switchedFile || contentReplaced || caretHighlightsReset)
+
         // Once the incoming tab's selection is restored or revealed, say where
         // its caret is outright: a restore that leaves the selection where the
         // outgoing tab had it sends no selection change at all.
@@ -1142,7 +1153,8 @@ struct CodeEditorView: NSViewRepresentable {
         /// The matching-tag highlight (R5): the caret's enclosing element names,
         /// settled with the occurrence highlight and painted through the same
         /// overlay layout manager, and the bracket pair it may take the place of.
-        private let tagHighlight = TagHighlightController()
+        /// `internal` for the app-layer retarget test.
+        let tagHighlight = TagHighlightController()
 
         /// Expand / Shrink Selection (R6): the history and the step, over the
         /// snapshot above. Lazy because it observes nothing until first used.
@@ -1779,6 +1791,34 @@ struct CodeEditorView: NSViewRepresentable {
             occurrenceHighlight.reset()
             tagHighlight.reset()
             treeSnapshot.reset()
+        }
+
+        /// A retarget of the same tab (a URL or root change: Save As, a
+        /// project-tree rename, the first Open Folder) or a language change on it
+        /// (a Save As to a new extension) invalidates the caret highlights just as
+        /// a swap does: what is painted, and any answer in flight, was asked of the
+        /// old URL, root or grammar, and nothing else clears it until the caret
+        /// moves. Must run before `updateHighlighter` re-records `language`.
+        ///
+        /// The caret has not moved, so no selection change will ask again: the
+        /// caller owes `scheduleCaretHighlightSettle()`, and owes it *after* any
+        /// buffer swap, whose edit would cancel a settle queued here. Answers
+        /// whether it reset.
+        @discardableResult
+        func resetCaretHighlights(ifRetargeted retargeted: Bool, language: SyntaxLanguage?) -> Bool {
+            guard retargeted || language != self.language else { return false }
+            resetCaretHighlights()
+            return true
+        }
+
+        /// Queue both caret highlights' debounced settle, which reads the live
+        /// buffer, caret, URL and language when it fires. For an update that
+        /// replaced or retargeted the buffer without necessarily moving the caret;
+        /// a no-op when `needed` is false.
+        func scheduleCaretHighlightSettle(when needed: Bool = true) {
+            guard needed else { return }
+            occurrenceHighlight.selectionChanged()
+            tagHighlight.selectionChanged()
         }
 
         /// Rescan the buffer's brackets (debounced unless `immediate`) and

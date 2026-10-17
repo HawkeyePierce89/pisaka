@@ -1390,7 +1390,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     in pre-edit coordinates, so the model's clear reaches
     `setOccurrenceRuns([])` as a no-op, and this class never removes an
     attribute at post-edit offsets the storage has not shifted yet. A tab switch
-    calls `reset()`. **On-screen slice**: like the search bar's matches, only
+    calls `reset()`, and so does a retarget of the same tab (a URL or root
+    change: Save As, a project-tree rename, the first Open Folder) or a
+    language change on it, through the coordinator's `resetCaretHighlights()`,
+    which also resets the matching-tag controller and the tree snapshot: what is
+    painted, and any answer in flight, was asked of the old URL, root or
+    grammar. Unlike a switch, a retarget moves no caret, so no selection change
+    would ever ask again — and neither does a switch whose restored selection
+    equals the outgoing one. So `updateNSView` asks itself, through the
+    coordinator's `scheduleCaretHighlightSettle()`, after any switch, buffer
+    replacement or retarget — **after the buffer swap**, whose full-range edit
+    cancels a settle queued earlier. The settle reads the live buffer, caret,
+    URL and language when its debounce fires (`CaretHighlightRetargetTests`). **On-screen slice**: like the search bar's matches, only
     the runs that intersect the visible character range are pushed, found by
     binary search over the ascending answer (`EditorSearchController`'s "ends
     after" rule). `refreshVisible()` re-runs on every publish, scroll and

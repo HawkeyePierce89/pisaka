@@ -135,6 +135,22 @@ final class SelectionExpansionTests: XCTestCase {
         XCTAssertFalse(editor.coordinator.selectionExpansion.shrink(), "a discarded step pushed history")
     }
 
+    func testAManualSelectionChangeBeforeTheColdParseLandsDiscardsTheStep() async throws {
+        let editor = Editor(text: try fixture("expand.ts"), language: .typescript)
+        addTeardownBlock { @MainActor in editor.harness.textView.delegate = nil }
+        let caret = editor.text.range(of: "alpha, beta)").location + 2
+        editor.select(NSRange(location: caret, length: 0))
+
+        XCTAssertTrue(editor.coordinator.selectionExpansion.expand())
+        let step = try XCTUnwrap(editor.coordinator.selectionExpansion.pendingStep)
+        // A click elsewhere, before the step's task has run at all.
+        let clicked = NSRange(location: editor.text.range(of: "beta)").location + 1, length: 0)
+        editor.select(clicked)
+        await step.value
+        XCTAssertEqual(editor.selection, clicked, "a step pressed for the old caret expanded the new one")
+        XCTAssertFalse(editor.coordinator.selectionExpansion.shrink(), "a discarded step pushed history")
+    }
+
     // MARK: - Harness
 
     @MainActor

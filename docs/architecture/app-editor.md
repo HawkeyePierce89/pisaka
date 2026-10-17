@@ -1886,7 +1886,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `selectionChanged()`; a scroll or resize calls the occurrence highlight's
     `refreshVisible()`. A tab switch calls `resetCaretHighlights()` (both
     controllers and the snapshot), and teardown resets the same three, so a
-    closed tab cannot paint. The tag controller's bracket suppression is routed
+    closed tab cannot paint. After the buffer swap, any switch, replacement or
+    retarget calls `scheduleCaretHighlightSettle()`, since a restored selection
+    may post no change (`app-editor-overlays.md`). The tag controller's bracket suppression is routed
     to `BracketHighlightController.setPairSuppressed`.
   - `SelectionCommands.swift` (macOS) — the Edit menu's *Expand Selection*
     (⌃⌘→) and *Shrink Selection* (⌃⌘←), in a `CommandGroup(after: .pasteboard)`.
@@ -1929,7 +1931,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the main actor, and the step lands when it arrives, reading the selection
     *then*, so a second press waiting on the same parse steps from wherever the
     first left it. It beeps itself if the parse was superseded or nothing was
-    left. **It never scrolls**: a step widens around a selection already on
+    left. A selection change it did not make, or a character edit, while the
+    parse is in flight supersedes the waiting step **silently** through an
+    intent generation both observers advance: the press asked about a selection
+    the user has since abandoned, so a click during the parse is never
+    expanded. **It never scrolls**: a step widens around a selection already on
     screen or narrows back to one that was, and `scrollRangeToVisible` belongs
     to the reveal funnel alone (`FoldingSourceGatingTests`). Routing through
     that funnel instead would unfold whatever the range covers, so the document
@@ -1945,7 +1951,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the word, the argument contents, the call and the statement, and shrink
     returns along the same path. Also covered: the word step first inside a
     string, a manual selection change and an edit each clearing the history,
-    and plain text climbing the bracket fallback.
+    plain text climbing the bracket fallback, and a cold step discarded by an
+    edit or by a manual selection change before its parse lands.
   - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
     `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
     (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/
