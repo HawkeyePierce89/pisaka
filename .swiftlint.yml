@@ -184,12 +184,15 @@ line_length:
 # Selection: one line, the `SelectionCommands()` entry inside that same
 # `Group`, because the two Edit menu items live in `SelectionCommands.swift`,
 # the step and its history in `SelectionExpansionController.swift` and every
-# decision in Core's `SelectionExpansionRule`. The number tracks the one file that
+# decision in Core's `SelectionExpansionRule`. Then 1949 with Move Line: one
+# line, the `LineCommands()` entry inside that same `Group`, because the two
+# Edit menu items live in `LineCommands.swift`, the apply in the coordinator's
+# `moveLines(_:)` and every decision in Core's `MoveLineEngine`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1948
-  error: 1948
+  warning: 1949
+  error: 1949
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -238,10 +241,12 @@ file_length:
 # three, the same three `file_length` counts: the `TabNavigationCommands(model:)`
 # entry and its `Group`'s two braces inside the `.commands` builder. Then to
 # 1941 with Expand / Shrink Selection's one, the same one `file_length` counts:
-# the `SelectionCommands()` entry inside that `Group`.
+# the `SelectionCommands()` entry inside that `Group`. Then to 1942 with Move
+# Line's one, the same one `file_length` counts: the `LineCommands()` entry
+# inside that `Group`.
 type_body_length:
-  warning: 1941
-  error: 1941
+  warning: 1942
+  error: 1942
 
 function_body_length:
   warning: 140

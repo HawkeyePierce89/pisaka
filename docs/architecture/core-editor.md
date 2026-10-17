@@ -62,6 +62,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     measured from the column — at most one unit, never across non-whitespace;
     deletions of several carets on one line merge into one edit and carets
     landing on one offset collapse. Unit-tested in `BlockIndentEngineTests`.
+  - `MoveLineEngine.swift` — Move Line Up / Down (⌥⌘[ / ⌥⌘]):
+    `move(text:ranges:direction:folds:)` answers a `MoveLinePlan` — `edit`, a
+    `RangeEditPlan` whose selections move with the text, and `folds`, the
+    **complete** `FoldState` against the resulting text — or `nil`, meaning
+    no-op with no undo. **Blocks** are the touched lines of every range under
+    `BlockIndentEngine`'s rule, adjacent or overlapping sets merged; each block
+    grows to cover every folded region it touches (header line plus every line
+    the hidden range reaches), so a fold moves as one unit and is never split.
+    The **neighbour** is the adjacent line, or the whole folded region that
+    line belongs to, so a folded block is swapped past in one press. Each
+    block-and-neighbour pair is one replacement over the pair's span, all pairs
+    in one plan; after merging, a neighbour always lies between two blocks, so
+    pairs never overlap. `nil` when any block already sits on the first (up) or
+    last (down) line, for empty text, and for a caret on the phantom empty line
+    after a final separator — there is no text there to carry. **Terminators**:
+    every line keeps its own; in a text with no final separator, when the swap
+    changes which line is last, the line becoming last gives its terminator to
+    the line leaving that position, so the line count and the final-terminator
+    state are preserved and each replacement is exactly as long as its span.
+    **Folds**: every folded region inside a moved block or neighbour is
+    translated by its part's displacement with its header line renumbered;
+    every other region is unchanged. The app applies `edit` (whose ordinary
+    shift drops what the span touched) and then installs `folds` whole, so a
+    move never reveals a fold — the undo rule and the wiring are in
+    `core-folding.md` and `app-editor.md`. Lines come from `TerminatedLines`,
+    so all six separators delimit. Unit-tested in `MoveLineEngineTests`,
+    including the undo path through `FoldShift.updated`.
   - `DuplicateEngine.swift` — pure, testable duplicate-line/selection computation
     for the editor's Cmd+D (Foundation only, no AppKit/Neon — the
     `IndentEngine`/`AutoPairEngine` precedent: the engine operates on an

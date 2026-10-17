@@ -664,6 +664,27 @@ and then asks `FoldCaretRule` once with no direction (`NSNotFound`), the same wa
 no second rule. *Unfold All* hands `FoldState()` the same way and needs no caret
 move — nothing is hidden afterwards.
 
+### Move Line — a whole-value writer
+
+*Move Line Up / Down* (⌥⌘[ / ⌥⌘], `LineCommands.swift`, `core-editor.md`'s
+`MoveLineEngine`) is the one editing command that carries folds with it. **The
+move's fold rule**: a fold is never revealed by a move and never left pointing at
+the wrong text. The engine grows each moved block over every fold it touches and
+swaps a folded neighbour past whole, then answers the complete `FoldState`
+against the moved text. The coordinator's `moveLines(_:)` applies the edit
+through the shared applier — whose ordinary `FoldShift` pass drops every fold the
+swapped span intersected — and then installs the plan's state through
+`FoldController.apply(_:)`, handing over a **whole value**. It is a new writer of
+that kind, not a fourth spelled mutation: `toggle`/`fold`/`unfold` stay three.
+
+**Undo is an ordinary edit**, stated and pinned rather than accidental. Undoing a
+move replays the inverse replacement — the pair's span in the moved text, given
+back the original pair text — through the existing `FoldShift.updated` rule and
+nothing else, so a fold inside the swapped span **opens on undo**, while folds
+outside it shift unchanged. No fold is ever registered in undo: the fold memory
+stays a layout fact, never an edit. `MoveLineEngineTests` pins exactly that
+result.
+
 ### Hiding, the placeholder and the gutter
 
 Both live in files documented in `app-editor-overlays.md`:
@@ -747,6 +768,10 @@ What it pins, and why the compiler cannot:
    appears in it. Naming one would compile perfectly and turn a debounced
    background question into a gate the editor waits behind — the rule the symbol
    index lives under, for the same reason.
+8. **Move Line hands a whole value**: `MoveLineEngine` is named by
+   `CodeEditorView.swift` alone among app files, which installs `plan.folds`
+   through `folds.apply(_:)` exactly once, and the controller's spelled
+   mutations stay three.
 
 ## Known limits
 

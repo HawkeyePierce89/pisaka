@@ -246,4 +246,43 @@ final class MoveLineEngineTests: XCTestCase {
         XCTAssertEqual(plan.folds, FoldState(regions: [fold(result, header: 0, last: 2)]))
         XCTAssertEqual(plan.edit.selections, [caret(9)])
     }
+
+    // MARK: - Undo
+
+    /// Undo of a move is an ordinary edit: the inverse replacement (the pair's
+    /// span in the moved text, given back the original pair text) runs through
+    /// `FoldShift.updated` and nothing else. The fold inside the swapped span
+    /// is dropped — it opens on undo — while a fold outside it shifts
+    /// unchanged. No fold is ever registered in undo.
+    func testUndoingAMoveReplaysTheInverseEditThroughTheShiftRule() throws {
+        let text = "x\nfunc {\n  body\n}\ny\ng {\n  z\n}\n"
+        let moved = fold(text, header: 1, last: 3)
+        let outside = fold(text, header: 5, last: 7)
+        let plan = try XCTUnwrap(move(text, [caret(3)], .down, folds: FoldState(regions: [moved, outside])))
+        let result = apply(plan.edit, to: text)
+        XCTAssertEqual(result, "x\ny\nfunc {\n  body\n}\ng {\n  z\n}\n")
+        XCTAssertEqual(
+            plan.folds,
+            FoldState(regions: [fold(result, header: 2, last: 4), outside])
+        )
+
+        let edit = try XCTUnwrap(plan.edit.edits.first)
+        XCTAssertEqual(plan.edit.edits.count, 1)
+        let originalPair = (text as NSString).substring(with: edit.range)
+        // The replacement is exactly as long as the span it replaced, so the
+        // pair's span in the new text is the same range.
+        let inverseRange = NSRange(location: edit.range.location, length: (edit.replacement as NSString).length)
+        let undone = NSMutableString(string: result)
+        undone.replaceCharacters(in: inverseRange, with: originalPair)
+        XCTAssertEqual(undone as String, text)
+
+        let afterUndo = FoldShift.updated(
+            plan.folds,
+            previousLineStarts: LineStartIndex.offsets(in: result as NSString),
+            newLineStarts: LineStartIndex.offsets(in: undone),
+            editedRange: NSRange(location: inverseRange.location, length: (originalPair as NSString).length),
+            changeInLength: (originalPair as NSString).length - inverseRange.length
+        )
+        XCTAssertEqual(afterUndo, FoldState(regions: [outside]))
+    }
 }

@@ -86,7 +86,13 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is Expand / Shrink Selection's, `file_length` 1947 →
+The most recent bump is Move Line's, `file_length` 1948 → **1949** and
+`type_body_length` 1941 → **1942**: one line, the `LineCommands()` entry inside
+the same `Group`. The two Edit menu items live in `LineCommands.swift`, the
+apply in the coordinator's `moveLines(_:)`, and every decision in Core's
+`MoveLineEngine` (`app-editor.md`, `core-folding.md`).
+
+The bump before it is Expand / Shrink Selection's, `file_length` 1947 →
 **1948** and `type_body_length` 1940 → **1941**: one line, the
 `SelectionCommands()` entry inside the `Group` the fold and tab-navigation
 commands already share. The two Edit menu items live in
@@ -94,7 +100,7 @@ commands already share. The two Edit menu items live in
 `SelectionExpansionController.swift`, and every decision in Core's
 `SelectionExpansionRule` (`app-editor.md`).
 
-The bump before it is the tab navigation commands', `file_length` 1944 →
+The bump before that is the tab navigation commands', `file_length` 1944 →
 **1947** and `type_body_length` 1937 → **1940**: three lines, the
 `TabNavigationCommands(model:)` entry and the two braces of the `Group` it
 shares with `FoldCommands`. The Window menu's thirteen items (Show

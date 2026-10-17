@@ -20,7 +20,9 @@ import XCTest
 /// commands use, and the `KeyEquivalent` *constant* form —
 /// `.keyboardShortcut(.tab, modifiers: .control)` — which is how the Window
 /// menu's ⌃Tab / ⌃⇧Tab tab commands, `FoldCommands`' four arrow chords and
-/// `SelectionCommands`' ⌃⌘→ / ⌃⌘← are spelled; a constant is recorded under its dotted name (`.tab`), which no
+/// `SelectionCommands`' ⌃⌘→ / ⌃⌘← are spelled (`LineCommands`' ⌥⌘[ / ⌥⌘]
+/// use the character form); a constant is recorded under its dotted name
+/// (`.tab`), which no
 /// single character can equal. Two spellings stay outside the set, excluded by
 /// the pattern rather than by an exception list: the semantic forms
 /// (`.cancelAction`, `.defaultAction`), which carry no `modifiers:`, and the
@@ -161,6 +163,21 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         for chord in [".rightArrow + .command .control", ".leftArrow + .command .control"] {
             let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
             XCTAssertEqual(declarations.map(\.location), ["SelectionCommands.swift"], chord)
+        }
+    }
+
+    /// Move Line Up / Down's chords, held by `LineCommands.swift` alone, and
+    /// distinct from tab navigation's ⌘⇧[ / ⌘⇧] — the same two keys with
+    /// Shift instead of Option.
+    func testTheMoveLineChordsAreDeclaredOnceEach() throws {
+        let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
+        for chord in ["[ + .command .option", "] + .command .option"] {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["LineCommands.swift"], chord)
+        }
+        for chord in ["[ + .command .shift", "] + .command .shift"] {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["TabNavigationCommands.swift"], chord)
         }
     }
 

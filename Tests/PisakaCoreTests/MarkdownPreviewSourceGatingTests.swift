@@ -28,8 +28,9 @@ import XCTest
 ///   `ContentView.swift` (the split, the divider and the width arithmetic's one
 ///   caller), `PisakaApp.swift` (the menu item and the five caret commands),
 ///   `CodeEditorView.swift` (the scroll callback), `SyntaxTheme.swift` (the
-///   theme derivation), `FoldCommands.swift` (the sixth caret command) and
-///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection).
+///   theme derivation), `FoldCommands.swift` (the sixth caret command),
+///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection) and
+///   `LineCommands.swift` (the eighth, Move Line Up / Down).
 ///   Rules that must hold for the *whole* app layer say so by scanning
 ///   `Sources/Pisaka` rather than by listing these.
 ///
@@ -550,8 +551,8 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
     // MARK: - The focus helper
 
-    /// One definition of "which editor is this keystroke for", and seven callers.
-    func testTheFocusHelperHasOneDefinitionAndSevenCallSites() throws {
+    /// One definition of "which editor is this keystroke for", and eight callers.
+    func testTheFocusHelperHasOneDefinitionAndEightCallSites() throws {
         XCTAssertEqual(
             try fileNames(matching: "\\benum EditorCommandTarget\\b", under: "Sources"),
             ["EditorCommandTarget.swift"],
@@ -571,7 +572,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: app),
             5,
-            "Five of the seven caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
+            "Five of the eight caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
                 + "Comment and Complete. A sixth site here would be a command that never asked."
         )
         let folds = try code(ofFileNamed: "FoldCommands.swift", under: "Sources/Pisaka")
@@ -586,10 +587,16 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
             1,
             "And the seventh is Expand / Shrink Selection's own focusedEditor(), which asks once for both items."
         )
+        let lines = try code(ofFileNamed: "LineCommands.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: lines),
+            1,
+            "And the eighth is Move Line Up / Down's own focusedEditor(), which asks once for both items."
+        )
         XCTAssertEqual(
             try fileNames(matching: "EditorCommandTarget\\.focusedEditor\\(", under: "Sources"),
-            ["PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift"],
-            "Three files ask, and they are the three that own app-wide caret chords. A fourth asker is a "
+            ["PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift", "LineCommands.swift"],
+            "Four files ask, and they are the four that own app-wide caret chords. A fifth asker is a "
                 + "command surface that grew somewhere no doc comment describes."
         )
 

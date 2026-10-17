@@ -233,6 +233,35 @@ final class FoldingSourceGatingTests: XCTestCase {
         )
     }
 
+    /// Move Line is a **whole-value writer**, not a fourth spelled mutation:
+    /// the engine computes the complete folded state against the moved text,
+    /// and the one file asking it hands that value through `apply(_:)`.
+    func testMoveLineHandsAWholeFoldStateThroughApply() throws {
+        XCTAssertEqual(
+            try fileNames(naming: "MoveLineEngine", under: "Sources/Pisaka"),
+            ["CodeEditorView.swift"],
+            "One app file asks where a move puts the lines and the folds: the coordinator, which holds both "
+                + "the buffer and the fold controller."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\bfolds\\.apply\\(plan\\.folds\\)",
+                in: try code(ofFileNamed: "CodeEditorView.swift", under: "Sources/Pisaka")
+            ),
+            1,
+            "The move installs the engine's fold state whole. Anything else — re-deriving it, or leaving the "
+                + "edit's shift to drop the moved folds — reveals a fold the user did not open."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\b\\w+\\.(fold|unfold|toggle)\\(region\\)",
+                in: try code(ofFileNamed: "FoldController.swift", under: "Sources/Pisaka")
+            ),
+            3,
+            "Still three spelled mutations: the move adds a whole-value writer, not a fourth."
+        )
+    }
+
     // MARK: - The reveal funnel
 
     /// Every jump into a buffer unfolds what it lands in before it scrolls.

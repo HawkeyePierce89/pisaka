@@ -3162,6 +3162,35 @@ struct CodeEditorView: NSViewRepresentable {
             return true
         }
 
+        // MARK: - Move Line
+
+        /// *Move Line Up* (⌥⌘[) / *Move Line Down* (⌥⌘]): swap every block of
+        /// touched lines with the line — or the folded region — beside it.
+        ///
+        /// Every decision is `MoveLineEngine.move`'s, asked with the folded
+        /// regions as they stand. The plan's edit goes through the applier, so
+        /// the move is one undo step, and the edit's own shift drops any fold
+        /// the swapped span touched; the plan's complete fold state is then
+        /// installed whole through `FoldController.apply(_:)`, so a fold is
+        /// never revealed by a move and never left over text that moved.
+        ///
+        /// **Undo is an ordinary edit**: it replays the inverse replacement
+        /// through the same shift rule and nothing else, so a fold inside the
+        /// swapped span may open on undo. No fold is registered in undo.
+        ///
+        /// `false` — the command's beep — for no editor, a read-only one, a
+        /// composition in flight, or a block already at the edge (the engine's
+        /// `nil`, which applies nothing and registers no undo).
+        func moveLines(_ direction: MoveLineDirection) -> Bool {
+            guard let textView, textView.isEditable, !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            guard let plan = MoveLineEngine.move(
+                text: textView.string as NSString, ranges: ranges, direction: direction, folds: folds.state
+            ), apply(plan.edit, in: textView) else { return false }
+            folds.apply(plan.folds)
+            return true
+        }
+
         /// Intercept Backspace so an empty auto-inserted pair `(|)`, `"|"`, … is
         /// deleted whole.
         ///

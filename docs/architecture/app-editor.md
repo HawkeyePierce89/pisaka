@@ -1941,6 +1941,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     keystrokes. Paragraph direction is a rich-text attribute a plain-text code
     buffer neither shows nor saves. ⌃←/⌃→ alone, the line-end moves, are
     untouched. The type's doc comment records the same check.
+  - `LineCommands.swift` (macOS) — the Edit menu's *Move Line Up* (⌥⌘[) and
+    *Move Line Down* (⌥⌘]), in a `CommandGroup(after: .pasteboard)`, shaped
+    like `SelectionCommands`: stateless items reaching the focused editor
+    through `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` and its
+    coordinator (the text view's delegate), with one beep
+    (`PlatformFeedback.warning()`) for a focus that is not an editor, a
+    read-only viewer or a composition in flight — Fold's refusals, since a move
+    is an edit — and for an editor answering that nothing moved. `PisakaApp`
+    names the type once inside the shared `Group`, so the `.commands { }`
+    builder gains no entry. The coordinator's `moveLines(_:)` reads the folded
+    state from the `FoldController`, asks `MoveLineEngine.move`, applies
+    `plan.edit` through `apply(_:in:)` — one undo step, the selections moving
+    with the text — and only on success installs `plan.folds` whole through
+    `folds.apply(_:)`; the engine's `nil` (a block at an edge) applies nothing,
+    registers no undo and beeps. Undo is an ordinary edit through the shift
+    rule, so a fold inside the swapped span may open on undo
+    (`core-folding.md`). **The chords**: free among the app's own shortcuts
+    (`MenuShortcutUniquenessTests` pins them to this file and keeps them apart
+    from tab navigation's ⌘⇧[ / ⌘⇧]), and `StandardKeyBinding.dict` binds no
+    bracket key at all, so the text view gives up nothing.
   - `SelectionExpansionController.swift` (macOS) — Expand / Shrink Selection's
     editor side: one per editor, held by the coordinator as **one lazy
     property** (`CodeEditorView.swift` sits at its `file_length` ceiling, which

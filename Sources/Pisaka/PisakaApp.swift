@@ -1397,6 +1397,10 @@ struct PisakaApp: App {
                 // group, reaching the focused editor the same way.
                 SelectionCommands()
 
+                // Move Line Up / Down (⌥⌘[ / ⌥⌘]), in the same Edit group,
+                // reaching the focused editor the same way.
+                LineCommands()
+
                 // Tab navigation, in the Window menu above its window list; its
                 // items observe the workspace in `TabNavigationCommands.swift`.
                 TabNavigationCommands(model: model)

@@ -299,12 +299,13 @@ error in the document rather than as a guess by the viewer.
 ### M11 — The focus fallback is scoped to the preview and to nothing else
 
 App-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
-Toggle Comment, Complete, `FoldCommands`' four items and `SelectionCommands`'
-two — and each used to spell
-`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **seven
+Toggle Comment, Complete, `FoldCommands`' four items, `SelectionCommands`'
+two and `LineCommands`' two — and each used to spell
+`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **eight
 call sites**: five in `PisakaApp.swift`, one in `FoldCommands.swift`, which asks
-once for all four fold items, and one in `SelectionCommands.swift`, which asks once
-for Expand and Shrink Selection. (Every count of call sites in this feature is a
+once for all four fold items, one in `SelectionCommands.swift`, which asks once
+for Expand and Shrink Selection, and one in `LineCommands.swift`, which asks once
+for Move Line Up and Down. (Every count of call sites in this feature is a
 count of those sites, not of chords.) The preview is a **focusable** web view (selection
 and links must work), so clicking into it made all of them beep.
 
@@ -1485,11 +1486,13 @@ honest answer for a link to a section the document does not have.
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.
 - `PisakaApp.swift` (`app-shell.md`) — the View-menu toggle (M8) and five of the
-  seven caret-command call sites now routed through `EditorCommandTarget` (M11).
+  eight caret-command call sites now routed through `EditorCommandTarget` (M11).
 - `FoldCommands.swift` (`core-folding.md`) — the sixth site, same routing, asking
   once for all four fold items.
 - `SelectionCommands.swift` (`app-editor.md`) — the seventh site, same routing,
   asking once for Expand and Shrink Selection.
+- `LineCommands.swift` (`app-editor.md`) — the eighth site, same routing,
+  asking once for Move Line Up and Down.
 - `CodeEditorView.swift` (`app-editor.md`) — `onScrolled`, an **optional**
   callback carrying the top visible character offset. `nil` for every editor
   nobody is watching, and the guard is on the closure rather than on the

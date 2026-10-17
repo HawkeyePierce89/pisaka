@@ -197,22 +197,22 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Modify: `Tests/PisakaCoreTests/MoveLineEngineTests.swift`
 - Modify: `Tests/PisakaCoreTests/FoldingSourceGatingTests.swift` (if its writer inventory needs the new caller)
 - Modify: `docs/architecture/core-folding.md`
-- [ ] Add a `LineCommands` Commands type in the FoldCommands/SelectionCommands shape, with `CommandGroup(after: .pasteboard)`:
+- [x] Add a `LineCommands` Commands type in the FoldCommands/SelectionCommands shape, with `CommandGroup(after: .pasteboard)`:
   - Move Line Up, ⌥⌘[;
   - Move Line Down, ⌥⌘].
 
   It goes inside the existing `Group` in PisakaApp, so no new top-level entry is added. A nil answer or no editor beeps.
-- [ ] Add the coordinator entry `moveLines(_ direction:) -> Bool`: read the folded regions from FoldController, apply `plan.edit` through the applier, then install `plan.folds` with `foldController.apply(_:)`, handing over a whole value.
-- [ ] Undo is an ordinary edit, stated and pinned rather than accidental: undoing a move replays the inverse replacement through the existing `FoldShift.updated` rule and nothing else, so a fold inside the swapped span may open on undo. No fold is ever registered in undo.
+- [x] Add the coordinator entry `moveLines(_ direction:) -> Bool`: read the folded regions from FoldController, apply `plan.edit` through the applier, then install `plan.folds` with `foldController.apply(_:)`, handing over a whole value.
+- [x] Undo is an ordinary edit, stated and pinned rather than accidental: undoing a move replays the inverse replacement through the existing `FoldShift.updated` rule and nothing else, so a fold inside the swapped span may open on undo. No fold is ever registered in undo.
   - core-folding.md states this next to the move's fold rule.
   - A Core test in MoveLineEngineTests takes a move whose block carries a fold, applies `plan.folds`, then feeds the inverse edit (the pair span in the new text, the original pair text) to `FoldShift.updated`, and pins the result: the fold intersecting the swapped span is dropped, folds outside it shift unchanged.
-- [ ] Update FoldingSourceGatingTests if the set of files that hand a value through apply(_:) is pinned. The move is a new whole-value writer, not a fourth spelled mutation.
-- [ ] Tests: run MenuShortcutUniquenessTests with the new chords. The ⌥⌘[ and ⌥⌘] chords are distinct from the tab-navigation ⌘⇧[ and ⌘⇧].
-- [ ] Docs:
+- [x] Update FoldingSourceGatingTests if the set of files that hand a value through apply(_:) is pinned. The move is a new whole-value writer, not a fourth spelled mutation.
+- [x] Tests: run MenuShortcutUniquenessTests with the new chords. The ⌥⌘[ and ⌥⌘] chords are distinct from the tab-navigation ⌘⇧[ and ⌘⇧].
+- [x] Docs:
   - core-editor.md: the MoveLineEngine entry.
   - core-folding.md: the move's fold rule and the undo rule above.
   - app-editor.md: the wiring.
-- [ ] Run `swift test` and `make build`. Both must pass.
+- [x] Run `swift test` and `make build`. Both must pass.
 
 ### Task 7: Multi-range Duplicate and aligned, multi-range Toggle Comment (R4 + R6 alignment)
 
