@@ -166,7 +166,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that does not start at the offset → code (the line is inside `{…}`), one
     that does → children when its parent is a `jsx_element` — the shape of a
     wrapped child line `{/* … */}`, so a second ⌘/ or ⌥⌘/ unwraps what the first
-    wrote, and of any child `{…}`, where `//` would be rendered text;
+    wrote, and of any child `{…}`, where `//` would be rendered text; a
+    `comment` whose parent is a `jsx_expression` → as that expression's lines
+    (children when the expression's parent is a `jsx_element`) — the later
+    lines of a wrap spanning several child lines sit inside the comment, and
+    answering code there would make the second ⌘/ write `//` into the children
+    instead of unwrapping; any other `comment` is skipped;
     `jsx_text` → children; an element or opening/closing tag that does not
     start at the offset → code (the line is inside a tag), one that does →
     children only when its element's parent is a `jsx_element` (the root

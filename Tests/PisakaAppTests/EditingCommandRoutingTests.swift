@@ -18,7 +18,10 @@ import XCTest
 ///   and after a non-space hands the key back;
 /// - ⌘D on two selections duplicates both and one undo gives the text back;
 /// - the applier refuses while an input method is composing and changes
-///   nothing.
+///   nothing;
+/// - the applier posts one storage edit per plan edit, each with its own
+///   exact range, so the fold and diagnostics shifts never see one span
+///   running across the untouched text between two distant carets.
 @MainActor
 final class EditingCommandRoutingTests: XCTestCase {
 
@@ -92,6 +95,28 @@ final class EditingCommandRoutingTests: XCTestCase {
         ))
         XCTAssertFalse(editor.coordinator.apply(plan, in: editor.harness.textView))
         XCTAssertEqual(editor.text, "abk")
+    }
+
+    func testTheApplierPostsEachEditsOwnRange() throws {
+        let editor = makeEditor("a\nfolded\nfolded\nb\n")
+        let storage = try XCTUnwrap(editor.harness.textView.textStorage)
+        var edited: [NSRange] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+        ) { _ in
+            MainActor.assumeIsolated { edited.append(storage.editedRange) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let plan = try XCTUnwrap(RangeEditPlan(
+            edits: [
+                IndentReplacement(range: NSRange(location: 0, length: 0), replacement: "// "),
+                IndentReplacement(range: NSRange(location: 16, length: 0), replacement: "// "),
+            ],
+            selections: []
+        ))
+        XCTAssertTrue(editor.grouped { editor.coordinator.apply(plan, in: editor.harness.textView) })
+        XCTAssertEqual(editor.text, "// a\nfolded\nfolded\n// b\n")
+        XCTAssertEqual(edited, [NSRange(location: 16, length: 3), NSRange(location: 0, length: 3)])
     }
 
     // MARK: - Harness

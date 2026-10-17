@@ -135,9 +135,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **shared edit applier**, `apply(_:in:)` — the one bracket every multi-range
     line command funnels through. It applies the sorted, non-overlapping edits
     **back-to-front** — later ranges first, so earlier offsets stay valid — inside one
-    `shouldChangeText(inRanges:replacementStrings:)` /
-    `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
-    (one undoable step, one change notification), followed by `setSelectedRanges`
+    `shouldChangeText(inRanges:replacementStrings:)` / `didChangeText()`
+    bracket (one undoable step, one change notification), each edit in its
+    **own** `textStorage.beginEditing()` … `endEditing()` — one pass around them
+    all would coalesce them into a single `editedRange` from the first edit to
+    the last, and the fold and diagnostics shifts drop whatever intersects that
+    span, so a fold or squiggle between two distant carets would be lost though
+    nothing in it changed — followed by `setSelectedRanges`
     with the plan's selections (skipped for a plan carrying none, since an empty
     array raises) and one `scrollRangeToVisible` of the first. The applier answers
     `false` for an empty plan, a composition in flight, a missing storage and a

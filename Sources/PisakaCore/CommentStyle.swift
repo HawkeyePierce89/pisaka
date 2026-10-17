@@ -66,6 +66,13 @@ public enum CommentStyle: Equatable {
     ///   commented child line `{/* … */}` parses as a `jsx_expression` holding
     ///   the comment, and `//` in front of any child `{…}` would be rendered
     ///   text;
+    /// - `comment` directly inside a `jsx_expression` is a continuation line of
+    ///   a wrap `{/* … */}` spanning several lines, and answers as that
+    ///   expression's lines do: `.jsxChildren` when its parent is a
+    ///   `jsx_element`, `.code` otherwise. Without it the wrap's last line
+    ///   would meet the expression mid-line and answer `.code`, and the second
+    ///   ⌘/ would write `//` into the children instead of unwrapping. Any
+    ///   other comment is skipped like an unlisted kind;
     /// - `jsx_text` answers `.jsxChildren`;
     /// - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or
     ///   `jsx_closing_element` that does **not** start at the line offset
@@ -88,6 +95,10 @@ public enum CommentStyle: Equatable {
             case "jsx_expression":
                 guard ancestor.startsAtLineOffset, index + 1 < ancestors.count else { return .code }
                 return ancestors[index + 1].kind == "jsx_element" ? .jsxChildren : .code
+            case "comment":
+                guard index + 1 < ancestors.count, ancestors[index + 1].kind == "jsx_expression" else { continue }
+                guard index + 2 < ancestors.count else { return .code }
+                return ancestors[index + 2].kind == "jsx_element" ? .jsxChildren : .code
             case "jsx_text":
                 return .jsxChildren
             case "jsx_element", "jsx_self_closing_element", "jsx_opening_element", "jsx_closing_element":

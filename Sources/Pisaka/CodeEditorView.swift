@@ -3090,7 +3090,8 @@ struct CodeEditorView: NSViewRepresentable {
         ///
         /// The plan's edits are applied **back-to-front** (later ranges first, so
         /// earlier offsets stay valid) inside one `shouldChangeText(inRanges:)` /
-        /// `beginEditing` … `endEditing` / `didChangeText` bracket. Every
+        /// `didChangeText` bracket, each in its own `beginEditing` …
+        /// `endEditing` so every edit hook sees that edit's exact range. Every
         /// multi-range command funnels through here, so the bracket's rules are
         /// stated once. Answers `false` — nothing changed — for an empty plan, a
         /// composition in flight, a missing storage and a `shouldChangeText`
@@ -3126,14 +3127,22 @@ struct CodeEditorView: NSViewRepresentable {
             // fan-out needs) would otherwise inherit whatever the adjacent text
             // has — and in a buffer with no adjacent text, no font at all.
             let attributes = textView.typingAttributes
-            textStorage.beginEditing()
+            // One `beginEditing` … `endEditing` per edit, not one around them all:
+            // the storage would coalesce the edits into a single `editedRange`
+            // running from the first to the last, and the edit hooks — the fold
+            // shift and the diagnostics shift — drop everything intersecting
+            // that span, so a fold or a squiggle *between* two distant carets
+            // would be lost though no character in it changed. Each pass posts
+            // its own exact range; undo is unaffected — it is registered by
+            // `shouldChangeText` above and closed by `didChangeText` below.
             for edit in plan.edits.reversed() {
+                textStorage.beginEditing()
                 textStorage.replaceCharacters(
                     in: edit.range,
                     with: NSAttributedString(string: edit.replacement, attributes: attributes)
                 )
+                textStorage.endEditing()
             }
-            textStorage.endEditing()
             textView.didChangeText()
             // `setSelectedRanges` raises on an empty array, and a plan with no
             // selection leaves wherever the edit put the caret.

@@ -20,6 +20,8 @@ import XCTest
 /// - the whole toggle through the resolver writes `{/* */}` on a child line,
 ///   and a second ⌘/ — or ⌥⌘/ over the wrapped text — gives the source back
 ///   byte for byte, because the wrapped line is itself a child `{…}` line;
+/// - the same round trip over a wrap spanning several child lines, whose
+///   later lines sit inside the comment the expression holds;
 /// - the javascript grammar answers the same, and a non-ASCII character
 ///   earlier in the buffer does not shift the UTF-16-to-byte offset.
 @MainActor
@@ -146,6 +148,30 @@ final class CommentContextTreeWalkTests: XCTestCase {
         let wrapped = try lineToggle(source, caretAt: "<span>first")
         XCTAssertTrue(wrapped.contains("\n      {/* <span>first</span> */}\n"), wrapped)
         XCTAssertEqual(try lineToggle(wrapped, caretAt: "{/* <span>first"), source)
+    }
+
+    private func lineToggle(_ source: String, selecting needle: String) throws -> String {
+        let text = source as NSString
+        let range = text.range(of: needle)
+        XCTAssertNotEqual(range.location, NSNotFound, needle)
+        let resolver = CommentContextTreeWalk.resolver(
+            snapshot: SyntaxTreeSnapshot(), text: text, language: .tsx, fileID: nil
+        )
+        let plan = try XCTUnwrap(ToggleCommentEngine.toggle(
+            text: text, selectedRanges: [range], language: .tsx, context: resolver
+        ))
+        return applying(plan, to: source)
+    }
+
+    func testTheToggleUndoesAWrapSpanningSeveralChildLines() throws {
+        let twoLines = try lineToggle(source, selecting: "<span>first</span>\n      plain")
+        XCTAssertTrue(twoLines.contains("{/* <span>first</span>\n      plain words */}"), twoLines)
+        XCTAssertEqual(try lineToggle(twoLines, selecting: "<span>first</span>\n      plain"), source)
+
+        let element = try lineToggle(source, selecting: "<p>\n        nested\n      </p>")
+        XCTAssertTrue(element.contains("{/* <p>"), element)
+        XCTAssertTrue(element.contains("</p> */}"), element)
+        XCTAssertEqual(try lineToggle(element, selecting: "<p>\n        nested\n      </p>"), source)
     }
 
     func testTheBlockToggleUnwrapsAWrappedChild() throws {
