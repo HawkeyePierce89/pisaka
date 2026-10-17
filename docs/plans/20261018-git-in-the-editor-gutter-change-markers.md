@@ -212,12 +212,12 @@ None new.
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`
 - Create: `Tests/PisakaAppTests/LineNumberRulerChangeMarkerTests.swift`
 
-- [ ] Add `setChangeMarkers(_:)` / `clearChangeMarkers()`. Markers are stored at ruler-line count, and in `lineMapDidChange` they are shifted with `LineShift` beside the blame annotations.
-- [ ] Draw strips and wedges in `drawVisibleLine` from the visible-fragment walk, filling the line's full fragment height across wraps, with colour through `ChromePalette.nsColor(ChromeColorRole.changeMarkerRole(for:))`. The column sits in the existing trailing padding, and `updateThickness` is unchanged.
-- [ ] Add an internal `changeMarkerHit(at point:) -> Int?`, resolving a click in the column to a ruler line through the layout manager (the chevron click's mapping). For line 1 carrying both wedges, the top half picks the upper one.
-- [ ] Add `onChangeMarkerClicked: ((Int, NSRect) -> Void)?`. `mouseDown` checks it after the chevron, with the same modifier/click-count gate.
-- [ ] Write headless app tests: `ruleThickness` is identical with and without markers; the hit line for a strip; the hit for a wedge after the last line and before line 1; a click outside the column is not a hit; markers shift across an Enter and blank across a multi-line paste.
-- [ ] Run `make test-app`: no new failures beyond the eight known scale-1.8 assertions.
+- [x] Add `setChangeMarkers(_:)` / `clearChangeMarkers()`. Markers are stored at ruler-line count, and in `lineMapDidChange` they are shifted with `LineShift` beside the blame annotations.
+- [x] Draw strips and wedges in `drawVisibleLine` from the visible-fragment walk, filling the line's full fragment height across wraps, with colour through `ChromePalette.nsColor(ChromeColorRole.changeMarkerRole(for:))`. The column sits in the existing trailing padding, and `updateThickness` is unchanged.
+- [x] Add an internal `changeMarkerHit(at point:) -> Int?`, resolving a click in the column to a ruler line through the layout manager (the chevron click's mapping). For line 1 carrying both wedges, the top half picks the upper one.
+- [x] Add `onChangeMarkerClicked: ((Int, NSRect) -> Void)?`. `mouseDown` checks it after the chevron, with the same modifier/click-count gate.
+- [x] Write headless app tests: `ruleThickness` is identical with and without markers; the hit line for a strip; the hit for a wedge after the last line and before line 1; a click outside the column is not a hit; markers shift across an Enter and blank across a multi-line paste.
+- [x] Run `make test-app`: no new failures beyond the eight known scale-1.8 assertions. (419 run, the same 8 fail; the popover and commit-dialog two re-confirmed failing on the tree without this change)
 
 ### Task 8: GitChangeController and editor wiring
 
