@@ -90,14 +90,14 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 - Create: `Tests/PisakaCoreTests/GitCLIArgumentSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/GitHubSourceGatingTests.swift`
 
-- [ ] The doc comment is the suite's inventory. It covers: that `GitCLIService.swift` is compiled only by the app target; that every subject here is a string literal, so the suite reads `GitHubSourceGatingTests.strippingComments(_:)` (comments stripped, literals kept), for that stated reason; each rule listed below.
-- [ ] R1/R2 funnel rules: `process.arguments` is assigned exactly once; that assignment includes `globalOptions`; `globalOptions` contains `"--no-optional-locks"` and `"log.showSignature=false"`; `Process()` appears once in the file, so there is no second launch path that skips the prefix.
-- [ ] R2 site rules: the set of array literals containing `"--pretty` equals the set containing `"--encoding=UTF-8"`, and neither set is empty; `--show-signature` and `log.showSignature=true` never appear.
-- [ ] R3: the set of `func` names whose bodies contain `GIT_TERMINAL_PROMPT` is exactly `{fetch, push, pull, commit}`.
-- [ ] R4: the checkout array literals are exactly the three expected spellings, two ending in `"--"` plus the existing `HEAD -- path`. No `"checkout"` literal lacks a `"--"`.
-- [ ] R5: the blame array contains `"-w"` and `"-M"`, and `"-C"` does not appear in it.
-- [ ] Remove the `GIT_TERMINAL_PROMPT == 3` count from `GitHubSourceGatingTests.testTheTailsPullIsFastForwardOnly` and point its comment at the new suite's set-equality rule, so the number is not restated in two places.
-- [ ] Run `swift test` and `swiftlint --strict`: must pass.
+- [x] The doc comment is the suite's inventory. It covers: that `GitCLIService.swift` is compiled only by the app target; that every subject here is a string literal, so the suite reads `GitHubSourceGatingTests.strippingComments(_:)` (comments stripped, literals kept), for that stated reason; each rule listed below.
+- [x] R1/R2 funnel rules: `process.arguments` is assigned exactly once; that assignment includes `globalOptions`; `globalOptions` contains `"--no-optional-locks"` and `"log.showSignature=false"`; `Process()` appears once in the file, so there is no second launch path that skips the prefix.
+- [x] R2 site rules: the set of array literals containing `"--pretty` equals the set containing `"--encoding=UTF-8"`, and neither set is empty; `--show-signature` and `log.showSignature=true` never appear.
+- [x] R3: the set of `func` names whose bodies contain `GIT_TERMINAL_PROMPT` is exactly `{fetch, push, pull, commit}`.
+- [x] R4: the checkout array literals are exactly the three expected spellings, two ending in `"--"` plus the existing `HEAD -- path`. No `"checkout"` literal lacks a `"--"`.
+- [x] R5: the blame array contains `"-w"` and `"-M"`, and `"-C"` does not appear in it.
+- [x] Remove the `GIT_TERMINAL_PROMPT == 3` count from `GitHubSourceGatingTests.testTheTailsPullIsFastForwardOnly` and point its comment at the new suite's set-equality rule, so the number is not restated in two places.
+- [x] Run `swift test` and `swiftlint --strict`: must pass.
 
 ### Task 4: App-layer test against the real git (R4, R1)
 
