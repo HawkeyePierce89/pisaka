@@ -326,14 +326,14 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 
 ### Task 14: Update documentation
 
-- [ ] `docs/FEATURES.md`: double-click words, occurrence and selection-match highlighting, matching tags, TSX, Expand/Shrink Selection and their chords.
-- [ ] `docs/architecture/`:
+- [x] `docs/FEATURES.md`: double-click words, occurrence and selection-match highlighting, matching tags, TSX, Expand/Shrink Selection and their chords.
+- [x] `docs/architecture/`:
   - `core-editor.md`: new entries for `WordSelectionRule`, `OccurrenceScan`, `OccurrenceHighlightRule`, `OccurrenceHighlightModel`, `TagMatchRule`, `SelectionExpansionRule`; an updated `BracketMatchEngine` and `SyntaxLanguage` (`.tsx`).
   - `core-intelligence.md`: `IdentifierScanner`'s language-aware rule and its completion consequence; the `SymbolIntelligenceProvider` textual highlight answer.
   - `core-lsp.md`: `DocumentHighlight.swift`, the new request among the client's questions with its silent fallback, its budget, and D45 ("a server answer, even empty, is final").
   - `app-editor.md`: `SelectionCommands`, the double-click override, expand/shrink.
   - `app-editor-overlays.md`: the new layers and paint order, `OccurrenceHighlightController`, `TagHighlightController`, `SyntaxTreeSnapshot`, the TSX configuration.
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - index names for every new Core and app file under the docs above;
   - `DocumentHighlight.swift` under `core-lsp.md`;
   - the completion-candidate invariant notes that the boundary rule is language-aware for the JavaScript family.

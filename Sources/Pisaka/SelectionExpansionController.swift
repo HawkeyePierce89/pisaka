@@ -106,8 +106,12 @@ final class SelectionExpansionController {
     private func move(to range: NSRange, in textView: NSTextView) {
         isApplying = true
         defer { isApplying = false }
+        // No scroll: a step only widens around a selection already on screen
+        // or narrows back to one that was, and `scrollRangeToVisible` belongs
+        // to the reveal funnel alone (`FoldingSourceGatingTests`), which this
+        // must not take — it unfolds what it lands in, and the document rung
+        // would spring every fold open.
         textView.setSelectedRange(range)
-        textView.scrollRangeToVisible(NSRange(location: range.location, length: 0))
     }
 
     // MARK: - Observation

@@ -33,9 +33,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     by `setPairRanges(_:)` and `setSearchRanges(_:current:)`, and **every one of
     them paints through a single private `paintBackgrounds(clippedTo:clampingTo:)`
     — the only place in the class that adds a temporary `.backgroundColor`.** It
-    walks the three caches in one fixed order, pair → matches → current, so a
-    later write wins: the current match sits on top of an ordinary match, which
-    sits on top of the caret's pair highlight. The pair is painted in the
+    walks the background caches in one fixed order, so a later write wins.
+    Bottom to top: **occurrences and selection matches → tag pair → bracket
+    pair → search matches → current match**. The current match sits on top of
+    an ordinary match, which sits on top of the caret's pair, which sits on the
+    tag pair, which sits on the occurrences. The two lowest layers came with
+    occurrence and tag highlighting. `setOccurrenceRuns(_:)` takes
+    `[OccurrenceRun]` (a range plus `OccurrenceKind`: `.read`, `.write` or
+    `.selectionMatch`, each painted in its own `SyntaxTheme` wash), sorts them so
+    the paint path binary-searches them like the search matches, and relies on
+    both occurrence sources producing non-overlapping runs. Its owner pushes
+    the on-screen slice only. `setTagRanges(_:)` takes the enclosing element's
+    zero, one or two name ranges, painted in `tagMatchBackground`. Both are
+    no-ops on unchanged input, as `setPairRanges` is, because their controllers
+    re-push on every settle and scroll, and `clearBackgrounds(storageLength:)`
+    drops both with the rest. `OccurrenceBackgroundTests` pins the stacking
+    order through both paint paths, each kind's wash, the clear, the empty
+    pushes, the no-repaint on unchanged input, and **that painting and clearing
+    every layer is not an edit**: `undoManager.canUndo` stays `false`, the
+    string is unchanged, and the storage's `editedMask` never gains
+    `.editedCharacters`, with a probe test proving that check sees a real
+    edit. The pair is painted in the
     chrome's `bracketMatch` role, `ChromePalette.nsColor(.bracketMatch)` — the
     dynamic colour, asked for on every paint and never stored, so an appearance
     switch resolves it afresh (`core-theme.md`, *The matched-pair background*;
@@ -437,6 +455,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     character edit including programmatic ones and buffer swaps) distinguishes
     buffers exactly as well in O(1), with the text length carried alongside as a free
     backstop. `MinimapTokenizer` still has the hash-keyed shape and the same cost.
+    **Bracket-pair suppression.** `setPairSuppressed(_:)` is how the
+    matching-tag highlight takes the pair's place (`TagMatchRule`'s
+    `suppressBracketPair`, routed by the coordinator from
+    `TagHighlightController`). The pair is still computed on every selection
+    change, because the tag rule needs to know whether it is active, and only
+    its painting is withheld. The flag holds until the tag highlight's next
+    settle or clear says otherwise, and `noteEdit` drops it with the cached
+    pair.
     `refreshVisible()`
     computes the visible character range (`glyphRange(forBoundingRect:in:)` →
     `characterRange(forGlyphRange:)`, x pinned across the full content width like
@@ -992,7 +1018,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Neon `LanguageConfiguration` (grammar + bundled `highlights.scm` queries),
     lazily cached; returns `nil` on load failure. TypeScript composes the
     JavaScript highlight queries in as a base layer (the TS grammar's bundled
-    `highlights.scm` carries only TS-specific captures), and
+    `highlights.scm` carries only TS-specific captures). **`.tsx`** runs over
+    `tree_sitter_tsx()` (the `TreeSitterTSX` target the already-linked
+    TypeScript package ships, so no new dependency or licence) with `name:
+    "TSX"` and bundle `TreeSitterTypeScript_TreeSitterTSX`. That bundle name is
+    not the default derivation, because the target lives in the TypeScript
+    package. Its highlights compose three layers in this order: JavaScript's
+    `highlights.scm`, JavaScript's `highlights-jsx.scm` (the `@tag`/`@attribute`
+    captures neither TypeScript query carries), then TypeScript's
+    `highlights.scm`, last so its captures win on overlapping nodes as they do
+    for `.ts`. Both compositions go through one `makeComposedConfiguration`
+    helper factored out of the TypeScript path, which stays byte-for-byte the
+    same, and both degrade to the grammar's own configuration on an unreadable
+    layer or a merged query that fails to compile. `TSXGrammarQueryTests`
+    executes the shipped grammar: `Queries/tsx/symbols.scm` compiles and yields
+    a component symbol, the merged highlights query compiles, and a JSX element
+    in a `.tsx` sample parses without `ERROR` nodes with its tag name and
+    attribute captured as `@tag`/`@attribute`. Separately,
     `configuration(forInjectionName:)` resolves injected sub-languages including
     Markdown's `markdown_inline`, then by raw value, extension and bare file name
     (so a ` ```makefile ` fence resolves to Make). `.dockerfile`/`.dotenv`/`.gitignore` are three
@@ -1315,3 +1357,93 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     nothing in this table is translucent except the indentation tints, which the
     preview does not draw, so a four-component form would be a shape no caller can
     produce.
+
+    **The occurrence, selection-match and tag washes.** `SyntaxTheme` carries four
+    more dynamic code-zone colours beside the search backgrounds, each with a light
+    and a dark value: `occurrenceReadBackground` (a cool, low-chroma blue-violet,
+    the quietest occurrence wash), `occurrenceWriteBackground` (the same lightness
+    in a rose hue, so read and write differ by hue alone),
+    `selectionMatchBackground` (fainter and near-neutral, because it answers the
+    weaker question of same characters rather than same symbol) and
+    `tagMatchBackground` (a muted green, the one hue the other washes leave free).
+    They are code-zone colours, not chrome: no `ChromeColorRole` was added and the
+    chrome-theme gating sets are unchanged. `SyntaxThemeTests
+    .testTheOverlayWashesAreDistinctAndFollowTheAppearance` pins that the values are
+    distinct and that each resolves differently in light and dark.
+
+  - `OccurrenceHighlightController.swift` (macOS) — drives the occurrence and
+    selection-match highlight. It schedules `OccurrenceHighlightModel.settle`
+    75 ms after a selection change, superseding any settle already scheduled,
+    and paints what the model publishes through the layout manager's lowest
+    layer. Every decision is the model's (`core-editor.md`): which mode, which
+    source, which answer is stale. This class only schedules, slices and
+    paints. **Owned by `CodeEditorView`'s coordinator alone**: the source
+    viewer, diff/merge, the Markdown preview and the database viewer never get
+    one. **A reader**: temporary attributes only, so no undo entry, no dirty
+    flag and no path to the save funnel. The buffer, language and URL are read
+    when a settle is asked rather than cached, so a tab switch never settles
+    one file under another's identity. The provider is read at each settle too,
+    because the coordinator sets it after construction from
+    `symbolIndex.provider`. **Edits**: the coordinator calls `noteEdit()` from
+    the storage's edit notification *after*
+    `BracketHighlightController.noteEdit` has dropped every background overlay
+    in pre-edit coordinates, so the model's clear reaches
+    `setOccurrenceRuns([])` as a no-op, and this class never removes an
+    attribute at post-edit offsets the storage has not shifted yet. A tab switch
+    calls `reset()`. **On-screen slice**: like the search bar's matches, only
+    the runs that intersect the visible character range are pushed, found by
+    binary search over the ascending answer (`EditorSearchController`'s "ends
+    after" rule). `refreshVisible()` re-runs on every publish, scroll and
+    resize, so a name used ten thousand times costs one write per occurrence on
+    screen. An answer for a buffer other than the shown one paints nothing. The
+    published answer is cached from the subscription because `@Published`
+    delivers in `willSet`, before the model's own property holds it.
+    `OccurrenceHighlightControllerTests` asserts that publishing never registers
+    undo or dirties the buffer and that only on-screen runs are pushed, waiting
+    on a published-state observation rather than a sleep.
+  - `SyntaxTreeSnapshot.swift` (macOS) — the editor's on-demand syntax tree for
+    the buffer on screen: the whole text parsed with the language's **root**
+    grammar, off the main actor, cached until the next edit. It serves the
+    structural features that ask where the caret is in the tree, the
+    matching-tag highlight and Expand / Shrink Selection, which share **one
+    instance per editor**. It is deliberately not Neon's tree, which is
+    incremental, visible-range driven and owned by the highlighter. Injected
+    languages are not consulted: a tag inside a Markdown fence is not a tag of
+    the Markdown file. **Cache**: one tree keyed by `(fileID, edit generation,
+    language)`. The coordinator's `noteEdit()` bumps the generation and drops
+    the tree, so the key is an O(1) identity, for the reason
+    `BracketHighlightController`'s cache key states. **Ordering**: every parse
+    captures the generation as its token synchronously before its hop, and a
+    parse that an edit or reset superseded returns `nil` and caches nothing.
+    Two consumers asking about the same text do not supersede each other.
+    **Parsing** follows `SymbolExtractor`/`MinimapTokenizer`: every parse builds
+    its own private `Parser`, so concurrent parses never share one, and the
+    immutable `Sendable` `Tree` is read on the main actor. The file also holds
+    the **tag-element extraction**, which only maps grammar node types onto
+    Core's `TagElement`. JSX (`.javascript`, which covers `.jsx`, and `.tsx`)
+    reads `jsx_element` through its `open_tag`/`close_tag` fields and their
+    `name` fields, plus `jsx_self_closing_element`. A nameless opening or
+    closing element is a fragment, whose names are its `<>` and `</>`. HTML
+    reads `element`, `script_element` and `style_element`, named by the
+    `tag_name` of their `start_tag`/`end_tag` or of a `self_closing_tag`. A
+    closing tag the parser invented (`isMissing`, or empty) counts as absent,
+    so an unclosed element reports `closeName == nil`. Both the node before and
+    the node after the offset are walked up, so a caret at either edge of a tag
+    (`div|>`, `</header>|`) still sees the element. Every other language gets
+    no tag highlight. `TagElementExtractionTests` parses TSX, JSX and HTML
+    fixtures (`Tests/PisakaAppTests/Fixtures/tags.*`) and asserts the chains at
+    chosen offsets and the resulting ranges, nested same-name elements and a
+    fragment included, plus that a second ask of an unchanged buffer is served
+    from the cache (an `internal` parse count).
+  - `TagHighlightController.swift` (macOS) — drives the matching-tag highlight
+    on the occurrence highlight's 75 ms settle, so both land together. It reads
+    the caret's enclosing elements off the shared `SyntaxTreeSnapshot`, asks
+    `TagMatchRule` with the bracket-pair state from `BracketMatchEngine.pair`,
+    and paints through `setTagRanges`. When the rule suppresses the bracket
+    pair it says so through `onBracketPairSuppression`, which the coordinator
+    routes to `BracketHighlightController.setPairSuppressed`, after every
+    settle and every clear. **A reader**, with temporary attributes only. A
+    monotonic token captured synchronously before the tree hop discards a
+    settle that a newer one, an edit or a reset superseded. `noteEdit()` runs
+    after the bracket controller's, so its clear reaches the layout manager as
+    a no-op.

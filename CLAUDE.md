@@ -84,7 +84,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
-  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`
+  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
 
 `docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
   `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
@@ -95,8 +95,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D44:
-  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D45:
+  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `DocumentHighlight.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
   `SHA256.swift`, `LSPProvisioningManifest.swift`, `LSPInstallLayout.swift`, `LSPInstallEngine.swift`, `LSPProvisioning.swift`
@@ -184,10 +184,10 @@ headlessly in `Tests/PisakaAppTests`.
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
+  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
+  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
 
 `docs/architecture/app-git-views.md` — git UI & CLI service (macOS):
   `FilePanels.swift`, `BranchSwitcherView.swift`, `GitCLIService.swift`, `CommitDialogView.swift` / `CommitUnifiedDiffView.swift`, `MergeView.swift` / `MergeWindowController.swift`, `EscClosableWindow.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift`
@@ -217,7 +217,7 @@ because nothing else states them.
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
   behind a background walk.
-- **Language servers** (`core-lsp.md`, D1–D10 + D17–D44): one server per `(server, root)`, started
+- **Language servers** (`core-lsp.md`, D1–D10 + D17–D45): one server per `(server, root)`, started
   lazily and never twice; registration is dynamic, and un-registering one shuts its process
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
@@ -339,7 +339,9 @@ because nothing else states them.
 - **A completion candidate is one identifier-shaped token** (`core-intelligence.md`): the
   symbol source of both completion surfaces is filtered by one predicate — `.heading` is
   excluded by name, and every candidate's name must satisfy the same boundary rule that
-  decides what the caret is completing, so it is asked there rather than restated. The
+  decides what the caret is completing, so it is asked there rather than restated. That
+  rule is **language-aware** — `$` and `#` are word characters in the JavaScript family,
+  and the predicate is asked with the request's language — and still one rule. The
   index, the walk and `definitions(for:)` are **untouched**: ⌃⌘J still lists what typing now
   refuses, which is the whole point.
 - **Indentation is EditorConfig-first, inference-second** (`core-editorconfig.md`): the unit

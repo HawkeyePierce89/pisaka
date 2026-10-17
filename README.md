@@ -185,6 +185,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Option+Right | Unfold the block at the caret (macOS) |
 | Cmd+Option+Shift+Left | Fold every block (macOS)          |
 | Cmd+Option+Shift+Right | Unfold every block (macOS)       |
+| Ctrl+Cmd+Right / Ctrl+Cmd+Left | Expand / Shrink Selection (macOS) |
 | Tab         | Insert one indentation level (commits the selected completion row when the popup is open) |
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |

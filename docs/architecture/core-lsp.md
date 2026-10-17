@@ -174,6 +174,18 @@ its last exit code, shown passively on the settings page and nowhere else (D44,
 `LSPServerFailureRecord.swift`). No new request kind, completion source or
 capability beyond `insertReplaceSupport` came with any of it.
 
+**What occurrence highlighting added (D45).** Resting the caret in a name in the
+macOS editor asks `textDocument/documentHighlight`, the client's ninth question,
+and paints every occurrence the server names in this buffer, writes in a
+stronger tint than reads. The request and answer types are
+`DocumentHighlight.swift`. Like folding, the question is about one document and
+its fallback belongs to a provider: `SymbolIntelligenceProvider` answers with a
+budgeted whole-word scan of the same text. Unlike folding, **a server's empty
+answer is final**, and only `nil` (no server, no capability, a failure, a
+timeout, a buffer no longer held) falls back. The answer names its provenance
+and is never a merge, and the fallback is silent. The model, the rule and the
+painting are in `core-editor.md` and `app-editor-overlays.md`.
+
 ## Files
 
   - `LSPMessage.swift` — JSON-RPC 2.0 envelopes, and the *only* thing in the
@@ -332,7 +344,23 @@ capability beyond `insertReplaceSupport` came with any of it.
     top level throws) exactly as every other list response is. A create/rename/delete entry
     is not something this editor performs: `LSPWorkspaceEdit` drops it and applies
     the textual half, which for a module rename would leave every reference renamed
-    and the file still under its old name. Declaring the empty set is what tells a
+    and the file still under its old name.
+    D45 adds a tenth node after it, `textDocument.documentHighlight`, carrying
+    `dynamicRegistration: false` and nothing else, because the request has no
+    options to negotiate. The wire types are `LSPDocumentHighlightParams` (an
+    alias of the plain position params, as folding's params name folding's
+    request), `LSPDocumentHighlightKind` (an open `RawRepresentable` set,
+    `text`/`read`/`write` = 1/2/3, so an unknown number decodes) and
+    `LSPDocumentHighlight`, whose unreadable `kind` decodes as absent rather
+    than refusing the element, since the range is still a good occurrence.
+    `LSPDocumentHighlightResponse` follows `LSPReferencesResponse`'s three
+    rules: `null` and an absent result are one empty answer, one unreadable
+    element is dropped while its siblings survive, and a top level that is
+    neither throws, because "no occurrences" and "could not read the answer" are
+    different facts and only the second sends the editor to its own scan. The
+    server capability `supportsDocumentHighlight` decodes
+    `documentHighlightProvider` from `boolean | DocumentHighlightOptions`, the
+    same two spellings every other provider flag accepts. Declaring the empty set is what tells a
     conforming server not to offer one, so that drop stays *unreachable* rather than
     merely unlikely — and a server that would have answered with a file move refuses
     the rename outright instead, which is the honest outcome.
@@ -609,6 +637,10 @@ capability beyond `insertReplaceSupport` came with any of it.
     *read* like every other exchange in this actor, and what to do with the answer —
     verify it, then apply it or abort — belongs to the layer that holds the writer
     bracket.
+    `documentHighlight` 1.5 s is the ninth budget, with completion's number for
+    the same reason as `foldingRange`'s (D45): it fires behind every caret
+    settle, and an answer that arrives after the caret has moved is unwanted.
+    `documentHighlight(_:)` is the exchange, in `hover(_:)`'s shape.
     `foldingRange` 1.5 s is the eighth budget, and it takes **completion's number
     for hover's reason** (D38): nobody asked for a chevron either — the question
     fires behind every typing pause — so an answer that arrives after the buffer
@@ -745,10 +777,16 @@ capability beyond `insertReplaceSupport` came with any of it.
     `.dotenv` (no server speaks it; present only so the mapping is total) and
     `.gitignore` → `"ignore"`.
     `lspLanguageID(forFileNamed:)` is what `LSPWorkspace` actually sends, because
-    for the JS/TS family the id is a property of the *document* and not of the
-    language: `SyntaxLanguage` deliberately collapses `.tsx` into `.typescript`
-    and `.jsx` into `.javascript` (one grammar, one keyword list, one symbols
-    query), while LSP names those `typescriptreact`/`javascriptreact`.
+    for the JavaScript family the id is a property of the *document* and not of
+    the language: `SyntaxLanguage` deliberately collapses `.jsx` into
+    `.javascript` (one grammar, one keyword list, one symbols query), while LSP
+    names it `javascriptreact`. `.tsx` is **its own case** now, parsed with the
+    TSX grammar (`core-editor.md`), so `lspLanguageID` answers
+    `typescriptreact` for it directly, and the TS server's language set and its
+    provisioning manifest component (`[.typescript, .tsx, .javascript]`) both
+    include it, so `canServe(.tsx)` routes to `typescript-language-server`. The
+    reasoning below is why the id must stay `typescriptreact` and never fall
+    back to `typescript`.
     `typescript-language-server` hands the id straight to tsserver as a script
     kind and corrects a wrong one *only* when it is not a mode it recognises —
     `"typescript"` is one, so a `.tsx` announced that way is not corrected and is
@@ -1709,6 +1747,24 @@ capability beyond `insertReplaceSupport` came with any of it.
     a rename a single reversible act rather than one undoable tab plus a Local
     History revision per file.
 
+  - `DocumentHighlight.swift` — the occurrence highlight's request and answer
+    (D45). `DocumentHighlightRequest` carries the identifier under the caret,
+    already resolved by `IdentifierScanner`, which is the fallback's search
+    word and is never read by a server. It also carries the file URL (`nil` for
+    a url-less buffer, which only the scan can answer), the offset of the
+    identifier's **first character** (so the same word always asks the same
+    question wherever the caret stands in it), the live `text` (D2: the text
+    travels with the question, and both answers share its coordinates), and
+    the `language`. `DocumentHighlightAnswer` is `{ provenance: .server |
+    .textual, highlights: [Highlight { range, kind: .read | .write }] }`, sorted
+    ascending. **Never a mixture**: one source answers, whole, and says which
+    one it was. The two answers disagree by design, since a server knows which
+    `count` is which and a whole-word scan does not, so a merged list would
+    paint the scan's guesses with the server's authority. LSP's `Text`, `Read`
+    and an absent kind all read as `.read`, and only a server can name a
+    `.write`. Empty is a real answer only when the server gave it. Tested in
+    `DocumentHighlightDecodeTests` (both capability spellings, kind mapping
+    including absent) and `DocumentHighlightRoutingTests` (below).
   - `LSPIntelligenceProvider.swift` — the `CodeIntelligenceProviding`
     implementation that answers from a server, and the one place the two coordinate
     systems meet. Three rules run through it.
@@ -2137,6 +2193,17 @@ capability beyond `insertReplaceSupport` came with any of it.
     before it releases the first resolve, without which that test could release
     the gate before the second ask arrived and pass on a cache hit instead.
 
+    `documentHighlights(for:)` (D45) follows `hover(for:)` step for step: D2's
+    empty-buffer guard, the language off the file name, `prepare`, the
+    `supportsDocumentHighlight` read after `prepare`, `LSPPositionMap` both
+    ways, and `stillHolds` before the answer is read, because the ranges are
+    painted over this buffer. **`nil` and `[]` are different answers here**,
+    the one place this provider departs from "every uncertainty is empty":
+    `nil` is no server, no capability, a failed or timed-out request or a
+    buffer no longer held, while `[]` is the server saying there are no
+    occurrences. `Write` maps to write, and `Read`, `Text`, an absent kind and
+    an unnamed number all map to read. Ranges are clamped by the position map,
+    and empty or duplicate ones are dropped.
   - `RoutingIntelligenceProvider.swift` — the one `CodeIntelligenceProviding` the
     editor surfaces hold, and the whole of phase 2a's user-visible contract.
     Everything below it can fail — there may be no Xcode, sourcekit-lsp may not
@@ -2190,6 +2257,15 @@ capability beyond `insertReplaceSupport` came with any of it.
     "an empty answer is not an answer" already says. That is also what keeps the
     two sources from ever mixing: the router returns one list or the other, never
     a union of them.
+    `documentHighlights(for:)` (D45) is folding's shape with **one rule
+    reversed**: `canServe`-gated and raced on a `documentHighlight` budget of
+    completion's 1.5 s, but a server answer, **even an empty one, is final**.
+    Only `nil` (no server, no capability, a failure, a timeout, a stale buffer)
+    falls through to `SymbolIntelligenceProvider`'s textual scan. The answer
+    carries its provenance and is never a merge. `DocumentHighlightRoutingTests`
+    pins the server answer used whole as `.server`, failure, timeout and a
+    missing capability falling back to `.textual`, no answer holding both
+    provenances, and a stale buffer answering `nil`.
     `canRename(_:)` is **forwarded** rather than left reachable on the wrapped
     source, because the app holds *this* object: the seam's whole point is that
     nothing above it names the LSP layer, and a command reaching past the router for
