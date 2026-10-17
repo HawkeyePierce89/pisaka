@@ -142,13 +142,13 @@ None new.
 - Create: `Sources/PisakaCore/ChangeHunk.swift`
 - Create: `Tests/PisakaCoreTests/ChangeHunkTests.swift`
 
-- [ ] Add `ChangeHunk` (`Equatable`, `Sendable`): `kind` (`added` / `deleted` / `modified`); `newLines: Range<Int>`, empty for a deleted hunk; `anchor`, the buffer line a deleted hunk sits after, -1 for before line 1; `oldLines: Range<Int>`.
-- [ ] Add `ChangeHunk.hunks(from rows: [DiffRow]) -> [ChangeHunk]`: maximal runs of non-unchanged rows, with kind derived from which sides the run carries. Pure; it does not re-diff.
-- [ ] Add `ChangeMarkerKind` and the per-line `ChangeLineMarker` (optional strip plus `deletedAbove` / `deletedBelow`).
-- [ ] Add `ChangeHunk.lineMarkers(for:lineCount:)`, indexed by ruler line.
-- [ ] Add `ChromeColorRole.changeMarkerRole(for:)`: added → `statusGreen`, modified → `statusYellow`, deleted → `statusRed`. No new role.
-- [ ] Write tests: each kind; adjacent rows merging; deletion before line 1, after the last line and mid-file; a modified run with unequal side counts; an empty buffer; marker array length equal to the line-start count, including a trailing-separator buffer; the role mapping.
-- [ ] Run `swift test`; it must pass.
+- [x] Add `ChangeHunk` (`Equatable`, `Sendable`): `kind` (`added` / `deleted` / `modified`); `newLines: Range<Int>`, empty for a deleted hunk; `anchor`, the buffer line a deleted hunk sits after, -1 for before line 1; `oldLines: Range<Int>`.
+- [x] Add `ChangeHunk.hunks(from rows: [DiffRow]) -> [ChangeHunk]`: maximal runs of non-unchanged rows, with kind derived from which sides the run carries. Pure; it does not re-diff.
+- [x] Add `ChangeMarkerKind` and the per-line `ChangeLineMarker` (optional strip plus `deletedAbove` / `deletedBelow`).
+- [x] Add `ChangeHunk.lineMarkers(for:lineCount:)`, indexed by ruler line.
+- [x] Add `ChromeColorRole.changeMarkerRole(for:)`: added → `statusGreen`, modified → `statusYellow`, deleted → `statusRed`. No new role.
+- [x] Write tests: each kind; adjacent rows merging; deletion before line 1, after the last line and mid-file; a modified run with unequal side counts; an empty buffer; marker array length equal to the line-start count, including a trailing-separator buffer; the role mapping.
+- [x] Run `swift test`; it must pass.
 
 ### Task 3: The gutter change model
 

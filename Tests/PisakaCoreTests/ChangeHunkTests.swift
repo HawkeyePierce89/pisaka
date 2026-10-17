@@ -1,0 +1,188 @@
+import XCTest
+@testable import PisakaCore
+
+/// `ChangeHunk.hunks(from:)` reads hunks off `LineDiff`'s rows without
+/// re-diffing; `lineMarkers(for:lineCount:)` projects them onto ruler lines; and
+/// `ChromeColorRole.changeMarkerRole(for:)` colours the three kinds.
+final class ChangeHunkTests: XCTestCase {
+
+    private func hunks(old: String, new: String) -> [ChangeHunk] {
+        ChangeHunk.hunks(from: LineDiff.rows(old: old, new: new))
+    }
+
+    private func rulerCount(_ text: String) -> Int {
+        LineStartIndex.offsets(in: text as NSString).count
+    }
+
+    // MARK: - Kinds
+
+    func testIdenticalTextsHaveNoHunks() {
+        XCTAssertEqual(hunks(old: "a\nb\n", new: "a\nb\n"), [])
+        XCTAssertEqual(hunks(old: "", new: ""), [])
+    }
+
+    func testAddedLines() {
+        XCTAssertEqual(
+            hunks(old: "a\nc\n", new: "a\nb1\nb2\nc\n"),
+            [ChangeHunk(kind: .added, newLines: 1..<3, oldLines: 1..<1)]
+        )
+    }
+
+    func testModifiedLine() {
+        XCTAssertEqual(
+            hunks(old: "a\nb\nc\n", new: "a\nB\nc\n"),
+            [ChangeHunk(kind: .modified, newLines: 1..<2, oldLines: 1..<2)]
+        )
+    }
+
+    func testDeletedMidFileIsAnchoredAfterThePrecedingLine() {
+        let result = hunks(old: "a\nb\nc\n", new: "a\nc\n")
+        XCTAssertEqual(result, [ChangeHunk(kind: .deleted, newLines: 1..<1, oldLines: 1..<2)])
+        XCTAssertEqual(result.first?.anchor, 0)
+    }
+
+    func testDeletedBeforeLineOneAnchorsAtMinusOne() {
+        let result = hunks(old: "x\ny\na\n", new: "a\n")
+        XCTAssertEqual(result, [ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<2)])
+        XCTAssertEqual(result.first?.anchor, -1)
+    }
+
+    func testDeletedAfterTheLastLineAnchorsOnIt() {
+        let result = hunks(old: "a\nb\nc\n", new: "a\n")
+        XCTAssertEqual(result, [ChangeHunk(kind: .deleted, newLines: 1..<1, oldLines: 1..<3)])
+        XCTAssertEqual(result.first?.anchor, 0)
+    }
+
+    func testAnchorIsTheLineAboveForEveryKind() {
+        XCTAssertEqual(ChangeHunk(kind: .added, newLines: 4..<6, oldLines: 3..<3).anchor, 3)
+        XCTAssertEqual(ChangeHunk(kind: .modified, newLines: 0..<1, oldLines: 0..<1).anchor, -1)
+    }
+
+    /// Modified, removed and added rows of one run merge into one hunk.
+    func testAdjacentRowsMergeIntoOneModifiedHunkWithUnequalSides() {
+        let rows = LineDiff.rows(old: "a\nb\nc\nd\n", new: "a\nB\nd\n")
+        XCTAssertEqual(rows.map(\.kind), [.unchanged, .modified, .removed, .unchanged])
+        XCTAssertEqual(
+            ChangeHunk.hunks(from: rows),
+            [ChangeHunk(kind: .modified, newLines: 1..<2, oldLines: 1..<3)]
+        )
+        XCTAssertEqual(
+            hunks(old: "a\nb\nd\n", new: "a\nB1\nB2\nB3\nd\n"),
+            [ChangeHunk(kind: .modified, newLines: 1..<4, oldLines: 1..<2)]
+        )
+    }
+
+    func testSeparateRunsStaySeparateAndOrdered() {
+        XCTAssertEqual(
+            hunks(old: "a\nb\nc\nd\ne\n", new: "A\nb\nd\ne\nf\n"),
+            [
+                ChangeHunk(kind: .modified, newLines: 0..<1, oldLines: 0..<1),
+                ChangeHunk(kind: .deleted, newLines: 2..<2, oldLines: 2..<3),
+                ChangeHunk(kind: .added, newLines: 4..<5, oldLines: 5..<5),
+            ]
+        )
+    }
+
+    func testEmptyBufferAgainstNonEmptyHeadIsOneDeletionBeforeLineOne() {
+        XCTAssertEqual(
+            hunks(old: "a\nb\n", new: ""),
+            [ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<2)]
+        )
+        XCTAssertEqual(
+            hunks(old: "", new: "a\n"),
+            [ChangeHunk(kind: .added, newLines: 0..<1, oldLines: 0..<0)]
+        )
+    }
+
+    // MARK: - Line markers
+
+    func testMarkersCarryStripsAndWedgesOnTheRightLines() {
+        let new = "A\nb\nd\ne\nf\n"
+        let markers = ChangeHunk.lineMarkers(
+            for: hunks(old: "a\nb\nc\nd\ne\n", new: new),
+            lineCount: rulerCount(new)
+        )
+        XCTAssertEqual(markers, [
+            ChangeLineMarker(strip: .modified),
+            ChangeLineMarker(deletedBelow: true),
+            ChangeLineMarker(),
+            ChangeLineMarker(),
+            ChangeLineMarker(strip: .added),
+            ChangeLineMarker(), // the trailing separator's empty ruler line
+        ])
+    }
+
+    func testDeletionBeforeLineOneMarksDeletedAbove() {
+        let new = "a"
+        let markers = ChangeHunk.lineMarkers(for: hunks(old: "x\na", new: new), lineCount: rulerCount(new))
+        XCTAssertEqual(markers, [ChangeLineMarker(deletedAbove: true)])
+    }
+
+    func testDeletionAfterTheLastLineMarksItsDeletedBelow() {
+        let new = "a\n"
+        let markers = ChangeHunk.lineMarkers(for: hunks(old: "a\nb\n", new: new), lineCount: rulerCount(new))
+        XCTAssertEqual(markers, [ChangeLineMarker(deletedBelow: true), ChangeLineMarker()])
+    }
+
+    func testLineOneMayCarryBothWedges() {
+        let new = "b\nd\n"
+        let markers = ChangeHunk.lineMarkers(for: hunks(old: "a\nb\nc\nd\n", new: new), lineCount: rulerCount(new))
+        XCTAssertEqual(markers[0], ChangeLineMarker(deletedAbove: true, deletedBelow: true))
+    }
+
+    func testEmptyBufferMarksIndexZeroDeletedAbove() {
+        let markers = ChangeHunk.lineMarkers(for: hunks(old: "a\nb\n", new: ""), lineCount: rulerCount(""))
+        XCTAssertEqual(markers, [ChangeLineMarker(deletedAbove: true)])
+    }
+
+    /// The array is indexed by ruler line, so its length is the line-start count
+    /// whatever the buffer's ending — including a trailing separator, which adds
+    /// a ruler line but no diff line.
+    func testMarkerCountEqualsLineStartCount() {
+        let cases: [(old: String, new: String)] = [
+            ("a\nb", "a\nB"),
+            ("a\nb\n", "a\nB\n"),
+            ("a\r\nb\r\n", "a\r\nb\r\nc\r\n"),
+            ("a\u{2028}b", "a\u{2029}b\u{85}c\u{85}"),
+            ("x\n", ""),
+            ("", "\n\n"),
+        ]
+        for (old, new) in cases {
+            let markers = ChangeHunk.lineMarkers(for: hunks(old: old, new: new), lineCount: rulerCount(new))
+            XCTAssertEqual(markers.count, rulerCount(new), "\(old.debugDescription) → \(new.debugDescription)")
+        }
+    }
+
+    func testOutOfRangeLinesAreDroppedNotTrapped() {
+        let hunks = [
+            ChangeHunk(kind: .added, newLines: 1..<5, oldLines: 0..<0),
+            ChangeHunk(kind: .deleted, newLines: 9..<9, oldLines: 0..<1),
+        ]
+        XCTAssertEqual(
+            ChangeHunk.lineMarkers(for: hunks, lineCount: 2),
+            [ChangeLineMarker(), ChangeLineMarker(strip: .added)]
+        )
+        XCTAssertEqual(ChangeHunk.lineMarkers(for: hunks, lineCount: 0), [])
+    }
+
+    func testMarkerIsEmpty() {
+        XCTAssertTrue(ChangeLineMarker().isEmpty)
+        XCTAssertFalse(ChangeLineMarker(strip: .added).isEmpty)
+        XCTAssertFalse(ChangeLineMarker(deletedAbove: true).isEmpty)
+        XCTAssertFalse(ChangeLineMarker(deletedBelow: true).isEmpty)
+    }
+
+    // MARK: - Role
+
+    func testEveryKindHasItsRole() {
+        let expected: [ChangeMarkerKind: ChromeColorRole] = [
+            .added: .statusGreen,
+            .modified: .statusYellow,
+            .deleted: .statusRed,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(ChangeMarkerKind.allCases))
+        for kind in ChangeMarkerKind.allCases {
+            XCTAssertEqual(ChromeColorRole.changeMarkerRole(for: kind), expected[kind], "\(kind)")
+        }
+    }
+}
