@@ -150,8 +150,9 @@ public enum BlockIndentEngine {
         return unit.utf16.count
     }
 
-    /// The touched lines of every range, merged and ascending.
-    private static func touchedLines(lines: Lines, ranges: [NSRange]) -> [Int] {
+    /// The touched lines of every range, merged and ascending. Internal so
+    /// `ToggleCommentEngine`'s multi-range toggle reads the very same rule.
+    static func touchedLines(lines: Lines, ranges: [NSRange]) -> [Int] {
         var touched = Set<Int>()
         for range in ranges {
             let first = lines.index(of: range.location)
@@ -184,8 +185,9 @@ public enum BlockIndentEngine {
         return NSRange(location: location, length: min(max(range.length, 0), length - location))
     }
 
-    /// The text's lines as `LineStartIndex` counts them.
-    private struct Lines {
+    /// The text's lines as `LineStartIndex` counts them. Internal for the same
+    /// reason as `touchedLines`.
+    struct Lines {
         let text: NSString
         let starts: [Int]
 

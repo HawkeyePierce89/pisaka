@@ -130,6 +130,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     never trap) but is otherwise used as given: the engine never widens a range to
     a composed character sequence, since that would change selection semantics
     (and the text view never hands over a range splitting a surrogate pair).
+    **Every range at once**: `duplicate(text:selectedRanges:) -> RangeEditPlan`
+    answers ⌘D for several carets, a column selection or disjoint selections as
+    one plan. Each range keeps the single-range semantics, carets on one line
+    duplicate it **once** (each caret landing at its own column in the one
+    copy), and every original range leaves exactly one caret or selection in its
+    copy, in the given order; insertions at one offset keep the ranges' order.
+    The plan is *built from* the single-range answers, so one range equals the
+    `DuplicateEdit` exactly — pinned exhaustively over every range of a small
+    corpus.
     Unit-tested in `DuplicateEngineTests`. **Out of scope** (follow-ups): an iOS
     variant via `UIKeyCommand` for an external keyboard over this same engine, and
     an Edit → Duplicate Line menu item.
@@ -165,7 +174,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Selection placement becomes the touched lines' post-edit whole-line span
     (from the first touched line's start to the last's contents end).
     Line mode skips blank/whitespace-only lines in both directions. It inserts
-    the token after leading indentation with one space after. When removing, it accepts both
+    `token + " "` **aligned**: at the *minimum* leading-whitespace length of the
+    non-blank touched lines, counted in UTF-16 units, so a tab counts as one unit
+    like a space (lines indented 4 and 8 both get `//` at column 4; a tab line
+    beside a 4-space line aligns both at column 1, a documented consequence). The
+    caret delta applies when the caret column is at or past that insertion
+    column. Uncommenting strips the token after each line's *own* indentation,
+    so the aligned form and the older per-line form both uncomment, and an
+    aligned comment uncomments byte-for-byte. When removing, it accepts both
     the token alone (`//x`) or with at most one immediately following space
     (`// x`), allowing leading whitespace before the token.
     Block mode normalizes the "first/last touched line" to the first and last
@@ -174,6 +190,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     of the last non-blank line's contents. Unwrap tolerates one space inside
     each delimiter and trailing whitespace after the closer. Delimiters already
     inside the target are left exactly as they are without rebalancing.
+    **Every range at once**: `toggle(text:selectedRanges:language:style:) ->
+    RangeEditPlan?` answers ⌘/ for several carets and selections as one plan;
+    `style` overrides the language's own style when a caller resolved a
+    contextual one. Touched lines are `BlockIndentEngine`'s rule (the same as
+    above), merged across ranges. **Line style**: one all-commented decision and
+    one alignment column across the union, and per-line edits only — a
+    zero-length insertion, or the deletion of the token plus an optional space —
+    so carets and selections map through the plan. **Block style**: the touched
+    lines merge into contiguous line blocks, each wrapped or unwrapped
+    separately in one plan; a block holding one range is answered by the
+    single-range block toggle with that range, and a block several ranges merged
+    into leaves one selection over the whole block. Identical resulting
+    selections collapse into one. The single-range line answer is *composed*
+    from this plan (its text is the touched span with the plan's edits applied),
+    so the two entry points cannot drift; a test pins their equality for both
+    styles over every range of a small corpus.
     Unit-tested in `ToggleCommentEngineTests`.
   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func

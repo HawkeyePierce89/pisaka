@@ -14,12 +14,33 @@ public struct CommentToggleEdit: Equatable {
     }
 }
 
+/// Pure Toggle Comment (⌘/): which lines gain or lose a comment marker, and
+/// where every caret and selection lands afterward.
+///
+/// **Line-style languages** (`//`, `#`, `--`) decide once for the whole target:
+/// when every non-blank touched line already starts with the token after its
+/// own indentation, each loses it — plus one following space, so both `//x`
+/// and `// x` uncomment — and otherwise every non-blank touched line gains
+/// `token + " "`. The marker is **aligned**: it is inserted at the *minimum*
+/// leading-whitespace length of the non-blank touched lines, counted in UTF-16
+/// units, so a tab counts as one unit like a space. Lines indented 4 and 8 both
+/// get `//` at column 4. Uncommenting strips the token after each line's *own*
+/// indentation, so the aligned form and the older per-line form (marker after
+/// each line's indentation) both uncomment. Blank lines are never touched.
+///
+/// **Block-style languages** (css, html) wrap the first and last non-blank
+/// touched lines in the open/close delimiters, or unwrap them when they are
+/// already wrapped.
 public enum ToggleCommentEngine {
     /// Compute the comment toggle for `selectedRange` in `text` under `language`.
     ///
     /// Returns `nil` if `language` is `nil`, the language has no comment syntax,
     /// or the target contains no non-blank lines. A `nil` return is a silent no-op
     /// and means no edit *and* no caret move.
+    ///
+    /// The line-style answer is composed from the multi-range plan for this one
+    /// range, so the two entry points cannot drift apart: the replacement covers
+    /// the touched lines, and its text is that span with the plan's edits applied.
     public static func toggle(text: NSString, selectedRange: NSRange, language: SyntaxLanguage?) -> CommentToggleEdit? {
         guard let language = language, let style = CommentStyle.style(for: language) else {
             return nil
@@ -28,10 +49,191 @@ public enum ToggleCommentEngine {
         let range = clamped(selectedRange, length: text.length)
         let touchedSpan = computeTouchedSpan(text: text, range: range)
 
-        // Split the span into lines
+        switch style {
+        case .line(let token):
+            guard let plan = lineToggle(text: text, ranges: [range], token: token),
+                  let selection = plan.selections.first else { return nil }
+            let span = NSMutableString(string: text.substring(with: touchedSpan))
+            for edit in plan.edits.reversed() {
+                let local = NSRange(location: edit.range.location - touchedSpan.location, length: edit.range.length)
+                span.replaceCharacters(in: local, with: edit.replacement)
+            }
+            return CommentToggleEdit(replacementRange: touchedSpan, text: span as String, selectedRange: selection)
+        case .block(let open, let close):
+            let lines = lineInfos(text: text, span: touchedSpan, range: range)
+            return toggleBlockComment(text: text, lines: lines, open: open, close: close, range: range, touchedSpan: touchedSpan)
+        }
+    }
+
+    /// Toggle the comment state of every line any of `selectedRanges` touches,
+    /// as one plan — so several carets, a column selection and disjoint
+    /// selections all comment in one undo step.
+    ///
+    /// `style` overrides the language's own style when given (the contextual
+    /// style a caller resolved); `nil` reads `CommentStyle.style(for:)`. Returns
+    /// `nil` — a silent no-op — when there is no style or no non-blank line to
+    /// act on.
+    ///
+    /// Touched lines follow `BlockIndentEngine`'s rule (a non-empty range ending
+    /// exactly at a line start does not touch that line), and lines touched by
+    /// several ranges are touched once.
+    ///
+    /// - **Line style**: the line set is the union across every range, and one
+    ///   all-commented decision and one alignment column apply across that
+    ///   union. Every edit is per line: a zero-length insertion of
+    ///   `token + " "`, or the deletion of the token plus an optional space.
+    /// - **Block style**: the touched lines are merged into contiguous line
+    ///   blocks, and each block is wrapped — or unwrapped when already wrapped —
+    ///   separately, one replacement per block, all in one plan.
+    ///
+    /// Selections are mapped through the plan with the single-range rules: a
+    /// selection becomes its touched lines' post-edit span, terminator of the
+    /// last excluded; a caret moves to the next line at the same column
+    /// (clamped), or — on a terminator-less last line — stays on its line,
+    /// following its text. Identical results collapse into one. With one range
+    /// the answer equals `toggle(text:selectedRange:language:)`'s text and
+    /// selection.
+    public static func toggle(
+        text: NSString,
+        selectedRanges: [NSRange],
+        language: SyntaxLanguage?,
+        style: CommentStyle? = nil
+    ) -> RangeEditPlan? {
+        let ranges = selectedRanges.map { clamped($0, length: text.length) }
+        guard !ranges.isEmpty, let style = style ?? language.flatMap(CommentStyle.style(for:)) else { return nil }
+        switch style {
+        case .line(let token):
+            return lineToggle(text: text, ranges: ranges, token: token)
+        case .block(let open, let close):
+            return blockToggle(text: text, ranges: ranges, open: open, close: close)
+        }
+    }
+
+    // MARK: - Line style
+
+    private static func lineToggle(text: NSString, ranges: [NSRange], token: String) -> RangeEditPlan? {
+        let lines = BlockIndentEngine.Lines(text: text)
+        let nonBlank = BlockIndentEngine.touchedLines(lines: lines, ranges: ranges).filter { !lines.isBlank($0) }
+        guard let firstLine = nonBlank.first else { return nil }
+
+        let tokenLength = (token as NSString).length
+        let isCommented: (Int) -> Bool = { line in
+            let start = lines.start(of: line) + indentation(text: text, lines: lines, line: line)
+            guard start + tokenLength <= lines.contentsEnd(of: line) else { return false }
+            return text.substring(with: NSRange(location: start, length: tokenLength)) == token
+        }
+
+        var edits: [IndentReplacement] = []
+        if nonBlank.allSatisfy(isCommented) {
+            for line in nonBlank {
+                let start = lines.start(of: line) + indentation(text: text, lines: lines, line: line)
+                var length = tokenLength
+                if start + length < lines.contentsEnd(of: line), text.character(at: start + length) == 0x20 {
+                    length += 1
+                }
+                edits.append(IndentReplacement(range: NSRange(location: start, length: length), replacement: ""))
+            }
+        } else {
+            let column = nonBlank.reduce(indentation(text: text, lines: lines, line: firstLine)) {
+                min($0, indentation(text: text, lines: lines, line: $1))
+            }
+            for line in nonBlank {
+                let location = lines.start(of: line) + column
+                edits.append(IndentReplacement(range: NSRange(location: location, length: 0), replacement: token + " "))
+            }
+        }
+
+        guard let shell = RangeEditPlan(edits: edits, selections: []) else { return nil }
+        var selections: [NSRange] = []
+        for range in ranges {
+            let selection = mappedSelection(range, text: text, lines: lines, plan: shell)
+            if !selections.contains(selection) { selections.append(selection) }
+        }
+        return RangeEditPlan(edits: edits, selections: selections)
+    }
+
+    /// Where one range lands after the toggle, by the single-range rules.
+    private static func mappedSelection(
+        _ range: NSRange, text: NSString, lines: BlockIndentEngine.Lines, plan: RangeEditPlan
+    ) -> NSRange {
+        let first = lines.index(of: range.location)
+        if range.length > 0 {
+            var last = lines.index(of: NSMaxRange(range))
+            if NSMaxRange(range) == lines.start(of: last) { last = max(first, last - 1) }
+            let start = plan.mapped(offset: lines.start(of: first), bias: .before)
+            let end = plan.mapped(offset: lines.contentsEnd(of: last), bias: .before)
+            return NSRange(location: start, length: max(0, end - start))
+        }
+        let column = range.location - lines.start(of: first)
+        let isLastLine = first == lines.starts.count - 1 && lines.contentsEnd(of: first) == text.length
+        if isLastLine {
+            return NSRange(location: plan.mapped(offset: range.location, bias: .after), length: 0)
+        }
+        let next = first + 1
+        let nextColumn = min(column, lines.contentsEnd(of: next) - lines.start(of: next))
+        return NSRange(location: plan.mapped(offset: lines.start(of: next) + nextColumn, bias: .after), length: 0)
+    }
+
+    /// The line's leading-whitespace length in UTF-16 units: a tab is one unit.
+    private static func indentation(text: NSString, lines: BlockIndentEngine.Lines, line: Int) -> Int {
+        let start = lines.start(of: line)
+        let end = lines.contentsEnd(of: line)
+        var offset = start
+        while offset < end,
+              let scalar = Unicode.Scalar(text.character(at: offset)),
+              CharacterSet.whitespaces.contains(scalar) {
+            offset += 1
+        }
+        return offset - start
+    }
+
+    // MARK: - Block style
+
+    /// One wrap or unwrap per contiguous block of touched lines.
+    ///
+    /// A block holding exactly one range is answered by the single-range block
+    /// toggle with that range, so its edit and selection are the single-range
+    /// ones; a block several ranges merged into is answered as one selection
+    /// over the whole block, and leaves that one selection behind.
+    private static func blockToggle(text: NSString, ranges: [NSRange], open: String, close: String) -> RangeEditPlan? {
+        let lines = BlockIndentEngine.Lines(text: text)
+        let touched = BlockIndentEngine.touchedLines(lines: lines, ranges: ranges)
+        var blocks: [ClosedRange<Int>] = []
+        for line in touched {
+            if let last = blocks.last, last.upperBound + 1 == line {
+                blocks[blocks.count - 1] = last.lowerBound...line
+            } else {
+                blocks.append(line...line)
+            }
+        }
+
+        var edits: [IndentReplacement] = []
+        var selections: [NSRange] = []
+        var shift = 0
+        for block in blocks {
+            let spanStart = lines.start(of: block.lowerBound)
+            let spanEnd = block.upperBound + 1 < lines.starts.count ? lines.start(of: block.upperBound + 1) : text.length
+            let span = NSRange(location: spanStart, length: spanEnd - spanStart)
+            let members = ranges.filter { block.contains(lines.index(of: $0.location)) }
+            let range = members.count == 1 ? members[0] : span
+            let infos = lineInfos(text: text, span: span, range: range)
+            guard let edit = toggleBlockComment(
+                text: text, lines: infos, open: open, close: close, range: range, touchedSpan: span
+            ) else { continue }
+            edits.append(IndentReplacement(range: edit.replacementRange, replacement: edit.text))
+            let selection = NSRange(location: edit.selectedRange.location + shift, length: edit.selectedRange.length)
+            if !selections.contains(selection) { selections.append(selection) }
+            shift += (edit.text as NSString).length - edit.replacementRange.length
+        }
+        guard !edits.isEmpty else { return nil }
+        return RangeEditPlan(edits: edits, selections: selections)
+    }
+
+    /// Split `span`, a run of whole lines, into the block toggle's line records.
+    private static func lineInfos(text: NSString, span: NSRange, range: NSRange) -> [LineInfo] {
         var lines: [LineInfo] = []
-        var currentIndex = touchedSpan.location
-        while currentIndex < NSMaxRange(touchedSpan) {
+        var currentIndex = span.location
+        repeat {
             var lineStart = 0
             var lineEnd = 0
             var contentsEnd = 0
@@ -46,129 +248,8 @@ public enum ToggleCommentEngine {
                 isCaretLine: range.length == 0 && range.location >= lineStart && range.location <= lineEnd
             ))
             currentIndex = lineEnd
-        }
-
-        switch style {
-        case .line(let token):
-            return toggleLineComment(text: text, lines: lines, token: token, range: range, touchedSpan: touchedSpan)
-        case .block(let open, let close):
-            return toggleBlockComment(text: text, lines: lines, open: open, close: close, range: range, touchedSpan: touchedSpan)
-        }
-    }
-
-    private static func toggleLineComment(
-        text: NSString,
-        lines: [LineInfo],
-        token: String,
-        range: NSRange,
-        touchedSpan: NSRange
-    ) -> CommentToggleEdit? {
-        // Skip blank lines
-        let nonBlankLines = lines.filter { !$0.isBlank }
-        if nonBlankLines.isEmpty {
-            return nil
-        }
-
-        // Check if all non-blank lines are commented
-        let allCommented = nonBlankLines.allSatisfy { $0.isCommented(token: token) }
-
-        var newText = ""
-        var caretDeltaForLastLine = 0
-
-        let originalColumn = range.length == 0 ? range.location - lines[0].start : 0
-        for line in lines {
-            if line.isBlank {
-                newText += line.content
-                continue
-            }
-            if allCommented {
-                // Uncomment
-                let (uncommented, removedIdx) = line.uncommented(token: token)
-                newText += uncommented
-                if line.isCaretLine && originalColumn > removedIdx {
-                    let fullDelta = uncommented.utf16.count - line.content.utf16.count
-                    if originalColumn < removedIdx - fullDelta {
-                        caretDeltaForLastLine = removedIdx - originalColumn
-                    } else {
-                        caretDeltaForLastLine = fullDelta
-                    }
-                }
-            } else {
-                // Comment
-                let nsString = line.content as NSString
-                let contentsLength = line.contentsEnd - line.start
-                var i = 0
-                while i < contentsLength {
-                    let unichar = nsString.character(at: i)
-                    if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
-                        i += 1
-                    } else {
-                        break
-                    }
-                }
-                let leadingSpaces = nsString.substring(with: NSRange(location: 0, length: i))
-                let rest = nsString.substring(from: i)
-                let commented = leadingSpaces + token + " " + rest
-                newText += commented
-                if line.isCaretLine {
-                    if originalColumn >= i {
-                        caretDeltaForLastLine = token.utf16.count + 1
-                    } else {
-                        caretDeltaForLastLine = 0
-                    }
-                }
-            }
-        }
-
-        let isSelection = range.length > 0
-        let newSelectedRange: NSRange
-
-        if isSelection {
-            let newLength = newText.utf16.count
-            // The selection becomes the touched lines' post-edit whole-line span
-            // with the final terminator excluded; the edit never rewrites
-            // terminators, so the last line's original terminator length still
-            // holds post-edit.
-            let lastLine = lines.last!
-            let terminatorLength = lastLine.end - lastLine.contentsEnd
-            let newSpanLength = newLength - terminatorLength
-            newSelectedRange = NSRange(location: touchedSpan.location, length: newSpanLength)
-        } else {
-            let line = lines[0]
-            let originalColumn = range.location - line.start
-            let isLastLine = line.end == text.length && line.end == line.contentsEnd
-
-            if isLastLine {
-                let delta = caretDeltaForLastLine
-                // A terminator-less last line, so newText is pure content.
-                let newContentLength = newText.utf16.count
-                let newColumn = min(max(originalColumn + delta, 0), newContentLength)
-                newSelectedRange = NSRange(location: touchedSpan.location + newColumn, length: 0)
-            } else {
-                // Find next line's start and contents length
-                var nextLineStart = 0
-                var nextLineEnd = 0
-                var nextLineContentsEnd = 0
-                text.getLineStart(
-                    &nextLineStart,
-                    end: &nextLineEnd,
-                    contentsEnd: &nextLineContentsEnd,
-                    for: NSRange(location: line.end, length: 0)
-                )
-
-                let nextLineContentLength = nextLineContentsEnd - nextLineStart
-                let newColumn = min(originalColumn, nextLineContentLength)
-                // Post-edit, the next line starts right after the replacement.
-                let nextLineNewStart = touchedSpan.location + newText.utf16.count
-                newSelectedRange = NSRange(location: nextLineNewStart + newColumn, length: 0)
-            }
-        }
-
-        return CommentToggleEdit(
-            replacementRange: touchedSpan,
-            text: newText,
-            selectedRange: newSelectedRange
-        )
+        } while currentIndex < NSMaxRange(span)
+        return lines
     }
 
     private static func computeTouchedSpan(text: NSString, range: NSRange) -> NSRange {
@@ -414,42 +495,5 @@ private struct LineInfo {
         let contentsLength = contentsEnd - start
         let stringContent = nsString.substring(to: contentsLength)
         return stringContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    func isCommented(token: String) -> Bool {
-        let nsString = content as NSString
-        let contentsLength = contentsEnd - start
-        let stringContent = nsString.substring(to: contentsLength)
-        let trimmed = stringContent.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasPrefix(token)
-    }
-
-    func uncommented(token: String) -> (String, Int) {
-        let nsString = content as NSString
-        let contentsLength = contentsEnd - start
-
-        let terminator = nsString.substring(from: contentsLength)
-
-        var i = 0
-        while i < contentsLength {
-            let unichar = nsString.character(at: i)
-            if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
-                i += 1
-            } else {
-                break
-            }
-        }
-
-        let leadingSpaces = nsString.substring(with: NSRange(location: 0, length: i))
-        var rest = nsString.substring(with: NSRange(location: i, length: contentsLength - i))
-
-        if rest.hasPrefix(token) {
-            rest.removeFirst(token.count)
-            if rest.hasPrefix(" ") {
-                rest.removeFirst()
-            }
-        }
-
-        return (leadingSpaces + rest + terminator, i)
     }
 }

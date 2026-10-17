@@ -270,4 +270,97 @@ final class DuplicateEngineTests: XCTestCase {
         XCTAssertEqual(result.selectedRange, NSRange(location: 4, length: 0))
         XCTAssertEqual(applied(text, result), "abc\nabc")
     }
+
+    // MARK: - Multi-range plan
+
+    private func apply(_ plan: RangeEditPlan, to text: String) -> String {
+        let result = NSMutableString(string: text)
+        for edit in plan.edits.reversed() {
+            result.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        return result as String
+    }
+
+    private func plan(_ text: String, _ ranges: [NSRange]) -> RangeEditPlan {
+        DuplicateEngine.duplicate(text: text as NSString, selectedRanges: ranges)
+    }
+
+    func testAColumnSelectionDuplicatesEveryRange() {
+        let text = "abc\ndef\nghi"
+        let result = plan(text, [1, 5, 9].map { NSRange(location: $0, length: 1) })
+        XCTAssertEqual(apply(result, to: text), "abbc\ndeef\nghhi")
+        // Each selection lands on its own copy.
+        XCTAssertEqual(result.selections, [
+            NSRange(location: 2, length: 1),
+            NSRange(location: 7, length: 1),
+            NSRange(location: 12, length: 1),
+        ])
+    }
+
+    /// The regression the multi-range plan exists for: before it, only the
+    /// first range was duplicated.
+    func testEveryCaretDuplicatesItsLineNotOnlyTheFirst() {
+        let text = "a\nb\nc\n"
+        let result = plan(text, [NSRange(location: 0, length: 0), NSRange(location: 4, length: 0)])
+        XCTAssertEqual(apply(result, to: text), "a\na\nb\nc\nc\n")
+        XCTAssertEqual(result.selections, [NSRange(location: 2, length: 0), NSRange(location: 8, length: 0)])
+    }
+
+    func testCaretsOnOneLineDuplicateItOnce() {
+        let text = "abc\nd"
+        let result = plan(text, [NSRange(location: 1, length: 0), NSRange(location: 3, length: 0)])
+        XCTAssertEqual(apply(result, to: text), "abc\nabc\nd")
+        XCTAssertEqual(result.edits.count, 1)
+        XCTAssertEqual(result.selections, [NSRange(location: 5, length: 0), NSRange(location: 7, length: 0)])
+    }
+
+    func testCaretsOnTheTerminatorLessLastLineDuplicateItOnce() {
+        let text = "a\nbc"
+        let result = plan(text, [NSRange(location: 2, length: 0), NSRange(location: 4, length: 0)])
+        XCTAssertEqual(apply(result, to: text), "a\nbc\nbc")
+        XCTAssertEqual(result.selections, [NSRange(location: 5, length: 0), NSRange(location: 7, length: 0)])
+    }
+
+    /// A selection ending at a caret line's end inserts at the same offset;
+    /// the ranges' order decides which copy comes first.
+    func testInsertionsAtOneOffsetKeepTheRangesOrder() {
+        let text = "ab\ncd"
+        let result = plan(text, [NSRange(location: 0, length: 0), NSRange(location: 2, length: 1)])
+        XCTAssertEqual(apply(result, to: text), "ab\nab\n\ncd")
+        XCTAssertEqual(result.selections, [NSRange(location: 3, length: 0), NSRange(location: 6, length: 1)])
+    }
+
+    func testCRLFAndEverySeparatorAcrossSeveralCarets() {
+        for separator in ["\n", "\r", "\r\n", "\u{0085}", "\u{2028}", "\u{2029}"] {
+            let text = "a" + separator + "b" + separator
+            let second = 1 + (separator as NSString).length
+            let result = plan(text, [NSRange(location: 0, length: 0), NSRange(location: second, length: 0)])
+            XCTAssertEqual(apply(result, to: text), "a" + separator + "a" + separator + "b" + separator + "b" + separator)
+        }
+    }
+
+    func testNoRangesIsAnEmptyPlan() {
+        XCTAssertTrue(plan("abc", []).isEmpty)
+    }
+
+    /// With one range, the plan is exactly the single-range `DuplicateEdit`.
+    func testASingleRangePlanMatchesTheSingleRangeEdit() {
+        for text in ["", "a", "ab\ncd\n", "x\r\ny", "a\u{2028}b"] {
+            let length = (text as NSString).length
+            for location in 0...length {
+                for selectionLength in 0...(length - location) {
+                    let range = NSRange(location: location, length: selectionLength)
+                    let single = edit(text, range)
+                    let insertion = IndentReplacement(
+                        range: NSRange(location: single.insertionLocation, length: 0), replacement: single.text
+                    )
+                    XCTAssertEqual(
+                        plan(text, [range]),
+                        RangeEditPlan(edits: [insertion], selections: [single.selectedRange]),
+                        "\(text.debugDescription) \(range)"
+                    )
+                }
+            }
+        }
+    }
 }

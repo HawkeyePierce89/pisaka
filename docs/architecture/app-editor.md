@@ -329,18 +329,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ordinary text and leave the marked range pointing at a region the insertion
     moved. All four conditions are load-bearing; dropping any one reintroduces a
     concrete misfire. `Coordinator.duplicateSelection(in:)` reads the live
-    `textView.string`/`selectedRange()`, calls `DuplicateEngine.duplicate`, applies
-    the result with a single `insertText(edit.text, replacementRange: NSRange(
-    location: edit.insertionLocation, length: 0))` (a zero-length replacement, so
-    the per-file undo manager records the whole duplication as *one* undoable
-    step), then installs `edit.selectedRange`. It is bracketed by the shared
-    `isApplyingProgrammaticEdit` flag for the same mandatory reason as the indent
-    and auto-pair edits: `insertText` re-invokes `shouldChangeTextIn`
-    synchronously and the auto-pair interceptor fires on any single-character
-    replacement, so duplicating a one-character *selection* holding a lone `(`
-    would otherwise fall into auto-pair and insert `()`. The line path can emit a
-    single character too — duplicating an *empty* line inserts just `"\n"` — so
-    the guard covers both paths unconditionally. The closure `makeNSView` installs into
+    `textView.string` and **every** range of `selectedRanges`, calls
+    `DuplicateEngine.duplicate(text:selectedRanges:)`, and applies the plan
+    through the coordinator's one multi-range applier, so several carets or a
+    column selection duplicate as *one* undoable step and each range leaves its
+    caret or selection in its copy. `toggleComment(in:)` (⌘/) is wired the same
+    way over `ToggleCommentEngine.toggle(text:selectedRanges:language:)`, a `nil`
+    plan being the silent no-op. The applier holds the shared
+    `isApplyingProgrammaticEdit` flag across its whole bracket, which is
+    mandatory here for the same reason as the indent and auto-pair edits: the
+    single-range `shouldChangeText` callback reaches the auto-pair interceptor,
+    which fires on any single-character replacement, so duplicating a
+    one-character *selection* holding a lone `(` would otherwise fall into
+    auto-pair and insert `()`. The line path can emit a single character too —
+    duplicating an *empty* line inserts just `"\n"` — so the guard covers both
+    paths unconditionally. The closure `makeNSView` installs into
     `onDuplicate` captures the coordinator **weakly**: the coordinator holds the
     text view weakly, but the `PredicateResolvingHighlighter` — which the coordinator owns
     strongly — keeps a strong `textView`, so a strong capture would close the cycle

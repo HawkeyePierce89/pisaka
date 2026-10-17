@@ -221,21 +221,21 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Modify: `Sources/PisakaCore/DuplicateEngine.swift`, `Sources/PisakaCore/ToggleCommentEngine.swift`
 - Modify: `Tests/PisakaCoreTests/DuplicateEngineTests.swift`, `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
-- [ ] Add `DuplicateEngine.duplicate(text:selectedRanges:) -> RangeEditPlan`:
+- [x] Add `DuplicateEngine.duplicate(text:selectedRanges:) -> RangeEditPlan`:
   - each range keeps today's semantics: a caret duplicates its line, a selection duplicates itself;
   - carets on the same line duplicate that line once;
   - one resulting caret or selection per original range, placed in the copy;
   - a single range equals today's DuplicateEdit, pinned by a test.
-- [ ] Toggle Comment alignment: when commenting, insert `token + " "` at the minimum leading-whitespace length of the non-blank touched lines, counted in UTF-16 units, so a tab counts as one unit. Document that.
+- [x] Toggle Comment alignment: when commenting, insert `token + " "` at the minimum leading-whitespace length of the non-blank touched lines, counted in UTF-16 units, so a tab counts as one unit. Document that.
   - Uncommenting already strips the token after each line's own indentation, so both the aligned form and the old per-line form are recognised.
   - The caret delta applies when the caret column is at or past the insertion column.
   - Existing tests are updated deliberately to the aligned expectation, not deleted.
-- [ ] Add `ToggleCommentEngine.toggle(text:selectedRanges:language:style:) -> RangeEditPlan?`:
+- [x] Add `ToggleCommentEngine.toggle(text:selectedRanges:language:style:) -> RangeEditPlan?`:
   - line-style languages: the line set is the union of lines touched by all ranges, and one all-commented decision and one alignment column apply across that union; edits are per line: a zero-length insertion, or a deletion of the token plus an optional space;
   - block-style languages (css, html, and the JSX contextual style of Task 8): the touched lines are merged into contiguous line blocks, and each block is wrapped separately, or unwrapped when it is already wrapped, as one wrap per merged block, all in one plan;
   - selections are mapped through the plan. The single-range answer matches the existing engine's text and selection.
-- [ ] Coordinator: duplicateSelection and toggleComment read `selectedRanges` and apply through the applier, as one undo step.
-- [ ] Tests:
+- [x] Coordinator: duplicateSelection and toggleComment read `selectedRanges` and apply through the applier, as one undo step.
+- [x] Tests:
   - lines indented 4 and 8 get `//` at column 4 on both, and uncommenting restores them byte-for-byte;
   - the old per-line form uncomments;
   - a column selection across 3 lines duplicates and comments all 3;
@@ -244,7 +244,7 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - blank lines are untouched;
   - CRLF and the six separators;
   - a test that fails if only the first range were edited.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 8: Contextual JSX comment style (R6, Core + app)
 

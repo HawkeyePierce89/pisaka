@@ -3250,53 +3250,42 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: - Duplicate line/selection
 
-        /// Duplicate the caret's line (or the selection) — the Cmd+D handler.
+        /// Duplicate every caret's line and every selection — the Cmd+D handler.
         ///
         /// All the math is pure and lives in `PisakaCore.DuplicateEngine`; this
-        /// reads the live buffer + selection, applies the engine's edit with one
-        /// `insertText(_:replacementRange:)` at a zero-length range (so the
-        /// per-file undo manager records the whole duplication as a single
-        /// undoable step), then installs the resulting selection — a caret inside
-        /// the copied line, or the inserted copy itself for a selection, so
-        /// repeated presses grow the text.
+        /// reads the live buffer and **every** selected range, and applies the
+        /// engine's plan through the applier, so a column selection or several
+        /// carets duplicate as one undoable step. Each range leaves one caret
+        /// inside its copied line, or its copy selected, so repeated presses grow
+        /// the text.
         ///
-        /// `isApplyingProgrammaticEdit` is mandatory here, not defensive:
-        /// `insertText` re-invokes `shouldChangeTextIn` synchronously and the
-        /// auto-pair interceptor fires on any single-character replacement, so
-        /// duplicating a one-character *selection* holding a lone `(` would
-        /// otherwise fall into auto-pair and insert `()`. (The line path can emit
-        /// a single character too — duplicating an *empty* line inserts just
-        /// `"\n"` — so the guard covers both paths unconditionally.)
+        /// The applier holds `isApplyingProgrammaticEdit` across its bracket,
+        /// which is mandatory here, not defensive: duplicating a one-character
+        /// selection holding a lone `(` — or an *empty* line, which inserts just
+        /// `"\n"` — would otherwise fall into the auto-pair interceptor.
         ///
         /// Always returns `true` (the key is consumed).
         func duplicateSelection(in textView: NSTextView) -> Bool {
-            let edit = DuplicateEngine.duplicate(
+            let plan = DuplicateEngine.duplicate(
                 text: textView.string as NSString,
-                selectedRange: textView.selectedRange()
+                selectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue)
             )
-            isApplyingProgrammaticEdit = true
-            textView.insertText(
-                edit.text,
-                replacementRange: NSRange(location: edit.insertionLocation, length: 0)
-            )
-            isApplyingProgrammaticEdit = false
-            textView.setSelectedRange(edit.selectedRange)
+            _ = apply(plan, in: textView)
             return true
         }
 
+        /// Toggle the comment state of every line any selected range touches —
+        /// the Cmd+/ handler. `ToggleCommentEngine` decides everything, with one
+        /// all-commented decision and one aligned marker column across the
+        /// ranges; the applier makes it one undo step. A `nil` plan is a silent
+        /// no-op.
         func toggleComment(in textView: NSTextView) {
-            guard let edit = ToggleCommentEngine.toggle(
+            guard let plan = ToggleCommentEngine.toggle(
                 text: textView.string as NSString,
-                selectedRange: textView.selectedRange(),
+                selectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue),
                 language: language
             ) else { return }
-            isApplyingProgrammaticEdit = true
-            textView.insertText(
-                edit.text,
-                replacementRange: edit.replacementRange
-            )
-            isApplyingProgrammaticEdit = false
-            textView.setSelectedRange(edit.selectedRange)
+            _ = apply(plan, in: textView)
         }
 
         /// Intercept single-character input for auto-close brackets/quotes and,
