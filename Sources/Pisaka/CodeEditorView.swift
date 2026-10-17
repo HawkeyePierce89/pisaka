@@ -1190,8 +1190,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// The hover popover: the pointer's dwell, the request it makes of the
         /// same intelligence seam, and the pass-through panel that draws the
         /// answer. Owned strongly here (it holds the text view weakly, so there
-        /// is no cycle), like the search and completion controllers.
-        private let hover = HoverController()
+        /// is no cycle), like the search and completion controllers. Internal
+        /// rather than private for one reader: `goToProblem(_:)` in
+        /// `ProblemCommands.swift` presents the diagnostics popover through it.
+        let hover = HoverController()
 
         /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
         /// like `searchBarState`: the app owns it for its whole lifetime, and the

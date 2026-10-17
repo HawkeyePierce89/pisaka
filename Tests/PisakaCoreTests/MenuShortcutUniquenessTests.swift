@@ -191,6 +191,16 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         }
     }
 
+    /// Next Problem's ⌘' and Previous Problem's ⌘⇧', both in
+    /// `ProblemCommands.swift` and declared once each.
+    func testTheProblemNavigationChordsAreDeclaredOnceEach() throws {
+        let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
+        for chord in ["' + .command", "' + .command .shift"] {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["ProblemCommands.swift"], chord)
+        }
+    }
+
     /// AppKit's native window tabbing would bind its own ⌃Tab / ⌃⇧Tab items,
     /// invisible to the scan above; `AppDelegate` must turn it off. Read over
     /// comment-stripped text, so the doc comment naming the setting cannot keep

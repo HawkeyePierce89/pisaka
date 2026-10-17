@@ -1486,13 +1486,17 @@ honest answer for a link to a section the document does not have.
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.
 - `PisakaApp.swift` (`app-shell.md`) — the View-menu toggle (M8) and five of the
-  eight caret-command call sites now routed through `EditorCommandTarget` (M11).
+  ten caret-command call sites now routed through `EditorCommandTarget` (M11).
 - `FoldCommands.swift` (`core-folding.md`) — the sixth site, same routing, asking
   once for all four fold items.
 - `SelectionCommands.swift` (`app-editor.md`) — the seventh site, same routing,
   asking once for Expand and Shrink Selection.
 - `LineCommands.swift` (`app-editor.md`) — the eighth site, same routing,
   asking once for Move Line Up and Down.
+- `CommentCommands.swift` (`app-editor.md`) — the ninth site, same routing,
+  asking once in Toggle Block Comment's action.
+- `ProblemCommands.swift` (`app-editor.md`) — the tenth site, same routing,
+  asking once for Next and Previous Problem.
 - `CodeEditorView.swift` (`app-editor.md`) — `onScrolled`, an **optional**
   callback carrying the top visible character offset. `nil` for every editor
   nobody is watching, and the guard is on the closure rather than on the

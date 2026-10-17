@@ -1603,6 +1603,10 @@ struct PisakaApp: App {
                 // Greying it out says *why* nothing happens.
                 Button("Complete") { completeAtCaret() }
                     .disabled(model.selectedID == nil || !settings.completionEnabled)
+
+                // Next / Previous Problem (⌘' / ⌘⇧'), its divider and both
+                // items in `ProblemCommands.swift`.
+                ProblemNavigationItems(isDisabled: model.selectedID == nil)
             }
 
             CommandMenu("Git") {

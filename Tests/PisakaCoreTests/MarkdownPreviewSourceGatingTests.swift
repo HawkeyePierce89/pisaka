@@ -551,8 +551,8 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
     // MARK: - The focus helper
 
-    /// One definition of "which editor is this keystroke for", and eight callers.
-    func testTheFocusHelperHasOneDefinitionAndEightCallSites() throws {
+    /// One definition of "which editor is this keystroke for", and ten callers.
+    func testTheFocusHelperHasOneDefinitionAndTenCallSites() throws {
         XCTAssertEqual(
             try fileNames(matching: "\\benum EditorCommandTarget\\b", under: "Sources"),
             ["EditorCommandTarget.swift"],
@@ -572,7 +572,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: app),
             5,
-            "Five of the eight caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
+            "Five of the ten caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
                 + "Comment and Complete. A sixth site here would be a command that never asked."
         )
         let folds = try code(ofFileNamed: "FoldCommands.swift", under: "Sources/Pisaka")
@@ -593,10 +593,25 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
             1,
             "And the eighth is Move Line Up / Down's own focusedEditor(), which asks once for both items."
         )
+        let comments = try code(ofFileNamed: "CommentCommands.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: comments),
+            1,
+            "And the ninth is Toggle Block Comment's, asked once in its one action."
+        )
+        let problems = try code(ofFileNamed: "ProblemCommands.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: problems),
+            1,
+            "And the tenth is Next / Previous Problem's, asked once for both items."
+        )
         XCTAssertEqual(
             try fileNames(matching: "EditorCommandTarget\\.focusedEditor\\(", under: "Sources"),
-            ["PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift", "LineCommands.swift"],
-            "Four files ask, and they are the four that own app-wide caret chords. A fifth asker is a "
+            [
+                "PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift", "LineCommands.swift",
+                "CommentCommands.swift", "ProblemCommands.swift",
+            ],
+            "Six files ask, and they are the six that own app-wide caret chords. A seventh asker is a "
                 + "command surface that grew somewhere no doc comment describes."
         )
 

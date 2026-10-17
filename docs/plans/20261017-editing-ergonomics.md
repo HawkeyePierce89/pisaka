@@ -324,28 +324,28 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Create: `Sources/PisakaCore/DiagnosticNavigationRule.swift`
 - Create: `Tests/PisakaCoreTests/DiagnosticNavigationRuleTests.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/CodeEditorView.swift`, `Sources/Pisaka/HoverController.swift`
-- [ ] `DiagnosticNavigationRule.target(diagnostics:caret:direction:) -> Int?`:
+- [x] `DiagnosticNavigationRule.target(diagnostics:caret:direction:) -> Int?`:
   - when any error exists, only errors are considered; otherwise all severities;
   - stops are the distinct start offsets, ascending;
   - next is the first stop strictly after the caret, wrapping to the first;
   - previous is the last stop strictly before the caret, wrapping to the last;
   - no stops answers nil.
-- [ ] Coordinator `goToProblem(_ direction:) -> Bool`:
+- [x] Coordinator `goToProblem(_ direction:) -> Bool`:
   - reads `DiagnosticStore.entry(for:)`, already shifted by DiagnosticShift; no server request is made;
   - places the caret through the existing reveal funnel the Problems row uses, so folds unfold by the reveal rule;
   - then presents the diagnostics-only popover anchored at the target through a new `HoverController.showDiagnostics(at:in:)`. It reuses the diagnostics HoverContent composition and the generation token, and runs after the selection change, so the popover's dismiss-on-selection does not tear it down;
   - if the anchor rect is not laid out yet, it presents on the next run-loop turn.
-- [ ] Menu: add Next Problem (⌘') and Previous Problem (⌘⇧') to the existing Find menu, `.disabled(model.selectedID == nil)`. A nil target beeps.
-- [ ] Tests:
+- [x] Menu: add Next Problem (⌘') and Previous Problem (⌘⇧') to the existing Find menu, `.disabled(model.selectedID == nil)`. A nil target beeps. (The two items, their action and `goToProblem(_:)` live in a new `Sources/Pisaka/ProblemCommands.swift`, named once in the Find menu as `ProblemNavigationItems`, because PisakaApp and CodeEditorView are at their lint size caps; file_length and type_body_length moved by that one line. The coordinator's `hover` became internal for this one reader. The reveal-funnel and focus-helper gating suites now name ProblemCommands, and the focus-helper suite also names CommentCommands, which the previous task had left out.)
+- [x] Tests:
   - 2 errors and 3 warnings cycle through the 2 errors only and wrap;
   - warnings only cycle all 3;
   - previous wraps backwards;
   - diagnostics with the same start are one stop;
   - a caret at a start moves on;
   - an empty list answers nil.
-- [ ] Run MenuShortcutUniquenessTests.
-- [ ] Docs: core-lsp.md (the navigation rule as a reader over the store) and app-editor.md (wiring and popover).
-- [ ] Run `swift test` and `make build`. Both must pass.
+- [x] Run MenuShortcutUniquenessTests.
+- [x] Docs: core-lsp.md (the navigation rule as a reader over the store) and app-editor.md (wiring and popover).
+- [x] Run `swift test` and `make build`. Both must pass.
 
 ### Task 11: Verify acceptance criteria
 

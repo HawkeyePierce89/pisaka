@@ -191,12 +191,16 @@ line_length:
 # Toggle Block Comment: three lines, the item and its two modifiers beside
 # Toggle Comment in the Edit block, so the two comment commands sit together;
 # the action and the coordinator's apply live in `CommentCommands.swift`, every
-# decision in Core's `BlockCommentEngine`. The number tracks the one file that
+# decision in Core's `BlockCommentEngine`. Then 1953 with Next / Previous
+# Problem: one line, the `ProblemNavigationItems` entry at the foot of the Find
+# menu, because its divider, both items and their action live in
+# `ProblemCommands.swift`, every decision in Core's `DiagnosticNavigationRule`.
+# The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1952
-  error: 1952
+  warning: 1953
+  error: 1953
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -248,10 +252,12 @@ file_length:
 # the `SelectionCommands()` entry inside that `Group`. Then to 1942 with Move
 # Line's one, the same one `file_length` counts: the `LineCommands()` entry
 # inside that `Group`. Then to 1945 with Toggle Block Comment's three, the same
-# three `file_length` counts: the item inside the `.commands` builder.
+# three `file_length` counts: the item inside the `.commands` builder. Then to
+# 1946 with Next / Previous Problem's one, the same one `file_length` counts:
+# the `ProblemNavigationItems` entry inside the Find menu.
 type_body_length:
-  warning: 1945
-  error: 1945
+  warning: 1946
+  error: 1946
 
 function_body_length:
   warning: 140

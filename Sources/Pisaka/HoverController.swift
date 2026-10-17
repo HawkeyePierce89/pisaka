@@ -329,6 +329,43 @@ final class HoverController: NSObject {
         dismiss()
     }
 
+    // MARK: - Asked for from the keyboard
+
+    /// Show the diagnostics popover for `offset` with no dwell and no server
+    /// request — *Next / Previous Problem*'s landing point (`goToProblem(_:)`).
+    ///
+    /// The same popover the pointer gets inside a squiggle: the messages come
+    /// from `Source.diagnosticsAtOffset` and are composed by
+    /// `Diagnostic.hoverContent` with no type answer merged in, anchored to the
+    /// union of the hit ranges so a pointer resting inside it keeps the popover
+    /// up exactly as it would after a dwell. The generation token is bumped by
+    /// the opening `dismiss()` and captured here, so anything that supersedes
+    /// this presentation — an edit, a scroll, another press — wins.
+    ///
+    /// Called *after* the caret has moved, so the selection-change dismissal
+    /// has already run. When TextKit has not yet laid out the anchor (a jump
+    /// into text far below the viewport, under non-contiguous layout) the
+    /// presentation waits one main-loop turn, for `applyReveal`'s reason, and
+    /// is dropped if anything superseded it meanwhile. Silent, as every hover
+    /// path is: no diagnostics at the offset is no popover.
+    func showDiagnostics(at offset: Int, in textView: NSTextView) {
+        dismiss()
+        guard let source = source(), let fileURL = source.fileURL else { return }
+        let diagnostics = source.diagnosticsAtOffset(fileURL, offset)
+        guard let content = Diagnostic.hoverContent(for: diagnostics, merging: nil) else { return }
+        let anchor = Self.question(for: offset, identifier: nil, diagnostics: diagnostics).anchor
+        let token = generation
+        let laidOut = textView.layoutManager.map { $0.firstUnlaidCharacterIndex() > anchor.location } ?? false
+        guard !laidOut else {
+            present(content, anchoredTo: anchor, in: textView)
+            return
+        }
+        DispatchQueue.main.async { [weak self, weak textView] in
+            guard let self, let textView, token == self.generation else { return }
+            self.present(content, anchoredTo: anchor, in: textView)
+        }
+    }
+
     // MARK: - Showing and hiding
 
     /// Put the answer on screen, anchored to the span it is about.

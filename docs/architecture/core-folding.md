@@ -710,10 +710,13 @@ set equality rather than by convention.
 
 The shape found in the tree, and now enforced:
 
-- **Two caller files.** `CodeEditorView.swift` (`applyReveal`, where the app's
-  `EditorRevealState` requests land) and `EditorSearchController.swift`
+- **Three caller files.** `CodeEditorView.swift` (`applyReveal`, where the app's
+  `EditorRevealState` requests land), `EditorSearchController.swift`
   (`select(_:)`, through a hook the coordinator installs — the find bar's one jump,
-  which used to `setSelectedRange`/`scrollRangeToVisible` for itself).
+  which used to `setSelectedRange`/`scrollRangeToVisible` for itself) and
+  `ProblemCommands.swift` (`goToProblem(_:)`, the coordinator extension behind
+  *Next / Previous Problem*, which lands its caret through the funnel rather than
+  beside it).
 - **One in-file non-reveal site.** `CodeEditorView.swift` holds exactly two
   `scrollRangeToVisible` calls: the funnel's own, and the shared edit applier's
   (`apply(_:in:)`) selection scroll after a raw-storage edit. The second is **not** a reveal — it re-shows a caret

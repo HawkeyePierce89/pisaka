@@ -1363,6 +1363,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `HoverContent` type it always drew; the server's own range stays the honest
     span when it answered, and a diagnostics-only answer anchors to the union set
     at ask time.
+    **`showDiagnostics(at:in:)` is the keyboard's way in**, and the only one:
+    *Next / Previous Problem* (`ProblemCommands.swift`) calls it after the caret
+    has landed. No dwell and no server request — the messages at the offset come
+    from the same `Source.diagnosticsAtOffset` lookup, composed by the same
+    `hoverContent(for:merging:)` with no type answer, and anchored to the same
+    union `question(for:identifier:diagnostics:)` builds, so a pointer resting
+    inside it keeps the popover up exactly as after a dwell. It opens with
+    `dismiss()`, which bumps the generation, and captures the token; when TextKit
+    has not yet laid out the anchor (`firstUnlaidCharacterIndex()`), the
+    presentation waits one main-loop turn, for `applyReveal`'s reason, and is
+    dropped if anything bumped the token meanwhile. It is called *after* the
+    selection change, so the selection-change dismissal has already run and
+    cannot take it down.
    - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
      drawing a `HoverContent` beside the identifier the pointer rests on.
      On the chrome roles since part five (a) (`core-theme.md`): a flat `bgPopover`
@@ -1964,6 +1977,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`MenuShortcutUniquenessTests` pins them to this file and keeps them apart
     from tab navigation's ⌘⇧[ / ⌘⇧]), and `StandardKeyBinding.dict` binds no
     bracket key at all, so the text view gives up nothing.
+  - `ProblemCommands.swift` (macOS) — the Find menu's *Next Problem* (⌘') and
+    *Previous Problem* (⌘⇧'), plus the coordinator's `goToProblem(_:)`. The items
+    are a `View` (`ProblemNavigationItems`: a divider and two buttons), named
+    once at the foot of `PisakaApp`'s `CommandMenu("Find")`, because a custom
+    menu has no `CommandGroupPlacement` a separate `Commands` type could target;
+    both are disabled with no tab open, the Find menu's usual gate. The action
+    reaches the focused editor through `EditorCommandTarget.focusedEditor(in:)`
+    and its coordinator, beeping (`PlatformFeedback.warning()`) when nothing
+    focused can answer or the answer is `false`. A move rather than an edit, so a
+    read-only editor and a composition in flight are *not* refusals.
+    `goToProblem(_:)` reads `diagnosticsModel.store.entry(for:)` — already
+    shifted by `DiagnosticShift`, no server request — asks
+    `DiagnosticNavigationRule.target` with the selection's start as the caret,
+    and lands the caret through `revealRange(_:)`, the funnel the Problems row
+    uses, so a problem inside a folded block unfolds by `FoldReveal`'s rule.
+    Only then does it ask the coordinator's `hover` (internal rather than private
+    for this one reader) to `showDiagnostics(at:in:)`. No file, no editor, no
+    diagnostic, or a target past the live buffer answers `false`. **The chords**
+    are claimed by nothing else (`MenuShortcutUniquenessTests` pins them to this
+    file), and `StandardKeyBinding.dict` binds no apostrophe with ⌘ held.
   - `SelectionExpansionController.swift` (macOS) — Expand / Shrink Selection's
     editor side: one per editor, held by the coordinator as **one lazy
     property** (`CodeEditorView.swift` sits at its `file_length` ceiling, which
