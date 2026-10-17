@@ -187,12 +187,16 @@ line_length:
 # decision in Core's `SelectionExpansionRule`. Then 1949 with Move Line: one
 # line, the `LineCommands()` entry inside that same `Group`, because the two
 # Edit menu items live in `LineCommands.swift`, the apply in the coordinator's
-# `moveLines(_:)` and every decision in Core's `MoveLineEngine`. The number tracks the one file that
+# `moveLines(_:)` and every decision in Core's `MoveLineEngine`. Then 1952 with
+# Toggle Block Comment: three lines, the item and its two modifiers beside
+# Toggle Comment in the Edit block, so the two comment commands sit together;
+# the action and the coordinator's apply live in `CommentCommands.swift`, every
+# decision in Core's `BlockCommentEngine`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1949
-  error: 1949
+  warning: 1952
+  error: 1952
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -243,10 +247,11 @@ file_length:
 # 1941 with Expand / Shrink Selection's one, the same one `file_length` counts:
 # the `SelectionCommands()` entry inside that `Group`. Then to 1942 with Move
 # Line's one, the same one `file_length` counts: the `LineCommands()` entry
-# inside that `Group`.
+# inside that `Group`. Then to 1945 with Toggle Block Comment's three, the same
+# three `file_length` counts: the item inside the `.commands` builder.
 type_body_length:
-  warning: 1942
-  error: 1942
+  warning: 1945
+  error: 1945
 
 function_body_length:
   warning: 140

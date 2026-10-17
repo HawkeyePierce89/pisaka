@@ -138,3 +138,48 @@ final class CommentStyleTests: XCTestCase {
         }
     }
 }
+
+final class CommentStyleBlockDelimiterTests: XCTestCase {
+
+    func testTheBlockCommentSetsPartitionEveryLanguage() {
+        let with = CommentStyle.languagesWithBlockComments
+        let without = CommentStyle.languagesWithoutBlockComments
+        XCTAssertEqual(with.union(without), Set(SyntaxLanguage.allCases))
+        XCTAssertTrue(with.isDisjoint(with: without))
+    }
+
+    func testTheSetsAgreeWithTheTableInBothContexts() {
+        for language in SyntaxLanguage.allCases {
+            for context in [CommentContext.code, .jsxChildren] {
+                XCTAssertEqual(
+                    CommentStyle.blockDelimiters(for: language, context: context) != nil,
+                    CommentStyle.languagesWithBlockComments.contains(language),
+                    "\(language) \(context)"
+                )
+            }
+        }
+    }
+
+    func testDelimiterSpellings() {
+        let slashStar = BlockCommentDelimiters(open: "/*", close: "*/")
+        for language in [SyntaxLanguage.swift, .javascript, .typescript, .tsx, .go, .rust, .css] {
+            XCTAssertEqual(CommentStyle.blockDelimiters(for: language, context: .code), slashStar, "\(language)")
+        }
+        XCTAssertEqual(
+            CommentStyle.blockDelimiters(for: .html, context: .code), BlockCommentDelimiters(open: "<!--", close: "-->")
+        )
+        for language in [SyntaxLanguage.javascript, .typescript, .tsx] {
+            XCTAssertEqual(
+                CommentStyle.blockDelimiters(for: language, context: .jsxChildren),
+                BlockCommentDelimiters(open: "{/*", close: "*/}"), "\(language)"
+            )
+        }
+        // JSX children exist only in the JavaScript family.
+        for language in [SyntaxLanguage.swift, .go, .rust, .css, .html] {
+            XCTAssertEqual(
+                CommentStyle.blockDelimiters(for: language, context: .jsxChildren),
+                CommentStyle.blockDelimiters(for: language, context: .code), "\(language)"
+            )
+        }
+    }
+}

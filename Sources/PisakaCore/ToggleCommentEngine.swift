@@ -175,7 +175,7 @@ public enum ToggleCommentEngine {
     }
 
     /// The line's leading-whitespace length in UTF-16 units: a tab is one unit.
-    private static func indentation(text: NSString, lines: BlockIndentEngine.Lines, line: Int) -> Int {
+    static func indentation(text: NSString, lines: BlockIndentEngine.Lines, line: Int) -> Int {
         let start = lines.start(of: line)
         let end = lines.contentsEnd(of: line)
         var offset = start

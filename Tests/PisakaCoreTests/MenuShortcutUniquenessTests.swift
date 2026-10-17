@@ -181,6 +181,16 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         }
     }
 
+    /// Toggle Comment's ⌘/ and Toggle Block Comment's ⌥⌘/, both in the
+    /// Edit block of `PisakaApp.swift` and declared once each.
+    func testTheCommentChordsAreDeclaredOnceEach() throws {
+        let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
+        for chord in ["/ + .command", "/ + .command .option"] {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["PisakaApp.swift"], chord)
+        }
+    }
+
     /// AppKit's native window tabbing would bind its own ⌃Tab / ⌃⇧Tab items,
     /// invisible to the scan above; `AppDelegate` must turn it off. Read over
     /// comment-stripped text, so the doc comment naming the setting cannot keep

@@ -1381,6 +1381,9 @@ struct PisakaApp: App {
                 Button("Toggle Comment") { toggleCommentAtCaret() }
                     .keyboardShortcut("/", modifiers: .command)
                     .disabled(model.selectedID == nil)
+                Button("Toggle Block Comment") { CommentCommands.toggleBlockComment() }
+                    .keyboardShortcut("/", modifiers: [.command, .option])
+                    .disabled(model.selectedID == nil)
             }
 
             // The self-contained command types, as one entry: this builder

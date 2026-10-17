@@ -99,6 +99,47 @@ public enum CommentStyle: Equatable {
         return .code
     }
 
+    /// The delimiters Toggle Block Comment (⌥⌘/) wraps a selection in, or
+    /// `nil` for a language with no block comment syntax: `/* */` for the
+    /// C-family languages and css, `<!-- -->` for html, and `{/* */}` in JSX
+    /// children of javascript, typescript or tsx — where `/* */` would be text
+    /// the page renders.
+    ///
+    /// A table of its own rather than read off `style(for:)`, which names the
+    /// *line* style where a language has both.
+    public static func blockDelimiters(
+        for language: SyntaxLanguage, context: CommentContext
+    ) -> BlockCommentDelimiters? {
+        switch language {
+        case .javascript, .typescript, .tsx:
+            return context == .jsxChildren
+                ? BlockCommentDelimiters(open: "{/*", close: "*/}")
+                : BlockCommentDelimiters(open: "/*", close: "*/")
+        case .swift, .go, .rust, .css:
+            return BlockCommentDelimiters(open: "/*", close: "*/")
+        case .html:
+            return BlockCommentDelimiters(open: "<!--", close: "-->")
+        case .json, .markdown, .python, .yaml, .dockerfile, .dotenv, .gitignore,
+             .shell, .make, .editorconfig, .sql:
+            return nil
+        }
+    }
+
+    /// The languages `blockDelimiters(for:context:)` answers. Closed, and with
+    /// `languagesWithoutBlockComments` a partition of `SyntaxLanguage.allCases`,
+    /// pinned by set equality.
+    public static let languagesWithBlockComments: Set<SyntaxLanguage> = [
+        .swift, .javascript, .typescript, .tsx, .go, .rust, .css, .html,
+    ]
+
+    /// The languages with no block comment syntax: ⌥⌘/ runs the line toggle in
+    /// the ones that have a line comment, and is a no-op beep in json and
+    /// markdown (`languagesWithoutComments`).
+    public static let languagesWithoutBlockComments: Set<SyntaxLanguage> = [
+        .json, .markdown, .python, .yaml, .dockerfile, .dotenv, .gitignore,
+        .shell, .make, .editorconfig, .sql,
+    ]
+
     /// The languages that have no comment syntax to toggle.
     ///
     /// Toggling a comment in these languages is a silent no-op. The absence
@@ -107,6 +148,17 @@ public enum CommentStyle: Equatable {
     public static let languagesWithoutComments: Set<SyntaxLanguage> = [
         .json, .markdown
     ]
+}
+
+/// A block comment's opening and closing delimiters.
+public struct BlockCommentDelimiters: Equatable, Sendable {
+    public let open: String
+    public let close: String
+
+    public init(open: String, close: String) {
+        self.open = open
+        self.close = close
+    }
 }
 
 /// Where a line sits for Toggle Comment: ordinary code, or the children of a

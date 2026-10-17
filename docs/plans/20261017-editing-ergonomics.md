@@ -295,18 +295,18 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Create: `Tests/PisakaCoreTests/BlockCommentEngineTests.swift`
 - Modify: `Sources/PisakaCore/CommentStyle.swift`, `Tests/PisakaCoreTests/CommentStyleTests.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/CodeEditorView.swift`
-- [ ] Add `CommentStyle.blockDelimiters(for:context:)`:
+- [x] Add `CommentStyle.blockDelimiters(for:context:)`:
   - `/* */` for swift, javascript, typescript, tsx, go, rust and css;
   - `<!-- -->` for html;
   - `{/* */}` in the JSX context.
-- [ ] Add closed sets `languagesWithBlockComments` and `languagesWithoutBlockComments`. Pin by set equality that they partition `SyntaxLanguage.allCases`.
-- [ ] `BlockCommentEngine.toggle(text:selectedRanges:delimiters:) -> RangeEditPlan`, applied per range in one plan:
+- [x] Add closed sets `languagesWithBlockComments` and `languagesWithoutBlockComments`. Pin by set equality that they partition `SyntaxLanguage.allCases`.
+- [x] `BlockCommentEngine.toggle(text:selectedRanges:delimiters:) -> RangeEditPlan`, applied per range in one plan:
   - a selection that starts with `open` and ends with `close` (with an optional inner space each side) unwraps;
   - any other selection is wrapped as `open + " " + text + " " + close`, and the selection then covers the wrapped text, so a second press unwraps;
   - a caret inserts `open` + two spaces + `close`, i.e. `/*  */`, with the caret placed between the two spaces.
-- [ ] Chosen fallback: a language with a line style but no block syntax (`#` and `--` languages) runs the line-comment toggle. json and markdown are a no-op with a beep.
-- [ ] Menu: add Toggle Block Comment (⌥⌘/) beside Toggle Comment inside the same existing `CommandGroup(after: .pasteboard)` block in PisakaApp, routed like toggleCommentAtCaret through EditorTextView.
-- [ ] Tests:
+- [x] Chosen fallback: a language with a line style but no block syntax (`#` and `--` languages) runs the line-comment toggle. json and markdown are a no-op with a beep.
+- [x] Menu: add Toggle Block Comment (⌥⌘/) beside Toggle Comment inside the same existing `CommandGroup(after: .pasteboard)` block in PisakaApp, routed like toggleCommentAtCaret through EditorTextView. (The item sits there; its action and the coordinator's apply live in a new `Sources/Pisaka/CommentCommands.swift`, reached through the first responder like LineCommands, because PisakaApp and CodeEditorView were at their lint size caps; file_length and type_body_length moved by the item's three lines.)
+- [x] Tests:
   - wrap, unwrap and caret insert;
   - a caret at offset k in a Swift buffer yields exactly `/*  */` inserted at k, with the resulting caret at k + 3, between the two spaces;
   - HTML delimiters;
@@ -315,7 +315,7 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - the fallback for python and sql;
   - the no-op for json;
   - the set-equality coverage.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 10: Next / Previous Problem (R5)
 
