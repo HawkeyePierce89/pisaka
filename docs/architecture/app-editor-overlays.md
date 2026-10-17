@@ -1412,9 +1412,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the Markdown file. **Cache**: one tree keyed by `(fileID, edit generation,
     language)`. The coordinator's `noteEdit()` bumps the generation and drops
     the tree, so the key is an O(1) identity, for the reason
-    `BracketHighlightController`'s cache key states. **Ordering**: every parse
-    captures the generation as its token synchronously before its hop, and a
-    parse that an edit or reset superseded returns `nil` and caches nothing.
+    `BracketHighlightController`'s cache key states. **Ordering**: every caller
+    reads `editGeneration` in the same synchronous step as the text and passes
+    it as `tree(text:language:fileID:generation:)`'s token — both callers hop
+    into a `Task` before asking, and a generation read inside the task would
+    stamp pre-edit text with a post-edit key and cache it. A request whose
+    token an edit or reset superseded, before the parse or during it, returns
+    `nil` and caches nothing.
     Two consumers asking about the same text do not supersede each other.
     **Parsing** follows `SymbolExtractor`/`MinimapTokenizer`: every parse builds
     its own private `Parser`, so concurrent parses never share one, and the

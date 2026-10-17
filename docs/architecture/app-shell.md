@@ -412,8 +412,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chain rather than through any window-scoped state, because none of them
     carries state to survive a tab switch (each through
     `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` — the one definition
-    of that lookup, shared with Toggle Comment here and with the two fold items in
-    `FoldCommands.swift`, whose single fallback is the Markdown preview's own
+    of that lookup, shared with Toggle Comment here, with the two fold items in
+    `FoldCommands.swift` and with Expand / Shrink Selection in
+    `SelectionCommands.swift`, whose single fallback is the Markdown preview's own
     region and nothing else, `core-markdown-preview.md`): "Go to Definition" at **⌃⌘J** (Xcode's
     binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full
     screen), "Find Usages" at **⌃⌘U** and "Rename…" at **⌃⌘R** (deliberately
@@ -1501,7 +1502,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file outside the root builds none and reveals nothing.
     **The Window menu** gains the tab-navigation commands, which live in
     `TabNavigationCommands.swift` (below) and enter the scene's `.commands` builder
-    as one `Group` entry shared with `FoldCommands()`. **That builder holds ten
+    as one `Group` entry shared with `FoldCommands()` and `SelectionCommands()`
+    (the Edit menu's Expand / Shrink Selection, `app-editor.md`). **That builder holds ten
     entries at most.** The ceiling was found on the then-pinned Xcode 16.4, whose
     SDK's `CommandsBuilder` declares `buildBlock` up to ten children: an eleventh
     entry compiled on a newer local toolchain and failed on CI with `extra

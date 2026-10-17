@@ -235,6 +235,20 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertFalse(model.isSearching)
     }
 
+    /// The identifier guard reads the requesting file's language: `$store` is
+    /// one word asked from JavaScript and refused when asked from Swift.
+    func testTheIdentifierGuardUsesTheRequestingFilesLanguage() async {
+        let stub = StubFileTree(root: root, files: ["a.js": "$store.get()\n", "a.swift": "x\n"])
+        let jsModel = FindUsagesModel(fileService: stub)
+        await jsModel.find(request("$store", file: "a.js"), root: root)
+        XCTAssertNotEqual(jsModel.emptyReason, .notAnIdentifier)
+        XCTAssertEqual(jsModel.rows.count, 1)
+
+        let swiftModel = FindUsagesModel(fileService: stub)
+        await swiftModel.find(request("$store", file: "a.swift"), root: root)
+        XCTAssertEqual(swiftModel.emptyReason, .notAnIdentifier)
+    }
+
     func testWithNoProjectRootTheRequestingBufferIsScannedAlone() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "count elsewhere\n"])
         let model = FindUsagesModel(fileService: stub)

@@ -82,6 +82,35 @@ final class BracketPairBackgroundTests: XCTestCase {
 
     // MARK: - Harness
 
+    /// The matching-tag highlight's suppression, through the controller the
+    /// coordinator routes it to: withheld while suppressed, repainted when the
+    /// suppression lifts, and forgotten by a reset.
+    func testTheControllerWithholdsThePairWhileSuppressedAndRepaintsItAfter() throws {
+        let harness = makeHarness(.light)
+        let controller = BracketHighlightController()
+        controller.attach(textView: harness.textView)
+        let caret = NSRange(location: open.location, length: 0)
+        func painted() -> Bool {
+            harness.layoutManager.temporaryAttribute(
+                .backgroundColor, atCharacterIndex: open.location, effectiveRange: nil
+            ) != nil
+        }
+
+        controller.updateSelection(caret)
+        XCTAssertTrue(painted(), "the caret's pair is not painted")
+        controller.setPairSuppressed(true)
+        XCTAssertFalse(painted(), "a suppressed pair is still painted")
+        controller.updateSelection(caret)
+        XCTAssertFalse(painted(), "a selection change repainted a suppressed pair")
+        controller.setPairSuppressed(false)
+        XCTAssertTrue(painted(), "lifting the suppression did not repaint the pair")
+
+        controller.setPairSuppressed(true)
+        controller.reset()
+        controller.updateSelection(caret)
+        XCTAssertTrue(painted(), "a reset kept the suppression")
+    }
+
     private func makeHarness(_ appearance: ChromeAppearance) -> EditorLayoutHarness {
         let harness = EditorLayoutHarness()
         harness.scrollView.appearance = NSAppearance(named: appearance == .dark ? .darkAqua : .aqua)

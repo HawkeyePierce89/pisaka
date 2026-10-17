@@ -99,6 +99,42 @@ final class SelectionExpansionTests: XCTestCase {
         XCTAssertEqual(steps, ["one", "one, [two]", "(one, [two])", "call(one, [two]) tail"])
     }
 
+    // MARK: - Uncached tree
+
+    func testOnAColdSnapshotTheStepLandsWhenTheParseDoes() async throws {
+        let editor = Editor(text: try fixture("expand.ts"), language: .typescript)
+        addTeardownBlock { @MainActor in editor.harness.textView.delegate = nil }
+        let caret = editor.text.range(of: "alpha, beta)").location + 2
+        editor.select(NSRange(location: caret, length: 0))
+
+        XCTAssertTrue(editor.coordinator.selectionExpansion.expand())
+        let step = try XCTUnwrap(editor.coordinator.selectionExpansion.pendingStep)
+        await step.value
+        XCTAssertEqual(editor.text.substring(with: editor.selection), "alpha")
+        XCTAssertTrue(editor.coordinator.selectionExpansion.shrink())
+        XCTAssertEqual(editor.selection, NSRange(location: caret, length: 0))
+    }
+
+    func testAnEditBeforeTheColdParseLandsDiscardsTheStep() async throws {
+        let editor = Editor(text: try fixture("expand.ts"), language: .typescript)
+        addTeardownBlock { @MainActor in editor.harness.textView.delegate = nil }
+        let caret = editor.text.range(of: "alpha, beta)").location + 2
+        editor.select(NSRange(location: caret, length: 0))
+
+        XCTAssertTrue(editor.coordinator.selectionExpansion.expand())
+        let step = try XCTUnwrap(editor.coordinator.selectionExpansion.pendingStep)
+        // The coordinator's edit hook, as a keystroke reaches it, before the
+        // step's task has run at all.
+        editor.coordinator.treeSnapshot.noteEdit()
+        await step.value
+        XCTAssertEqual(editor.selection, NSRange(location: caret, length: 0), "a superseded parse moved the selection")
+        XCTAssertNil(
+            editor.coordinator.treeSnapshot.cached(language: .typescript, fileID: try XCTUnwrap(editor.coordinator.fileID)),
+            "the pre-edit text was cached as the post-edit buffer's tree"
+        )
+        XCTAssertFalse(editor.coordinator.selectionExpansion.shrink(), "a discarded step pushed history")
+    }
+
     // MARK: - Harness
 
     @MainActor
@@ -132,7 +168,10 @@ final class SelectionExpansionTests: XCTestCase {
             editor.harness.textView.delegate = nil
         }
         if let language, let fileID = editor.coordinator.fileID {
-            let tree = await editor.coordinator.treeSnapshot.tree(text: text, language: language, fileID: fileID)
+            let snapshot = editor.coordinator.treeSnapshot
+            let tree = await snapshot.tree(
+                text: text, language: language, fileID: fileID, generation: snapshot.editGeneration
+            )
             XCTAssertNotNil(tree, "the grammar did not load")
         }
         return editor

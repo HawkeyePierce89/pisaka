@@ -1267,7 +1267,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     remains a jump target even when it is not worth inserting.
   - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
     gating policy — **two questions, one scan**. This file declares *what* each of
-    the 18 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    the 19 `SyntaxLanguage` cases considers a string or a comment and *whether*
     being inside that string should suppress completion, while
     `SyntaxContextScanner` only walks the buffer and answers honestly
     (`.code`/`.string`/`.comment`). The split is what lets a language recognize
@@ -1281,7 +1281,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     | language | string forms | strings gate? | comments |
     |---|---|---|---|
     | swift | `"…"` single-line; `"""…"""` multi-line; pound padding `#"…"#`/`##"…"##` (escape is `\` + N `#`) | yes | `//` anywhere; `/* */` **nesting** |
-    | javascript / typescript | `'…'`, `"…"` single-line, `\` escape; `` `…` `` multi-line with `${…}` holes | yes | `//`; `/* */` non-nesting |
+    | javascript / typescript / tsx | `'…'`, `"…"` single-line, `\` escape; `` `…` `` multi-line with `${…}` holes | yes | `//`; `/* */` non-nesting |
     | python | `'…'`, `"…"` single-line; `'''…'''`, `"""…"""` multi-line; prefixes `r b u f` in any case/order — `r` makes `\` inert, `f` enables `{…}` holes (`{{`/`}}` are literal) | yes | `#` anywhere |
     | go | `"…"` single-line `\`; `` `…` `` raw multi-line, no escapes; `'…'` rune, single-line | yes | `//`; `/* */` non-nesting |
     | rust | `"…"` `\`; raw `r"…"`, `r#"…"#`, `br#"…"#` (no escapes). `'` is deliberately not a string delimiter | yes | `//`; `/* */` **nesting** |

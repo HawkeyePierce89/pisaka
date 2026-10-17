@@ -28,6 +28,10 @@ final class SelectionExpansionController {
 
     private var history = SelectionExpansionHistory()
 
+    /// The step waiting on an uncached parse, if any. `internal` for the
+    /// app-layer test, which awaits it as the causal end of the cold path.
+    private(set) var pendingStep: Task<Void, Never>?
+
     /// Set while this controller moves the selection, so the selection
     /// observer keeps the history for exactly those moves.
     private var isApplying = false
@@ -53,8 +57,9 @@ final class SelectionExpansionController {
             return expand(over: tree, language: language)
         }
         let text = textView.string
-        Task { [weak self] in
-            let tree = await snapshot.tree(text: text, language: language, fileID: fileID)
+        let textGeneration = snapshot.editGeneration
+        pendingStep = Task { [weak self] in
+            let tree = await snapshot.tree(text: text, language: language, fileID: fileID, generation: textGeneration)
             guard let self, let tree, self.coordinator?.fileID == fileID, self.coordinator?.language == language,
                   self.expand(over: tree, language: language)
             else {

@@ -165,8 +165,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql,
     editorconfig, shell, make, tsx) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
-    extension→language map, mirroring `FileIcon`'s extension-map pattern. The
-    last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
+    extension→language map, mirroring `FileIcon`'s extension-map pattern. Three of
+    them — dockerfile, dotenv and gitignore — carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
     `init?(forFileName:)` is no longer extension-only: it takes the argument's
     *last path component*, lowercases it, and runs **four phases in a fixed
     order — exact name → extension → prefix → dot-ignore shape**. (The
@@ -632,7 +632,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     all** proves every earlier opener of its kind unmatched too, since each
     would need one more closer after it. That kind is then skipped, so a buffer
     of unclosed openers costs one forward scan per kind rather than one per
-    opener. A range out of the text, `NSNotFound` or a negative length answers
+    opener. Symmetrically, an opener whose closer landed inside `range` is
+    enclosed by the next depth-0 opener of its kind, whose closer is the first
+    unmatched one after that closer, so the next forward scan resumes there
+    rather than re-walking the pair: a selection over a deep nest's closers is
+    one forward walk per kind too. An `internal` overload adds up the units
+    every forward scan walked, which the tests bound for both inputs. A range out of the text, `NSNotFound` or a negative length answers
     `nil`. It has the same raw-character limit as `pair`: no string or comment
     awareness. Unit-tested in `BracketMatchEngineTests`, `enclosingPair` across
     mixed kinds included.
@@ -988,13 +993,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     later hit inside the same run can be a whole word. Without that, `_1` in
     `_1_1_1…` would re-walk the run once per hit. **Bookkeeping is
     double-entry** (`EditorConfigGlob.MatchWork`'s pattern). Each site
-    `record`s the UTF-16 units the literal search walked plus the span the
-    whole-word check may have walked, then `spend`s the same cost, as two
-    separate calls. The production ceiling is `maximumWorkUnits` = 2,097,152
+    `record`s the work it really did — the units the literal search walked,
+    and the identifier run the whole-word check walked — and `spend`s its
+    charge — the literal walk, and the span from where the step began to where
+    the scan resumes — as two separate calls. The two disagree exactly when the
+    skip past the run is lost: the record then grows with every hit's run while
+    the charge stays a few units a hit. The production ceiling is `maximumWorkUnits` = 2,097,152
     units, enough to scan an ordinary file whole a few times over. The
     `internal` seams take a caller-owned `Work`, so
     `OccurrenceScanTests` asserts, on a pathological one-line input, both the
-    `nil` and that the performed work matches the charged work at the ceiling.
+    `nil` and that the performed work is within a factor of two of the charged
+    work at the ceiling, and on a small `_1_1…` run that the recorded work
+    stays linear — the assertion a lost skip fails rather than hangs.
     The bound is charged, never timed. Also covered: whole-word and case
     sensitivity (`foo` in `foo.bar` but not in `foobar`/`_foo`), `$x` in
     TypeScript, and the three `started` of the `createStoreApiClient` sample.

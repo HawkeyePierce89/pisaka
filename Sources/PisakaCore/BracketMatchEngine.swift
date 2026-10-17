@@ -110,12 +110,25 @@ public enum BracketMatchEngine {
     /// every earlier opener of its kind unmatched too — each would need one
     /// more closer after it — so that kind is skipped from then on, which keeps
     /// a buffer of unclosed openers to one forward scan per kind rather than
-    /// one per opener.
+    /// one per opener. Symmetrically, an opener whose closer landed inside
+    /// `range` is enclosed by the next depth-0 opener of its kind, whose closer
+    /// is therefore the first unmatched one *after* that closer: the next
+    /// forward scan resumes there instead of re-walking the pair, so a
+    /// selection over the closers of a deep nest stays one forward walk per kind
+    /// too.
     ///
     /// A `range` outside the text (including `NSNotFound`) or with a negative
     /// length answers `nil`. Raw characters, no string or comment awareness —
     /// the boundary the rest of this engine draws.
     public static func enclosingPair(text: NSString, around range: NSRange) -> BracketPair? {
+        var forwardWalk = 0
+        return enclosingPair(text: text, around: range, forwardWalk: &forwardWalk)
+    }
+
+    /// The test seam: `enclosingPair(text:around:)`, adding to `forwardWalk`
+    /// the UTF-16 units every forward match scan walked, so a test pins the
+    /// one-walk-per-kind bound on a step count rather than a clock.
+    static func enclosingPair(text: NSString, around range: NSRange, forwardWalk: inout Int) -> BracketPair? {
         guard range.location != NSNotFound, range.location >= 0, range.length >= 0,
               NSMaxRange(range) <= text.length else { return nil }
         let kinds: [(opener: unichar, closer: unichar)] = openerToCloser.compactMap {
@@ -123,6 +136,7 @@ public enum BracketMatchEngine {
         }
         var depths = [Int](repeating: 0, count: kinds.count)
         var exhausted = [Bool](repeating: false, count: kinds.count)
+        var resumeAfter = [Int?](repeating: nil, count: kinds.count)
 
         var chunkEnd = range.location
         guard chunkEnd > 0 else { return nil }
@@ -143,9 +157,12 @@ public enum BracketMatchEngine {
                             depths[kind] -= 1
                         } else if !exhausted[kind] {
                             let openIndex = chunkStart + i
-                            if let closeIndex = scanForward(
-                                text: text, from: openIndex, opener: kinds[kind].opener, closer: kinds[kind].closer
-                            ) {
+                            let scanFrom = resumeAfter[kind] ?? openIndex
+                            let closeIndex = scanForward(
+                                text: text, from: scanFrom, opener: kinds[kind].opener, closer: kinds[kind].closer
+                            )
+                            forwardWalk += (closeIndex.map { $0 + 1 } ?? text.length) - (scanFrom + 1)
+                            if let closeIndex {
                                 if closeIndex >= NSMaxRange(range) {
                                     result = BracketPair(
                                         open: NSRange(location: openIndex, length: 1),
@@ -153,6 +170,7 @@ public enum BracketMatchEngine {
                                     )
                                     return
                                 }
+                                resumeAfter[kind] = closeIndex
                             } else {
                                 exhausted[kind] = true
                             }

@@ -89,9 +89,10 @@ final class TagHighlightController {
             return nil
         }
         let text = textView.string
+        let textGeneration = snapshot.editGeneration
         let caret = selection.location
         return Task { [weak self] in
-            let tree = await snapshot.tree(text: text, language: language, fileID: fileID)
+            let tree = await snapshot.tree(text: text, language: language, fileID: fileID, generation: textGeneration)
             guard let self, token == self.generation else { return }
             guard let tree else {
                 self.apply(.none)

@@ -212,7 +212,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
         guard symbolIndex != nil,
-              IdentifierScanner.identifier(in: textView.text as NSString, at: range.location) != nil
+              IdentifierScanner.identifier(in: textView.text as NSString, at: range.location, language: language) != nil
         else { return nil }
 
         let action = UIAction(title: "Go to Definition") { [weak self, weak textView] _ in
@@ -234,7 +234,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// the count into a jump, a choice or a haptic.
     func goToDefinition(in textView: UITextView, at offset: Int) {
         guard let provider = symbolIndex?.provider,
-              let match = IdentifierScanner.identifier(in: textView.text as NSString, at: offset)
+              let match = IdentifierScanner.identifier(in: textView.text as NSString, at: offset, language: language)
         else {
             PlatformFeedback.light()
             return
@@ -392,9 +392,9 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         // and `memberContext`'s own `prefixRange` is exactly what
         // `completionPrefixRange` reports here, so the two agree by construction
         // rather than by a second scan.
-        let member = IdentifierScanner.memberContext(in: nsText, at: offset)
+        let member = IdentifierScanner.memberContext(in: nsText, at: offset, language: language)
         let prefixRange = member?.prefixRange
-            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: offset, language: language)
         if member == nil {
             guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
                 showCompletions([], in: textView)
@@ -432,7 +432,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             }
             let liveText = textView.text as NSString
             let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
-            let range = IdentifierScanner.completionPrefixRange(in: liveText, at: offset)
+            let range = IdentifierScanner.completionPrefixRange(in: liveText, at: offset, language: request.language)
             guard liveText.substring(with: range) == request.prefix else {
                 self.showCompletions([], in: textView)
                 return
@@ -454,7 +454,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             // chaining would flatten "not a member position" into "a member
             // position with an unnamed receiver" and let the two serve each
             // other's lists.
-            guard IdentifierScanner.memberContext(in: liveText, at: offset).map(\.receiver)
+            guard IdentifierScanner.memberContext(in: liveText, at: offset, language: request.language).map(\.receiver)
                     == member.map(\.receiver)
             else {
                 self.showCompletions([], in: textView)
@@ -547,8 +547,8 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         else { return }
         let nsText = textView.text as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
-        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard IdentifierScanner.memberContext(in: nsText, at: offset).map(\.receiver)
+        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset, language: language)
+        guard IdentifierScanner.memberContext(in: nsText, at: offset, language: language).map(\.receiver)
                 == answeredMember.map(\.receiver)
         else { return }
         if range.length == 0 {

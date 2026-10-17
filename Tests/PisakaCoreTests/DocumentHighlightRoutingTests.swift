@@ -192,6 +192,22 @@ final class DocumentHighlightRoutingTests: XCTestCase {
         )
     }
 
+    /// A duplicated range is painted once, and a collapsed one not at all.
+    func testDuplicateAndZeroLengthRangesAreDropped() async {
+        transport.script(LSPMethod.documentHighlight, .reply(.array([
+            .object(["range": lspRange(line: 0, from: 4, to: 9), "kind": .int(3)]),
+            .object(["range": lspRange(line: 0, from: 4, to: 9), "kind": .int(3)]),
+            .object(["range": lspRange(line: 1, from: 2, to: 2), "kind": .int(2)]),
+        ])))
+        let router = makeRouter()
+
+        let answer = await router.documentHighlights(for: request())
+
+        XCTAssertEqual(answer, DocumentHighlightAnswer(provenance: .server, highlights: [
+            .init(range: NSRange(location: 4, length: 5), kind: .write),
+        ]))
+    }
+
     /// **Never a mixture.** The scan would add two more `count`s; none of them
     /// may reach a served answer, and no answer carries a second provenance.
     func testAServersAnswerIsNeverMergedWithTheScan() async {

@@ -66,7 +66,9 @@ public final class OccurrenceHighlightModel: ObservableObject {
     /// an exhausted budget. Runs off the main actor.
     public typealias SelectionScan = @Sendable (_ selected: String, _ text: String) -> [NSRange]?
 
-    private let provider: () -> CodeIntelligenceProviding?
+    /// The code-intelligence seam, read at each settle. Settable because the
+    /// app's owner is built before the provider it reads exists.
+    public var provider: () -> CodeIntelligenceProviding?
     private let selectionScan: SelectionScan
 
     /// Monotonically increasing token identifying the latest question. Bumped
@@ -99,8 +101,8 @@ public final class OccurrenceHighlightModel: ObservableObject {
     }
 
     /// The current generation — what the last `settle`, `noteEdit` or `reset`
-    /// produced.
-    public var currentGeneration: Int { generation }
+    /// produced. `internal` for the tests.
+    var currentGeneration: Int { generation }
 
     /// Ask the occurrence question for a settled selection.
     ///

@@ -280,6 +280,34 @@ final class BracketMatchEngineTests: XCTestCase {
         XCTAssertNil(enclosing("", NSRange(location: 0, length: 0)))
     }
 
+    func testEnclosingPairResumesPastAnInnerPairThatClosedInsideTheRange() {
+        // Selection "b)c" in "(a(b)c)": the inner `(` closes inside it, so the
+        // outer one's closer is found after that closer.
+        XCTAssertEqual(enclosing("(a(b)c)", NSRange(location: 3, length: 3)), expected(open: 0, close: 6))
+        XCTAssertEqual(enclosing("((x)(a(b)c))", NSRange(location: 7, length: 3)), expected(open: 4, close: 10))
+    }
+
+    /// Selecting a deep nest's closers makes every opener close inside the
+    /// selection; re-walking each pair would be quadratic in the depth.
+    func testEnclosingPairOverTheClosersOfADeepNestWalksForwardOnce() {
+        let depth = 2_000
+        let text = "[" + String(repeating: "(", count: depth) + "a" + String(repeating: ")", count: depth) + "]"
+        let selection = NSRange(location: 1 + depth, length: 1 + depth)
+        var walked = 0
+        let pair = BracketMatchEngine.enclosingPair(text: text as NSString, around: selection, forwardWalk: &walked)
+        XCTAssertEqual(pair, expected(open: 0, close: 2 * depth + 2))
+        XCTAssertLessThanOrEqual(walked, 2 * (text as NSString).length)
+    }
+
+    func testEnclosingPairOverUnclosedOpenersWalksForwardOncePerKind() {
+        let text = String(repeating: "(", count: 5_000) + "a"
+        var walked = 0
+        XCTAssertNil(BracketMatchEngine.enclosingPair(
+            text: text as NSString, around: NSRange(location: 5_000, length: 0), forwardWalk: &walked
+        ))
+        XCTAssertLessThanOrEqual(walked, (text as NSString).length)
+    }
+
     func testEnclosingPairAcrossAChunkSeam() {
         let filler = String(repeating: "a", count: 9_000)
         let text = "(" + filler + ")"

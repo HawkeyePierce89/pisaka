@@ -20,9 +20,11 @@ import Foundation
 /// **Bookkeeping is double-entry** (`EditorConfigGlob.MatchWork`'s pattern and
 /// reasoning): each site `record`s what a step costs and `spend`s what it is
 /// charged, as two separate calls, so a test can tell a budget that stopped the
-/// scan from one that was merely never charged. A step's cost is the UTF-16 units
-/// the literal search walked over, plus — for an identifier — the span the
-/// whole-word check may have walked.
+/// scan from one that was merely never charged. A step records what it walked —
+/// the literal search's units, plus for an identifier the run the whole-word
+/// check walked — and is charged the literal walk plus the span from where it
+/// began to where the scan resumes, which bounds the check's walk only while the
+/// scan skips past each run.
 ///
 /// **Linear by construction**, which is what makes the charges honest: after a
 /// whole-word check the scan resumes past the *whole identifier run* the check
@@ -119,11 +121,14 @@ public enum OccurrenceScan {
             guard found.location != NSNotFound else { break }
 
             // The check walks the run containing the hit, back to its start and
-            // on to its end. The run starts at or after `searchStart` (the scan
-            // always resumes at a run's end), so this span bounds that walk.
+            // on to its end: that run is the work recorded. The charge is the
+            // span from `searchStart` to where the scan resumes, which bounds the
+            // walk only because the run starts at or after `searchStart` (the
+            // scan always resumes at a run's end) — so a scan that stopped
+            // skipping the run would record far more than it was charged.
             let word = IdentifierScanner.identifier(in: text, at: found.location, language: language)
             let resume = max(NSMaxRange(found), word.map { NSMaxRange($0.range) } ?? 0)
-            work.record(resume - searchStart)
+            work.record(word?.range.length ?? needle.length)
             work.spend(resume - searchStart)
             if let word, word.range == found, word.text == identifier {
                 ranges.append(found)

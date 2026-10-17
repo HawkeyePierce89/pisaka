@@ -126,7 +126,10 @@ final class OccurrenceScanTests: XCTestCase {
         var work = OccurrenceScan.Work(budget: ceiling)
         XCTAssertNil(OccurrenceScan.identifierMatches(of: "x", in: text, language: nil, work: &work))
         XCTAssertLessThanOrEqual(work.budget, 0)
-        XCTAssertGreaterThanOrEqual(work.performed, ceiling)
+        // The charge books the literal span twice (search, then check span)
+        // while the record books the check's walk alone, so honest work lands
+        // between half the ceiling and twice it.
+        XCTAssertGreaterThanOrEqual(work.performed, ceiling / 2)
         XCTAssertLessThanOrEqual(work.performed, 2 * ceiling)
     }
 
@@ -143,12 +146,24 @@ final class OccurrenceScanTests: XCTestCase {
     /// A needle repeated inside one long identifier run is the input that would
     /// make the whole-word check quadratic — every hit re-walking the run. The
     /// scan resumes past the run instead, so the work stays linear in the text.
+    ///
+    /// The recorded work is the runs the whole-word check walked, booked apart
+    /// from the charge: without the skip each of the 2,000 hits records the
+    /// whole 4,000-unit run, millions against a bound of twice the text, while
+    /// the charge per hit stays a few units and the budget looks healthy. The
+    /// text is kept small so that regression fails here rather than hanging.
     func testANeedleRepeatedInsideOneRunStaysLinear() {
-        let text = String(repeating: "_1", count: 200_000) as NSString
+        let text = String(repeating: "_1", count: 2_000) as NSString
         var work = OccurrenceScan.Work(budget: OccurrenceScan.maximumWorkUnits)
         XCTAssertEqual(OccurrenceScan.identifierMatches(of: "_1", in: text, language: nil, work: &work), [])
         XCTAssertGreaterThan(work.budget, 0)
+        XCTAssertGreaterThanOrEqual(work.performed, text.length)
         XCTAssertLessThanOrEqual(work.performed, 2 * text.length)
+    }
+
+    func testALongRunStaysWithinTheProductionCeiling() {
+        let text = String(repeating: "_1", count: 200_000) as NSString
+        XCTAssertEqual(OccurrenceScan.identifierMatches(of: "_1", in: text), [])
     }
 
     func testAnOrdinaryFileFitsTheProductionCeiling() {

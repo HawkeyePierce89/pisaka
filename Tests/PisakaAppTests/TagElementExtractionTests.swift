@@ -152,19 +152,42 @@ final class TagElementExtractionTests: XCTestCase {
         let text = try fixture("tags.tsx")
         let snapshot = SyntaxTreeSnapshot()
         let fileID = UUID()
-        let first = await snapshot.tree(text: text, language: .tsx, fileID: fileID)
+        let first = await snapshot.tree(
+            text: text, language: .tsx, fileID: fileID, generation: snapshot.editGeneration
+        )
         XCTAssertNotNil(first)
-        let second = await snapshot.tree(text: text, language: .tsx, fileID: fileID)
+        let second = await snapshot.tree(
+            text: text, language: .tsx, fileID: fileID, generation: snapshot.editGeneration
+        )
         XCTAssertTrue(first === second, "an unchanged buffer was re-parsed")
         XCTAssertEqual(snapshot.parseCount, 1)
         XCTAssertNotNil(snapshot.cached(language: .tsx, fileID: fileID))
 
         snapshot.noteEdit()
         XCTAssertNil(snapshot.cached(language: .tsx, fileID: fileID))
-        _ = await snapshot.tree(text: text, language: .tsx, fileID: fileID)
+        _ = await snapshot.tree(
+            text: text, language: .tsx, fileID: fileID, generation: snapshot.editGeneration
+        )
         XCTAssertEqual(snapshot.parseCount, 2)
-        _ = await snapshot.tree(text: text, language: .tsx, fileID: UUID())
+        _ = await snapshot.tree(
+            text: text, language: .tsx, fileID: UUID(), generation: snapshot.editGeneration
+        )
         XCTAssertEqual(snapshot.parseCount, 3, "another buffer was served this one's tree")
+    }
+
+    func testARequestWhoseTextAnEditSupersededBeforeTheHopCachesNothing() async throws {
+        let text = try fixture("tags.tsx")
+        let snapshot = SyntaxTreeSnapshot()
+        let fileID = UUID()
+        // The caller reads the text and its generation, then an edit lands
+        // before its task asks: the pre-edit text must not be cached as the
+        // post-edit buffer's tree.
+        let staleGeneration = snapshot.editGeneration
+        snapshot.noteEdit()
+        let stale = await snapshot.tree(text: text, language: .tsx, fileID: fileID, generation: staleGeneration)
+        XCTAssertNil(stale)
+        XCTAssertNil(snapshot.cached(language: .tsx, fileID: fileID))
+        XCTAssertEqual(snapshot.parseCount, 0)
     }
 
     // MARK: - Controller

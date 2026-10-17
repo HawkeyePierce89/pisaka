@@ -20,8 +20,11 @@ import PisakaCore
 /// describes the text it was parsed from — the key is an O(1) identity, for the
 /// reason `BracketHighlightController.CacheKey` states.
 ///
-/// **Ordering.** Every parse captures the edit generation as its token
-/// synchronously before its hop; a parse that an edit or a reset superseded
+/// **Ordering.** Every caller reads `editGeneration` in the same synchronous
+/// step as the text it hands over, and passes it as the parse's token: a caller
+/// that hops into a `Task` before asking would otherwise stamp the pre-edit text
+/// with a post-edit generation and cache it as the new buffer's tree. A request
+/// whose token an edit or a reset superseded — before the parse or during it —
 /// returns `nil` and caches nothing, so a caller never receives a tree for a
 /// buffer the editor is no longer showing. Two consumers asking about the same
 /// text do not supersede each other: both answers describe the buffer.
@@ -49,13 +52,14 @@ final class SyntaxTreeSnapshot {
     private(set) var parseCount = 0
 
     /// The tree for `text`, parsed off the main actor, or the cached one when
-    /// the key matches. `nil` for a language with no grammar, a parse failure,
-    /// or a request superseded while it was in flight.
-    func tree(text: String, language: SyntaxLanguage, fileID: UUID) async -> Tree? {
-        let key = CacheKey(fileID: fileID, editGeneration: editGeneration, language: language)
+    /// the key matches. `generation` is `editGeneration` as read together with
+    /// `text`. `nil` for a language with no grammar, a parse failure, or a
+    /// request superseded before or while it was in flight.
+    func tree(text: String, language: SyntaxLanguage, fileID: UUID, generation token: Int) async -> Tree? {
+        guard token == editGeneration else { return nil }
+        let key = CacheKey(fileID: fileID, editGeneration: token, language: language)
         if key == cachedKey, let cachedTree { return cachedTree }
 
-        let token = editGeneration
         parseCount += 1
         let tree = await Self.parseOffMain(text: text, language: language)
         guard token == editGeneration else { return nil }

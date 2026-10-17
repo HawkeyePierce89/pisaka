@@ -326,7 +326,7 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     `RenameEditPlan` deliberately does not compare — it verifies the bytes instead —
     so it buys nothing), `failureHandling: "abort"` (what `apply` does: it stops at
     the first write that throws and the writes before it stay written) and
-    **`resourceOperations: []`**, the load-bearing one. D38 adds the ninth and last
+    **`resourceOperations: []`**, the load-bearing one. D38 adds the ninth
     node, `textDocument.foldingRange`, under that same rule and closed like the
     rest: `lineFoldingOnly: false` (which is what makes a server name the
     *closer's* line as the range's end — the line `FoldRegion`'s contract wants
@@ -345,7 +345,11 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     is not something this editor performs: `LSPWorkspaceEdit` drops it and applies
     the textual half, which for a module rename would leave every reference renamed
     and the file still under its old name.
-    D45 adds a tenth node after it, `textDocument.documentHighlight`, carrying
+    Declaring the empty set is what tells a
+    conforming server not to offer one, so that drop stays *unreachable* rather than
+    merely unlikely — and a server that would have answered with a file move refuses
+    the rename outright instead, which is the honest outcome.
+    D45 adds a tenth node after `foldingRange`, `textDocument.documentHighlight`, carrying
     `dynamicRegistration: false` and nothing else, because the request has no
     options to negotiate. The wire types are `LSPDocumentHighlightParams` (an
     alias of the plain position params, as folding's params name folding's
@@ -360,10 +364,7 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     different facts and only the second sends the editor to its own scan. The
     server capability `supportsDocumentHighlight` decodes
     `documentHighlightProvider` from `boolean | DocumentHighlightOptions`, the
-    same two spellings every other provider flag accepts. Declaring the empty set is what tells a
-    conforming server not to offer one, so that drop stays *unreachable* rather than
-    merely unlikely — and a server that would have answered with a file move refuses
-    the rename outright instead, which is the honest outcome.
+    same two spellings every other provider flag accepts.
     The diagnostics wire shape (D29–D31) follows both file rules. **Decode
     leniently**: `LSPDiagnostic` requires only `range`/`message` — the spec types
     everything else optional — and each optional reads through a failure-tolerant
@@ -2234,7 +2235,9 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     the index has one has failed to answer the question, so an empty LSP result
     falls through, and only an empty result from *both* is empty — the case the
     editor beeps at, once.
-    **Three questions are exempt from that rule, for two different reasons.**
+    **Three questions are exempt from that rule, for two different reasons**, and
+    a fourth, `documentHighlights` (below), departs from it differently: it does
+    fall back, but only on `nil` — an empty server answer is final.
     `hover` has no second source at all (D25). `renameEdits` has none either, and
     the argument is sharper because the command writes: the only thing tree-sitter
     could offer is a textual replace, which is indistinguishable from a correct

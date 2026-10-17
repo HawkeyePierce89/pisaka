@@ -73,20 +73,12 @@ final class OccurrenceHighlightController {
     /// The code-intelligence seam, read at each settle. Set by the coordinator
     /// after construction (it reads `symbolIndex.provider`), and by the test.
     var provider: () -> CodeIntelligenceProviding? {
-        get { providerBox.get }
-        set { providerBox.get = newValue }
+        get { model.provider }
+        set { model.provider = newValue }
     }
-
-    /// Lets the model, built in `init`, read whatever `provider` is set to later.
-    private final class ProviderBox {
-        var get: () -> CodeIntelligenceProviding? = { nil }
-    }
-
-    private let providerBox = ProviderBox()
 
     init() {
-        let box = providerBox
-        model = OccurrenceHighlightModel(provider: { box.get() })
+        model = OccurrenceHighlightModel()
         subscription = model.$highlights
             .combineLatest(model.$fileID)
             .sink { [weak self] highlights, fileID in
@@ -155,12 +147,18 @@ final class OccurrenceHighlightController {
     ///
     /// Called on every publish and by the coordinator on scroll and resize. An
     /// answer for a buffer other than the shown one paints nothing.
+    ///
+    /// An empty or foreign answer never asks the layout manager anything: the
+    /// edit-time clear publishes from inside the storage's edit notification,
+    /// before the layout manager has processed the edit, and a visible-range
+    /// query there would read glyphs against post-edit characters.
     func refreshVisible() {
         guard let textView, let layoutManager = overlayLayoutManager else { return }
         var runs: [BracketOverlayLayoutManager.OccurrenceRun] = []
         let length = textView.textStorage?.length ?? 0
-        let visible = visibleCharacterRange(textView: textView, layoutManager: layoutManager)
-        if highlightsFileID != nil, highlightsFileID == fileID(), visible.length > 0 {
+        if !highlights.isEmpty, highlightsFileID != nil, highlightsFileID == fileID(),
+           case let visible = visibleCharacterRange(textView: textView, layoutManager: layoutManager),
+           visible.length > 0 {
             let end = NSMaxRange(visible)
             var index = firstHighlightIndex(endingAfter: visible.location)
             while index < highlights.count, highlights[index].range.location < end {
