@@ -317,12 +317,12 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 
 ### Task 13: Verify acceptance criteria
 
-- [ ] Run `make test` (`swift test`): green.
-- [ ] Run `make lint` (`swiftlint --strict`): clean.
-- [ ] Run `make test-app` under the pinned Xcode: no new failures beyond the eight known scale-1.8 layout assertions.
-- [ ] Run `make build` (macOS Release) under the pinned Xcode. iOS is CI's.
-- [ ] Confirm `MenuShortcutUniquenessTests` sees ⌃⌘→/⌃⌘← and that the `.commands { }` builder holds at most ten entries.
-- [ ] Check that every new Core file has a test suite covering its public API.
+- [x] Run `make test` (`swift test`): green.
+- [x] Run `make lint` (`swiftlint --strict`): clean.
+- [x] Run `make test-app` under the pinned Xcode: no new failures beyond the eight known scale-1.8 layout assertions.
+- [x] Run `make build` (macOS Release) under the pinned Xcode. iOS is CI's.
+- [x] Confirm `MenuShortcutUniquenessTests` sees ⌃⌘→/⌃⌘← and that the `.commands { }` builder holds at most ten entries.
+- [x] Check that every new Core file has a test suite covering its public API.
 
 ### Task 14: Update documentation
 
