@@ -334,8 +334,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     through the coordinator's one multi-range applier, so several carets or a
     column selection duplicate as *one* undoable step and each range leaves its
     caret or selection in its copy. `toggleComment(in:)` (⌘/) is wired the same
-    way over `ToggleCommentEngine.toggle(text:selectedRanges:language:)`, a `nil`
-    plan being the silent no-op. The applier holds the shared
+    way over `ToggleCommentEngine.toggle(text:selectedRanges:language:context:)`,
+    a `nil` plan being the silent no-op; `context` is
+    `CommentContextTreeWalk.resolver` (`app-editor-overlays.md`), so JSX
+    children comment as `{/* … */}` and the tree is parsed at most once, only
+    when the engine first asks. The applier holds the shared
     `isApplyingProgrammaticEdit` flag across its whole bracket, which is
     mandatory here for the same reason as the indent and auto-pair edits: the
     single-range `shouldChangeText` callback reaches the auto-pair interceptor,
@@ -1977,6 +1980,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`MenuShortcutUniquenessTests` pins them to this file and keeps them apart
     from tab navigation's ⌘⇧[ / ⌘⇧]), and `StandardKeyBinding.dict` binds no
     bracket key at all, so the text view gives up nothing.
+  - `CommentCommands.swift` (macOS) — the action of the Edit menu's *Toggle
+    Block Comment* (⌥⌘/), whose item sits beside *Toggle Comment* in
+    `PisakaApp`'s existing Edit block; the action and the coordinator's
+    `toggleBlockComment(in:)` live here because `PisakaApp.swift` and
+    `CodeEditorView.swift` sit at their lint size caps (`style-lint.md`).
+    Shaped like `LineCommands`: stateless, reaching the focused editor through
+    `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` and its
+    coordinator, beeping (`PlatformFeedback.warning()`) for a focus that is not
+    an editable editor, a composition in flight, or an editor answering that
+    nothing changed — json and markdown. The coordinator asks
+    `BlockCommentEngine.toggle(text:selectedRanges:language:context:)` with the
+    same `CommentContextTreeWalk.resolver` as ⌘/, and applies the plan through
+    `apply(_:in:)`; the line-toggle fallback for `#` and `--` languages is the
+    engine's, not the view's. **The chord** is pinned to its item by
+    `MenuShortcutUniquenessTests`; ⌘/ keeps Toggle Comment.
   - `ProblemCommands.swift` (macOS) — the Find menu's *Next Problem* (⌘') and
     *Previous Problem* (⌘⇧'), plus the coordinator's `goToProblem(_:)`. The items
     are a `View` (`ProblemNavigationItems`: a divider and two buttons), named

@@ -151,8 +151,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     toggle (mirroring `LanguageKeywords`). The tests assert that the set of
     styled languages and the set of no-comment languages are disjoint and
     exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
-    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. `.make` joins the `#` line group (GNU make's only comment form). Unit-tested in
-    `CommentStyleTests`.
+    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. `.make` joins the `#` line group (GNU make's only comment form). 
+    **Context** (`CommentContext`: `.code` / `.jsxChildren`): JSX children are
+    the one place a language's comment syntax changes, because `//` or `/* */`
+    there is text the page renders. `style(for:context:)` answers
+    `.block(open: "{/*", close: "*/}")` for `.jsxChildren` in javascript,
+    typescript and tsx and `style(for:)` for every other pairing, so this stays
+    the single table. `context(ancestors:)` is the rule that tells the two
+    apart from the named syntax-tree nodes enclosing a line's first
+    non-whitespace offset, innermost first, each with a `startsAtLineOffset`
+    flag — kinds alone cannot tell a child line opening with `<span>` from a
+    continuation line of a multi-line opening tag, so the flag is input. The
+    first listed kind met decides: `jsx_expression` / `jsx_attribute` → code;
+    `jsx_text` → children; an element or opening/closing tag that does not
+    start at the offset → code (the line is inside a tag), one that does →
+    children only when its element's parent is a `jsx_element` (the root
+    element of a `return (…)` is code); unlisted kinds are skipped; the root →
+    code. There is no `jsx_fragment` case — the pinned TSX grammar has none,
+    and `<>…</>` is a `jsx_element` with an unnamed opening tag. The tree walk
+    feeding the rule is app-side (`CommentContextTreeWalk`,
+    `app-editor-overlays.md`). **Block delimiters**:
+    `blockDelimiters(for:context:)` is a table of its own — `style(for:)`
+    names the *line* style where a language has both — answering `/* */` for
+    the C family and css, `<!-- -->` for html and `{/* */}` in JSX children,
+    `nil` elsewhere; `languagesWithBlockComments` and
+    `languagesWithoutBlockComments` partition `allCases`, pinned by set
+    equality like the no-comment set. Unit-tested in `CommentStyleTests`.
   - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
     the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
     carries `replacementRange`, `text`, and `selectedRange` (the resulting
@@ -206,7 +230,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     from this plan (its text is the touched span with the plan's edits applied),
     so the two entry points cannot drift; a test pins their equality for both
     styles over every range of a small corpus.
+    **Contextual style**: `toggle(text:selectedRanges:language:context:)` is
+    the ⌘/ entry the app calls. `context` maps a line's first non-whitespace
+    offset to a `CommentContext` and is asked only for the first and last
+    non-blank touched lines of each merged line block, and only in a language
+    whose contextual style differs from its own (the JavaScript family) — every
+    other language never asks, so the app never parses for it. A block whose
+    first **and** last lines both answer `.jsxChildren` is wrapped or unwrapped
+    as one `{/* … */}` block; every other block takes the language's own style,
+    sharing one all-commented decision and one alignment column. With no JSX
+    block the answer equals the plain toggle's, with only JSX blocks the block
+    toggle's under `{/* */}` — both pinned, as is a test that fails if `//`
+    were ever written into JSX children.
     Unit-tested in `ToggleCommentEngineTests`.
+  - `BlockCommentEngine.swift` — Toggle Block Comment (⌥⌘/), each range
+    answered on its own, all in one `RangeEditPlan` (one undo step). A
+    selection that starts with `open` and ends with `close`, at least
+    `open + close` long so the two never share characters, **unwraps**, taking
+    one optional inner space each side, and the selection then covers what was
+    inside; any other selection **wraps** as `open + " " + text + " " + close`
+    and the selection covers the wrapped text, so a second press unwraps; a
+    **caret** inserts `open` + two spaces + `close` (`/*  */`) and lands between
+    the spaces (offset `k` → `k + 3` for `/*`). Identical carets are answered
+    once, and a range overlapping an earlier one is dropped rather than
+    producing an overlapping plan. `toggle(text:selectedRanges:language:context:)`
+    is the whole command: delimiters come from `CommentStyle.blockDelimiters`;
+    **the chosen fallback** is that a language with a line comment but no block
+    syntax (the `#` and `--` languages) runs the line toggle instead, so the key
+    still comments something; json, markdown and no language answer `nil`, which
+    the view beeps. In the JavaScript family `context` is asked for the first
+    non-whitespace offset of each range's starting line, exactly as the line
+    toggle asks, and a range starting in JSX children wraps `{/* … */}`. Lines
+    come from `BlockIndentEngine.Lines`. Unit-tested in `BlockCommentEngineTests`.
   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func
     shouldRefresh(changedPaths: [String], root: URL) -> Bool }` answers "is this

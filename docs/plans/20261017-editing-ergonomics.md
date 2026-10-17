@@ -357,15 +357,15 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 
 ### Task 12: Update documentation
 
-- [ ] docs/FEATURES.md: the block indent/outdent, smart Backspace, Move Line, multi-caret Duplicate/Comment, Next/Previous Problem, aligned and JSX-aware Toggle Comment, and Toggle Block Comment sections.
-- [ ] README.md: add ⌥⌘[ / ⌥⌘], ⌘' / ⌘⇧', ⌥⌘/ and Shift+Tab to the shortcut table.
-- [ ] docs/architecture entries:
+- [x] docs/FEATURES.md: the block indent/outdent, smart Backspace, Move Line, multi-caret Duplicate/Comment, Next/Previous Problem, aligned and JSX-aware Toggle Comment, and Toggle Block Comment sections.
+- [x] README.md: add ⌥⌘[ / ⌥⌘], ⌘' / ⌘⇧', ⌥⌘/ and Shift+Tab to the shortcut table.
+- [x] docs/architecture entries:
   - core-editor.md: RangeEditPlan, BlockIndentEngine, MoveLineEngine, BlockCommentEngine, and the CommentStyle and ToggleCommentEngine changes;
   - app-editor.md;
   - core-editorconfig.md;
   - core-lsp.md;
   - core-folding.md.
-- [ ] CLAUDE.md:
+- [x] CLAUDE.md:
   - add the new Core files to the core-editor.md index line, and DiagnosticNavigationRule.swift to the core-lsp.md line;
   - reword the "Tab is stricter" sentence of the Indentation invariant;
   - add `LineCommands.swift` to the app-editor.md line;

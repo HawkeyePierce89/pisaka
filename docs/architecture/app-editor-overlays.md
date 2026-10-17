@@ -1450,6 +1450,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chosen offsets and the resulting ranges, nested same-name elements and a
     fragment included, plus that a second ask of an unchanged buffer is served
     from the cache (an `internal` parse count).
+    The file also holds **`CommentContextTreeWalk`**, which reads the ancestor
+    chain `CommentStyle.context(ancestors:)` decides on (`core-editor.md`): the
+    named nodes enclosing a line's first non-whitespace offset, innermost first,
+    each paired with whether it starts exactly there. It only walks parents;
+    every decision about what the chain means is the rule's. Only the
+    JSX-capable grammars are read (`.javascript`, covering `.jsx`, and `.tsx`;
+    `.typescript` has no JSX). Unlike the two `Task`-hopping consumers it
+    answers **synchronously** — Toggle Comment is one keystroke and must answer
+    now — so its `resolver` takes the snapshot's `cached` tree, else one
+    synchronous `parse` of the buffer, resolved on the engine's first ask and
+    reused, so a toggle the engine never asks about parses nothing. No tree
+    answers an empty chain, which the rule reads as code: silently `//`. Both ⌘/
+    and ⌥⌘/ use it. `CommentContextTreeWalkTests` parses real TSX and pins a
+    `<div>` child line and a fragment child line as children, and a `{…}` line,
+    plain TS and an attribute line inside a multi-line opening tag as code.
   - `TagHighlightController.swift` (macOS) — drives the matching-tag highlight
     on the occurrence highlight's 75 ms settle, so both land together. It reads
     the caret's enclosing elements off the shared `SyntaxTreeSnapshot`, asks
