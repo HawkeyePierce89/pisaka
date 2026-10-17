@@ -142,6 +142,10 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         /// also the cheapest expiry in this table, because the pure scanner
         /// answers the same question over the text already in hand.
         public var foldingRange: TimeInterval
+        /// `textDocument/documentHighlight`, matching
+        /// `LSPSession.Budgets.documentHighlight`: completion's number. The caret
+        /// merely settled, and the textual scan answers on expiry.
+        public var documentHighlight: TimeInterval
 
         public init(
             definition: TimeInterval = 3,
@@ -150,7 +154,8 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             hover: TimeInterval = 1.5,
             references: TimeInterval = 3,
             rename: TimeInterval = 20,
-            foldingRange: TimeInterval = 1.5
+            foldingRange: TimeInterval = 1.5,
+            documentHighlight: TimeInterval = 1.5
         ) {
             self.definition = definition
             self.completion = completion
@@ -159,6 +164,7 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             self.references = references
             self.rename = rename
             self.foldingRange = foldingRange
+            self.documentHighlight = documentHighlight
         }
 
         /// D7's numbers.
@@ -372,6 +378,31 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             return answer
         }
         return await fallback.foldRegions(for: request)
+    }
+
+    /// The server's occurrences, or the textual scan's, whole (D45).
+    ///
+    /// Folding's shape with one deliberate difference. **A server answer is
+    /// final, even an empty one.** A server that resolved the symbol and found no
+    /// other occurrence has answered. The scan would add every same-spelled word,
+    /// which is the guess the server exists to replace. Only `nil` falls through:
+    /// no server for the language, no capability, a failure, a stale buffer, or
+    /// this budget expiring.
+    ///
+    /// **Never a mixture**, and the provenance says which answer it is. The
+    /// fallback is silent, with no alert, like every fallback in this file. The
+    /// language comes off the request, as folding's does.
+    public func documentHighlights(
+        for request: DocumentHighlightRequest
+    ) async -> DocumentHighlightAnswer? {
+        if let language = request.language,
+           await lsp.canServe(language),
+           let answer = await withBudget(budgets.documentHighlight, { [lsp] in
+               await lsp.documentHighlights(for: request)
+           }) ?? nil {
+            return answer
+        }
+        return await fallback.documentHighlights(for: request)
     }
 
     /// Whether the rename command should offer itself at all for `language`

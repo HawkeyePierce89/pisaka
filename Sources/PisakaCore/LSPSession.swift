@@ -111,6 +111,11 @@ public actor LSPSession {
         /// the cheapest in the file to lose, because the pure scanner answers it
         /// too.
         public var foldingRange: TimeInterval
+        /// `textDocument/documentHighlight`: completion's number, for folding's
+        /// reason. Nobody asks for it. The caret merely settled, and the next move
+        /// makes the answer stale, not late. The textual scan answers the same
+        /// question, so losing this one costs little.
+        public var documentHighlight: TimeInterval
         /// How long a polite `shutdown` may take before we stop being polite.
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
@@ -131,6 +136,7 @@ public actor LSPSession {
             references: TimeInterval = 3,
             rename: TimeInterval = 20,
             foldingRange: TimeInterval = 1.5,
+            documentHighlight: TimeInterval = 1.5,
             shutdown: TimeInterval = 2,
             exitGrace: TimeInterval = 2
         ) {
@@ -142,6 +148,7 @@ public actor LSPSession {
             self.references = references
             self.rename = rename
             self.foldingRange = foldingRange
+            self.documentHighlight = documentHighlight
             self.shutdown = shutdown
             self.exitGrace = exitGrace
         }
@@ -518,6 +525,25 @@ public actor LSPSession {
             timeout: budgets.foldingRange
         )
         return try decode(result, as: LSPFoldingRangeResponse.self, method: LSPMethod.foldingRange)
+    }
+
+    /// Every occurrence of the symbol at the position, in the asked document.
+    ///
+    /// Whether the server advertised `documentHighlightProvider` is the caller's
+    /// check, as it is for `foldingRange`. A session answers what it is asked.
+    public func documentHighlight(
+        _ params: LSPDocumentHighlightParams
+    ) async throws -> LSPDocumentHighlightResponse {
+        let result = try await request(
+            LSPMethod.documentHighlight,
+            params: try JSONValue(encoding: params),
+            timeout: budgets.documentHighlight
+        )
+        return try decode(
+            result,
+            as: LSPDocumentHighlightResponse.self,
+            method: LSPMethod.documentHighlight
+        )
     }
 
     public func completion(

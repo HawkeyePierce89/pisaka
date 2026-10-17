@@ -563,7 +563,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // instead of burning a cooperative-pool thread on a popover nobody will see.
         guard !Task.isCancelled, let content = HoverContent(response) else { return nil }
 
-        return HoverAnswer(content: content, range: anchorRange(for: response, in: source, at: request.offset))
+        return HoverAnswer(
+            content: content,
+            range: anchorRange(for: response, in: source, at: request.offset, language: language)
+        )
     }
 
     /// The buffer range a hover answer is about.
@@ -590,13 +593,14 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     private func anchorRange(
         for response: LSPHoverResponse,
         in source: NSString,
-        at offset: Int
+        at offset: Int,
+        language: SyntaxLanguage
     ) -> NSRange {
         if let range = response.range {
             let mapped = LSPPositionMap.range(for: range, in: source)
             if NSLocationInRange(offset, mapped) { return mapped }
         }
-        if let identifier = IdentifierScanner.identifier(in: source, at: offset) {
+        if let identifier = IdentifierScanner.identifier(in: source, at: offset, language: language) {
             return identifier.range
         }
         return NSRange(location: min(max(offset, 0), source.length), length: 0)
@@ -720,6 +724,62 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             )
         }
         return regions.sorted()
+    }
+
+    // MARK: - Document highlights
+
+    /// Every occurrence the server names for the symbol at `request.offset`, or
+    /// `nil` when the server gave no answer this layer can use.
+    ///
+    /// Follows `hover(for:)` step for step: D2's empty-buffer guard, the language
+    /// off the file name, `prepare`, the capability read after `prepare`,
+    /// `LSPPositionMap` both ways, and `stillHolds` before the answer is read.
+    ///
+    /// **`nil` and `[]` are different answers.** `nil` covers no server, no
+    /// capability, a failed or timed-out request and a buffer the server no
+    /// longer holds. The router falls back to the textual scan on `nil`. An empty
+    /// list is the server answering "no occurrences", and that is final (D45).
+    ///
+    /// Kinds map onto the editor's two: `Write` is a write. `Read`, `Text`, an
+    /// absent kind and a number the spec does not name are all reads. A range is
+    /// clamped into the buffer by `LSPPositionMap`, so a miscounting server never
+    /// traps. A range that maps to nothing is dropped.
+    public func documentHighlights(
+        for request: DocumentHighlightRequest
+    ) async -> DocumentHighlightAnswer? {
+        guard !(request.text.isEmpty && request.offset != 0) else { return nil }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsDocumentHighlight == true
+        else { return nil }
+
+        let source = request.text as NSString
+        let position = LSPPositionMap.position(forOffset: request.offset, in: source)
+        guard let response = try? await prepared.session.documentHighlight(
+            LSPDocumentHighlightParams(uri: prepared.uri, position: position)
+        ) else { return nil }
+        // The ranges are painted over this buffer, so an answer about a document
+        // the server was talked out of would paint text that has moved.
+        guard await workspace.stillHolds(prepared) else { return nil }
+
+        var seen = Set<NSRange>()
+        let highlights = response.highlights.compactMap { highlight -> DocumentHighlightAnswer.Highlight? in
+            let range = LSPPositionMap.range(for: highlight.range, in: source)
+            guard range.length > 0, seen.insert(range).inserted else { return nil }
+            return DocumentHighlightAnswer.Highlight(
+                range: range,
+                kind: highlight.kind == .write ? .write : .read
+            )
+        }
+        return DocumentHighlightAnswer(
+            provenance: .server,
+            highlights: highlights.sorted { $0.range.location < $1.range.location }
+        )
     }
 
     // MARK: - Completions

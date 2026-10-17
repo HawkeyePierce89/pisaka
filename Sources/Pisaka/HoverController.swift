@@ -69,6 +69,13 @@ final class HoverController: NSObject {
     /// preview and a torn-down editor are both in.
     var source: () -> Source? = { nil }
 
+    /// The buffer's language (`nil` = plain text), read per pointer event so the
+    /// word under the pointer is cut by the same language-aware boundary rule
+    /// ⌘-click and a double-click use. Kept apart from `source` because the
+    /// identifier gate is asked whether or not an index is attached. Set by
+    /// `Coordinator.attachHover(textView:)`.
+    var language: () -> SyntaxLanguage? = { nil }
+
     /// The text view the pointer is tracked over. Held weakly: the view
     /// hierarchy owns it, exactly as every other controller here holds it.
     private weak var textView: NSTextView?
@@ -182,7 +189,7 @@ final class HoverController: NSObject {
         // other `textView.string` in the editor sits behind a debounce or an
         // explicit command; nothing here may. Read-only, and synchronously on the
         // main actor, so no edit can interleave.
-        let match = IdentifierScanner.identifier(in: storage.mutableString, at: offset)
+        let match = IdentifierScanner.identifier(in: storage.mutableString, at: offset, language: language())
         guard match != nil || !hitDiagnostics.isEmpty else {
             dismiss()
             return

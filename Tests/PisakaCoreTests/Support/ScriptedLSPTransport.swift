@@ -164,6 +164,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         references: Bool = true,
         rename: Bool = true,
         foldingRange: Bool = true,
+        documentHighlight: Bool = true,
         completion: Bool = true,
         resolvesCompletionItems: Bool = true
     ) -> JSONValue {
@@ -185,6 +186,9 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         }
         if foldingRange {
             capabilities["foldingRangeProvider"] = .bool(true)
+        }
+        if documentHighlight {
+            capabilities["documentHighlightProvider"] = .bool(true)
         }
         if completion {
             capabilities["completionProvider"] = .object([

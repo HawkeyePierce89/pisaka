@@ -18,8 +18,9 @@ protocol EditorCommandFocusPassthrough: AnyObject {}
 /// Which editor a caret command belongs to.
 ///
 /// The commands that act "at the caret" — Go to Definition, Find Usages,
-/// Rename, Toggle Comment, Complete, and the four fold items through
-/// ``FoldCommands`` — are app-wide key equivalents that carry no state, so the
+/// Rename, Toggle Comment, Complete, the four fold items through
+/// ``FoldCommands`` and the two selection items through
+/// ``SelectionCommands`` — are app-wide key equivalents that carry no state, so the
 /// **first responder** is the only honest answer to "which editor?". Each of
 /// them used to spell `NSApp.keyWindow?.firstResponder as? EditorTextView`
 /// itself; this is that expression's one definition, and

@@ -86,7 +86,15 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the tab navigation commands', `file_length` 1944 →
+The most recent bump is Expand / Shrink Selection's, `file_length` 1947 →
+**1948** and `type_body_length` 1940 → **1941**: one line, the
+`SelectionCommands()` entry inside the `Group` the fold and tab-navigation
+commands already share. The two Edit menu items live in
+`SelectionCommands.swift`, the step and its history in
+`SelectionExpansionController.swift`, and every decision in Core's
+`SelectionExpansionRule` (`app-editor.md`).
+
+The bump before it is the tab navigation commands', `file_length` 1944 →
 **1947** and `type_body_length` 1937 → **1940**: three lines, the
 `TabNavigationCommands(model:)` entry and the two braces of the `Group` it
 shares with `FoldCommands`. The Window menu's thirteen items (Show
@@ -97,7 +105,7 @@ already at the ten entries the then-pinned Xcode 16.4 SDK accepted, so that
 type shares one `Group` entry with `FoldCommands` (`core-services.md`,
 `app-shell.md`).
 
-The bump before it is Reveal in Project Tree's, `file_length` 1937 →
+Before that came Reveal in Project Tree's bump, `file_length` 1937 →
 **1944** and `type_body_length` 1930 → **1937**: the scene holds the latest
 `TreeRevealRequest`, hands it to `ContentView`, and its five-line
 `revealInProjectTree(id:url:)` selects the tab and assigns the next request.

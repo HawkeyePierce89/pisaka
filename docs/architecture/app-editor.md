@@ -1858,6 +1858,101 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     selection reaching past the block) are the same event to the person pressing the
     key — nothing happened. Which block a press acts on is `FoldCommandRule`'s
     decision and is made in Core.
+  - **The double-click override** (`EditorTextView` in `CodeEditorView.swift`).
+    `selectionRange(forProposedRange:granularity:)` is overridden for
+    `.selectByWord` only: it calls `super` first, then returns
+    `WordSelectionRule.range(proposed:platformRange:text:language:)` with
+    `super`'s answer as the platform range (`core-editor.md`). Every other
+    granularity passes through untouched, triple-click's `.selectByParagraph`
+    included. The language comes from a `syntaxLanguage` closure that
+    `makeNSView` sets to read the coordinator's `language`, so it is always the
+    shown tab's, never one a tab switch left behind. `nil` until then is the
+    language-blind rule. The same language now reaches every macOS
+    `IdentifierScanner` call site: the ⌘-click probe, the `validateMenuItem`
+    identifier probe, and the completion and hover controllers through their
+    `language` closures. `WordSelectionGranularityTests` drives a headless
+    `EditorTextView`: `z.object({…})` and `res.status` select one identifier,
+    `c$d` is one word in TypeScript only, a drag snaps each end, a punctuation
+    click equals `super`, and paragraph granularity is unchanged.
+  - **The caret highlights' wiring** (`CodeEditorView`'s coordinator). The
+    coordinator alone owns an `OccurrenceHighlightController`, a
+    `TagHighlightController` and the `SyntaxTreeSnapshot` they and Expand /
+    Shrink Selection share (`app-editor-overlays.md`). The storage's edit
+    notification calls, in order, `BracketHighlightController.noteEdit`, then
+    the occurrence highlight's, the snapshot's and the tag highlight's
+    `noteEdit()`. That order is load-bearing: the bracket controller drops
+    every background in pre-edit coordinates first, so the later clears reach
+    the layout manager as no-ops. A selection change calls both controllers'
+    `selectionChanged()`; a scroll or resize calls the occurrence highlight's
+    `refreshVisible()`. A tab switch calls `resetCaretHighlights()` (both
+    controllers and the snapshot), and teardown resets the same three, so a
+    closed tab cannot paint. After the buffer swap, any switch, replacement or
+    retarget calls `scheduleCaretHighlightSettle()`, since a restored selection
+    may post no change (`app-editor-overlays.md`). The tag controller's bracket suppression is routed
+    to `BracketHighlightController.setPairSuppressed`.
+  - `SelectionCommands.swift` (macOS) — the Edit menu's *Expand Selection*
+    (⌃⌘→) and *Shrink Selection* (⌃⌘←), in a `CommandGroup(after: .pasteboard)`.
+    Shaped like `FoldCommands`: the items carry no state and reach the focused
+    editor through the **first responder**
+    (`EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)`), with the same
+    one beep (`PlatformFeedback.warning()`) for a focus that is not an editor,
+    an input method mid-composition, and an editor answering that there is no
+    further step. A read-only viewer is **not** refused, unlike Fold: selecting
+    changes nothing it shows. The step is asked of the coordinator, which is the
+    text view's delegate, so the object holding the language and the tree
+    answers without the text view relaying a closure. `PisakaApp` names the
+    type once, inside the `Group` it shares with `FoldCommands` and
+    `TabNavigationCommands`, so the `.commands { }` builder stays at ten
+    entries (`style-lint.md` records the one-line ceiling bump). **The chords**:
+    free among the app's own shortcuts (`MenuShortcutUniquenessTests`; the only
+    other arrow chords are Fold's ⌘⌥ and ⌘⌥⇧ pairs). Against AppKit's
+    `StandardKeyBinding.dict` they are **not** free: `@^←`/`@^→` are
+    `makeBaseWritingDirectionRightToLeft:`/`…LeftToRight:`. A menu key
+    equivalent is matched before the key event reaches the text view's key
+    bindings, so the menu wins and the editor gives up only those two
+    keystrokes. Paragraph direction is a rich-text attribute a plain-text code
+    buffer neither shows nor saves. ⌃←/⌃→ alone, the line-end moves, are
+    untouched. The type's doc comment records the same check.
+  - `SelectionExpansionController.swift` (macOS) — Expand / Shrink Selection's
+    editor side: one per editor, held by the coordinator as **one lazy
+    property** (`CodeEditorView.swift` sits at its `file_length` ceiling, which
+    is why the feature lives here and not in the coordinator). It holds the
+    `SelectionExpansionHistory` and asks `SelectionExpansionRule` for every step
+    (`core-editor.md`). A language with a grammar climbs the shared
+    `SyntaxTreeSnapshot` through `SelectionExpansionTreeWalk` (in
+    `SyntaxTreeSnapshot.swift`). The walk starts at the smallest node spanning
+    the selection (for a caret, the character after it, or before it at the end
+    of the text), keeps every **named** node whose range contains the
+    selection, and never makes an anonymous node (punctuation, a keyword) a
+    rung. **String content** is read by node type, any type naming `string` or
+    `comment`, because the grammars agree on that much and on nothing finer;
+    inside one, the rule's word step is always tried. A language with no
+    grammar uses `fallbackCandidates`. A tree not yet parsed is asked for off
+    the main actor, and the step lands when it arrives, reading the selection
+    *then*, so a second press waiting on the same parse steps from wherever the
+    first left it. It beeps itself if the parse was superseded or nothing was
+    left. A selection change it did not make, or a character edit, while the
+    parse is in flight supersedes the waiting step **silently** through an
+    intent generation both observers advance: the press asked about a selection
+    the user has since abandoned, so a click during the parse is never
+    expanded. **It never scrolls**: a step widens around a selection already on
+    screen or narrows back to one that was, and `scrollRangeToVisible` belongs
+    to the reveal funnel alone (`FoldingSourceGatingTests`). Routing through
+    that funnel instead would unfold whatever the range covers, so the document
+    rung would open every fold. **The history**: Expand pushes the selection it replaces and Shrink
+    pops it. Only this controller's own selection moves keep the history,
+    flagged while it sets the selection. Any other selection change (a click,
+    an arrow key, a find) and any character edit reset it, observed from the
+    text view's and the storage's own notifications. A tab switch is a buffer
+    swap, which is an edit. The observers are installed on first use, because
+    before it the history is empty and there is nothing to reset. A different
+    text view re-binds them and drops the history. `SelectionExpansionTests`
+    runs a TS fixture (`Fixtures/expand.ts`): expand from a caret steps through
+    the word, the argument contents, the call and the statement, and shrink
+    returns along the same path. Also covered: the word step first inside a
+    string, a manual selection change and an edit each clearing the history,
+    plain text climbing the bracket fallback, and a cold step discarded by an
+    edit or by a manual selection change before its parse lands.
   - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
     `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
     (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/

@@ -529,10 +529,13 @@ public enum RenameNameRule {
     /// The identifier rule is `IdentifierScanner.isIdentifier(_:)` — the very rule
     /// that decided what the caret was pointing at — so a name this accepts is one
     /// the editor can resolve back to a symbol. Anything else would produce a
-    /// "rename" whose result could never be renamed again.
-    public static func rejection(of newName: String, replacing oldName: String) -> String? {
+    /// "rename" whose result could never be renamed again. `language` is the
+    /// renamed file's, so `$store` is a name in JavaScript and not in Swift.
+    public static func rejection(
+        of newName: String, replacing oldName: String, language: SyntaxLanguage? = nil
+    ) -> String? {
         guard !newName.isEmpty else { return nil }
-        guard IdentifierScanner.isIdentifier(newName) else {
+        guard IdentifierScanner.isIdentifier(newName, language: language) else {
             return "A symbol name must be a single identifier."
         }
         guard newName != oldName else {

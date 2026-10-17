@@ -5,10 +5,11 @@
 ; @container capture in the same match names the enclosing type.
 ;
 ; The TypeScript grammar is a superset of the JavaScript one and the editor
-; parses `.ts`/`.tsx` with it alone, so this file repeats the JavaScript
-; patterns rather than relying on composition — the same reason
+; parses `.ts` with it alone, so this file repeats the JavaScript patterns
+; rather than relying on composition — the same reason
 ; `SyntaxLanguageConfiguration.makeTypeScriptConfiguration` merges the two
-; highlight queries. Keep the two files in step when either changes.
+; highlight queries. Keep the two files in step when either changes, and keep
+; `Queries/tsx/symbols.scm` in step with this one.
 ;
 ; `private_property_identifier` is the one captured node whose text is not just
 ; the name: the grammar spans the leading `#` (`#count`) and offers no inner node

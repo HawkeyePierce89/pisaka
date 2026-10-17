@@ -124,6 +124,26 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         FoldRegionScanner.scan(text: request.text as NSString, widths: request.indentWidths)
     }
 
+    /// The textual occurrence scan's answer: every whole-word, case-sensitive
+    /// spelling of the identifier in the request's text, each one a read.
+    ///
+    /// Like `foldRegions(for:)` it reads no index and takes no main-actor hop. The
+    /// answer comes from the text the request carries. `nil` when the scan's work
+    /// budget ran out, so the caller paints nothing rather than a partial list.
+    public func documentHighlights(
+        for request: DocumentHighlightRequest
+    ) async -> DocumentHighlightAnswer? {
+        guard let ranges = OccurrenceScan.identifierMatches(
+            of: request.identifier,
+            in: request.text as NSString,
+            language: request.language
+        ) else { return nil }
+        return DocumentHighlightAnswer(
+            provenance: .textual,
+            highlights: ranges.map { DocumentHighlightAnswer.Highlight(range: $0, kind: .read) }
+        )
+    }
+
     /// Both reads in one main-actor hop — see the type's note on why the read is
     /// isolated and the ranking is not. One hop rather than two so a request
     /// cannot straddle a chunk publication and pair one walk's index with the
@@ -261,9 +281,9 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// fail it by construction: `LanguageKeywords` are hand-written words, and
     /// harvested buffer words come out of `IdentifierScanner.words(in:limit:)`,
     /// which yields only what this predicate would accept.
-    static func isCompletionCandidate(_ symbol: Symbol) -> Bool {
+    static func isCompletionCandidate(_ symbol: Symbol, language: SyntaxLanguage? = nil) -> Bool {
         !kindsExcludedFromCompletion.contains(symbol.kind)
-            && IdentifierScanner.isIdentifier(symbol.name)
+            && IdentifierScanner.isIdentifier(symbol.name, language: language)
     }
 
     // MARK: - Completions (pure)
@@ -404,7 +424,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         let symbols = index.symbols(matching: query, limit: candidateLimit(for: limit))
             + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
         var ranked: [Ranked] = symbols.compactMap { symbol in
-            guard isCompletionCandidate(symbol) else { return nil }
+            guard isCompletionCandidate(symbol, language: request.language) else { return nil }
             guard let quality = FuzzyMatch.quality(of: symbol.name, matching: query) else { return nil }
             return Ranked(
                 item: CompletionItem(
@@ -434,7 +454,9 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
             )
         }
 
-        let words = IdentifierScanner.words(in: request.text as NSString, limit: bufferWordLimit)
+        let words = IdentifierScanner.words(
+            in: request.text as NSString, limit: bufferWordLimit, language: request.language
+        )
         for word in words {
             guard let quality = FuzzyMatch.quality(of: word, matching: query) else { continue }
             // Harvested from the buffer being edited, so by definition local.
@@ -521,7 +543,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         candidates += request.fileURL.map { index.members(inFile: $0) } ?? []
 
         var ranked: [Ranked] = candidates.compactMap { symbol in
-            guard isCompletionCandidate(symbol) else { return nil }
+            guard isCompletionCandidate(symbol, language: request.language) else { return nil }
             guard let quality = memberQuality(of: symbol.name, matching: query) else { return nil }
             return Ranked(
                 item: CompletionItem(
@@ -536,7 +558,10 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         }
 
         if ranked.isEmpty, !query.isEmpty {
-            for word in IdentifierScanner.words(in: request.text as NSString, limit: bufferWordLimit) {
+            let words = IdentifierScanner.words(
+                in: request.text as NSString, limit: bufferWordLimit, language: request.language
+            )
+            for word in words {
                 guard let quality = FuzzyMatch.quality(of: word, matching: query) else { continue }
                 ranked.append(
                     Ranked(

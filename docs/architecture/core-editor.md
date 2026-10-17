@@ -163,10 +163,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, go, rust, json,
     markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql,
-    editorconfig, shell, make) with
+    editorconfig, shell, make, tsx) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
-    extension→language map, mirroring `FileIcon`'s extension-map pattern. The
-    last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
+    extension→language map, mirroring `FileIcon`'s extension-map pattern. Three of
+    them — dockerfile, dotenv and gitignore — carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
     `init?(forFileName:)` is no longer extension-only: it takes the argument's
     *last path component*, lowercases it, and runs **four phases in a fixed
     order — exact name → extension → prefix → dot-ignore shape**. (The
@@ -258,6 +258,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Dockerfile, Dotenv, Gitignore, SQL, EditorConfig, Shell, Makefile) — spelled out by an
     exhaustive `switch` rather than derived from the lowercased raw value, so a
     new case cannot compile without one; `SyntaxLanguageTests` pins the table.
+    **`.tsx` is its own case** (display name "TSX"). Until it was added, the
+    extension map sent `tsx` to `.typescript`, so a `.tsx` file was parsed with
+    the TypeScript grammar. That grammar has no JSX, so every tag was an
+    `ERROR` region and nothing inside it was coloured. `.ts` stays
+    `.typescript`, and `.jsx` stays `.javascript`, whose grammar already parses
+    JSX. The case met all three obligations above: the TSX grammar
+    (`app-editor-overlays.md`), `Resources/Queries/tsx/symbols.scm`, and
+    TypeScript's keyword list, shared. Every exhaustive switch the compiler
+    reported (`CommentStyle`, `FileGlyph`, `FileIcon`, `SyntaxContextVocabulary`,
+    `CaretReadout`, `LSPServerDescription`, `LSPProvisioningManifest`) treats it
+    as TypeScript. The LSP `languageId` stays `typescriptreact`, and the TS
+    server's language set includes it (`core-lsp.md`).
+    **`extraWordScalars`** is the language's data for `IdentifierScanner`'s
+    boundary rule: `$` and `#` for `.javascript`, `.typescript` and `.tsx`,
+    empty for every other case. Each extra scalar counts as both a start and a
+    continuation. The shell adds nothing on purpose: `$FOO` is an expansion of
+    `FOO`, and completion and ⌘-click must see `FOO`. The rule itself stays in
+    `IdentifierScanner` (`core-intelligence.md`); this property only holds the
+    per-language part.
   - `CaretReadout.swift` — the bottom bar's caret readout,
     `position(text:caretOffset:lineStarts:)` → a 1-based line and column, and
     `text(position:language:encodingName:)` →
@@ -599,8 +618,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     unmatched — a red bracket can still show a highlighted pair. Deliberate and
     accepted (broken code mid-typing; neither answer is wrong for its own
     question), pinned by `testCrossedBracketsPairPerKindUnlikeDepthScanner` here
-    and its mirror in the scanner's suite. Unit-tested in
-    `BracketMatchEngineTests`.
+    and its mirror in the scanner's suite.
+    **`enclosingPair(text:around:)`** is the text-only Expand Selection step
+    (`SelectionExpansionRule.fallbackCandidates`). It answers the innermost pair
+    of any of the three kinds whose opener lies strictly before
+    `range.location` and whose closer lies at or after `NSMaxRange(range)`.
+    Asked again around the pair it returned, it answers the next pair outward.
+    It walks backward keeping a depth **per kind**, the same rule `pair` counts
+    by, so in `(a[b|c)d]` the answer is `[`…`]` and a stray closer of another
+    kind does not disturb the count. Each opener at depth 0 is matched forward
+    with `pair`'s own chunked scan. An opener whose closer lands inside `range`
+    does not enclose it, and the walk goes on. An opener with **no closer at
+    all** proves every earlier opener of its kind unmatched too, since each
+    would need one more closer after it. That kind is then skipped, so a buffer
+    of unclosed openers costs one forward scan per kind rather than one per
+    opener. Symmetrically, an opener whose closer landed inside `range` is
+    enclosed by the next depth-0 opener of its kind, whose closer is the first
+    unmatched one after that closer, so the next forward scan resumes there
+    rather than re-walking the pair: a selection over a deep nest's closers is
+    one forward walk per kind too. An `internal` overload adds up the units
+    every forward scan walked, which the tests bound for both inputs. A range out of the text, `NSNotFound` or a negative length answers
+    `nil`. It has the same raw-character limit as `pair`: no string or comment
+    awareness. Unit-tested in `BracketMatchEngineTests`, `enclosingPair` across
+    mixed kinds included.
   - `BracketDepthScanner.swift` — pure, testable nesting-depth scanning for the
     editor's *rainbow brackets* (Foundation only, color-free — the palette is the
     view's). `public struct BracketToken: Equatable` carries `location` (UTF-16
@@ -908,3 +948,169 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     no horizontal scroll offset (the editor does not soft-wrap, but a long-line
     x-position has never been remembered and is not part of this), and no
     persistence — the view-layer half is in `app-editor.md`.
+  - `WordSelectionRule.swift` — what a double-click (word granularity) selects
+    in the macOS editor: exactly one identifier, by `IdentifierScanner`'s
+    language-aware boundary rule, which ⌘-click, the completion prefix and the
+    usage scan also use. The platform's own word granularity is a prose rule.
+    It runs a word across the `.` in `z.object`, through `::` and `->`, and it
+    splits `$store` in a JavaScript file. `range(proposed:platformRange:text:
+    language:)` takes the platform's answer for the same gesture and replaces
+    it only where an identifier answers instead. **A click** (an empty or
+    one-character proposal) on an identifier character answers that
+    identifier. Only the character the click lands *on* counts
+    (`IdentifierScanner.identifier(in:containing:)`, the first probe alone), so
+    a click on the `.` right after `z` does not select `z`. That is the
+    deliberate difference from the keyboard's `identifier(in:at:)`, whose
+    second probe takes the word *ending* at the offset. **A drag** snaps each
+    end that lies in an identifier out to that identifier's bound, judging the
+    end by the last character covered rather than the offset past it. An end
+    that is not in an identifier keeps the platform's bound. **Neither end in
+    an identifier** returns `platformRange` unchanged, so punctuation,
+    whitespace and numbers select as AppKit always did. The app half is the
+    `selectionRange(forProposedRange:granularity:)` override in `app-editor.md`.
+    Unit-tested in `WordSelectionRuleTests`. The boundary cases themselves
+    (periods, `?.`, `::`, `->`, digits, Unicode, `$`/`#` per language) live in
+    `IdentifierScannerTests`.
+  - `OccurrenceScan.swift` — the textual half of occurrence highlighting: every
+    place one buffer spells a name (`identifierMatches(of:in:language:budget:)`)
+    or a selected string (`exactMatches(of:in:budget:limit:)`), against a
+    **charged work budget**. It runs at a caret settle against whatever the
+    editor holds, a minified bundle's single multi-megabyte line included. A
+    user asks for `TextualUsageScanner` and waits for it, but this scan must be
+    able to give up. **`nil` means the budget ran out**, and the caller paints
+    nothing. A partial list would claim that the rest of the file holds no
+    occurrence. **The boundary rule is not restated.** A candidate is a whole
+    word exactly when `IdentifierScanner.identifier(in:at:language:)` resolves
+    that range to that text, which is the question `TextualUsageScanner` asks.
+    The highlight, ⌘-click, completion and Find Usages therefore agree about
+    what a word is. A query that is not one identifier in that language answers
+    `[]`, not `nil`, because it cannot occur as a word. Matching is `.literal`
+    and case-sensitive. There is no line index and no preview. `limit` stops a
+    literal scan once that many matches are found. It is not a budget answer:
+    the selection match asks for one more than its cap, which is all it needs
+    to refuse. **Linear by construction**: after a whole-word check the scan
+    resumes past the *whole identifier run* the check resolved, because no
+    later hit inside the same run can be a whole word. Without that, `_1` in
+    `_1_1_1…` would re-walk the run once per hit. **Bookkeeping is
+    double-entry** (`EditorConfigGlob.MatchWork`'s pattern). Each site
+    `record`s the work it really did — the units the literal search walked,
+    and the identifier run the whole-word check walked — and `spend`s its
+    charge — the literal walk, and the span from where the step began to where
+    the scan resumes — as two separate calls. The two disagree exactly when the
+    skip past the run is lost: the record then grows with every hit's run while
+    the charge stays a few units a hit. The production ceiling is `maximumWorkUnits` = 2,097,152
+    units, enough to scan an ordinary file whole a few times over. The
+    `internal` seams take a caller-owned `Work`, so
+    `OccurrenceScanTests` asserts, on a pathological one-line input, both the
+    `nil` and that the performed work is within a factor of two of the charged
+    work at the ceiling, and on a small `_1_1…` run that the recorded work
+    stays linear — the assertion a lost skip fails rather than hangs.
+    The bound is charged, never timed. Also covered: whole-word and case
+    sensitivity (`foo` in `foo.bar` but not in `foobar`/`_foo`), `$x` in
+    TypeScript, and the three `started` of the `createStoreApiClient` sample.
+  - `OccurrenceHighlightRule.swift` — which occurrence highlight a settled
+    selection asks for, decided once per settle so the two can never both
+    paint. `mode(text:selection:language:)` answers one of three modes.
+    **`.identifier(Match)`**: a caret in or touching an identifier
+    (`identifier(in:at:)`'s two probes, so `name|` counts), or a selection
+    equal to exactly one identifier. **`.selectionMatch(String)`**: any other
+    non-empty selection within one line (no `LineStartIndex` separator inside),
+    at least two UTF-16 units long and not all whitespace. **`.none`**:
+    anything else, a selection out of the text included. A selection that is
+    exactly one identifier is never also a string match.
+    `selectionMatches(of:in:budget:)` runs `OccurrenceScan.exactMatches` with
+    `limit: selectionMatchCap + 1`. Past **`selectionMatchCap` = 50** matches,
+    counting the selection itself, it answers `[]`, **not the first fifty**: a
+    selection that common (`= `, `()`) is noise across the file, and a
+    truncated set would paint the top of the file and not the rest. An
+    exhausted budget answers `nil`. Unit-tested in
+    `OccurrenceHighlightRuleTests`: every eligibility edge, and the cap at 50
+    and 51.
+  - `OccurrenceHighlightModel.swift` — the `@MainActor` model behind the
+    editor's occurrence highlight. It holds the published `highlights`
+    (`[OccurrenceHighlight]`, each a range plus `.read`/`.write`/
+    `.selectionMatch`, ascending), the `fileID` they belong to, and the
+    identifier answer's `provenance`. Its ordering is `FindUsagesModel`'s
+    generation-token rule narrowed to one buffer. `settle(text:selection:
+    language:fileURL:fileID:)` bumps the token **synchronously**, before any
+    hop, and every answer publishes only while its captured token is still the
+    latest. `noteEdit()` (an edit) and `reset()` (a tab switch or teardown)
+    bump the same token and clear. An answer computed against text that has
+    since changed is therefore discarded rather than painted at offsets that
+    no longer mean what they did. **One mode per settle**
+    (`OccurrenceHighlightRule.mode`). A settle whose mode, buffer or identifier
+    (anchored at its first character) differs from the published one clears at
+    once, before its own answer arrives, so a slow server never leaves the
+    previous name's occurrences painted under the caret's new one. A settle of
+    the same mode on the same identifier keeps the published answer until the
+    new one replaces it, which keeps the highlight from flickering while the
+    caret walks within one name. **Sources.** The identifier answer is the
+    provider's `documentHighlights(for:)`, server or textual as the provider
+    chain decides (D45, `core-lsp.md`), and taken whole. The request is anchored
+    at the identifier's first character, so the same word always asks the same
+    question. The provider is read at each settle, not held, because the app
+    swaps a routing provider in once the LSP layer is up. `nil` means no
+    identifier answer. The selection match is `OccurrenceHighlightRule
+    .selectionMatches` on the immutable snapshot, run off the main actor
+    through an injectable `selectionScan` seam. **A reader**: it never touches
+    the buffer, and an exhausted budget or a missing provider paints nothing,
+    silently. Only a server can name a `.write`. Unit-tested in
+    `OccurrenceHighlightModelTests` with `Gate`: a slow first request overtaken
+    by a second never publishes, an edit during flight discards the result, a
+    mode switch clears the other mode's answer, moving to another identifier
+    clears the previous one's at once, and a server's write kind survives into
+    the published state.
+  - `TagMatchRule.swift` — which tag names the caret highlights in JSX, TSX and
+    HTML, and whether that highlight takes the bracket pair's place. The input
+    is `TagElement { range, openName, closeName? }`, read by the app off the
+    syntax tree (`SyntaxTreeSnapshot`'s extraction, `app-editor-overlays.md`).
+    A fragment's names are its `<>` and `</>` ranges, so the two pair with each
+    other. A self-closing element, and one the tree left unclosed, has
+    `closeName == nil`. `highlight(caret:enclosing:bracketPairActive:)` takes
+    the caret's chain of enclosing elements, innermost first and self-closing
+    ones included, and answers `Highlight { tagRanges, suppressBracketPair }`.
+    Three rules, in order: **(1) caret in a tag name**, either end inclusive so
+    `div|` counts: that element's names, or the one name of a self-closing or
+    unclosed element, and the bracket pair is suppressed. Here the tag pair
+    wins. **(2) Caret at an active bracket**, not in a tag name: no tag ranges.
+    Here the bracket pair wins. **(3) Otherwise**: the innermost enclosing
+    element that has a closing name gives its two names, **one level only**.
+    Self-closing and unclosed elements are passed over, and both highlights
+    may show. The rule never sees a tree, and the app never decides.
+    Unit-tested in `TagMatchRuleTests`: the `Header` sample (caret in
+    `</header>`, caret in `<span>` text), nested same-name elements,
+    fragments, self-closing elements in the name and elsewhere, attributes and
+    children, and bracket priority both ways.
+  - `SelectionExpansionRule.swift` — Expand / Shrink Selection's decisions:
+    which ranges an expansion steps through, and which one comes next. The app
+    reads the chain of *named* tree nodes enclosing the selection, innermost
+    first, and passes their ranges here as plain `NSRange`s. The rule never
+    sees a tree. `candidates(text:selection:language:ancestors:stringContent:)`
+    builds an **ordered ladder**. (1) **The word**: the identifier, by the
+    language-aware rule, that the selection lies within. Outside string content
+    only the character the selection starts *on* counts, so a caret on
+    punctuation, including the `(` right after a name, gets no word step and
+    goes straight to its node. Inside string content, where the tree has no
+    node smaller than the literal, the word step is always tried, and a caret
+    just past a word takes it. (2) **Each named ancestor**, innermost first.
+    When an ancestor's first and last characters are one bracket pair, its
+    non-empty inner contents come immediately before it, so `f(a, b)` offers
+    `a, b` before `(a, b)`. (3) **The line or lines**, without the terminator,
+    over `LineStartIndex`'s separator set. (4) **The document.** Duplicate
+    rungs are dropped, keeping the first, and ancestor ranges outside the text
+    are dropped rather than trusted. `fallbackCandidates(text:selection:
+    language:)` serves a language with no grammar: the word, then repeated
+    `BracketMatchEngine.enclosingPair` outward (contents before pair), then the
+    line, then the document. It has the bracket engine's raw-character limit.
+    `next(selection:candidates:)` takes the **first rung that strictly contains
+    the selection**. An equal rung (an identifier node after the word step, a
+    node equal to its parent) and one that does not contain the selection are
+    passed over here rather than special-cased where the list is built.
+    `SelectionExpansionHistory` (`push`, `pop`, `reset`, `isEmpty`) records
+    the selections the expansion left, so Shrink walks back along exactly the
+    same path. The editor resets it on any selection change it did not make and
+    on any edit (`app-editor.md`). Unit-tested in
+    `SelectionExpansionRuleTests`: the order over a hand-built ancestor chain,
+    the equal-range skip, the word step inside a string, a punctuation caret,
+    contents before brackets, the full fallback chain over nested brackets, and
+    push/pop/reset.

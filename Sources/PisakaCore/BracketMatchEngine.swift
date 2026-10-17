@@ -95,6 +95,95 @@ public enum BracketMatchEngine {
         return matchBracket(in: text, at: caret - 1)
     }
 
+    /// The innermost bracket pair, of any of the three kinds, that encloses
+    /// `range` — its opener strictly before `range.location`, its closer at or
+    /// after `NSMaxRange(range)` — or `nil` when none does. This is the text-only
+    /// Expand Selection step (`SelectionExpansionRule.fallbackCandidates`): asked
+    /// again around the pair it returned, it answers the next pair outward.
+    ///
+    /// The walk goes backward from `range.location` keeping a depth *per kind*,
+    /// the same per-kind rule `pair` counts by, so in `(a[b|c)d]` the caret's
+    /// enclosing pair is `[`…`]` and a stray closer of another kind does not
+    /// disturb the count. Each opener met at depth 0 is matched forward with
+    /// `pair`'s own scan; one whose closer lands inside `range` does not
+    /// enclose it and the walk goes on. An opener with no closer at all proves
+    /// every earlier opener of its kind unmatched too — each would need one
+    /// more closer after it — so that kind is skipped from then on, which keeps
+    /// a buffer of unclosed openers to one forward scan per kind rather than
+    /// one per opener. Symmetrically, an opener whose closer landed inside
+    /// `range` is enclosed by the next depth-0 opener of its kind, whose closer
+    /// is therefore the first unmatched one *after* that closer: the next
+    /// forward scan resumes there instead of re-walking the pair, so a
+    /// selection over the closers of a deep nest stays one forward walk per kind
+    /// too.
+    ///
+    /// A `range` outside the text (including `NSNotFound`) or with a negative
+    /// length answers `nil`. Raw characters, no string or comment awareness —
+    /// the boundary the rest of this engine draws.
+    public static func enclosingPair(text: NSString, around range: NSRange) -> BracketPair? {
+        var forwardWalk = 0
+        return enclosingPair(text: text, around: range, forwardWalk: &forwardWalk)
+    }
+
+    /// The test seam: `enclosingPair(text:around:)`, adding to `forwardWalk`
+    /// the UTF-16 units every forward match scan walked, so a test pins the
+    /// one-walk-per-kind bound on a step count rather than a clock.
+    static func enclosingPair(text: NSString, around range: NSRange, forwardWalk: inout Int) -> BracketPair? {
+        guard range.location != NSNotFound, range.location >= 0, range.length >= 0,
+              NSMaxRange(range) <= text.length else { return nil }
+        let kinds: [(opener: unichar, closer: unichar)] = openerToCloser.compactMap {
+            unitPair(opener: $0.key, closer: $0.value)
+        }
+        var depths = [Int](repeating: 0, count: kinds.count)
+        var exhausted = [Bool](repeating: false, count: kinds.count)
+        var resumeAfter = [Int?](repeating: nil, count: kinds.count)
+
+        var chunkEnd = range.location
+        guard chunkEnd > 0 else { return nil }
+        var result: BracketPair?
+        var buffer = [unichar](repeating: 0, count: min(chunkSize, chunkEnd))
+        while chunkEnd > 0, result == nil {
+            let count = min(buffer.count, chunkEnd)
+            let chunkStart = chunkEnd - count
+            buffer.withUnsafeMutableBufferPointer { raw in
+                text.getCharacters(raw.baseAddress!, range: NSRange(location: chunkStart, length: count))
+                var i = count - 1
+                while i >= 0 {
+                    let ch = raw[i]
+                    if let kind = kinds.firstIndex(where: { $0.closer == ch }) {
+                        depths[kind] += 1
+                    } else if let kind = kinds.firstIndex(where: { $0.opener == ch }) {
+                        if depths[kind] > 0 {
+                            depths[kind] -= 1
+                        } else if !exhausted[kind] {
+                            let openIndex = chunkStart + i
+                            let scanFrom = resumeAfter[kind] ?? openIndex
+                            let closeIndex = scanForward(
+                                text: text, from: scanFrom, opener: kinds[kind].opener, closer: kinds[kind].closer
+                            )
+                            forwardWalk += (closeIndex.map { $0 + 1 } ?? text.length) - (scanFrom + 1)
+                            if let closeIndex {
+                                if closeIndex >= NSMaxRange(range) {
+                                    result = BracketPair(
+                                        open: NSRange(location: openIndex, length: 1),
+                                        close: NSRange(location: closeIndex, length: 1)
+                                    )
+                                    return
+                                }
+                                resumeAfter[kind] = closeIndex
+                            } else {
+                                exhausted[kind] = true
+                            }
+                        }
+                    }
+                    i -= 1
+                }
+            }
+            chunkEnd = chunkStart
+        }
+        return result
+    }
+
     /// How many UTF-16 units are pulled out of the string per
     /// `getCharacters(_:range:)` call, matching `BracketDepthScanner.chunkSize`.
     private static let chunkSize = 4096

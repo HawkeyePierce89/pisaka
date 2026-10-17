@@ -48,6 +48,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case swift
     case javascript
     case typescript
+    case tsx
     case json
     case markdown
     case python
@@ -75,6 +76,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         case .swift: return "Swift"
         case .javascript: return "JavaScript"
         case .typescript: return "TypeScript"
+        case .tsx: return "TSX"
         case .json: return "JSON"
         case .markdown: return "Markdown"
         case .python: return "Python"
@@ -92,6 +94,25 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         case .make: return "Makefile"
         }
     }
+
+    /// The scalars this language adds to `IdentifierScanner`'s boundary rule,
+    /// each counting as both an identifier *start* and a *continuation*.
+    ///
+    /// Only the JavaScript family adds any: `$` is an ordinary identifier
+    /// character there (`$store`, `c$d`) and `#` begins a private name
+    /// (`#privateField`), so a double-click, a usage scan or a completion prefix
+    /// that split on them would cut a name in half. Every other language adds
+    /// nothing, and in particular the shell does not — `$FOO` is an expansion
+    /// of `FOO`, which is the word completion and ⌘-click must see. The rule
+    /// itself stays in `IdentifierScanner`; this is only its per-language data.
+    public var extraWordScalars: Set<UnicodeScalar> {
+        switch self {
+        case .javascript, .typescript, .tsx: return SyntaxLanguage.javaScriptWordScalars
+        default: return []
+        }
+    }
+
+    private static let javaScriptWordScalars: Set<UnicodeScalar> = ["$", "#"]
 
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
@@ -151,7 +172,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "mjs": .javascript,
         "cjs": .javascript,
         "ts": .typescript,
-        "tsx": .typescript,
+        "tsx": .tsx,
         "json": .json,
         "md": .markdown,
         "markdown": .markdown,

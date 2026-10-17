@@ -358,6 +358,12 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onPointerExited = { [weak coordinator = context.coordinator] in
             coordinator?.pointerExitedEditor()
         }
+        // The word rule a double-click and the context menu ask is the
+        // buffer's language's; read through the coordinator so a tab switch
+        // is seen at once. Weak for the same retain-cycle reason.
+        textView.syntaxLanguage = { [weak coordinator = context.coordinator] in
+            coordinator?.language
+        }
 
         // ⌘⌥← / ⌘⌥→ → the coordinator's fold and unfold, and a click on a `…`
         // placeholder → the block behind it. All three answer `false` when there
@@ -495,10 +501,7 @@ struct CodeEditorView: NSViewRepresentable {
         // is made once the pointer has rested over an identifier for
         // `HoverContent.dwellDelay`.
         context.coordinator.attachHover(textView: textView)
-        context.coordinator.syncHover(
-            codeFont: editorFont(),
-            metrics: interfaceMetrics
-        )
+        context.coordinator.syncHover(codeFont: editorFont(), metrics: interfaceMetrics)
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -668,6 +671,8 @@ struct CodeEditorView: NSViewRepresentable {
             // A buffer swap: the caret memo counted another file's line.
             context.coordinator.caretColumnMemo = nil
             context.coordinator.caretEditFloor = nil
+            // Nothing the outgoing tab asked or was answered survives the swap.
+            context.coordinator.resetCaretHighlights()
         }
 
         // Same tab, new coordinates. Two retargets keep the file id and the text
@@ -746,6 +751,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.prunePerFileState(keeping: openFileIDs)
 
         let language = SyntaxLanguage(forFileName: fileName)
+        // Before `updateHighlighter` below re-records the coordinator's language.
+        let caretHighlightsReset = context.coordinator.resetCaretHighlights(ifRetargeted: retargetedBuffer, language: language)
 
         // Replace the contents when the file changed, or when the model's text
         // diverged from the view (e.g. an external save/load). Avoid clobbering
@@ -1059,6 +1066,15 @@ struct CodeEditorView: NSViewRepresentable {
         // the range in the previous tab's text.
         context.coordinator.applyReveal(reveal.request, fileID: fileID)
 
+        // Ask the caret highlights again for whatever this update replaced or
+        // retargeted. Deliberately after the buffer swap: the swap's full-range
+        // edit cancels any settle already queued, and a restored selection
+        // equal to the outgoing one sends no selection change to queue another,
+        // so asking earlier would leave the highlights blank until the caret
+        // moved. The settle reads the live buffer, caret, URL and language when
+        // its debounce fires.
+        context.coordinator.scheduleCaretHighlightSettle(when: switchedFile || contentReplaced || caretHighlightsReset)
+
         // Once the incoming tab's selection is restored or revealed, say where
         // its caret is outright: a restore that leaves the selection where the
         // outgoing tab had it sends no selection change at all.
@@ -1122,6 +1138,27 @@ struct CodeEditorView: NSViewRepresentable {
         /// `BracketMatchEngine` pair, painted through
         /// `BracketOverlayLayoutManager`.
         private let bracketHighlight = BracketHighlightController()
+
+        /// The occurrence and selection-match highlight (R2/R3): the debounced
+        /// settle of `OccurrenceHighlightModel` and the on-screen slice of its
+        /// answer, painted through the same overlay layout manager. Only this
+        /// coordinator owns one — no other text surface gets the highlight.
+        private let occurrenceHighlight = OccurrenceHighlightController()
+
+        /// The buffer's on-demand syntax tree, parsed off the main actor and
+        /// cached until the next edit. Shared by the matching-tag highlight and
+        /// Expand / Shrink Selection, so the two never parse the same text twice.
+        let treeSnapshot = SyntaxTreeSnapshot()
+
+        /// The matching-tag highlight (R5): the caret's enclosing element names,
+        /// settled with the occurrence highlight and painted through the same
+        /// overlay layout manager, and the bracket pair it may take the place of.
+        /// `internal` for the app-layer retarget test.
+        let tagHighlight = TagHighlightController()
+
+        /// Expand / Shrink Selection (R6): the history and the step, over the
+        /// snapshot above. Lazy because it observes nothing until first used.
+        private(set) lazy var selectionExpansion = SelectionExpansionController(coordinator: self)
 
         /// Code folding's owner: the debounced ask for this file's collapsible
         /// blocks, the folded state over them, and the per-run memory of both.
@@ -1286,6 +1323,7 @@ struct CodeEditorView: NSViewRepresentable {
             completion.noteProgrammaticEdit = { [weak self] isApplying in
                 self?.isApplyingProgrammaticEdit = isApplying
             }
+            completion.language = { [weak self] in self?.language }
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(windowDidResignKey(_:)),
@@ -1418,6 +1456,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// gets.
         func attachHover(textView: NSTextView) {
             hover.attach(textView: textView)
+            hover.language = { [weak self] in self?.language }
             hover.source = { [weak self] in
                 guard let self, let symbolIndex = self.symbolIndex else { return nil }
                 return HoverController.Source(
@@ -1510,7 +1549,7 @@ struct CodeEditorView: NSViewRepresentable {
         func goToDefinition(in textView: NSTextView, at offset: Int) {
             let text = textView.string
             guard let provider = symbolIndex?.provider,
-                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset)
+                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset, language: language)
             else {
                 PlatformFeedback.warning()
                 return
@@ -1645,7 +1684,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// be asked about an offset in it.
         private func caretQuery(in textView: NSTextView, at offset: Int) -> UsagesRequest? {
             let text = textView.string
-            guard let match = IdentifierScanner.identifier(in: text as NSString, at: offset) else {
+            guard let match = IdentifierScanner.identifier(in: text as NSString, at: offset, language: language) else {
                 return nil
             }
             return UsagesRequest(
@@ -1709,6 +1748,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// notification, it coexists with Neon owning the storage's `delegate`.
         func attachBracketHighlighting(textView: NSTextView) {
             bracketHighlight.attach(textView: textView)
+            attachOccurrenceHighlighting(textView: textView)
             // The indentation-level widths ride this controller's debounce and
             // generation token rather than growing a second pair (see
             // `bracketScanApplied()`). The closure captures `self` weakly: the
@@ -1724,6 +1764,61 @@ struct CodeEditorView: NSViewRepresentable {
                 name: NSTextStorage.didProcessEditingNotification,
                 object: textStorage
             )
+        }
+
+        /// Bind the occurrence highlight. Every closure captures `self` weakly:
+        /// the controller is owned by this coordinator. The provider is read at
+        /// each settle through `symbolIndex`, which hands out the routing
+        /// provider once the LSP layer is up — `attachHover`'s shape.
+        private func attachOccurrenceHighlighting(textView: NSTextView) {
+            occurrenceHighlight.attach(textView: textView)
+            occurrenceHighlight.provider = { [weak self] in self?.symbolIndex?.provider }
+            occurrenceHighlight.fileID = { [weak self] in self?.fileID }
+            occurrenceHighlight.language = { [weak self] in self?.language }
+            occurrenceHighlight.fileURL = { [weak self] in self?.fileURL }
+            tagHighlight.attach(textView: textView)
+            tagHighlight.snapshot = treeSnapshot
+            tagHighlight.fileID = { [weak self] in self?.fileID }
+            tagHighlight.language = { [weak self] in self?.language }
+            tagHighlight.onBracketPairSuppression = { [weak self] suppressed in
+                self?.bracketHighlight.setPairSuppressed(suppressed)
+            }
+        }
+
+        /// A tab switch: drop the occurrence and tag answers, the tree they
+        /// were read from, and anything scheduled.
+        func resetCaretHighlights() {
+            occurrenceHighlight.reset()
+            tagHighlight.reset()
+            treeSnapshot.reset()
+        }
+
+        /// A retarget of the same tab (a URL or root change: Save As, a
+        /// project-tree rename, the first Open Folder) or a language change on it
+        /// (a Save As to a new extension) invalidates the caret highlights just as
+        /// a swap does: what is painted, and any answer in flight, was asked of the
+        /// old URL, root or grammar, and nothing else clears it until the caret
+        /// moves. Must run before `updateHighlighter` re-records `language`.
+        ///
+        /// The caret has not moved, so no selection change will ask again: the
+        /// caller owes `scheduleCaretHighlightSettle()`, and owes it *after* any
+        /// buffer swap, whose edit would cancel a settle queued here. Answers
+        /// whether it reset.
+        @discardableResult
+        func resetCaretHighlights(ifRetargeted retargeted: Bool, language: SyntaxLanguage?) -> Bool {
+            guard retargeted || language != self.language else { return false }
+            resetCaretHighlights()
+            return true
+        }
+
+        /// Queue both caret highlights' debounced settle, which reads the live
+        /// buffer, caret, URL and language when it fires. For an update that
+        /// replaced or retargeted the buffer without necessarily moving the caret;
+        /// a no-op when `needed` is false.
+        func scheduleCaretHighlightSettle(when needed: Bool = true) {
+            guard needed else { return }
+            occurrenceHighlight.selectionChanged()
+            tagHighlight.selectionChanged()
         }
 
         /// Rescan the buffer's brackets (debounced unless `immediate`) and
@@ -1761,6 +1856,15 @@ struct CodeEditorView: NSViewRepresentable {
                 changeInLength: textStorage.changeInLength,
                 postEditLength: textStorage.length
             )
+            // After the brackets' clear, which already dropped the occurrence
+            // layer in pre-edit coordinates: the model's clear then reaches the
+            // layout manager as a no-op rather than a removal at post-edit
+            // offsets the storage has not shifted yet.
+            occurrenceHighlight.noteEdit()
+            // The tree described the pre-edit text; the tag pair is cleared on
+            // the same terms as the occurrences.
+            treeSnapshot.noteEdit()
+            tagHighlight.noteEdit()
             // The find bar's matches moved with the edit too. The re-run is
             // deferred to the next main-loop turn rather than done here: this
             // notification is posted *before* the storage notifies its layout
@@ -1791,6 +1895,8 @@ struct CodeEditorView: NSViewRepresentable {
             }
             previousFoldSelection = textView.selectedRange()
             bracketHighlight.updateSelection(textView.selectedRange())
+            occurrenceHighlight.selectionChanged()
+            tagHighlight.selectionChanged()
             // A selection change is the user working in the text rather than
             // reading an annotation of it — and a click, a drag-select or an
             // arrow key can all move the caret out from under a popover that is
@@ -3259,6 +3365,7 @@ struct CodeEditorView: NSViewRepresentable {
             completion.clipViewDidScroll()
             refreshGeometry()
             bracketHighlight.refreshVisible()
+            occurrenceHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
             // The Markdown preview follows the editor, and this is the one
             // observation of a scroll the editor has. It costs nothing when
@@ -3290,6 +3397,7 @@ struct CodeEditorView: NSViewRepresentable {
             // which does dismiss it.
             refreshGeometry()
             bracketHighlight.refreshVisible()
+            occurrenceHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
         }
 
@@ -3355,6 +3463,11 @@ struct CodeEditorView: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
             tokenizer.reset()
             bracketHighlight.reset()
+            // Supersedes a scheduled or in-flight occurrence answer, so a
+            // torn-down tab cannot paint a closed file's occurrences.
+            occurrenceHighlight.reset()
+            tagHighlight.reset()
+            treeSnapshot.reset()
             // Drops the match highlight and unregisters this editor from the
             // (window-scoped, longer-lived) bar state, so a torn-down tab can't
             // keep serving its commands.
@@ -3862,6 +3975,35 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// the pointer is no longer on it. Set by `CodeEditorView.makeNSView`.
     var onPointerExited: (() -> Void)?
 
+    /// The language of the buffer this view shows (`nil` = plain text), read at
+    /// the moment a word boundary is asked for — a double-click, the context
+    /// menu's identifier probe — so it is always the coordinator's current
+    /// one, not the one a tab switch left behind. Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's `language`; `nil` until
+    /// then, which is the language-blind rule.
+    var syntaxLanguage: (() -> SyntaxLanguage?)?
+
+    /// Word granularity is Core's `WordSelectionRule`: a double-click on an
+    /// identifier selects exactly that identifier, under the same language-aware
+    /// boundary rule ⌘-click, hover and completion use, and a drag snaps each
+    /// end that lies in an identifier to its bounds. `super` still runs first
+    /// and is the answer wherever no identifier is involved (a click on
+    /// punctuation or whitespace). Every other granularity — the triple-click's
+    /// paragraph, character drags — is passed through untouched.
+    override func selectionRange(
+        forProposedRange proposedCharRange: NSRange,
+        granularity: NSSelectionGranularity
+    ) -> NSRange {
+        let platformRange = super.selectionRange(forProposedRange: proposedCharRange, granularity: granularity)
+        guard granularity == .selectByWord else { return platformRange }
+        return WordSelectionRule.range(
+            proposed: proposedCharRange,
+            platformRange: platformRange,
+            text: string as NSString,
+            language: syntaxLanguage?()
+        )
+    }
+
     /// The hover feature's own tracking area, kept so it can be replaced rather
     /// than accumulated — `updateTrackingAreas` runs on every resize.
     private var hoverTrackingArea: NSTrackingArea?
@@ -4056,7 +4198,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// one question the three items' enablement asks.
     private func clickedIdentifierOffset() -> Int? {
         guard let offset = contextMenuOffset,
-              IdentifierScanner.identifier(in: string as NSString, at: offset) != nil
+              IdentifierScanner.identifier(in: string as NSString, at: offset, language: syntaxLanguage?()) != nil
         else { return nil }
         return offset
     }

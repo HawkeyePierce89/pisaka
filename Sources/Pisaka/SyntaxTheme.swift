@@ -121,6 +121,33 @@ struct SyntaxTheme {
     /// unmistakably the highlighted one at a glance.
     var currentSearchMatchBackground: PlatformColor { SyntaxTheme.currentSearchBackground }
 
+    // MARK: - Occurrences and tags
+
+    /// The background behind every *read* occurrence of the identifier at the
+    /// caret — a cool, low-chroma blue-violet, the quietest of the occurrence
+    /// washes: occurrences are ambient context, so they must sit below the
+    /// matched pair (the chrome's neutral blue-gray `bracketMatch` role, painted
+    /// over them) and well away from the search bar's warm yellows.
+    var occurrenceReadBackground: PlatformColor { SyntaxTheme.occurrenceRead }
+
+    /// The background behind every *write* occurrence (an assignment or a
+    /// declaration, when a language server says so) — the same lightness as
+    /// `occurrenceReadBackground` but a rose hue, so the two kinds are told apart
+    /// by colour alone and neither outshouts the other.
+    var occurrenceWriteBackground: PlatformColor { SyntaxTheme.occurrenceWrite }
+
+    /// The background behind every other exact match of a one-line selection —
+    /// fainter than either occurrence wash, a near-neutral gray-blue: it answers
+    /// a weaker question (same characters, not same symbol), so it is drawn
+    /// quieter than they are.
+    var selectionMatchBackground: PlatformColor { SyntaxTheme.selectionMatch }
+
+    /// The background behind the two names of the element enclosing the caret
+    /// (the opening and closing tag) — a muted green, the one hue the other
+    /// editor washes leave free, so a tag pair reads as neither a bracket pair
+    /// nor an occurrence.
+    var tagMatchBackground: PlatformColor { SyntaxTheme.tagMatch }
+
     // MARK: - Diagnostics
 
     /// The squiggle color for an ``DiagnosticSeverity/error`` — a rose-leaning
@@ -185,6 +212,14 @@ struct SyntaxTheme {
     var nsSearchMatchBackground: NSColor { searchMatchBackground }
 
     var nsCurrentSearchMatchBackground: NSColor { currentSearchMatchBackground }
+
+    var nsOccurrenceReadBackground: NSColor { occurrenceReadBackground }
+
+    var nsOccurrenceWriteBackground: NSColor { occurrenceWriteBackground }
+
+    var nsSelectionMatchBackground: NSColor { selectionMatchBackground }
+
+    var nsTagMatchBackground: NSColor { tagMatchBackground }
     #endif
 
     // MARK: - Markdown preview
@@ -290,6 +325,14 @@ struct SyntaxTheme {
     private static let searchBackground: PlatformColor = .dynamic(light: 0xF3E39B, dark: 0x5C4F1E)
 
     private static let currentSearchBackground: PlatformColor = .dynamic(light: 0xFFB454, dark: 0x9A6218)
+
+    private static let occurrenceRead: PlatformColor = .dynamic(light: 0xDEDCF7, dark: 0x3D4160)
+
+    private static let occurrenceWrite: PlatformColor = .dynamic(light: 0xF6DDE6, dark: 0x4E3240)
+
+    private static let selectionMatch: PlatformColor = .dynamic(light: 0xE6E9EF, dark: 0x3A3E47)
+
+    private static let tagMatch: PlatformColor = .dynamic(light: 0xD9EED8, dark: 0x2F4A33)
 
     private static let diagnosticError: PlatformColor = .dynamic(light: 0xC01C5A, dark: 0xFF7B85)
 

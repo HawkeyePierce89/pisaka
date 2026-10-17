@@ -119,6 +119,10 @@ final class LSPServerRegistryTests: XCTestCase {
     func testTheIdentifiersThatAreNotTheRawValueAreSpelledTheWayServersExpect() {
         XCTAssertEqual(SyntaxLanguage.swift.lspLanguageID, "swift")
         XCTAssertEqual(SyntaxLanguage.typescript.lspLanguageID, "typescript")
+        // TSX is the protocol's `typescriptreact`: tsserver keys its JSX parsing
+        // off this id, so `typescript` here would answer the JSX half wrongly.
+        XCTAssertEqual(SyntaxLanguage.tsx.lspLanguageID, "typescriptreact")
+        XCTAssertEqual(SyntaxLanguage.tsx.lspLanguageID(forFileNamed: "App.tsx"), "typescriptreact")
         XCTAssertEqual(SyntaxLanguage.markdown.lspLanguageID, "markdown")
         // The whole gitignore family is `ignore` to every editor that names it.
         XCTAssertEqual(SyntaxLanguage.gitignore.lspLanguageID, "ignore")

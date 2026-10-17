@@ -496,6 +496,15 @@ final class RenameEditPlanTests: XCTestCase {
         }
     }
 
+    func testTheNameRuleFollowsTheFileLanguage() {
+        XCTAssertNil(RenameNameRule.rejection(of: "$store", replacing: "count", language: .javascript))
+        XCTAssertNil(RenameNameRule.rejection(of: "#total", replacing: "count", language: .typescript))
+        XCTAssertEqual(
+            RenameNameRule.rejection(of: "$store", replacing: "count", language: .swift),
+            "A symbol name must be a single identifier."
+        )
+    }
+
     func testTheNameRuleRefusesTheNameItAlreadyHas() {
         XCTAssertEqual(
             RenameNameRule.rejection(of: "count", replacing: "count"),

@@ -651,6 +651,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     reporting exactly `[text]`, which is how the tests pin it. Its one caller is
     `SymbolIntelligenceProvider`'s completion-candidate rule below; nothing about
     scanning changed to add it.
+    **The rule is language-aware, and it is still one rule.** Every entry point
+    (`isIdentifierStart`/`isIdentifierContinuation`, `isIdentifier`,
+    `identifier(in:at:)`, `completionPrefixRange`, `completionReplaceRange`,
+    `words`, `memberContext`) takes an optional `language: SyntaxLanguage?`,
+    defaulting to `nil`. The language contributes only
+    `SyntaxLanguage.extraWordScalars` (`$` and `#` in JavaScript, TypeScript and
+    TSX; nothing elsewhere), and each extra scalar counts as both a start and a
+    continuation, so the two halves can never disagree about it. The set is
+    resolved once per call, not once per scalar. **`nil` is the old rule
+    exactly**, which is what every caller with no language to name keeps; the
+    iOS editor's call sites are untouched, a stated limit. In a JS-family file
+    `$store`, `c$d` and `#privateField` are one word each, while in Swift they
+    split, and the shell's `$FOO|` still completes `FOO`, because the shell adds
+    nothing. The language is threaded through every macOS consumer that already
+    held one: ⌘-click, hover and completion controllers, the `validateMenuItem`
+    probe, `TextualUsageScanner.matches`, `SymbolIntelligenceProvider`'s harvest
+    and candidate filter, `LSPIntelligenceProvider`, and `FindUsagesModel` and
+    `RenameEditPlan.rejection(of:replacing:language:)` (so `$store` is a valid new
+    name in JavaScript and not in Swift). **The consequence for completion**:
+    the candidate predicate is asked with the request's language, so a `$`- or
+    `#`-bearing symbol is a candidate in the JavaScript family and still
+    refused elsewhere.
+    **`identifier(in:containing:language:)`** is the first probe of
+    `identifier(in:at:)` alone, with no "ending at" fallback. It is the mouse's
+    question: a click lands *on* a character, so a click on the `.` right after
+    `z` in `z.object` answers nothing rather than the `z` that ends there. An
+    offset at the very end of the text contains no character and answers `nil`.
+    `WordSelectionRule` (double-click), `OccurrenceHighlightRule` (a selection
+    equal to one identifier) and `SelectionExpansionRule` (the word step outside
+    string content) build on it (`core-editor.md`). `IdentifierScannerTests` pins
+    periods, `?.`, `::`, `->`, `_`, digits and the trim, Unicode letters and
+    combining marks, `$`/`#` per language, the `friendListSchema` sample, and
+    completion ranges over `$`/`#`.
   - `LanguageKeywords.swift` — completion's **third candidate source**: the
     reserved vocabulary of the language being typed in. Static per-language lists
     rather than anything derived from the parse tree, because a keyword is spelled
@@ -991,6 +1024,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     idea of where a block ends. The whole feature — the region value, the state, the
     three maintenance rules, the two views — is documented in `core-folding.md`, and
     the wire half is D38 in `core-lsp.md`.
+    `documentHighlights(for:)` is the **seventh method**, and the second that
+    asks about one document only: every occurrence in this buffer of the
+    identifier the caret is on (`DocumentHighlightRequest` / `DocumentHighlightAnswer`,
+    `core-lsp.md`). It is defaulted to `nil` for `foldRegions`' reason, since
+    occurrence highlighting is macOS-only and the iOS surfaces have nothing to
+    paint. Its fallback is a provider's, as folding's is, and not a model's, as
+    `references`' is, because the answer is about this one text and walks
+    nothing else. **The router's shape differs from folding's in one rule**:
+    a server answer, even an empty one, is final, and only `nil` falls back
+    (D45).
   - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name only — the colour was removed in part five (a), `core-theme.md`; `FileIconColor` stays for `FileIcon`), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
@@ -998,7 +1041,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     at all: it answers from `FoldRegionScanner` over the request's own text and
     the widths the request carries, so it takes no `@MainActor` hop either (there
     is nothing to snapshot). It is the fallback half of the fold seam and is
-    documented in `core-folding.md`. The rest, all of it `static` and pure over an index value, with the instance
+    documented in `core-folding.md`. `documentHighlights(for:)` is the second
+    such exception: the **textual highlight answer** is
+    `OccurrenceScan.identifierMatches` over the request's own text and language,
+    every range a `.read` (a scan cannot tell a write), provenance `.textual`,
+    and `nil` when the scan's work budget ran out, so the editor paints nothing
+    rather than a partial list. No index, no hop. The rest, all of it `static` and pure over an index value, with the instance
     methods a thin async shell — so each tie-break is pinned by a test that builds
     three symbols instead of a project. The index is read through a **closure
     rather than stored**: the model publishes a fresh snapshot after every chunk,
@@ -1219,7 +1267,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     remains a jump target even when it is not worth inserting.
   - `SyntaxContextVocabulary.swift` — the per-language string/comment table and the
     gating policy — **two questions, one scan**. This file declares *what* each of
-    the 18 `SyntaxLanguage` cases considers a string or a comment and *whether*
+    the 19 `SyntaxLanguage` cases considers a string or a comment and *whether*
     being inside that string should suppress completion, while
     `SyntaxContextScanner` only walks the buffer and answers honestly
     (`.code`/`.string`/`.comment`). The split is what lets a language recognize
@@ -1233,7 +1281,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     | language | string forms | strings gate? | comments |
     |---|---|---|---|
     | swift | `"…"` single-line; `"""…"""` multi-line; pound padding `#"…"#`/`##"…"##` (escape is `\` + N `#`) | yes | `//` anywhere; `/* */` **nesting** |
-    | javascript / typescript | `'…'`, `"…"` single-line, `\` escape; `` `…` `` multi-line with `${…}` holes | yes | `//`; `/* */` non-nesting |
+    | javascript / typescript / tsx | `'…'`, `"…"` single-line, `\` escape; `` `…` `` multi-line with `${…}` holes | yes | `//`; `/* */` non-nesting |
     | python | `'…'`, `"…"` single-line; `'''…'''`, `"""…"""` multi-line; prefixes `r b u f` in any case/order — `r` makes `\` inert, `f` enables `{…}` holes (`{{`/`}}` are literal) | yes | `#` anywhere |
     | go | `"…"` single-line `\`; `` `…` `` raw multi-line, no escapes; `'…'` rune, single-line | yes | `//`; `/* */` non-nesting |
     | rust | `"…"` `\`; raw `r"…"`, `r#"…"#`, `br#"…"#` (no escapes). `'` is deliberately not a string delimiter | yes | `//`; `/* */` **nesting** |
@@ -1569,6 +1617,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     yields — the overwhelming majority of which contain the name nowhere — so
     building it up front would make the one answer every server-less language has
     read each of those files twice to report nothing.
+    `matches(of:in:language:)` takes the scanned file's language and passes it to
+    both the query check and the whole-word check, so in a JavaScript file
+    `$store` is one word and `store` is not found inside it. `nil` is the
+    language-free rule. The occurrence highlight's budgeted scan,
+    `OccurrenceScan` (`core-editor.md`), asks the same whole-word question the
+    same way, and builds neither the line index nor previews.
   - `FindUsagesModel.swift` — the Usages panel's state and the second half of
     decision D36 in `core-lsp.md`: what was asked, what came back, what it *means*,
     and whether the walk is still running. `ProjectSearchModel`'s shape throughout —

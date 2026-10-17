@@ -28,7 +28,8 @@ import XCTest
 ///   `ContentView.swift` (the split, the divider and the width arithmetic's one
 ///   caller), `PisakaApp.swift` (the menu item and the five caret commands),
 ///   `CodeEditorView.swift` (the scroll callback), `SyntaxTheme.swift` (the
-///   theme derivation) and `FoldCommands.swift` (the sixth caret command).
+///   theme derivation), `FoldCommands.swift` (the sixth caret command) and
+///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection).
 ///   Rules that must hold for the *whole* app layer say so by scanning
 ///   `Sources/Pisaka` rather than by listing these.
 ///
@@ -61,9 +62,9 @@ import XCTest
 ///    is one global switch; a second writer is a second opinion about whether
 ///    the pane is shown, and it would compile.
 /// 6. The compiler cannot count the definitions of "which editor is this
-///    keystroke for". Six app-wide chords ask it; the expression they each used
+///    keystroke for". Seven call sites ask it; the expression they each used
 ///    to spell answers `nil` while the preview holds focus, which is a beep
-///    instead of a comment toggle. A seventh site spelling it again compiles and
+///    instead of a comment toggle. A site spelling it again compiles and
 ///    diverges silently, exactly where nobody looks.
 /// 7. The compiler cannot enforce that the preview stays a **reader**. Naming
 ///    `autosave.suspend()` / `localChanges.beginRevert()` inside it would
@@ -138,6 +139,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         "CodeEditorView.swift",
         "SyntaxTheme.swift",
         "FoldCommands.swift",
+        "SelectionCommands.swift",
     ]
 
     // MARK: - Reading
@@ -548,8 +550,8 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
     // MARK: - The focus helper
 
-    /// One definition of "which editor is this keystroke for", and six callers.
-    func testTheFocusHelperHasOneDefinitionAndSixCallSites() throws {
+    /// One definition of "which editor is this keystroke for", and seven callers.
+    func testTheFocusHelperHasOneDefinitionAndSevenCallSites() throws {
         XCTAssertEqual(
             try fileNames(matching: "\\benum EditorCommandTarget\\b", under: "Sources"),
             ["EditorCommandTarget.swift"],
@@ -560,7 +562,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try fileNames(matching: "\\bfirstResponder as\\? EditorTextView\\b", under: "Sources"),
             ["EditorCommandTarget.swift"],
-            "And the expression the six commands used to spell themselves now lives there alone: written "
+            "And the expression the caret commands used to spell themselves now lives there alone: written "
                 + "again anywhere, it answers nil while the preview holds focus — a beep instead of a "
                 + "comment toggle, in exactly the case the helper exists for."
         )
@@ -569,7 +571,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: app),
             5,
-            "Five of the six caret commands are in the scene: Go to Definition, Find Usages, Rename, Toggle "
+            "Five of the seven caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
                 + "Comment and Complete. A sixth site here would be a command that never asked."
         )
         let folds = try code(ofFileNamed: "FoldCommands.swift", under: "Sources/Pisaka")
@@ -578,11 +580,17 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
             1,
             "And the sixth is the fold items' own focusedEditor(), which asks once for all four of them."
         )
+        let selection = try code(ofFileNamed: "SelectionCommands.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: selection),
+            1,
+            "And the seventh is Expand / Shrink Selection's own focusedEditor(), which asks once for both items."
+        )
         XCTAssertEqual(
             try fileNames(matching: "EditorCommandTarget\\.focusedEditor\\(", under: "Sources"),
-            ["PisakaApp.swift", "FoldCommands.swift"],
-            "Two files ask, and they are the two that own app-wide caret chords. A third asker is a command "
-                + "surface that grew somewhere no doc comment describes."
+            ["PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift"],
+            "Three files ask, and they are the three that own app-wide caret chords. A fourth asker is a "
+                + "command surface that grew somewhere no doc comment describes."
         )
 
         XCTAssertEqual(

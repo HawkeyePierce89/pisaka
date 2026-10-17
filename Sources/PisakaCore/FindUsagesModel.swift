@@ -379,7 +379,10 @@ public final class FindUsagesModel: ObservableObject {
         lastRoot = root
         let projectToken = rootGeneration
 
-        guard IdentifierScanner.isIdentifier(usages.identifier) else {
+        // The requesting file's word rule: `$store` asked from a JavaScript file
+        // is one identifier, and a url-less buffer has no language to name.
+        let requestLanguage = usages.fileURL.flatMap { SyntaxLanguage(forFileName: $0.lastPathComponent) }
+        guard IdentifierScanner.isIdentifier(usages.identifier, language: requestLanguage) else {
             identifier = usages.identifier
             clearState(reason: .notAnIdentifier, keepingIdentifier: true)
             return
@@ -653,7 +656,9 @@ public final class FindUsagesModel: ObservableObject {
         return found
     }
 
-    /// One text's whole-word occurrences as panel rows.
+    /// One text's whole-word occurrences as panel rows, judged by the word rule
+    /// of the file's own language (`SyntaxLanguage(forFileName:)`) — each file
+    /// scanned is read in its own language, not the requesting one's.
     nonisolated static func rows(
         in text: NSString,
         of identifier: String,
@@ -661,7 +666,8 @@ public final class FindUsagesModel: ObservableObject {
         root: URL?
     ) -> [UsageResult] {
         let relativePath = ProjectFileWalk.relativePath(of: fileURL, under: root)
-        return TextualUsageScanner.matches(of: identifier, in: text).map { match in
+        let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent)
+        return TextualUsageScanner.matches(of: identifier, in: text, language: language).map { match in
             UsageResult(
                 fileURL: fileURL,
                 range: match.range,

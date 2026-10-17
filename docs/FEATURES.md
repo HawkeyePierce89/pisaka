@@ -265,6 +265,55 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
+- Double-click selects one identifier (macOS). The word is the editor's own
+  rule, the one Cmd+click, completion and Find Usages use, so a double-click
+  stops at `.`, `?.`, `::` and `->`. In `z.object({ name: z.string() })` each of
+  `z`, `object`, `name` and `string` is selected alone. In JavaScript, JSX,
+  TypeScript and TSX, `$` and `#` are part of a name, so `$store`, `c$d` and
+  `#privateField` are one word each. Every other language splits on them, and in
+  a shell script `$FOO` still completes and jumps as `FOO`. A double-click on
+  punctuation, whitespace or a number selects what macOS always selected. A
+  double-click drag snaps each end that lies in a name out to that whole name.
+  Triple-click still selects the line.
+- Occurrence highlighting (macOS): rest the caret in a name, or select exactly
+  one name, and every other place this file uses it gets a soft background
+  shortly after the caret stops. When the file's language server answers, its
+  answer is used as it stands: the occurrences it reports, with the ones that
+  *write* the name (a declaration or an assignment) in a stronger tint than the
+  ones that read it. A server that finds no other use is believed. Without a
+  server, or when it cannot answer, the editor marks every whole-word,
+  case-sensitive spelling of the name in this file, all as reads. The two
+  answers are never mixed, and a failure never shows an alert. On a very large
+  file the textual search gives up after a fixed amount of work and paints
+  nothing rather than half a file.
+- Selection matches (macOS): select a string within one line, at least two
+  characters long and not only spaces, and its other exact, case-sensitive
+  matches in the file get a fainter background. More than 50 matches in total
+  paints none, because a string that common is noise across the whole file.
+  Selecting exactly one name shows occurrence highlighting instead, never both.
+- Matching-tag highlighting (macOS) in JSX (`.jsx`, `.js`), TSX and HTML: put
+  the caret in a tag name and both the opening and the closing name of that
+  element are highlighted. A self-closing tag highlights its one name, and a
+  fragment's `<>` pairs with its `</>`. Anywhere else inside an element, the
+  innermost element that has a closing tag shows its pair, one level only. When
+  the caret sits in a tag name, the tag pair replaces the bracket pair. When
+  the caret is next to a bracket anywhere else, the bracket pair wins and no tag
+  is shown.
+- Expand Selection (Ctrl+Cmd+Right) and Shrink Selection (Ctrl+Cmd+Left), in
+  the Edit menu (macOS). Each Expand widens the selection one step through the
+  code's structure: the name under the caret, then each enclosing construct
+  outward (the inside of a bracketed construct comes before the construct with
+  its brackets), then the line, then the whole file. Inside a string the word
+  comes first. A caret on punctuation goes straight to the construct around it.
+  Shrink walks back exactly the path Expand took. Clicking, moving the caret
+  any other way, or typing forgets that path. A file with no grammar still
+  expands by word, then each enclosing bracket pair (its inside first), then
+  the line, then the file. Both commands beep when there is no further step or
+  no editor has the focus. The two chords replace the base writing-direction
+  commands, which a plain-text code buffer has no use for.
+- None of these four highlights touches the document. They are painted under
+  the bracket pair and the search matches, and undo never contains a
+  "highlighting edit". Colors follow the system light/dark appearance.
 - Current-line highlight (macOS): the line holding the caret is tinted across
   the text and the gutter; a selection spanning more than one line shows no
   tint.
@@ -844,7 +893,8 @@ user sees it.
   overview slides as you scroll rather than squeezing the whole file into the
   panel; colors follow the system light/dark appearance.
 - Syntax highlighting (tree-sitter via ChimeHQ's Neon) for Swift, JavaScript,
-  TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
+  TypeScript, TSX (`.tsx` files are parsed with the TSX grammar, so JSX tags and
+  attributes inside them are colored like in a `.jsx` file), JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
   Makefiles (`*.mk`, `*.mak`; recipe lines are highlighted as shell),
   shell scripts (`.sh`, `.bash`, `.zsh`, `.ksh`, `.command`),
   `.env` files, `.editorconfig` files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,

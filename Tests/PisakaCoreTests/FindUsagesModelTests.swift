@@ -131,6 +131,18 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertEqual(model.rows.count, 1)
     }
 
+    /// Each scanned file is read by its own language's word rule: `store` is
+    /// not a word inside a JavaScript `$store`, and is inside a Swift one.
+    func testTextualRowsUseEachFilesOwnLanguage() {
+        let text = "$store + store" as NSString
+        let js = FindUsagesModel.rows(in: text, of: "store", fileURL: root.appendingPathComponent("a.js"), root: root)
+        let swift = FindUsagesModel.rows(
+            in: text, of: "store", fileURL: root.appendingPathComponent("a.swift"), root: root
+        )
+        XCTAssertEqual(js.map(\.range), [NSRange(location: 9, length: 5)])
+        XCTAssertEqual(swift.map(\.range), [NSRange(location: 1, length: 5), NSRange(location: 9, length: 5)])
+    }
+
     func testTextualScanReadsAnOpenBufferInsteadOfTheDiskCopy() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "nothing on disk\n"])
         let model = FindUsagesModel(
@@ -221,6 +233,20 @@ final class FindUsagesModelTests: XCTestCase {
         XCTAssertEqual(provider.referenceCalls, 0)
         XCTAssertTrue(stub.readPaths.isEmpty)
         XCTAssertFalse(model.isSearching)
+    }
+
+    /// The identifier guard reads the requesting file's language: `$store` is
+    /// one word asked from JavaScript and refused when asked from Swift.
+    func testTheIdentifierGuardUsesTheRequestingFilesLanguage() async {
+        let stub = StubFileTree(root: root, files: ["a.js": "$store.get()\n", "a.swift": "x\n"])
+        let jsModel = FindUsagesModel(fileService: stub)
+        await jsModel.find(request("$store", file: "a.js"), root: root)
+        XCTAssertNotEqual(jsModel.emptyReason, .notAnIdentifier)
+        XCTAssertEqual(jsModel.rows.count, 1)
+
+        let swiftModel = FindUsagesModel(fileService: stub)
+        await swiftModel.find(request("$store", file: "a.swift"), root: root)
+        XCTAssertEqual(swiftModel.emptyReason, .notAnIdentifier)
     }
 
     func testWithNoProjectRootTheRequestingBufferIsScannedAlone() async {

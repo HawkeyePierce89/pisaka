@@ -101,8 +101,14 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   default, one Preferences switch), Cmd+D duplicate, Cmd+/
   toggle comment, middle-mouse column selection, a minimap, per-tab
   caret/scroll memory, a caret readout in the bottom bar (`Ln 12, Col 5 ·
-  UTF-8 · Swift`; macOS), and an editor font family chosen in Preferences
-  (any installed fixed-pitch family; macOS).
+  UTF-8 · Swift`; macOS), an editor font family chosen in Preferences
+  (any installed fixed-pitch family; macOS), and on macOS: double-click that
+  selects one identifier (stopping at `.`, `?.`, `::`, `->`; `$` and `#` are
+  part of a name in JavaScript/TypeScript), highlighting of the name at the
+  caret everywhere it occurs (from the language server when one answers, writes
+  tinted stronger) and of a selection's other matches, matching JSX/TSX/HTML
+  tag-name highlighting, and Expand / Shrink Selection (Ctrl+Cmd+Right /
+  Ctrl+Cmd+Left).
 - **Code folding** (macOS) — collapse a block behind its first line: a chevron in
   the gutter, a `…` you can click to open it again, and Cmd+Option+Left /
   Cmd+Option+Right for the block at the caret, plus Cmd+Option+Shift+Left /
@@ -121,7 +127,7 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   is not rendered**, **images outside the opened project are not loaded**, and
   **there is no formula rendering**.
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
-  TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, SQL,
+  TypeScript, TSX, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, SQL,
   Dockerfiles, Makefiles, shell scripts, `.env`, `.editorconfig` and
   dot-prefixed ignore files.
 - **Find & replace** — an in-file search bar (regex, whole word, match case)
@@ -185,6 +191,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Option+Right | Unfold the block at the caret (macOS) |
 | Cmd+Option+Shift+Left | Fold every block (macOS)          |
 | Cmd+Option+Shift+Right | Unfold every block (macOS)       |
+| Ctrl+Cmd+Right / Ctrl+Cmd+Left | Expand / Shrink Selection (macOS) |
 | Tab         | Insert one indentation level (commits the selected completion row when the popup is open) |
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |

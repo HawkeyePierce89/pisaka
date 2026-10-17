@@ -299,15 +299,17 @@ error in the document rather than as a guess by the viewer.
 ### M11 — The focus fallback is scoped to the preview and to nothing else
 
 App-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
-Toggle Comment, Complete, and `FoldCommands`' four items — and each used to spell
-`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **six
+Toggle Comment, Complete, `FoldCommands`' four items and `SelectionCommands`'
+two — and each used to spell
+`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **seven
 call sites**: five in `PisakaApp.swift`, one in `FoldCommands.swift`, which asks
-once for all four fold items. (Every count of "six" in this feature is a count of
-those sites, not of chords.) The preview is a **focusable** web view (selection
+once for all four fold items, and one in `SelectionCommands.swift`, which asks once
+for Expand and Shrink Selection. (Every count of call sites in this feature is a
+count of those sites, not of chords.) The preview is a **focusable** web view (selection
 and links must work), so clicking into it made all of them beep.
 
 `EditorCommandTarget.focusedEditor(in:)` is that expression's one definition, and
-the gating suite pins that no seventh site spells it. The fallback is granted to
+the gating suite pins that no other site spells it. The fallback is granted to
 exactly one region: when the first responder is the preview's web view **or a
 descendant of it** — recognised through the marker protocol
 `EditorCommandFocusPassthrough`, whose one conformer is
@@ -1483,9 +1485,11 @@ honest answer for a link to a section the document does not have.
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.
 - `PisakaApp.swift` (`app-shell.md`) — the View-menu toggle (M8) and five of the
-  six caret-command call sites now routed through `EditorCommandTarget` (M11).
+  seven caret-command call sites now routed through `EditorCommandTarget` (M11).
 - `FoldCommands.swift` (`core-folding.md`) — the sixth site, same routing, asking
   once for all four fold items.
+- `SelectionCommands.swift` (`app-editor.md`) — the seventh site, same routing,
+  asking once for Expand and Shrink Selection.
 - `CodeEditorView.swift` (`app-editor.md`) — `onScrolled`, an **optional**
   callback carrying the top visible character offset. `nil` for every editor
   nobody is watching, and the guard is on the closure rather than on the

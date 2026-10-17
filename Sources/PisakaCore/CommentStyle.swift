@@ -17,7 +17,7 @@ public enum CommentStyle: Equatable {
     /// language has no comment syntax.
     public static func style(for language: SyntaxLanguage) -> CommentStyle? {
         switch language {
-        case .swift, .javascript, .typescript, .go, .rust:
+        case .swift, .javascript, .typescript, .tsx, .go, .rust:
             return .line("//")
         case .python, .yaml, .dockerfile, .dotenv, .gitignore, .shell, .make:
             return .line("#")

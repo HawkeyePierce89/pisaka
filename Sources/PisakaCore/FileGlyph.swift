@@ -29,7 +29,7 @@ public enum FileGlyph {
         switch language {
         case .markdown, .gitignore, .dotenv, .editorconfig:
             return .fileText
-        case .swift, .javascript, .typescript, .json, .python, .go, .rust, .html, .css,
+        case .swift, .javascript, .typescript, .tsx, .json, .python, .go, .rust, .html, .css,
              .yaml, .dockerfile, .sql, .shell, .make:
             return .fileCode
         }

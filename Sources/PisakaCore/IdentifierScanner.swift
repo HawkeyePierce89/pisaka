@@ -22,7 +22,12 @@ import Foundation
 /// - it *continues* with letters, digits, combining marks and `_`;
 /// - a maximal run of continuation scalars whose leading scalars are not valid
 ///   starts is trimmed from the left, so `9foo` yields `foo` and a pure number
-///   (`123`) yields nothing at all.
+///   (`123`) yields nothing at all;
+/// - a language may add scalars that count as **both** a start and a
+///   continuation (`SyntaxLanguage.extraWordScalars`: `$` and `#` in the
+///   JavaScript family). Every entry point takes an optional `language`, and
+///   `nil` is the rule above exactly — a stated limit of the callers that have
+///   no language to name (the iOS editor), not a second rule.
 ///
 /// Classification is Unicode-based (`CharacterSet.letters` /
 /// `.alphanumerics`) rather than ASCII, so `имя`, `número` or `変数` are single
@@ -70,9 +75,8 @@ public enum IdentifierScanner {
     /// Digits are deliberately excluded — no supported language starts a name
     /// with one — which is what lets the trim step turn `9foo` into `foo` and
     /// keep `123` out of the completion list entirely.
-    public static func isIdentifierStart(_ scalar: UnicodeScalar) -> Bool {
-        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) }
-        return letters.contains(scalar)
+    public static func isIdentifierStart(_ scalar: UnicodeScalar, language: SyntaxLanguage? = nil) -> Bool {
+        isStart(scalar, extras: extras(for: language))
     }
 
     /// Whether `scalar` may *continue* an identifier: a letter, digit,
@@ -81,9 +85,8 @@ public enum IdentifierScanner {
     /// `CharacterSet.alphanumerics` covers the Letter, Mark and Number
     /// categories, so a decomposed accent (`e` + U+0301) keeps the name it
     /// belongs to in one piece instead of ending it mid-word.
-    public static func isIdentifierContinuation(_ scalar: UnicodeScalar) -> Bool {
-        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) || (scalar >= "0" && scalar <= "9") }
-        return alphanumerics.contains(scalar)
+    public static func isIdentifierContinuation(_ scalar: UnicodeScalar, language: SyntaxLanguage? = nil) -> Bool {
+        isContinuation(scalar, extras: extras(for: language))
     }
 
     /// Whether `text` is, from end to end, **one identifier**: non-empty, its
@@ -101,13 +104,38 @@ public enum IdentifierScanner {
     ///
     /// Equivalent, by construction, to `words(in:limit:)` reporting exactly
     /// `[text]` — which is how the tests pin it.
-    public static func isIdentifier(_ text: String) -> Bool {
+    public static func isIdentifier(_ text: String, language: SyntaxLanguage? = nil) -> Bool {
+        let extras = extras(for: language)
         var scalars = text.unicodeScalars.makeIterator()
-        guard let first = scalars.next(), isIdentifierStart(first) else { return false }
+        guard let first = scalars.next(), isStart(first, extras: extras) else { return false }
         while let scalar = scalars.next() {
-            guard isIdentifierContinuation(scalar) else { return false }
+            guard isContinuation(scalar, extras: extras) else { return false }
         }
         return true
+    }
+
+    /// The language's additions to the rule (`SyntaxLanguage.extraWordScalars`),
+    /// or none — `nil` is today's rule exactly, which is what every caller that
+    /// has no language to name (the iOS editor) keeps.
+    private static func extras(for language: SyntaxLanguage?) -> Set<UnicodeScalar> {
+        language?.extraWordScalars ?? []
+    }
+
+    /// The start half of the rule with the language's additions already
+    /// resolved — what every scanning loop asks, so the set is looked up once
+    /// per call rather than once per scalar.
+    private static func isStart(_ scalar: UnicodeScalar, extras: Set<UnicodeScalar>) -> Bool {
+        if !extras.isEmpty, extras.contains(scalar) { return true }
+        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) }
+        return letters.contains(scalar)
+    }
+
+    /// The continuation half, likewise resolved. The extra scalars count as
+    /// both halves, so the two can never disagree about them.
+    private static func isContinuation(_ scalar: UnicodeScalar, extras: Set<UnicodeScalar>) -> Bool {
+        if !extras.isEmpty, extras.contains(scalar) { return true }
+        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) || (scalar >= "0" && scalar <= "9") }
+        return alphanumerics.contains(scalar)
     }
 
     /// The ASCII half of both rules, which is what source code is made of.
@@ -143,20 +171,37 @@ public enum IdentifierScanner {
     /// stale layout pass degrades to the nearest end instead of trapping.
     /// Returns `nil` when neither probe finds a name — whitespace, punctuation,
     /// or a run of digits.
-    public static func identifier(in text: NSString, at offset: Int) -> Match? {
-        let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
-
-        if let scalar = scalar(in: text, startingAt: clamped),
-           isIdentifierContinuation(scalar.value),
-           let match = identifierRun(in: text, seededBy: scalar.range) {
+    public static func identifier(in text: NSString, at offset: Int, language: SyntaxLanguage? = nil) -> Match? {
+        if let match = identifier(in: text, containing: offset, language: language) {
             return match
         }
+        let extras = extras(for: language)
+        let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
         if let scalar = scalar(in: text, endingAt: clamped),
-           isIdentifierContinuation(scalar.value),
-           let match = identifierRun(in: text, seededBy: scalar.range) {
+           isContinuation(scalar.value, extras: extras),
+           let match = identifierRun(in: text, seededBy: scalar.range, extras: extras) {
             return match
         }
         return nil
+    }
+
+    /// The identifier *containing* the character at `offset` — the first probe
+    /// of `identifier(in:at:)` alone, with no "ending at" fallback.
+    ///
+    /// This is the mouse's question rather than the keyboard's: a click lands
+    /// *on* a character, so a click on the `.` right after `z` in `z.object`
+    /// must answer nothing rather than the `z` that ends there — which is what
+    /// `WordSelectionRule` builds a double-click on.
+    ///
+    /// `offset` is clamped and scalar-aligned like the rest of the file; an
+    /// offset at the very end of the text contains no character and answers
+    /// `nil`.
+    public static func identifier(in text: NSString, containing offset: Int, language: SyntaxLanguage? = nil) -> Match? {
+        let extras = extras(for: language)
+        let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
+        guard let scalar = scalar(in: text, startingAt: clamped),
+              isContinuation(scalar.value, extras: extras) else { return nil }
+        return identifierRun(in: text, seededBy: scalar.range, extras: extras)
     }
 
     /// The range of the partial word immediately to the left of `offset` — what
@@ -172,17 +217,18 @@ public enum IdentifierScanner {
     /// whitespace, punctuation, or a bare number (`123|`, which cannot start a
     /// name) — yields an **empty range at the caret**, never `nil`, so callers
     /// can hand it to AppKit unconditionally.
-    public static func completionPrefixRange(in text: NSString, at offset: Int) -> NSRange {
+    public static func completionPrefixRange(in text: NSString, at offset: Int, language: SyntaxLanguage? = nil) -> NSRange {
+        let extras = extras(for: language)
         let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
         let empty = NSRange(location: clamped, length: 0)
 
         var start = clamped
-        while let scalar = scalar(in: text, endingAt: start), isIdentifierContinuation(scalar.value) {
+        while let scalar = scalar(in: text, endingAt: start), isContinuation(scalar.value, extras: extras) {
             start = scalar.range.location
         }
         guard start < clamped else { return empty }
         let run = NSRange(location: start, length: clamped - start)
-        return trimmedIdentifier(in: text, range: run)?.range ?? empty
+        return trimmedIdentifier(in: text, range: run, extras: extras)?.range ?? empty
     }
 
     /// The whole identifier the caret at `offset` sits in — `completionPrefixRange`'s
@@ -193,12 +239,13 @@ public enum IdentifierScanner {
     /// (it stops at any non-continuation scalar), so a member completion replaces
     /// only the member. Offsets are clamped and scalar-aligned exactly as the
     /// rest of the file does.
-    public static func completionReplaceRange(in text: NSString, at offset: Int) -> NSRange {
-        let prefixRange = completionPrefixRange(in: text, at: offset)
+    public static func completionReplaceRange(in text: NSString, at offset: Int, language: SyntaxLanguage? = nil) -> NSRange {
+        let extras = extras(for: language)
+        let prefixRange = completionPrefixRange(in: text, at: offset, language: language)
         let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
 
         var end = clamped
-        while let scalar = scalar(in: text, startingAt: end), isIdentifierContinuation(scalar.value) {
+        while let scalar = scalar(in: text, startingAt: end), isContinuation(scalar.value, extras: extras) {
             end = NSMaxRange(scalar.range)
         }
 
@@ -236,12 +283,13 @@ public enum IdentifierScanner {
     ///
     /// `offset` is clamped and moved onto a scalar boundary like the rest of the
     /// file, so a stale caret degrades instead of trapping.
-    public static func memberContext(in text: NSString, at offset: Int) -> MemberContext? {
+    public static func memberContext(in text: NSString, at offset: Int, language: SyntaxLanguage? = nil) -> MemberContext? {
+        let extras = extras(for: language)
         let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
 
         // The member prefix: the run of continuation scalars left of the caret.
         var start = clamped
-        while let scalar = scalar(in: text, endingAt: start), isIdentifierContinuation(scalar.value) {
+        while let scalar = scalar(in: text, endingAt: start), isContinuation(scalar.value, extras: extras) {
             start = scalar.range.location
         }
 
@@ -250,7 +298,7 @@ public enum IdentifierScanner {
         guard let dot = scalar(in: text, endingAt: start), dot.value == "." else { return nil }
         guard let preceding = scalar(in: text, endingAt: dot.range.location) else { return nil }
 
-        let prefixRange = completionPrefixRange(in: text, at: clamped)
+        let prefixRange = completionPrefixRange(in: text, at: clamped, language: language)
         // **The member prefix must begin right after the dot.** `prefixRange` is
         // the trimmed identifier inside the run, so the two agree exactly when
         // the run either is empty (the legitimate bare-dot case, an empty range
@@ -269,8 +317,8 @@ public enum IdentifierScanner {
         if preceding.value == ")" || preceding.value == "]" || preceding.value == "}" {
             return MemberContext(receiver: nil, prefixRange: prefixRange)
         }
-        guard isIdentifierContinuation(preceding.value),
-              let receiver = identifierRun(in: text, seededBy: preceding.range) else { return nil }
+        guard isContinuation(preceding.value, extras: extras),
+              let receiver = identifierRun(in: text, seededBy: preceding.range, extras: extras) else { return nil }
         return MemberContext(receiver: receiver.text, prefixRange: prefixRange)
     }
 
@@ -290,8 +338,9 @@ public enum IdentifierScanner {
     /// occurrence wins so the order is deterministic (a `Set` would reshuffle
     /// between runs, and the ranking layer's tie-breaks would then be the only
     /// thing keeping the list stable).
-    public static func words(in text: NSString, limit: Int) -> [String] {
+    public static func words(in text: NSString, limit: Int, language: SyntaxLanguage? = nil) -> [String] {
         guard limit > 0, text.length > 0 else { return [] }
+        let extras = extras(for: language)
 
         var words: [String] = []
         var seen = Set<String>()
@@ -301,17 +350,17 @@ public enum IdentifierScanner {
                 index += 1  // a lone surrogate half: skip the unit, never a name
                 continue
             }
-            guard isIdentifierContinuation(scalar.value) else {
+            guard isContinuation(scalar.value, extras: extras) else {
                 index = NSMaxRange(scalar.range)
                 continue
             }
             var end = NSMaxRange(scalar.range)
             while let next = self.scalar(in: text, startingAt: end),
-                  isIdentifierContinuation(next.value) {
+                  isContinuation(next.value, extras: extras) {
                 end = NSMaxRange(next.range)
             }
             let run = NSRange(location: index, length: end - index)
-            if let match = trimmedIdentifier(in: text, range: run), seen.insert(match.text).inserted {
+            if let match = trimmedIdentifier(in: text, range: run, extras: extras), seen.insert(match.text).inserted {
                 words.append(match.text)
                 if words.count == limit { return words }
             }
@@ -374,26 +423,26 @@ public enum IdentifierScanner {
 
     /// Grow `seed` to the maximal run of continuation scalars around it, then
     /// apply the trim rule.
-    private static func identifierRun(in text: NSString, seededBy seed: NSRange) -> Match? {
+    private static func identifierRun(in text: NSString, seededBy seed: NSRange, extras: Set<UnicodeScalar>) -> Match? {
         var start = seed.location
-        while let scalar = scalar(in: text, endingAt: start), isIdentifierContinuation(scalar.value) {
+        while let scalar = scalar(in: text, endingAt: start), isContinuation(scalar.value, extras: extras) {
             start = scalar.range.location
         }
         var end = NSMaxRange(seed)
-        while let scalar = scalar(in: text, startingAt: end), isIdentifierContinuation(scalar.value) {
+        while let scalar = scalar(in: text, startingAt: end), isContinuation(scalar.value, extras: extras) {
             end = NSMaxRange(scalar.range)
         }
-        return trimmedIdentifier(in: text, range: NSRange(location: start, length: end - start))
+        return trimmedIdentifier(in: text, range: NSRange(location: start, length: end - start), extras: extras)
     }
 
     /// Drop leading scalars that cannot *start* an identifier, and report the
     /// rest; `nil` when nothing is left (a run of digits).
-    private static func trimmedIdentifier(in text: NSString, range: NSRange) -> Match? {
+    private static func trimmedIdentifier(in text: NSString, range: NSRange, extras: Set<UnicodeScalar>) -> Match? {
         var start = range.location
         let end = NSMaxRange(range)
         while start < end,
               let scalar = scalar(in: text, startingAt: start),
-              !isIdentifierStart(scalar.value) {
+              !isStart(scalar.value, extras: extras) {
             start = NSMaxRange(scalar.range)
         }
         guard start < end else { return nil }
