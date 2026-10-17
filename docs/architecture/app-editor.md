@@ -160,17 +160,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     The existing `isApplyingProgrammaticEdit` guard wraps
     the *whole* bracket rather than just the storage mutation, because the
     single-range case reaches the single-range delegate callback where the
-    auto-pair interceptor acts on one-character insertions. `insertBacktab` is
-    untouched. The config itself arrives as `var editorConfig:
+    auto-pair interceptor acts on one-character insertions.
+    **Block indent, Shift+Tab and smart Backspace** sit in the same
+    `doCommandBy` switch and all apply a `BlockIndentEngine` plan through the
+    shared applier, with Enter's unit (`indentUnit(text:)`, i.e.
+    `IndentUnitRule.unit` — the one sanctioned use of the inferred unit by a
+    key, `core-editorconfig.md`). **Tab** asks `indentBlock(in:)` first: with no
+    marked text and `isBlockSelection` true it applies `indent` and returns
+    `true` — even when every touched line is blank and the plan is empty, so
+    the key never falls through to replacing the selection, the old behaviour;
+    a caret-only selection answers `false` before the buffer is read, and every
+    `false` runs `insertConfiguredTab` untouched. **`insertBacktab`** routes to
+    `outdentLines(in:)` and always returns `true`: mid-composition it is
+    consumed as a no-op, and an empty plan is refused by the applier before
+    anything is touched, so it registers no undo and does not beep.
+    **Backspace** runs `deleteAutoPair` first, which keeps its precedence, then
+    `deleteToIndentStop(in:)`: a cheap pre-check on the live storage (every
+    selection a caret preceded by a space) runs before the unit is computed, so
+    an ordinary Backspace after code never pays for the inference walk; then
+    `smartBackspace`, whose `nil` — and an applier refusal — answer `false` and
+    let the stock `deleteBackward:` run. Option- and Command-Backspace are other
+    selectors and never reach the switch. The completion popup's precedence is
+    unchanged: `keyDown` hands Tab/Return/arrows to `onCompletionKey` before
+    `super.keyDown`, so `doCommandBy` is never consulted while it commits, and
+    `handleCompletionKey` refuses any modifier, so Shift+Tab always reaches
+    the outdent. The config itself arrives as `var editorConfig:
     EditorConfigModel` — a plain, **undefaulted** property beside `symbolIndex`
     (a default would be a second live disk reader built for a view nobody
     constructs), owned by `PisakaApp`, deliberately *not* observed because it
     publishes nothing, and held **weakly** by the coordinator like `symbolIndex`:
     a deallocated one answers empty properties, which is exactly the "no
     configuration applies" case, so the editor degrades to the content inference
-    rather than misbehaving. Enter and Tab both read it through one private
-    helper, so they can never disagree about the unit — they differ only in
-    *whether* it is used. Enter reads a **second** private helper of its own,
+    rather than misbehaving. Enter, Tab and the three block commands all read it
+    through one private helper, so they can never disagree about the unit —
+    they differ only in *whether* it is used. Enter reads a **second** private helper of its own,
     `newlineTerminator()` (`endOfLine?.terminator ?? "\n"`), the terminator it
     splices: `end_of_line` is consumed in full, so a newly typed terminator and a
     normalized one can never disagree, and a project stating no `end_of_line`

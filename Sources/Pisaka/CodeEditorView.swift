@@ -2911,12 +2911,80 @@ struct CodeEditorView: NSViewRepresentable {
                 return insertIndentedNewline(in: textView)
             }
             if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
-                return deleteAutoPair(in: textView)
+                return deleteAutoPair(in: textView) || deleteToIndentStop(in: textView)
             }
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                return insertConfiguredTab(in: textView)
+                return indentBlock(in: textView) || insertConfiguredTab(in: textView)
+            }
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                return outdentLines(in: textView)
             }
             return false
+        }
+
+        /// Tab on a block selection — one spanning a line separator — indents
+        /// every touched line by Enter's unit instead of replacing the text.
+        ///
+        /// `BlockIndentEngine.isBlockSelection` decides, and the unit is
+        /// `indentUnit(text:)`, `IndentUnitRule.unit`'s answer: the explicit
+        /// block command uses the inferred unit, unlike plain Tab on a caret,
+        /// whose stricter `tabInsertion` rule runs untouched below whenever this
+        /// answers `false`. A block selection whose touched lines are all blank
+        /// is consumed as a no-op, so the key never falls through to replacing
+        /// the selection, the old behaviour.
+        private func indentBlock(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            // A caret-only selection is never a block; answering before the
+            // buffer is read keeps plain Tab as cheap as it was.
+            guard ranges.contains(where: { $0.length > 0 }) else { return false }
+            let nsText = textView.string as NSString
+            guard BlockIndentEngine.isBlockSelection(text: nsText, ranges: ranges) else { return false }
+            let plan = BlockIndentEngine.indent(text: nsText, ranges: ranges, unit: indentUnit(text: nsText))
+            _ = apply(plan, in: textView)
+            return true
+        }
+
+        /// Shift+Tab outdents every touched line by at most one unit, for a caret
+        /// and a selection alike, through `BlockIndentEngine.outdent`.
+        ///
+        /// Always handled: mid-composition the key is consumed as a no-op, and
+        /// an empty plan — no touched line had indentation — changes nothing,
+        /// registers no undo and does not beep, because the applier refuses an
+        /// empty plan before touching anything.
+        private func outdentLines(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return true }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            let nsText = textView.string as NSString
+            let plan = BlockIndentEngine.outdent(text: nsText, ranges: ranges, unit: indentUnit(text: nsText))
+            _ = apply(plan, in: textView)
+            return true
+        }
+
+        /// Backspace inside space indentation deletes back to the previous indent
+        /// stop, through `BlockIndentEngine.smartBackspace`.
+        ///
+        /// Runs after `deleteAutoPair`, which keeps its precedence. `nil` from the
+        /// engine — any caret not qualifying, a selection, a tab unit — and an
+        /// applier refusal (a composition in flight) both answer `false`, so the
+        /// stock `deleteBackward:` runs. Option- and Command-Backspace are other
+        /// selectors and never reach here.
+        private func deleteToIndentStop(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            // Cheap pre-check on the live storage before the unit is computed:
+            // the inference walks every line, and an ordinary Backspace after a
+            // non-space must not pay for it on every keystroke.
+            guard let storage = textView.textStorage?.string as NSString?,
+                  ranges.allSatisfy({ $0.length == 0 && $0.location > 0 && storage.character(at: $0.location - 1) == 0x20 })
+            else { return false }
+            let nsText = textView.string as NSString
+            guard let plan = BlockIndentEngine.smartBackspace(
+                text: nsText,
+                selections: ranges,
+                unit: indentUnit(text: nsText)
+            ) else { return false }
+            return apply(plan, in: textView)
         }
 
         /// What `.editorconfig` says about the shown file, or nothing at all when
@@ -2967,7 +3035,8 @@ struct CodeEditorView: NSViewRepresentable {
         /// replacing only `selectedRange()` would silently collapse the selection
         /// to one caret. The whole plan goes through `apply(_:in:)`, the shared
         /// edit applier, which is what makes it a single undoable step and a
-        /// single change notification. `insertBacktab` is untouched.
+        /// single change notification. A block selection never reaches here:
+        /// `indentBlock(in:)` answers it first.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
             // Never mid-composition. The applier below refuses a composition too,
             // but asking first keeps the key from reading the buffer at all. The

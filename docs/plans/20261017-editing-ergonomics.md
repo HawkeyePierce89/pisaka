@@ -141,19 +141,19 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 - Modify: `docs/architecture/core-editorconfig.md`, `docs/architecture/core-editor.md`, `docs/architecture/app-editor.md`
-- [ ] insertTab: when `BlockIndentEngine.isBlockSelection` is true and no text is marked, apply `indent` with `indentUnit(text:)`, which is IndentUnitRule.unit, the rule's answer. Otherwise run today's insertConfiguredTab path untouched.
-- [ ] Route insertBacktab in doCommandBy to `outdent`:
+- [x] insertTab: when `BlockIndentEngine.isBlockSelection` is true and no text is marked, apply `indent` with `indentUnit(text:)`, which is IndentUnitRule.unit, the rule's answer. Otherwise run today's insertConfiguredTab path untouched.
+- [x] Route insertBacktab in doCommandBy to `outdent`:
   - mid-composition it is consumed as a no-op;
   - an empty plan beeps nothing and registers no undo;
   - it returns true.
-- [ ] deleteBackward: deleteAutoPair runs first. Then ask `smartBackspace`; nil falls through to stock. Option- and Command-Backspace are different selectors and are left untouched.
-- [ ] Confirm the completion popup's key handling still runs before doCommandBy, so precedence is unchanged.
-- [ ] Docs:
+- [x] deleteBackward: deleteAutoPair runs first. Then ask `smartBackspace`; nil falls through to stock. Option- and Command-Backspace are different selectors and are left untouched.
+- [x] Confirm the completion popup's key handling still runs before doCommandBy, so precedence is unchanged.
+- [x] Docs:
   - core-editorconfig.md: rewrite the "Tab is stricter" paragraph. Plain Tab on a caret stays strict; block indent, Shift+Tab and smart Backspace use Enter's unit. Document the mixed-indentation rule, and record that the explicit command is the one sanctioned rewrite of existing indentation.
   - core-editor.md: the BlockIndentEngine entry.
   - app-editor.md: the wiring.
-- [ ] Tests: add a Core test that `IndentUnitRule.tabInsertionPlan` answers exactly as before for a single range and for several. The Core suites from Tasks 2–3 cover the decisions.
-- [ ] Run `swift test` and `make build`. Both must pass.
+- [x] Tests: add a Core test that `IndentUnitRule.tabInsertionPlan` answers exactly as before for a single range and for several. The Core suites from Tasks 2–3 cover the decisions.
+- [x] Run `swift test` and `make build`. Both must pass.
 
 ### Task 5: Move Line engine with fold units (R3, Core)
 

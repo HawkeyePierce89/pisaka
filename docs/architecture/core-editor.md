@@ -49,8 +49,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     endpoint inside removed indentation to the line start. Lines come from
     `LineStartIndex`, so all six separators work and a terminator is never
     edited. `IndentUnitRule.tabInsertionPlan` is unchanged — it still replaces a
-    multi-line selection (pinned in `IndentUnitRuleTests`); choosing the block
-    path is the macOS caller's job. `smartBackspace(text:selections:unit:)`
+    multi-line selection (pinned in `IndentUnitRuleTests`, whose whole value is
+    pinned for one range and for several); choosing the block path is the macOS
+    caller's job — the coordinator asks `isBlockSelection` first and only then
+    falls through to the plan (`app-editor.md`). `smartBackspace(text:selections:unit:)`
     answers `nil` — stock deletion — unless **every** selection is a zero-width
     caret with at least one character before it on its line, all of them spaces,
     and the unit is made of spaces (a tab unit, a tab in the run, or a caret

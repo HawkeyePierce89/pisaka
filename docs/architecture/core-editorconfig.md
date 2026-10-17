@@ -66,9 +66,29 @@ never rewritten, and there is no whole-project normalization command.
   lengths; refusing beyond them is conforming. It does **not** bound the
   matcher — that is `EditorConfigGlob.maximumMatchSteps`' job, for the reason
   recorded on it.
-- **The unit rule is hybrid, and the Tab rule is stricter.** Two questions with
-  deliberately different answers, because they carry different risks — see
-  `IndentUnitRule` below.
+- **The unit rule is hybrid, and the Tab rule is stricter — for plain Tab on a
+  caret only.** Two questions with deliberately different answers, because they
+  carry different risks — see `IndentUnitRule` below. Plain Tab on a caret (or
+  on a selection inside one line) stays strict: spaces only when a config says
+  `indent_style = space` outright. The three **explicit block commands** —
+  Tab on a block selection (`BlockIndentEngine.isBlockSelection`), Shift+Tab,
+  and smart Backspace inside space indentation — use **Enter's unit**,
+  `IndentUnitRule.unit`, so the inferred unit may drive exactly these three and
+  nothing else. The reasoning is the same asymmetry read from the other side:
+  plain Tab inserts *new* whitespace where the user typed, and turning it into
+  spaces on a guess would change what typing does; the block commands re-indent
+  lines the user explicitly selected (or, for Backspace, delete whitespace the
+  file already holds), and an indentation step that disagreed with Enter's would
+  leave every block a level off from the lines Enter writes beside it.
+  **Mixed indentation** has one rule: outdent removes a single leading tab
+  whatever the unit, otherwise up to the unit's width in leading spaces (a tab
+  unit counts as four there), and smart Backspace answers stock deletion
+  whenever a tab precedes the caret or the unit is a tab. **These explicit
+  commands are the one sanctioned rewrite of existing indentation** outside the
+  on-save transform: "no indentation already in a file is ever rewritten" holds
+  for every automatic path — open, close, tab switch, configuration change,
+  save — and a keystroke the user aimed at those very lines is the stated
+  exception, not a relaxation of it.
 - **Tab fans out over every insertion point.** Native `insertTab` inserts at all
   of `NSTextView.selectedRanges`, and the middle-drag column selection makes
   several zero-width carets a first-class state, so a handler that replaced only
@@ -405,7 +425,9 @@ never rewritten, and there is no whole-project normalization command.
     config refine it changes only which whitespace an already-automatic insertion
     uses; the Tab key is what the *user pressed*, and turning it into spaces on a
     file the content inference merely *guessed* was space-indented would silently
-    rewrite what typing does. Both take `inferred` as an **autoclosure**,
+    rewrite what typing does. That strictness covers plain Tab only: block
+    indent, Shift+Tab and smart Backspace ask `unit(config:inferred:)`, Enter's
+    rule (see the Tab bullet above for why). Both take `inferred` as an **autoclosure**,
     evaluated only when the answer depends on it: producing it means
     `IndentEngine.inferIndentUnit(text:)` over a copy of the whole buffer, on the
     main thread, inside a key handler, and a configuration stating both halves
