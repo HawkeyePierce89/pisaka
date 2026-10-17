@@ -274,15 +274,15 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/PisakaCore/BracketMatchEngine.swift` (add `enclosingPair(text:around:)`, reusing its chunked scans and bracket tables)
 - Create: `Tests/PisakaCoreTests/SelectionExpansionRuleTests.swift`; extend `BracketMatchEngineTests`
 
-- [ ] `candidates(text:selection:language:ancestors:stringContent:)` builds the ordered candidates:
+- [x] `candidates(text:selection:language:ancestors:stringContent:)` builds the ordered candidates:
   1. The word, offered only when the selection sits in an identifier (always inside string content). A caret on punctuation gets no word step.
   2. Each named ancestor, innermost first. When an ancestor's first and last characters form a bracket pair, its inner contents come immediately before it.
   3. The line.
   4. The document.
-- [ ] `fallbackCandidates(text:selection:language:)` for a language without a grammar: the word, then repeated `enclosingPair` outward (contents before pair), then the line, then the document.
-- [ ] `next(selection:candidates:)` returns the first candidate that strictly contains the selection. An equal range is skipped.
-- [ ] `SelectionExpansionHistory` has `push`, `pop` (Shrink) and `reset`.
-- [ ] Tests:
+- [x] `fallbackCandidates(text:selection:language:)` for a language without a grammar: the word, then repeated `enclosingPair` outward (contents before pair), then the line, then the document.
+- [x] `next(selection:candidates:)` returns the first candidate that strictly contains the selection. An equal range is skipped.
+- [x] `SelectionExpansionHistory` has `push`, `pop` (Shrink) and `reset`.
+- [x] Tests:
   - the expansion order over a hand-built ancestor chain;
   - the equal-range skip;
   - the word step inside a string;
@@ -291,7 +291,7 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
   - the full fallback chain over nested brackets;
   - push/pop/reset;
   - `enclosingPair` across mixed kinds.
-- [ ] Run `make test` before Task 12.
+- [x] Run `make test` before Task 12.
 
 ### Task 12: Expand / Shrink Selection commands (app, R6)
 
