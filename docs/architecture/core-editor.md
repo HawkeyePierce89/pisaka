@@ -3,6 +3,28 @@
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `ColumnSelectionEngine.swift` — pure, testable middle-drag column-selection computation. Visual columns mean the horizontal edges must be resolved by the glyph layout per line, which only the view can do. The engine owns the two decisions that are not layout: `bounds(anchor:head:)` normalizes two drag corners (any of the four corner orders, in the flipped text-view coordinate space) into one rectangle (left/right, top/bottom); `ranges(for:in:)` turns the layout's per-line answers (`ColumnSelectionLine`) into the ordered `selectedRanges`. It clamps each pair into that line's own character range, trims the line terminator (`LineStartIndex.isLineSeparator`, CRLF as one) so it is never swallowed, orders the pair, sorts and de-duplicates, and lets a zero-width rectangle fall out naturally as one zero-length range per line (the multi-caret case). The view passes each line's own character range (taken from the line fragment's glyph range) rather than letting the engine infer the line from an offset: a point right of a short line can resolve to an offset past that line's content, and inferring the line from that offset would attach the range to the *next* line and collide. An empty document line yields a single insertion caret range, while an empty input line list yields no ranges. AppKit requires ordered, non-overlapping ranges, which this engine guarantees.
+  - `RangeEditPlan.swift` — one editing command's whole answer, the value every
+    multi-range line command hands the app: `edits`, an ascending,
+    non-overlapping `[IndentReplacement]` against the **original** text's UTF-16
+    offsets, and `selections`, the post-edit `[NSRange]` for `setSelectedRanges`.
+    The ordering is **enforced, not trusted**: the failable initializer refuses an
+    unsorted or overlapping list (and a negative location or length), so a plan
+    that exists is one the app's applier can apply back-to-front in one bracket.
+    Two insertions at the same offset are not an overlap — back-to-front they
+    land in list order — and neither is an edit starting exactly where the
+    previous one ends; a range listed before an insertion at its own start is,
+    since that insertion falls inside it. `isEmpty` asks the edits alone, so a
+    plan carrying only a selection is still "nothing to apply". `mapped(offset:
+    bias:)` moves an original offset into the resulting text, which is how the
+    engines place carets: before an edit it shifts by every earlier edit's net
+    change; strictly inside a replaced range it lands at the replacement's start
+    (`.before`) or end (`.after`), because the text it pointed into is gone; at
+    an edit's start — always the case for an insertion — `bias` decides, and
+    several insertions at one offset are passed as one; at or past a non-empty
+    edit's end it shifts by that edit's full change. The default is `.after`.
+    `TabInsertionPlan` stays as it is for the iOS caller and converts losslessly
+    (pinned). The app half is the coordinator's `apply(_:in:)` (`app-editor.md`).
+    Unit-tested in `RangeEditPlanTests`.
   - `DuplicateEngine.swift` — pure, testable duplicate-line/selection computation
     for the editor's Cmd+D (Foundation only, no AppKit/Neon — the
     `IndentEngine`/`AutoPairEngine` precedent: the engine operates on an

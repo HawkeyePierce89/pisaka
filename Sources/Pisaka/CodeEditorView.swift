@@ -2965,14 +2965,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// inserts at *all* of `selectedRanges`, and the middle-drag column
         /// selection makes several zero-width carets a first-class state, so
         /// replacing only `selectedRange()` would silently collapse the selection
-        /// to one caret. The whole plan is applied **back-to-front** (later ranges
-        /// first, so earlier offsets stay valid) inside one
-        /// `shouldChangeText` / `beginEditing` … `endEditing` / `didChangeText`
-        /// bracket, which is what makes it a single undoable step and a single
-        /// change notification. `insertBacktab` is untouched.
+        /// to one caret. The whole plan goes through `apply(_:in:)`, the shared
+        /// edit applier, which is what makes it a single undoable step and a
+        /// single change notification. `insertBacktab` is untouched.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
-            // Never mid-composition. This is the one programmatic edit here that
-            // mutates `textStorage` directly instead of going through
+            // Never mid-composition. The applier below refuses a composition too,
+            // but asking first keeps the key from reading the buffer at all. The
+            // applier mutates `textStorage` directly instead of going through
             // `insertText(_:replacementRange:)`, and that is exactly the
             // bookkeeping `insertText` does for us: it commits or discards the
             // marked text and tells the input context about it. A raw
@@ -3001,11 +3000,41 @@ struct CodeEditorView: NSViewRepresentable {
                 inferred: IndentEngine.inferIndentUnit(text: textView.string as NSString)
             )
             guard insertion != "\t" else { return false }
-            guard let textStorage = textView.textStorage else { return false }
 
             let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
-            let plan = IndentUnitRule.tabInsertionPlan(ranges: ranges, insertion: insertion)
+            let tabPlan = IndentUnitRule.tabInsertionPlan(ranges: ranges, insertion: insertion)
+            // `tabInsertionPlan` normalizes its input, so the conversion cannot
+            // refuse; the `guard` is the type's, not a case this key expects.
+            guard !tabPlan.isEmpty,
+                  let plan = RangeEditPlan(edits: tabPlan.replacements, selections: tabPlan.carets)
+            else { return false }
+            // A refusal is *not* "handled": returning `true` would eat the key and
+            // do nothing, where `false` hands it back to the responder chain, the
+            // same as the literal-tab answer above.
+            return apply(plan, in: textView)
+        }
+
+        /// Apply one engine's `RangeEditPlan` as a single edit: one undo step, one
+        /// change notification, the plan's selection left behind.
+        ///
+        /// The plan's edits are applied **back-to-front** (later ranges first, so
+        /// earlier offsets stay valid) inside one `shouldChangeText(inRanges:)` /
+        /// `beginEditing` … `endEditing` / `didChangeText` bracket. Every
+        /// multi-range command funnels through here, so the bracket's rules are
+        /// stated once. Answers `false` — nothing changed — for an empty plan, a
+        /// composition in flight, a missing storage and a `shouldChangeText`
+        /// refusal, so a key handler can hand its key back to AppKit on that
+        /// answer.
+        func apply(_ plan: RangeEditPlan, in textView: NSTextView) -> Bool {
             guard !plan.isEmpty else { return false }
+            // Never mid-composition: this mutates `textStorage` directly instead of
+            // going through `insertText(_:replacementRange:)`, and that is exactly
+            // the bookkeeping `insertText` does for us — it commits or discards the
+            // marked text and tells the input context about it. A raw
+            // `replaceCharacters` moves the composition's characters out from
+            // under a `markedRange` left pointing at them.
+            guard !textView.hasMarkedText() else { return false }
+            guard let textStorage = textView.textStorage else { return false }
 
             // The guard covers the whole bracket, not just the storage mutation:
             // `shouldChangeText(inRanges:replacementStrings:)` reaches the
@@ -3014,32 +3043,32 @@ struct CodeEditorView: NSViewRepresentable {
             // interceptor acts on.
             isApplyingProgrammaticEdit = true
             defer { isApplyingProgrammaticEdit = false }
-            let editedRanges = plan.replacements.map { NSValue(range: $0.range) }
-            let replacements = plan.replacements.map(\.replacement)
-            // A refusal is *not* "handled": returning `true` would eat the key and
-            // do nothing, where `false` hands it back to the responder chain, the
-            // same as the literal-tab answer above.
+            let editedRanges = plan.edits.map { NSValue(range: $0.range) }
+            let replacements = plan.edits.map(\.replacement)
             guard textView.shouldChangeText(
                 inRanges: editedRanges,
                 replacementStrings: replacements
             ) else { return false }
-            // The spaces carry `typingAttributes` explicitly. Every other
+            // The inserted text carries `typingAttributes` explicitly. Every other
             // programmatic edit here goes through `insertText(_:replacementRange:)`,
             // which applies them; the raw storage path (which the multi-range
             // fan-out needs) would otherwise inherit whatever the adjacent text
             // has — and in a buffer with no adjacent text, no font at all.
             let attributes = textView.typingAttributes
             textStorage.beginEditing()
-            for replacement in plan.replacements.reversed() {
+            for edit in plan.edits.reversed() {
                 textStorage.replaceCharacters(
-                    in: replacement.range,
-                    with: NSAttributedString(string: replacement.replacement, attributes: attributes)
+                    in: edit.range,
+                    with: NSAttributedString(string: edit.replacement, attributes: attributes)
                 )
             }
             textStorage.endEditing()
             textView.didChangeText()
+            // `setSelectedRanges` raises on an empty array, and a plan with no
+            // selection leaves wherever the edit put the caret.
+            guard !plan.selections.isEmpty else { return true }
             textView.setSelectedRanges(
-                plan.carets.map { NSValue(range: $0) },
+                plan.selections.map { NSValue(range: $0) },
                 affinity: .downstream,
                 stillSelecting: false
             )
@@ -3050,16 +3079,17 @@ struct CodeEditorView: NSViewRepresentable {
             // `textViewDidChangeSelection`. Without this, Tab under
             // `indent_style = space` would type into a scrolled-away caret while a
             // literal tab — the same key, one property apart — jumps back to it.
-            // The *first* caret, which is what `selectedRange()` reports for a
+            // The *first* selection, which is what `selectedRange()` reports for a
             // multi-range selection and therefore what the native key scrolls to.
             //
-            // **The one scroll in this file that is not the reveal funnel**, and
-            // named rather than routed. It re-shows a caret `setSelectedRanges`
-            // above has just produced, which the fold caret rule has already
-            // sanitized through `textViewDidChangeSelection` — so it can never
-            // target hidden text, and asking `revealRange` here would put the
-            // reveal rule a question whose answer is always "nothing to unfold".
-            if let caret = plan.carets.first { textView.scrollRangeToVisible(caret) }
+            // **The one scroll in this file that is not the reveal funnel**: the
+            // edit applier's, and named rather than routed. It re-shows a
+            // selection `setSelectedRanges` above has just produced, which the
+            // fold caret rule has already sanitized through
+            // `textViewDidChangeSelection` — so it can never target hidden text,
+            // and asking `revealRange` here would put the reveal rule a question
+            // whose answer is always "nothing to unfold".
+            if let first = plan.selections.first { textView.scrollRangeToVisible(first) }
             return true
         }
 

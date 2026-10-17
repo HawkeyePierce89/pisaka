@@ -68,20 +68,20 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Create: `Sources/PisakaCore/RangeEditPlan.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 - Create: `Tests/PisakaCoreTests/RangeEditPlanTests.swift`
-- [ ] Add `RangeEditPlan`:
+- [x] Add `RangeEditPlan`:
   - ascending, non-overlapping `[IndentReplacement]` against the original offsets;
   - post-edit `selections: [NSRange]`;
   - `isEmpty`;
   - a validating initializer that refuses overlapping or unsorted edits;
   - a pure `mapped(offset:)` helper that moves an offset through the edits, which engines use to place carets.
-- [ ] In the coordinator, extract `apply(_ plan: RangeEditPlan, in textView:) -> Bool` from insertConfiguredTab's bracket:
+- [x] In the coordinator, extract `apply(_ plan: RangeEditPlan, in textView:) -> Bool` from insertConfiguredTab's bracket:
   - shouldChangeText(inRanges:), then beginEditing, back-to-front replaceCharacters carrying typingAttributes, endEditing, didChangeText;
   - setSelectedRanges, then scroll the first selection into view;
   - isApplyingProgrammaticEdit held for the whole bracket.
-- [ ] Re-implement insertConfiguredTab on top of the applier, unchanged in behaviour. Its literal-tab fall-through to AppKit stays untouched.
-- [ ] Update the "one scroll that is not the reveal funnel" comment so it names the applier.
-- [ ] Tests: validation, the empty plan, offset mapping before, inside and after an edit, and insertions at the same offset.
-- [ ] Run `swift test`. It must pass.
+- [x] Re-implement insertConfiguredTab on top of the applier, unchanged in behaviour. Its literal-tab fall-through to AppKit stays untouched.
+- [x] Update the "one scroll that is not the reveal funnel" comment so it names the applier.
+- [x] Tests: validation, the empty plan, offset mapping before, inside and after an edit, and insertions at the same offset.
+- [x] Run `swift test`. It must pass.
 
 ### Task 2: Block indent and outdent engine (R1, Core)
 

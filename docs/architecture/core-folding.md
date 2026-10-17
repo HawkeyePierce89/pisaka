@@ -694,8 +694,8 @@ The shape found in the tree, and now enforced:
   (`select(_:)`, through a hook the coordinator installs — the find bar's one jump,
   which used to `setSelectedRange`/`scrollRangeToVisible` for itself).
 - **One in-file non-reveal site.** `CodeEditorView.swift` holds exactly two
-  `scrollRangeToVisible` calls: the funnel's own, and the Tab plan's caret scroll
-  after a raw-storage edit. The second is **not** a reveal — it re-shows a caret
+  `scrollRangeToVisible` calls: the funnel's own, and the shared edit applier's
+  (`apply(_:in:)`) selection scroll after a raw-storage edit. The second is **not** a reveal — it re-shows a caret
   the selection path just produced and the caret rule has already sanitized — so it
   is named with that reason rather than routed.
 - **Three excluded text views**, none of which holds fold state:

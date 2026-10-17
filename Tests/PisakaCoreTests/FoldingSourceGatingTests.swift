@@ -252,7 +252,7 @@ final class FoldingSourceGatingTests: XCTestCase {
     ///    all — `SourceViewerContent` is the read-only out-of-project viewer,
     ///    `MergeView`'s is the merge result pane, and the iOS coordinator is on
     ///    the platform folding does not ship to. `CodeEditorView` is pinned to
-    ///    exactly two: the funnel's own scroll and the Tab plan's caret scroll,
+    ///    exactly two: the funnel's own scroll and the edit applier's caret scroll,
     ///    the one in-file site that is not a reveal (it follows an edit the user
     ///    just made, at a caret that is by construction on a visible line).
     ///    `EditorSearchController` must have none left.
@@ -294,7 +294,7 @@ final class FoldingSourceGatingTests: XCTestCase {
                 in: try code(ofFileNamed: "CodeEditorView.swift", under: "Sources/Pisaka")
             ),
             2,
-            "Two scrolls in the editor: the funnel's own, and the Tab plan's caret scroll — the one in-file "
+            "Two scrolls in the editor: the funnel's own, and the edit applier's caret scroll — the one in-file "
                 + "site that is not a reveal, following an edit the user just made at a caret that is on a "
                 + "visible line by construction. A third would need its own reason, here."
         )

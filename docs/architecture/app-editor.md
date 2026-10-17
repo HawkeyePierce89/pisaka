@@ -131,12 +131,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `selectedRange()` — the middle-drag column selection makes several
     zero-width carets a first-class state, and replacing only one would silently
     collapse the selection) go through `IndentUnitRule.tabInsertionPlan`, whose
-    sorted, non-overlapping replacements are applied **back-to-front** — later
-    ranges first, so earlier offsets stay valid — inside one
+    plan is converted to a Core `RangeEditPlan` and handed to the coordinator's
+    **shared edit applier**, `apply(_:in:)` — the one bracket every multi-range
+    line command funnels through. It applies the sorted, non-overlapping edits
+    **back-to-front** — later ranges first, so earlier offsets stay valid — inside one
     `shouldChangeText(inRanges:replacementStrings:)` /
     `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
     (one undoable step, one change notification), followed by `setSelectedRanges`
-    with the plan's carets. A `shouldChangeText` **refusal** returns `false`, not
+    with the plan's selections (skipped for a plan carrying none, since an empty
+    array raises) and one `scrollRangeToVisible` of the first. The applier answers
+    `false` for an empty plan, a composition in flight, a missing storage and a
+    refusal, so a key handler can hand its key back to AppKit on that answer. A `shouldChangeText` **refusal** returns `false`, not
     `true` — a refused edit is not a handled key, and eating it would leave Tab
     doing nothing at all — and the spaces are written as an `NSAttributedString`
     carrying `textView.typingAttributes`, since the raw storage path this fan-out
@@ -1061,8 +1066,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rows, the Usages rows and the symbol jump) and `EditorSearchController.select(_:)`
     through the `revealRange` hook `attachSearch` installs, which is why the find
     bar no longer selects or scrolls for itself. This file holds exactly **two**
-    `scrollRangeToVisible` calls: the funnel's own and the Tab plan's caret scroll
-    after a raw-storage edit, and the second is named as **not a reveal** — it
+    `scrollRangeToVisible` calls: the funnel's own and the shared edit applier's
+    (`apply(_:in:)`) selection scroll after a raw-storage edit, and the second is named as **not a reveal** — it
     re-shows a caret the selection path just produced and the caret rule has already
     sanitized, on a line that is visible by construction. Three further text views in
     the app scroll and are excluded because they hold no fold state at all:
