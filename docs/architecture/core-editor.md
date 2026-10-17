@@ -25,6 +25,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TabInsertionPlan` stays as it is for the iOS caller and converts losslessly
     (pinned). The app half is the coordinator's `apply(_:in:)` (`app-editor.md`).
     Unit-tested in `RangeEditPlanTests`.
+  - `BlockIndentEngine.swift` — block indent (Tab on a multi-line selection)
+    and outdent (Shift+Tab on any caret or selection), each answering a
+    `RangeEditPlan`. The `unit` is handed in — Enter's `IndentUnitRule.unit`,
+    EditorConfig first, inference second; the engine never decides it.
+    `isBlockSelection(text:ranges:)` is true when any range contains a line
+    separator (it spans lines, or covers a whole line with its terminator); a
+    caret, an in-line selection and a whole terminator-less last line answer
+    false and keep plain Tab. **Touched lines** are `ToggleCommentEngine`'s rule
+    — a non-empty range ending exactly at a line start does not touch that line —
+    merged across all ranges so no line is edited twice. `indent` inserts the unit
+    at the start of every touched **non-blank** line (blank and whitespace-only
+    lines are skipped, so no trailing whitespace is created). `outdent` removes at
+    most one unit per touched line: a leading tab is removed alone whatever the
+    unit (the mixed-indentation rule), otherwise up to the unit's width in leading
+    spaces or the shorter run that exists — a tab unit counts as
+    `tabUnitSpaceWidth` (4, the inference's fallback width) there — and a line
+    with no leading whitespace is left alone; an empty plan means nothing changed.
+    Every selection endpoint is mapped `.before`, which, since every edit sits at
+    a line start, keeps an endpoint at column 0 at its line start (so a selection
+    starting there covers the inserted unit and an end at the next line's start
+    stays out of it), moves every other endpoint with its text, and clamps an
+    endpoint inside removed indentation to the line start. Lines come from
+    `LineStartIndex`, so all six separators work and a terminator is never
+    edited. `IndentUnitRule.tabInsertionPlan` is unchanged — it still replaces a
+    multi-line selection (pinned in `IndentUnitRuleTests`); choosing the block
+    path is the macOS caller's job. Unit-tested in `BlockIndentEngineTests`.
   - `DuplicateEngine.swift` — pure, testable duplicate-line/selection computation
     for the editor's Cmd+D (Foundation only, no AppKit/Neon — the
     `IndentEngine`/`AutoPairEngine` precedent: the engine operates on an

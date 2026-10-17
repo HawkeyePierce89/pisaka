@@ -316,6 +316,18 @@ final class IndentUnitRuleTests: XCTestCase {
         XCTAssertEqual(apply(plan, to: "abcd"), "ab  cd")
     }
 
+    func testTheInsertionPlanStillReplacesAMultiLineSelection() {
+        // Block indent is `BlockIndentEngine`'s, chosen by the macOS caller; the
+        // plan itself is unchanged for every other caller (iOS among them): a
+        // multi-line selection is replaced by the insertion, as it always was.
+        let text = "aa\nbb\ncc"
+        let plan = IndentUnitRule.tabInsertionPlan(ranges: [NSRange(location: 0, length: 5)], insertion: "  ")
+
+        XCTAssertEqual(plan.replacements, [IndentReplacement(range: NSRange(location: 0, length: 5), replacement: "  ")])
+        XCTAssertEqual(apply(plan, to: text), "  \ncc")
+        XCTAssertEqual(plan.carets, [NSRange(location: 2, length: 0)])
+    }
+
     // MARK: - The plan is what the Tab key does
 
     // The macOS Tab handler applies the plan itself (back-to-front, inside one

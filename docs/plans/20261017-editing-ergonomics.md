@@ -90,17 +90,17 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Create: `Sources/PisakaCore/BlockIndentEngine.swift`
 - Create: `Tests/PisakaCoreTests/BlockIndentEngineTests.swift`
 - Modify: `Tests/PisakaCoreTests/IndentUnitRuleTests.swift` (pin that tabInsertionPlan is unchanged)
-- [ ] `BlockIndentEngine.isBlockSelection(text:ranges:) -> Bool`: true when any range spans more than one line, or covers a whole line including its terminator.
-- [ ] Touched lines follow ToggleCommentEngine's existing rule: a non-empty selection that ends exactly at a line start does not touch that line.
-- [ ] `indent(text:ranges:unit:) -> RangeEditPlan`:
+- [x] `BlockIndentEngine.isBlockSelection(text:ranges:) -> Bool`: true when any range spans more than one line, or covers a whole line including its terminator.
+- [x] Touched lines follow ToggleCommentEngine's existing rule: a non-empty selection that ends exactly at a line start does not touch that line.
+- [x] `indent(text:ranges:unit:) -> RangeEditPlan`:
   - inserts `unit` at the start of every touched non-blank line, once per line across all ranges, as merged line sets;
   - leaves blank and whitespace-only lines alone, so no trailing whitespace is created;
   - extends each selection to keep covering the same text: a start at column 0 stays at the line start, and the end moves with its line.
-- [ ] `outdent(text:ranges:unit:) -> RangeEditPlan` for a caret and a selection alike. Per touched line it removes at most one unit:
+- [x] `outdent(text:ranges:unit:) -> RangeEditPlan` for a caret and a selection alike. Per touched line it removes at most one unit:
   - the line starts with a tab: remove that one tab, whatever the unit (the documented mixed-indentation rule);
   - otherwise remove up to unit-width leading spaces, or the shorter run that exists;
   - no leading whitespace: leave the line alone. An empty plan means no line changed. Carets and selections shift left, clamped at the line start.
-- [ ] Tests:
+- [x] Tests:
   - three lines are indented with the selection preserved, and outdent restores them byte-for-byte;
   - tab unit;
   - blank lines are skipped;
@@ -111,7 +111,7 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - overlapping and adjacent ranges merge;
   - empty file, first and last line, no trailing newline, CRLF, and each of the six separators;
   - a test that fails if Tab on a multi-line selection replaced the text, the old behaviour.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 3: Smart Backspace engine (R2, Core)
 
