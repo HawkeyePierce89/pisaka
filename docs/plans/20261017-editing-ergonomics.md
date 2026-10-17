@@ -161,21 +161,21 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 
 - Create: `Sources/PisakaCore/MoveLineEngine.swift`
 - Create: `Tests/PisakaCoreTests/MoveLineEngineTests.swift`
-- [ ] `MoveLineEngine.move(text:ranges:direction:folds:) -> MoveLinePlan?`:
+- [x] `MoveLineEngine.move(text:ranges:direction:folds:) -> MoveLinePlan?`:
   - takes the touched lines of every range and merges adjacent or overlapping blocks;
   - grows each block to cover any folded region it touches, where a folded region is its header line plus its hidden lines;
   - takes as the neighbour the adjacent line, or the whole folded region when that line belongs to one;
   - swaps the block with its neighbour, as one replacement over the pair per block, all within one plan.
-- [ ] It answers nil, meaning no-op with no undo, when any block already sits at the first or last line.
-- [ ] Terminators:
+- [x] It answers nil, meaning no-op with no undo, when any block already sits at the first or last line.
+- [x] Terminators:
   - every line keeps its own terminator;
   - when the swap changes which line is last in a file with no trailing newline, the line becoming last gives up its terminator to the line leaving the last position;
   - so the file's line count and final-terminator state are preserved, and nothing is merged, lost or duplicated.
-- [ ] `MoveLinePlan` holds:
+- [x] `MoveLinePlan` holds:
   - `edit: RangeEditPlan`, whose selections move with the text;
   - `folds: FoldState`: every folded region inside a moved block or neighbour is translated by its block's displacement, with header lines renumbered, and every other region is unchanged.
-- [ ] Chosen fold behaviour: a fold is never revealed and never left pointing at the wrong text. The app applies the edit, which runs the ordinary shift rule, then installs `plan.folds`.
-- [ ] Tests:
+- [x] Chosen fold behaviour: a fold is never revealed and never left pointing at the wrong text. The app applies the edit, which runs the ordinary shift rule, then installs `plan.folds`.
+- [x] Tests:
   - line 2 of 3 moves down, with the caret on the moved text;
   - up and down at the edges answer nil;
   - the last line without a trailing newline, both directions, with line count and terminator assertions;
@@ -186,7 +186,7 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - blocks that would collide after the move;
   - a folded neighbour is skipped whole, the moved block carries a fold, and the resulting FoldState is pinned;
   - empty file and single-line file.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 6: Move Line commands (R3, app)
 
