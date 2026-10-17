@@ -105,7 +105,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `LeetCodeTransport.swift`, `LeetCodeCredentials.swift`, `LeetCodeLoginGate.swift`, `LeetCodeError.swift`, `LeetCodeProblem.swift`, `LeetCodeJudge.swift`, `LeetCodeAPI.swift`, `LeetCodeProblemInput.swift`, `LeetCodeSolutionFile.swift`, `LeetCodeCacheLayout.swift`, `LeetCodeCatalog.swift`, `LeetCodeProblemFilter.swift`, `LeetCodeStatementDocument.swift`, `LeetCodeModel.swift`, `LeetCodeJudgeModel.swift`, `LeetCodeBrowserModel.swift`
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
-  `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`
+  `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`, `LineShift.swift`
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
   `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`

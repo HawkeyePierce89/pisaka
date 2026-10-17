@@ -291,13 +291,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rather than trapping and a non-ascending array degrades instead of rescanning
     backwards. Unit-tested in `BlameAlignmentTests`, including a chunk-seam
     fixture.
-  - `BlameShift.swift` — pure incremental shift of a `[BlameLine?]` array across
-    one text edit, so the annotation column keeps pointing at the lines it was
-    loaded for while the user types instead of sliding onto their neighbours
-    (Foundation-only, the `LineStartIndex.updated` shape). `public enum BlameShift
-    { static func updated(previous: [BlameLine?], previousLineStarts: [Int],
-    newLineStarts: [Int], editedRange: NSRange, changeInLength: Int) -> [BlameLine?]
-    }`. It is **pure arithmetic over line-start arrays** — no `NSString`, no
+  - `BlameShift.swift` — the blame-typed delegate of `LineShift.updated`: `public
+    enum BlameShift { static func updated(previous: [BlameLine?], previousLineStarts:
+    [Int], newLineStarts: [Int], editedRange: NSRange, changeInLength: Int) ->
+    [BlameLine?] }`, one line forwarding to the generic rule below, kept so the
+    ruler's blame call site and `BlameShiftTests` stay untouched.
+  - `LineShift.swift` — pure incremental shift of a per-line payload array `[T?]`
+    across one text edit, so a gutter column (blame annotations, change markers)
+    keeps pointing at the lines it was loaded for while the user types instead of
+    sliding onto their neighbours (Foundation-only, the `LineStartIndex.updated`
+    shape). `public enum LineShift { static func updated<T>(previous: [T?],
+    previousLineStarts: [Int], newLineStarts: [Int], editedRange: NSRange,
+    changeInLength: Int) -> [T?] }`. Generic because the change-marker column needs
+    exactly blame's rule, and two copies of the span arithmetic could drift into
+    disagreeing about which line an edit touched. "Annotation" below means any
+    payload. It is **pure arithmetic over line-start arrays** — no `NSString`, no
     scanning, no content comparison — because the gutter already holds both arrays
     at the moment of the edit (`LineStartIndex.updated` produces the new one from
     the old), so passing them in costs nothing and buys the structural invariant
@@ -340,7 +348,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the joined line inherits the second line's annotation rather than blanking —
     distinguishing that needs the line's content, which this function deliberately
     does not read, and the next recompute settles it. **Fallback:** any inconsistent
-    input returns `[BlameLine?](repeating: nil, count: newLineStarts.count)` — an
+    input returns `[T?](repeating: nil, count: newLineStarts.count)` — an
     honest "unknown" at the right length, never a drifted array — built *lazily* in
     a local `blank()` rather than up front, since this runs once per keystroke and
     the common path discards it (materializing one `nil` per document line per
@@ -356,7 +364,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     catching it would need a further parameter for a case the only caller
     (`NSTextStorage.editedRange`) cannot produce; such an edit clamps to the final
     line and yields a shifted array rather than a blank one.
-    Unit-tested in `BlameShiftTests`, including a deterministic-LCG fuzz
+    Unit-tested at a non-blame payload in `LineShiftTests` (keystroke, Enter split,
+    whole-line delete, multi-line paste, the length invariant across a run of edits,
+    and every fallback guard), and at `BlameLine` in `BlameShiftTests`, including a deterministic-LCG fuzz
     block in `LineStartIndexTests`' shape asserting on every step that the length
     matches, that every line outside the span carries exactly its own annotation,
     and that inside it the span either kept its annotations position for position or

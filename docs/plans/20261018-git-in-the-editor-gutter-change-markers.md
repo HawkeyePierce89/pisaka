@@ -131,10 +131,10 @@ None new.
 - Modify: `Sources/PisakaCore/BlameShift.swift`
 - Create: `Tests/PisakaCoreTests/LineShiftTests.swift`
 
-- [ ] Move `BlameShift`'s arithmetic into a generic `LineShift.updated<T>(previous: [T?], previousLineStarts:, newLineStarts:, editedRange:, changeInLength:) -> [T?]`. Keep the same fallbacks, the same `oldEnd - 1` clamp and the same return-`previous`-unchanged fast path. Keep the doc comment's reasoning, moved with the code.
-- [ ] Make `BlameShift.updated` a one-line delegate so its callers and `BlameShiftTests` are untouched.
-- [ ] Write `LineShiftTests`: a non-`BlameLine` payload covering keystroke, Enter split, whole-line delete, multi-line paste and the fallback guards.
-- [ ] Run `swift test`; it must pass.
+- [x] Move `BlameShift`'s arithmetic into a generic `LineShift.updated<T>(previous: [T?], previousLineStarts:, newLineStarts:, editedRange:, changeInLength:) -> [T?]`. Keep the same fallbacks, the same `oldEnd - 1` clamp and the same return-`previous`-unchanged fast path. Keep the doc comment's reasoning, moved with the code.
+- [x] Make `BlameShift.updated` a one-line delegate so its callers and `BlameShiftTests` are untouched.
+- [x] Write `LineShiftTests`: a non-`BlameLine` payload covering keystroke, Enter split, whole-line delete, multi-line paste and the fallback guards.
+- [x] Run `swift test`; it must pass.
 
 ### Task 2: Hunk model from diff rows
 
