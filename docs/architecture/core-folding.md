@@ -676,6 +676,11 @@ through the shared applier — whose ordinary `FoldShift` pass drops every fold 
 swapped span intersected — and then installs the plan's state through
 `FoldController.apply(_:)`, handing over a **whole value**. It is a new writer of
 that kind, not a fourth spelled mutation: `toggle`/`fold`/`unfold` stay three.
+The install runs in the applier's `afterEdit` slot, **before** the selection is
+set and scrolled to: scrolling first would measure the moved caret against the
+briefly unfolded layout, and a line moved past a long folded block would be
+scrolled to where it sits with that block expanded — far below where it shows
+once the fold is back.
 
 **Undo is an ordinary edit**, stated and pinned rather than accidental. Undoing a
 move replays the inverse replacement — the pair's span in the moved text, given

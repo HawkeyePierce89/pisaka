@@ -3097,7 +3097,19 @@ struct CodeEditorView: NSViewRepresentable {
         /// composition in flight, a missing storage and a `shouldChangeText`
         /// refusal, so a key handler can hand its key back to AppKit on that
         /// answer.
-        func apply(_ plan: RangeEditPlan, in textView: NSTextView) -> Bool {
+        ///
+        /// `afterEdit` runs once the text has changed and before the selection
+        /// is set and scrolled to — the slot for state the edit's own hooks
+        /// disturbed and the caller must put back first. Move Line installs its
+        /// fold state there: the edit's shift has just dropped every fold the
+        /// swap touched, and scrolling against that unfolded layout would aim at
+        /// where the moved line sits with the folded block expanded, hundreds of
+        /// lines away from where it shows once the fold is back.
+        func apply(
+            _ plan: RangeEditPlan,
+            in textView: NSTextView,
+            afterEdit: (() -> Void)? = nil
+        ) -> Bool {
             guard !plan.isEmpty else { return false }
             // Never mid-composition: this mutates `textStorage` directly instead of
             // going through `insertText(_:replacementRange:)`, and that is exactly
@@ -3144,6 +3156,7 @@ struct CodeEditorView: NSViewRepresentable {
                 textStorage.endEditing()
             }
             textView.didChangeText()
+            afterEdit?()
             // `setSelectedRanges` raises on an empty array, and a plan with no
             // selection leaves wherever the edit put the caret.
             guard !plan.selections.isEmpty else { return true }
@@ -3182,8 +3195,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// regions as they stand. The plan's edit goes through the applier, so
         /// the move is one undo step, and the edit's own shift drops any fold
         /// the swapped span touched; the plan's complete fold state is then
-        /// installed whole through `FoldController.apply(_:)`, so a fold is
-        /// never revealed by a move and never left over text that moved.
+        /// installed whole through `FoldController.apply(_:)` — inside the
+        /// applier's `afterEdit`, before the selection is set and scrolled to, so
+        /// both are measured against the folded layout — and a fold is never
+        /// revealed by a move and never left over text that moved.
         ///
         /// **Undo is an ordinary edit**: it replays the inverse replacement
         /// through the same shift rule and nothing else, so a fold inside the
@@ -3197,9 +3212,8 @@ struct CodeEditorView: NSViewRepresentable {
             let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
             guard let plan = MoveLineEngine.move(
                 text: textView.string as NSString, ranges: ranges, direction: direction, folds: folds.state
-            ), apply(plan.edit, in: textView) else { return false }
-            folds.apply(plan.folds)
-            return true
+            ) else { return false }
+            return apply(plan.edit, in: textView) { [folds] in folds.apply(plan.folds) }
         }
 
         /// Intercept Backspace so an empty auto-inserted pair `(|)`, `"|"`, … is
