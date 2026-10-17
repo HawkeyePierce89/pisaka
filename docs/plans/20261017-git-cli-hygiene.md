@@ -121,11 +121,11 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 
 ### Task 6: Update documentation
 
-- [ ] `docs/architecture/app-git-views.md`, `GitCLIService` entry: describe the shared global options and their reasons; give every touched command line as it now is (log with `--encoding`, checkout with `--`, blame with `-w -M` and the `-C` refusal, fetch with the prompt flag); change "three calls" to four (fetch, push, pull, commit); state the stat-cache consequence; describe the new gating suite and the app test.
-- [ ] `docs/architecture/core-git.md`: reword the pull paragraph's "as every other command" to say that four network- or hook-reaching commands carry the flag; add a note to the `Commit` parser entry about the signature corruption the service prevents; add a note to the `BlameParser` entry about the `-M` fixture.
-- [ ] `docs/FEATURES.md`: Git Blame bullet — whitespace-only changes and in-file moves do not take over a line's attribution; git/terminal section — the app's git reads take no index lock, so they never collide with git run in the embedded terminal.
-- [ ] `CLAUDE.md`: add `GitCLIArgumentSourceGatingTests` to the list of repository-file suites, and check the file stays under the 60,000-character limit `LintConfigurationTests` enforces.
-- [ ] Run `swift test` once more, for `LintConfigurationTests` and the doc pins.
+- [x] `docs/architecture/app-git-views.md`, `GitCLIService` entry: describe the shared global options and their reasons; give every touched command line as it now is (log with `--encoding`, checkout with `--`, blame with `-w -M` and the `-C` refusal, fetch with the prompt flag); change "three calls" to four (fetch, push, pull, commit); state the stat-cache consequence; describe the new gating suite and the app test.
+- [x] `docs/architecture/core-git.md`: reword the pull paragraph's "as every other command" to say that four network- or hook-reaching commands carry the flag; add a note to the `Commit` parser entry about the signature corruption the service prevents; add a note to the `BlameParser` entry about the `-M` fixture.
+- [x] `docs/FEATURES.md`: Git Blame bullet — whitespace-only changes and in-file moves do not take over a line's attribution; git/terminal section — the app's git reads take no index lock, so they never collide with git run in the embedded terminal.
+- [x] `CLAUDE.md`: add `GitCLIArgumentSourceGatingTests` to the list of repository-file suites, and check the file stays under the 60,000-character limit `LintConfigurationTests` enforces.
+- [x] Run `swift test` once more, for `LintConfigurationTests` and the doc pins.
 
 ## Post-Completion
 

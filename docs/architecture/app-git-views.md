@@ -218,11 +218,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Launches `git` via `/usr/bin/env`, reads stdout/stderr
     before `waitUntilExit` so a large diff can't deadlock the pipe, and throws a
     typed `GitError` (`gitUnavailable` / `notARepository`) the model surfaces.
+    **Every command carries one shared global-option prefix**, `globalOptions`,
+    added in `runBlocking` — the one `Process` funnel — as `["git"] +
+    globalOptions + arguments`, so no call site opts in and none can forget to:
+    - `--no-optional-locks`: the app's reads run on its own schedule, and a plain
+      `git status` opportunistically takes `index.lock` to refresh the stat cache;
+      concurrently with git run in the embedded terminal that lock made the
+      *user's* command fail with "Unable to create index.lock". The flag waives
+      only locks git calls optional — a write still takes the locks it needs — so
+      it is safe on every command. **The accepted consequence**: a lock-free
+      `status` does not write the refreshed stat cache back, so the user's next
+      terminal `git status` re-does that work once.
+    - `-c log.showSignature=false`: with that setting on, `log` prints the
+      signature check *before* each signed commit's `--pretty` record, so the text
+      lands between the previous `%x1e` and the hash — the record keeps six fields
+      but its hash field becomes `Good "git" signature …\n<hash>`, breaking the
+      graph's parent link and the row's `diff-tree` (pinned as real corruption by
+      `CommitParserTests`). It only affects `log`/`show` output, so it is inert
+      elsewhere and any future `--pretty` site is covered by construction.
+
+    They are arguments rather than `GIT_OPTIONAL_LOCKS=0` because the environment
+    is assigned only when an override exists (the `run` reason below), because an
+    argument is visible in the command line the gating suite reads, and because an
+    environment variable would leak into the hook processes `commit` spawns.
     `-z`/NUL output is unnecessary — porcelain v2 keeps paths on the line tail
     and the parser reads them as the unsplit remainder. The Log view adds four more
     `run`-backed methods: `commits(filter:limit:root:)` runs `git log --topo-order
-    --parents -n <limit> --pretty=format:<Commit.prettyFormat>` plus
-    `filter.gitArguments()` and feeds stdout to `Commit.parse` (`--topo-order` +
+    --parents -n <limit> --encoding=UTF-8 --pretty=format:<Commit.prettyFormat>`
+    plus `filter.gitArguments()` (`--encoding=UTF-8` re-encodes messages a
+    repository's `i18n.logOutputEncoding` or a commit's own `encoding` header
+    would print in a legacy encoding, and precedes the filter because that can end
+    with `-- <paths>`) and feeds stdout to `Commit.parse` (`--topo-order` +
     `--parents` give the graph layout its ordering and parent decoration);
     `references(root:)` runs `git for-each-ref --format=%(refname)` over
     `refs/heads`, `refs/remotes`, then `refs/tags`, returning *full* refnames
@@ -247,13 +273,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     mutating calls throw `GitError` on a non-zero exit. The branch-switcher adds four
     more through the same serial `run(_:in:)`: `currentBranch(root:)` runs
     `git symbolic-ref --short HEAD` → a `BranchRef` for the current local branch (a
-    detached HEAD → `nil`); `checkout(branch:root:)` runs `git checkout <branch>` and
+    detached HEAD → `nil`); `checkout(branch:root:)` runs `git checkout <branch> --` and
     on a non-zero exit throws `GitError.checkoutFailed(reason: stderr)` (stderr names
     the conflicting files); `createAndCheckout(name:startPoint:root:)` runs
-    `git checkout -b <name> <startPoint>`; and `fetch(remote:root:)` runs
-    `git fetch <remote>` (inheriting the system git credentials), a non-zero exit →
-    `GitError.fetchFailed`. The gutter's annotate column adds one more:
-    `blame(fileURL:)` runs `git -c core.quotePath=false blame --porcelain --
+    `git checkout -b <name> <startPoint> --`; and `fetch(remote:root:)` runs
+    `git fetch <remote>` under `GIT_TERMINAL_PROMPT=0` (inheriting the system git
+    credentials; the credential helper still answers, and the user's ssh command is
+    never overridden — no `GIT_SSH_COMMAND` or `BatchMode`), a non-zero exit →
+    `GitError.fetchFailed`. **Both checkouts end with `--`** so git reads the name
+    as a revision, never a path. A local branch sharing a directory's name already
+    checks out without it (git prefers the branch); what broke were two other
+    cases: a name with no local branch — one deleted in the terminal while the
+    switcher's list was stale — that matches a path made `git checkout docs`
+    silently **restore `docs/` from the index, discarding unstaged edits**, and
+    exit 0, a switch reported that never happened; and a name existing only as
+    `origin/<name>` that is also a path was refused as "could be both a local file
+    and a tracking branch". With `--` the first fails with "invalid reference" and
+    the edits survive, the second switches; `checkoutReason` is unchanged. The gutter's annotate column adds one more:
+    `blame(fileURL:)` runs `git -c core.quotePath=false blame --porcelain -w -M --
     <lastPathComponent>` with the file's **parent directory** as the working
     directory — the protocol's deliberate `fileURL`-instead-of-`(path:root:)`
     deviation, so git discovers the repository itself and the editor needs no
@@ -278,7 +315,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     race the same `.git` state, and a read overlapping a mutation can at worst
     observe the repository mid-change — a stale or failed blame, both of which the
     controller already swallows into an empty column. It stays *serial*, so several
-    blames still cannot stack subprocesses.
+    blames still cannot stack subprocesses. **`-w -M`**: `-w` ignores
+    whitespace-only changes and `-M` follows lines moved or copied *within* the
+    file, so a reformat or a block reordering does not take over the attribution of
+    lines whose content it never changed. **`-C` is deliberately absent**: it is far
+    more expensive on large histories, and it changes what a line's commit means
+    for the file on screen — the column would name a commit that touched some other
+    file.
     The **commit dialog** adds seven more methods and two amendments to the
     process plumbing itself. (1) `ProcessResult` now stores the raw
     `stdoutData`/`stderrData` and exposes `stdout`/`stderr` as **computed**
@@ -322,7 +365,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `CommitIdentity.resolve`'s contract (`config --local --get` per field says
     whether *this repository* supplied it, `config --get` says what git resolved
     to), `setLocalIdentity` writes `--local` always, and `headMessage(root:)` is
-    `log -1 --pretty=%B` with a non-zero exit (an unborn HEAD) mapping to an
+    `log -1 --encoding=UTF-8 --pretty=%B` with a non-zero exit (an unborn HEAD) mapping to an
     honest `nil`. `commit(_:message:amend:root:)` is the **temporary-index
     mechanism**: a scratch directory holds a throw-away index pointed at by a
     `GIT_INDEX_FILE` override on every step, seeded with `read-tree HEAD`
@@ -363,10 +406,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     carrying git's trimmed stderr, which is what the tail's step reports. The flag
     is pinned statically by `GitHubSourceGatingTests`, since nothing in
     `swift test` compiles this file. **`GIT_TERMINAL_PROMPT=0`** is passed by the
-    three
+    four
     calls that can be prompted at — push, because it is the one command that
-    routinely needs authentication, `pull`, the other one here that reaches the
-    network, and `commit`, alongside its `GIT_INDEX_FILE`,
+    routinely needs authentication, `fetch` and `pull`, the other two here that
+    reach the network, and `commit`, alongside its `GIT_INDEX_FILE`,
     because it executes the repository's own `pre-commit`/`commit-msg` hooks and
     signs when `commit.gpgsign` is on. Without it, anything that decides to prompt
     blocks on a question nothing can answer, and since every call shares the serial
@@ -398,6 +441,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     .nullDevice`: no command here reads stdin, and inheriting the app's would hand
     git or `ssh` a controlling terminal to prompt on whenever the app was launched
     from a shell.
+    **The command lines are pinned twice.** Nothing in `swift test` compiles this
+    file, so `GitCLIArgumentSourceGatingTests` (Core, `#filePath`) reads it through
+    `GitHubSourceGatingTests.strippingComments(_:)` — comments stripped, literals
+    *kept*, because every subject is a string literal — and pins: one
+    `process.arguments` assignment, carrying `globalOptions`, which holds
+    `--no-optional-locks` and `log.showSignature=false`, and one `Process()` in the
+    file, so no second launch path skips the prefix; the set of array literals
+    containing `"--pretty` equal to the set containing `"--encoding=UTF-8"`, neither
+    empty, with `--show-signature`/`log.showSignature=true` absent; the set of
+    functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
+    commit}` (the one place that count lives); exactly three `checkout` spellings,
+    every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
+    arguments do what is claimed is a fact about git itself, so
+    `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a
+    real git in throwaway repositories: a local branch named like a tracked
+    directory still switches; a stale name matching a path throws
+    `checkoutFailed` and the unstaged edit survives; a name only on `origin` that is
+    also a path switches in a clone; and `changedFiles` leaves a stale-stat
+    `.git/index` byte-for-byte unchanged, with a plain `git status` afterwards
+    rewriting it as the control that keeps the assertion from passing vacuously.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the
     "Commit Changes" strip, the message box at full width, the changed files

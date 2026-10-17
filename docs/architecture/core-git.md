@@ -146,7 +146,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     answer, and naming one here would let the call pull a branch the tail never
     switched to. A non-zero exit throws `GitError.pullFailed(reason:)` with git's
     trimmed stderr; `GitCLIService` runs it on the same serial queue under
-    `GIT_TERMINAL_PROMPT=0` as every other command, and **iOS is left at the
+    `GIT_TERMINAL_PROMPT=0`, which the four network- or hook-reaching commands
+    (`fetch`, `push`, `pull`, `commit`) carry, and **iOS is left at the
     protocol default** — the tail is macOS only, and libgit2 gains nothing from a
     fast-forward it has no caller for (`core-github.md`).
   - `ChangedFile.swift` — `FileStatus` (`modified, added, deleted, renamed,
@@ -259,7 +260,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     per line. **Robustness:** unknown/garbage lines skipped, a truncated final group
     kept with the hash it does have and empty fields, a missing field an empty
     string, a non-numeric/non-positive line number ignored, empty output → `[]`.
-    Nothing traps. Unit-tested in `BlameParserTests`.
+    Nothing traps. Unit-tested in `BlameParserTests`. The service runs blame with
+    `-w -M` (`app-git-views.md`), and a fixture shaped like `-M` output for a block
+    moved within the file — several groups with `previous <hash> <same file>`
+    lines, per-group `filename` lines naming the same file, and a later group
+    reusing a commit with no metadata — pins that those flags need nothing new
+    here: the lines map to their commits and the headers fall off the switch like
+    any other field, not special-cased.
   - `BlameAlignment.swift` — pure placement of a `[BlameLine?]` blame result onto
     the editor's line starts (Foundation-only, `getCharacters` chunked like
     `BracketDepthScanner`). It exists because the two sides disagree about what a
