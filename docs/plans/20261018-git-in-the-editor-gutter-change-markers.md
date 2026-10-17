@@ -199,12 +199,12 @@ None new.
 - Create: `Tests/PisakaCoreTests/LineDiffWordRangesTests.swift`
 - Modify: any Core test that compares built modified rows against hand-built ones (grep for `DiffRow(kind: .modified` and `.rows(` equality)
 
-- [ ] Add `DiffRow.words: WordDiffRanges?`, defaulting to `nil` in `init`.
-- [ ] Make `LineDiff.rows(old:new:)` fill it for `.modified` rows only, after pairing, under one per-build `Work`. The `wordRanges: false` path stays for the gutter model.
-- [ ] Add `UnifiedDiffLine.emphasis: [NSRange]`, defaulting to empty. `CommitDiffUnits.unified` copies the old-side ranges to the `-` line and the new-side ranges to the `+` line, and gives every other line none.
-- [ ] Write tests: modified rows carry ranges; unchanged, added and removed rows never do; a rewritten line carries none; `unified` keeps the pairing, and the `-`/`+` lines' emphasis equals the row's two sides — nothing re-splits; the existing fifteen `LineDiffTests` pass unchanged.
-- [ ] Update any equality-based fixture in other Core suites that now sees ranges.
-- [ ] Run `swift test`; it must pass.
+- [x] Add `DiffRow.words: WordDiffRanges?`, defaulting to `nil` in `init`.
+- [x] Make `LineDiff.rows(old:new:)` fill it for `.modified` rows only, after pairing, under one per-build `Work`. The `wordRanges: false` path stays for the gutter model.
+- [x] Add `UnifiedDiffLine.emphasis: [NSRange]`, defaulting to empty. `CommitDiffUnits.unified` copies the old-side ranges to the `-` line and the new-side ranges to the `+` line, and gives every other line none.
+- [x] Write tests: modified rows carry ranges; unchanged, added and removed rows never do; a rewritten line carries none; `unified` keeps the pairing, and the `-`/`+` lines' emphasis equals the row's two sides — nothing re-splits; the existing fifteen `LineDiffTests` pass unchanged.
+- [x] Update any equality-based fixture in other Core suites that now sees ranges. (none needed: no Core suite compared built modified rows by equality; full suite green unchanged)
+- [x] Run `swift test`; it must pass.
 
 ### Task 7: Ruler marker column
 

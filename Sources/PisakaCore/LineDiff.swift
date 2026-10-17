@@ -44,15 +44,23 @@ public struct DiffLine: Equatable {
 /// - `.added`   → `left == nil`, `right != nil`
 /// - `.removed` → `left != nil`, `right == nil`
 /// - `.unchanged`/`.modified` → both present
+///
+/// `words` is the row's word-level emphasis (`WordDiff`), computed once per
+/// build by `LineDiff.rows(old:new:)`: only ever non-`nil` on a `.modified`
+/// row, and `nil` there too for a rewrite or a row the build's budget did not
+/// reach. Every surface that draws emphasis reads it from here, so no view
+/// re-splits a line.
 public struct DiffRow: Equatable {
     public let kind: DiffRowKind
     public let left: DiffLine?
     public let right: DiffLine?
+    public let words: WordDiffRanges?
 
-    public init(kind: DiffRowKind, left: DiffLine?, right: DiffLine?) {
+    public init(kind: DiffRowKind, left: DiffLine?, right: DiffLine?, words: WordDiffRanges? = nil) {
         self.kind = kind
         self.left = left
         self.right = right
+        self.words = words
     }
 }
 
@@ -63,7 +71,8 @@ public struct DiffRow: Equatable {
 /// lacks a line. Foundation-only, so it lives in `PisakaCore`.
 public enum LineDiff {
     /// Build aligned side-by-side rows comparing `old` (left/`HEAD`) to `new`
-    /// (right/working copy).
+    /// (right/working copy), each `.modified` row carrying its word ranges
+    /// under one per-build `WordDiff.Work`.
     public static func rows(old: String, new: String) -> [DiffRow] {
         rows(old: old, new: new, wordRanges: true)
     }
@@ -85,15 +94,24 @@ public enum LineDiff {
         // separate remove + add.
         var pendingDeletes: [Int] = []
         var pendingInserts: [Int] = []
+        // One ceiling shared by every modified row of this build, so a diff of
+        // many long lines stops emphasising rather than growing without bound.
+        var work = WordDiff.Work(budget: WordDiff.maximumBuildCells)
 
         func flushHunk() {
             let paired = min(pendingDeletes.count, pendingInserts.count)
             for k in 0..<paired {
                 let o = pendingDeletes[k], n = pendingInserts[k]
+                // Asked only once the pair is fixed: the word pass never
+                // influences which lines pair up.
+                let words = wordRanges
+                    ? WordDiff.ranges(old: oldLines[o], new: newLines[n], work: &work)
+                    : nil
                 rows.append(DiffRow(
                     kind: .modified,
                     left: DiffLine(number: o + 1, text: oldLines[o]),
-                    right: DiffLine(number: n + 1, text: newLines[n])
+                    right: DiffLine(number: n + 1, text: newLines[n]),
+                    words: words
                 ))
             }
             for k in paired..<pendingDeletes.count {
