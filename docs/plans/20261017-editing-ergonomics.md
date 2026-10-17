@@ -349,11 +349,11 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run `make test-app` and `make build` under the pinned Xcode 26.3 (PINNED_XCODE).
-- [ ] Confirm MenuShortcutUniquenessTests and the source-gating suites are green.
-- [ ] Confirm each new engine's suite covers the edge cases listed in its task, and that a regression test exists for each old behaviour that changed: Tab replacing a multi-line selection, ⌘D and ⌘/ editing only the first range, and per-line ragged comment markers.
+- [x] Run `swift test`. (6707 tests, 0 failures)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 736 files)
+- [x] Run `make test-app` and `make build` under the pinned Xcode 26.3 (PINNED_XCODE). (make build succeeded; make test-app ran 388 tests with the same 8 scale-1.8 layout failures in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests that Task 8 reproduced on the untouched HEAD, so local-environment and pre-existing; every suite this branch added or touched passes)
+- [x] Confirm MenuShortcutUniquenessTests and the source-gating suites are green.
+- [x] Confirm each new engine's suite covers the edge cases listed in its task, and that a regression test exists for each old behaviour that changed: Tab replacing a multi-line selection, ⌘D and ⌘/ editing only the first range, and per-line ragged comment markers. (Audited: every listed edge case has a test; the regressions are testTheOldTabReplacedTheBlockAndIndentDoesNot, testEveryCaretDuplicatesItsLineNotOnlyTheFirst, testEveryRangeIsToggledNotOnlyTheFirst and testMarkersAlignAtTheMinimumIndentationAndUncommentRestoresBytes)
 
 ### Task 12: Update documentation
 
