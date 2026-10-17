@@ -37,6 +37,142 @@ public enum CommentStyle: Equatable {
         }
     }
 
+    /// The comment style for `language` in `context`: JSX children in
+    /// javascript, typescript or tsx comment as `{/* … */}`, because `//` there
+    /// is text the page renders, not a comment. Every other pairing answers
+    /// `style(for:)`, so this stays the single table.
+    public static func style(for language: SyntaxLanguage, context: CommentContext) -> CommentStyle? {
+        switch (language, context) {
+        case (.javascript, .jsxChildren), (.typescript, .jsxChildren), (.tsx, .jsxChildren):
+            return .block(open: "{/*", close: "*/}")
+        default:
+            return style(for: language)
+        }
+    }
+
+    /// Where an offset sits — a line's first non-whitespace offset for ⌘/, a
+    /// range's own start for ⌥⌘/ — read off the syntax-tree ancestors
+    /// enclosing it, **innermost first**. `startsAtLineOffset` is true when
+    /// the node starts exactly at that offset: ancestor kinds alone
+    /// cannot tell a child line (`<span>` opening the line) from a continuation
+    /// line inside a multi-line opening tag (`/>` closing it), so the flag is
+    /// part of the input.
+    ///
+    /// The first listed kind met decides:
+    /// - `jsx_attribute` answers `.code` — the line is inside an attribute;
+    /// - `jsx_expression` that does **not** start at the line offset answers
+    ///   `.code` — the line is inside `{…}`; one that does is a child of its
+    ///   parent like an element is, answering `.jsxChildren` only when that
+    ///   parent is a `jsx_element`. That is what lets ⌘/ undo its own wrap: a
+    ///   commented child line `{/* … */}` parses as a `jsx_expression` holding
+    ///   the comment, and `//` in front of any child `{…}` would be rendered
+    ///   text;
+    /// - `comment` directly inside a `jsx_expression`, **when
+    ///   `commentOpensExpression` says it starts right after the expression's
+    ///   `{`**, is a continuation line of a wrap `{/* … */}` spanning several
+    ///   lines, and answers as that expression's lines do: `.jsxChildren` when
+    ///   its parent is a `jsx_element`, `.code` otherwise. Without it the
+    ///   wrap's last line would meet the expression mid-line and answer
+    ///   `.code`, and the second ⌘/ would write `//` into the children instead
+    ///   of unwrapping. Any other comment — including an ordinary `/* … */`
+    ///   on its own line inside a multi-line `{…}`, which only that flag
+    ///   tells apart from the wrap, the two having the same kinds — is
+    ///   skipped like an unlisted kind, so the walk meets the expression
+    ///   mid-line and answers `.code`;
+    /// - `jsx_text` answers `.jsxChildren`;
+    /// - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or
+    ///   `jsx_closing_element` that does **not** start at the line offset
+    ///   answers `.code`, because the line is inside a tag; one that does
+    ///   answers `.jsxChildren` only when its element — the node itself, or for
+    ///   an opening/closing element the `jsx_element` it belongs to — has a
+    ///   `jsx_element` parent, and `.code` otherwise (the root element of a
+    ///   `return (…)` is code);
+    /// - unlisted kinds are skipped and the walk continues;
+    /// - reaching the root answers `.code`.
+    ///
+    /// There is no `jsx_fragment` case: the pinned TSX grammar has no such
+    /// node, and a fragment `<>…</>` is a `jsx_element` whose opening element
+    /// has no name, so its children are answered by the element rule.
+    ///
+    /// `commentOpensExpression` is the one positional fact the kinds cannot
+    /// carry: whether the chain's `comment` (comments do not nest, so there
+    /// is at most one) starts immediately after its parent's opening `{`.
+    public static func context(
+        ancestors: [(kind: String, startsAtLineOffset: Bool)], commentOpensExpression: Bool = false
+    ) -> CommentContext {
+        for (index, ancestor) in ancestors.enumerated() {
+            switch ancestor.kind {
+            case "jsx_attribute":
+                return .code
+            case "jsx_expression":
+                guard ancestor.startsAtLineOffset, index + 1 < ancestors.count else { return .code }
+                return ancestors[index + 1].kind == "jsx_element" ? .jsxChildren : .code
+            case "comment":
+                guard commentOpensExpression, index + 1 < ancestors.count,
+                      ancestors[index + 1].kind == "jsx_expression" else { continue }
+                guard index + 2 < ancestors.count else { return .code }
+                return ancestors[index + 2].kind == "jsx_element" ? .jsxChildren : .code
+            case "jsx_text":
+                return .jsxChildren
+            case "jsx_element", "jsx_self_closing_element", "jsx_opening_element", "jsx_closing_element":
+                guard ancestor.startsAtLineOffset else { return .code }
+                let isTag = ancestor.kind == "jsx_opening_element" || ancestor.kind == "jsx_closing_element"
+                var elementIndex = index
+                if isTag {
+                    guard index + 1 < ancestors.count, ancestors[index + 1].kind == "jsx_element" else { return .code }
+                    elementIndex = index + 1
+                }
+                let parentIndex = elementIndex + 1
+                guard parentIndex < ancestors.count else { return .code }
+                return ancestors[parentIndex].kind == "jsx_element" ? .jsxChildren : .code
+            default:
+                continue
+            }
+        }
+        return .code
+    }
+
+    /// The delimiters Toggle Block Comment (⌥⌘/) wraps a selection in, or
+    /// `nil` for a language with no block comment syntax: `/* */` for the
+    /// C-family languages and css, `<!-- -->` for html, and `{/* */}` in JSX
+    /// children of javascript, typescript or tsx — where `/* */` would be text
+    /// the page renders.
+    ///
+    /// A table of its own rather than read off `style(for:)`, which names the
+    /// *line* style where a language has both.
+    public static func blockDelimiters(
+        for language: SyntaxLanguage, context: CommentContext
+    ) -> BlockCommentDelimiters? {
+        switch language {
+        case .javascript, .typescript, .tsx:
+            return context == .jsxChildren
+                ? BlockCommentDelimiters(open: "{/*", close: "*/}")
+                : BlockCommentDelimiters(open: "/*", close: "*/")
+        case .swift, .go, .rust, .css:
+            return BlockCommentDelimiters(open: "/*", close: "*/")
+        case .html:
+            return BlockCommentDelimiters(open: "<!--", close: "-->")
+        case .json, .markdown, .python, .yaml, .dockerfile, .dotenv, .gitignore,
+             .shell, .make, .editorconfig, .sql:
+            return nil
+        }
+    }
+
+    /// The languages `blockDelimiters(for:context:)` answers. Closed, and with
+    /// `languagesWithoutBlockComments` a partition of `SyntaxLanguage.allCases`,
+    /// pinned by set equality.
+    public static let languagesWithBlockComments: Set<SyntaxLanguage> = [
+        .swift, .javascript, .typescript, .tsx, .go, .rust, .css, .html,
+    ]
+
+    /// The languages with no block comment syntax: ⌥⌘/ runs the line toggle in
+    /// the ones that have a line comment, and is a no-op beep in json and
+    /// markdown (`languagesWithoutComments`).
+    public static let languagesWithoutBlockComments: Set<SyntaxLanguage> = [
+        .json, .markdown, .python, .yaml, .dockerfile, .dotenv, .gitignore,
+        .shell, .make, .editorconfig, .sql,
+    ]
+
     /// The languages that have no comment syntax to toggle.
     ///
     /// Toggling a comment in these languages is a silent no-op. The absence
@@ -45,4 +181,22 @@ public enum CommentStyle: Equatable {
     public static let languagesWithoutComments: Set<SyntaxLanguage> = [
         .json, .markdown
     ]
+}
+
+/// A block comment's opening and closing delimiters.
+public struct BlockCommentDelimiters: Equatable, Sendable {
+    public let open: String
+    public let close: String
+
+    public init(open: String, close: String) {
+        self.open = open
+        self.close = close
+    }
+}
+
+/// Where a line sits for Toggle Comment: ordinary code, or the children of a
+/// JSX element, where a comment must be written `{/* … */}`.
+public enum CommentContext: Equatable, Sendable {
+    case code
+    case jsxChildren
 }

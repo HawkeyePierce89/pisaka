@@ -191,6 +191,9 @@ user sees it.
   inserting a literal tab exactly as before (and with the completion popup open,
   Tab still commits the selected row — it reaches the indentation handler only
   when no popup is showing).
+  That strictness is for a plain Tab at a caret only: block indent, Shift+Tab and
+  the smart Backspace below use Enter's unit, so they follow the file's own
+  indentation even with no `.editorconfig`.
   Three more properties apply **when a file is saved**, and only then:
   `trim_trailing_whitespace = true` deletes the spaces and tabs at the end of
   each line, `insert_final_newline = true` adds a line terminator to a file that
@@ -335,12 +338,38 @@ user sees it.
   code font as you zoom. On by default; Preferences > General > "Highlight
   indentation levels" turns it off for every open tab at once, and off it draws
   and computes nothing. macOS only — see the known limitations.
+- Block indent and outdent (macOS): Tab on a selection that spans lines indents
+  every touched line by one indentation unit instead of replacing the selection;
+  Shift+Tab outdents every touched line — or the caret's line — by at most one
+  unit (a leading tab alone, otherwise up to one unit's width of spaces). Blank
+  lines are left alone, so no trailing whitespace appears, and the selection
+  follows the text. The unit is the one Enter's auto-indent uses —
+  `.editorconfig` first, the file's own indentation second. Each press is one
+  undo step; Shift+Tab with nothing to remove does nothing. A Tab at a caret, or
+  on a selection inside one line, still inserts as before.
+- Smart Backspace (macOS): with the caret in a line's leading spaces, Backspace
+  deletes back to the previous indentation stop (at most one unit) instead of a
+  single space. It applies only when every caret is preceded by nothing but
+  spaces on its line and the unit is spaces; after code, inside tab indentation,
+  or with a selection, Backspace is the ordinary one. An auto-paired bracket
+  pair is still deleted first, as before.
+- Move Line Up / Down (Option+Cmd+[ / Option+Cmd+], Edit menu; macOS): swaps the
+  caret's line — or every line a selection touches — with the line above or
+  below, carrying each line's own terminator, as one undo step with the caret
+  and selection moving with the text. Several carets or selections move
+  together. A folded block moves as one unit and stays folded, and moving past a
+  folded block jumps over it in one press. At the top or bottom of the file the
+  command beeps and changes nothing. Undoing a move restores the text; a fold
+  inside the swapped lines may open on undo.
 - Duplicate line or selection (Cmd+D): with no selection the
   caret's line is copied below it and the caret moves into the copy at the same
   column; with a selection the selected text is copied right after itself and the
   copy becomes the new selection, so repeated presses grow the text. A multi-line
   selection is duplicated exactly as selected rather than rounded out to whole
-  lines, and each duplication is a single undo step. In a CRLF- or CR-delimited
+  lines, and each duplication is a single undo step. Every caret and selection is
+  duplicated at once — several carets, a column selection or disjoint selections
+  all in one undo step, each leaving its caret or selection in its copy; carets
+  sharing a line duplicate it once. In a CRLF- or CR-delimited
   file, duplicating the *last* line — the one with no line terminator — inserts a
   plain LF; every terminated line copies its own terminator verbatim. When the
   Local Changes panel has keyboard focus, Cmd+D opens the selected changed file's
@@ -360,7 +389,23 @@ user sees it.
   and text exactly where they are. JSON, Markdown, and files with an unknown
   language also ignore the command silently, as they have no comment syntax to
   toggle. A menu item (Edit > Toggle Comment) exists, so the command works from
-  the keyboard (Cmd+/) or the menu. macOS only for now — no iOS wiring.
+  the keyboard (Cmd+/) or the menu. Line comments are **aligned**: the markers
+  of every commented line go in one column, the smallest indentation among the
+  non-blank lines, and uncommenting restores the lines byte-for-byte (comments
+  in the older per-line form uncomment too). Every caret and selection is
+  toggled at once, with one commented-or-not decision across all of them, as
+  one undo step. In JavaScript, JSX and TSX, lines that are children of a JSX
+  element are commented as `{/* … */}` — `//` there would be text the page
+  renders — while lines inside a `{…}` expression, inside a tag's attributes, or
+  in ordinary code keep `//`. macOS only for now — no iOS wiring.
+- Toggle Block Comment (Option+Cmd+/, Edit menu; macOS): wraps each selection in
+  the language's block comment — `/* … */` in Swift, JS/TS, Go, Rust and CSS,
+  `<!-- … -->` in HTML, `{/* … */}` in JSX children — and leaves the wrapped
+  text selected, so a second press unwraps it. A caret inserts an empty pair,
+  `/*  */`, with the caret between the two spaces. Every caret and selection is
+  handled at once, as one undo step. Languages with only line comments (Python,
+  YAML, shell, SQL, Makefile, …) run the ordinary Toggle Comment instead; JSON
+  and Markdown beep.
 - Find and replace in a file (macOS): Cmd+F opens a search bar
   above the editor with match case, whole word and regular expression toggles
   (each drawn as its own glyph, named in its tooltip), a `3/17` match counter, and ▲/▼ to step through the
@@ -728,6 +773,13 @@ user sees it.
   — before diagnostics existed, a server started only when you asked for
   completion, Go to Definition or hover. Diagnostics need a server: files of languages without
   one show none of this, silently, exactly like hover.
+- **Next / Previous Problem** (macOS, Cmd+' / Cmd+Shift+', Find menu): moves the
+  caret to the next or previous diagnostic in the active file, wrapping at the
+  ends, and opens the hover popover with its message at the landing point. When
+  the file has any errors only errors are visited; otherwise every warning and
+  note is. Diagnostics starting at the same place are one stop, and a problem
+  inside a folded block unfolds it. With no diagnostics in the file the command
+  beeps.
 - **Find Usages** (macOS, Ctrl+Cmd+U): put the caret in a name — or right-click
   it — and every place it is used appears in a **Usages** panel in the bottom dock,
   beside Problems. Rows are grouped by file (path relative to the opened folder)

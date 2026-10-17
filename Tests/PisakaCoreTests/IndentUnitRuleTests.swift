@@ -316,6 +316,47 @@ final class IndentUnitRuleTests: XCTestCase {
         XCTAssertEqual(apply(plan, to: "abcd"), "ab  cd")
     }
 
+    func testTheInsertionPlanStillReplacesAMultiLineSelection() {
+        // Block indent is `BlockIndentEngine`'s, chosen by the macOS caller; the
+        // plan itself is unchanged for every other caller (iOS among them): a
+        // multi-line selection is replaced by the insertion, as it always was.
+        let text = "aa\nbb\ncc"
+        let plan = IndentUnitRule.tabInsertionPlan(ranges: [NSRange(location: 0, length: 5)], insertion: "  ")
+
+        XCTAssertEqual(plan.replacements, [IndentReplacement(range: NSRange(location: 0, length: 5), replacement: "  ")])
+        XCTAssertEqual(apply(plan, to: text), "  \ncc")
+        XCTAssertEqual(plan.carets, [NSRange(location: 2, length: 0)])
+    }
+
+    func testThePlanIsUnchangedBySmartIndentationForOneRangeAndForSeveral() {
+        // The macOS Tab key now asks `BlockIndentEngine` first, but only for a
+        // block selection; the plan answers every caller exactly as before, its
+        // whole value pinned here for one range and for several.
+        let single = IndentUnitRule.tabInsertionPlan(ranges: [NSRange(location: 3, length: 2)], insertion: "  ")
+        XCTAssertEqual(single, TabInsertionPlan(
+            replacements: [IndentReplacement(range: NSRange(location: 3, length: 2), replacement: "  ")],
+            carets: [NSRange(location: 5, length: 0)]
+        ))
+
+        let several = IndentUnitRule.tabInsertionPlan(
+            ranges: [NSRange(location: 7, length: 1), NSRange(location: 0, length: 0), NSRange(location: 3, length: 0)],
+            insertion: "    "
+        )
+        XCTAssertEqual(several, TabInsertionPlan(
+            replacements: [
+                IndentReplacement(range: NSRange(location: 0, length: 0), replacement: "    "),
+                IndentReplacement(range: NSRange(location: 3, length: 0), replacement: "    "),
+                IndentReplacement(range: NSRange(location: 7, length: 1), replacement: "    "),
+            ],
+            carets: [
+                NSRange(location: 4, length: 0),
+                NSRange(location: 11, length: 0),
+                NSRange(location: 19, length: 0),
+            ]
+        ))
+        XCTAssertEqual(apply(several, to: "aa\nbb\ncc"), "    aa\n    bb\nc    ")
+    }
+
     // MARK: - The plan is what the Tab key does
 
     // The macOS Tab handler applies the plan itself (back-to-front, inside one

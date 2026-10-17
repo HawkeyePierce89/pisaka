@@ -1190,8 +1190,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// The hover popover: the pointer's dwell, the request it makes of the
         /// same intelligence seam, and the pass-through panel that draws the
         /// answer. Owned strongly here (it holds the text view weakly, so there
-        /// is no cycle), like the search and completion controllers.
-        private let hover = HoverController()
+        /// is no cycle), like the search and completion controllers. Internal
+        /// rather than private for one reader: `goToProblem(_:)` in
+        /// `ProblemCommands.swift` presents the diagnostics popover through it.
+        let hover = HoverController()
 
         /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
         /// like `searchBarState`: the app owns it for its whole lifetime, and the
@@ -2911,12 +2913,80 @@ struct CodeEditorView: NSViewRepresentable {
                 return insertIndentedNewline(in: textView)
             }
             if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
-                return deleteAutoPair(in: textView)
+                return deleteAutoPair(in: textView) || deleteToIndentStop(in: textView)
             }
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                return insertConfiguredTab(in: textView)
+                return indentBlock(in: textView) || insertConfiguredTab(in: textView)
+            }
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                return outdentLines(in: textView)
             }
             return false
+        }
+
+        /// Tab on a block selection — one spanning a line separator — indents
+        /// every touched line by Enter's unit instead of replacing the text.
+        ///
+        /// `BlockIndentEngine.isBlockSelection` decides, and the unit is
+        /// `indentUnit(text:)`, `IndentUnitRule.unit`'s answer: the explicit
+        /// block command uses the inferred unit, unlike plain Tab on a caret,
+        /// whose stricter `tabInsertion` rule runs untouched below whenever this
+        /// answers `false`. A block selection whose touched lines are all blank
+        /// is consumed as a no-op, so the key never falls through to replacing
+        /// the selection, the old behaviour.
+        private func indentBlock(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            // A caret-only selection is never a block; answering before the
+            // buffer is read keeps plain Tab as cheap as it was.
+            guard ranges.contains(where: { $0.length > 0 }) else { return false }
+            let nsText = textView.string as NSString
+            guard BlockIndentEngine.isBlockSelection(text: nsText, ranges: ranges) else { return false }
+            let plan = BlockIndentEngine.indent(text: nsText, ranges: ranges, unit: indentUnit(text: nsText))
+            _ = apply(plan, in: textView)
+            return true
+        }
+
+        /// Shift+Tab outdents every touched line by at most one unit, for a caret
+        /// and a selection alike, through `BlockIndentEngine.outdent`.
+        ///
+        /// Always handled: mid-composition the key is consumed as a no-op, and
+        /// an empty plan — no touched line had indentation — changes nothing,
+        /// registers no undo and does not beep, because the applier refuses an
+        /// empty plan before touching anything.
+        private func outdentLines(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return true }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            let nsText = textView.string as NSString
+            let plan = BlockIndentEngine.outdent(text: nsText, ranges: ranges, unit: indentUnit(text: nsText))
+            _ = apply(plan, in: textView)
+            return true
+        }
+
+        /// Backspace inside space indentation deletes back to the previous indent
+        /// stop, through `BlockIndentEngine.smartBackspace`.
+        ///
+        /// Runs after `deleteAutoPair`, which keeps its precedence. `nil` from the
+        /// engine — any caret not qualifying, a selection, a tab unit — and an
+        /// applier refusal (a composition in flight) both answer `false`, so the
+        /// stock `deleteBackward:` runs. Option- and Command-Backspace are other
+        /// selectors and never reach here.
+        private func deleteToIndentStop(in textView: NSTextView) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            // Cheap pre-check on the live storage before the unit is computed:
+            // the inference walks every line, and an ordinary Backspace after a
+            // non-space must not pay for it on every keystroke.
+            guard let storage = textView.textStorage?.string as NSString?,
+                  ranges.allSatisfy({ $0.length == 0 && $0.location > 0 && storage.character(at: $0.location - 1) == 0x20 })
+            else { return false }
+            let nsText = textView.string as NSString
+            guard let plan = BlockIndentEngine.smartBackspace(
+                text: nsText,
+                selections: ranges,
+                unit: indentUnit(text: nsText)
+            ) else { return false }
+            return apply(plan, in: textView)
         }
 
         /// What `.editorconfig` says about the shown file, or nothing at all when
@@ -2965,14 +3035,14 @@ struct CodeEditorView: NSViewRepresentable {
         /// inserts at *all* of `selectedRanges`, and the middle-drag column
         /// selection makes several zero-width carets a first-class state, so
         /// replacing only `selectedRange()` would silently collapse the selection
-        /// to one caret. The whole plan is applied **back-to-front** (later ranges
-        /// first, so earlier offsets stay valid) inside one
-        /// `shouldChangeText` / `beginEditing` … `endEditing` / `didChangeText`
-        /// bracket, which is what makes it a single undoable step and a single
-        /// change notification. `insertBacktab` is untouched.
+        /// to one caret. The whole plan goes through `apply(_:in:)`, the shared
+        /// edit applier, which is what makes it a single undoable step and a
+        /// single change notification. A block selection never reaches here:
+        /// `indentBlock(in:)` answers it first.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
-            // Never mid-composition. This is the one programmatic edit here that
-            // mutates `textStorage` directly instead of going through
+            // Never mid-composition. The applier below refuses a composition too,
+            // but asking first keeps the key from reading the buffer at all. The
+            // applier mutates `textStorage` directly instead of going through
             // `insertText(_:replacementRange:)`, and that is exactly the
             // bookkeeping `insertText` does for us: it commits or discards the
             // marked text and tells the input context about it. A raw
@@ -3001,11 +3071,54 @@ struct CodeEditorView: NSViewRepresentable {
                 inferred: IndentEngine.inferIndentUnit(text: textView.string as NSString)
             )
             guard insertion != "\t" else { return false }
-            guard let textStorage = textView.textStorage else { return false }
 
             let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
-            let plan = IndentUnitRule.tabInsertionPlan(ranges: ranges, insertion: insertion)
+            let tabPlan = IndentUnitRule.tabInsertionPlan(ranges: ranges, insertion: insertion)
+            // `tabInsertionPlan` normalizes its input, so the conversion cannot
+            // refuse; the `guard` is the type's, not a case this key expects.
+            guard !tabPlan.isEmpty,
+                  let plan = RangeEditPlan(edits: tabPlan.replacements, selections: tabPlan.carets)
+            else { return false }
+            // A refusal is *not* "handled": returning `true` would eat the key and
+            // do nothing, where `false` hands it back to the responder chain, the
+            // same as the literal-tab answer above.
+            return apply(plan, in: textView)
+        }
+
+        /// Apply one engine's `RangeEditPlan` as a single edit: one undo step, one
+        /// change notification, the plan's selection left behind.
+        ///
+        /// The plan's edits are applied **back-to-front** (later ranges first, so
+        /// earlier offsets stay valid) inside one `shouldChangeText(inRanges:)` /
+        /// `didChangeText` bracket, each in its own `beginEditing` …
+        /// `endEditing` so every edit hook sees that edit's exact range. Every
+        /// multi-range command funnels through here, so the bracket's rules are
+        /// stated once. Answers `false` — nothing changed — for an empty plan, a
+        /// composition in flight, a missing storage and a `shouldChangeText`
+        /// refusal, so a key handler can hand its key back to AppKit on that
+        /// answer.
+        ///
+        /// `afterEdit` runs once the text has changed and before the selection
+        /// is set and scrolled to — the slot for state the edit's own hooks
+        /// disturbed and the caller must put back first. Move Line installs its
+        /// fold state there: the edit's shift has just dropped every fold the
+        /// swap touched, and scrolling against that unfolded layout would aim at
+        /// where the moved line sits with the folded block expanded, hundreds of
+        /// lines away from where it shows once the fold is back.
+        func apply(
+            _ plan: RangeEditPlan,
+            in textView: NSTextView,
+            afterEdit: (() -> Void)? = nil
+        ) -> Bool {
             guard !plan.isEmpty else { return false }
+            // Never mid-composition: this mutates `textStorage` directly instead of
+            // going through `insertText(_:replacementRange:)`, and that is exactly
+            // the bookkeeping `insertText` does for us — it commits or discards the
+            // marked text and tells the input context about it. A raw
+            // `replaceCharacters` moves the composition's characters out from
+            // under a `markedRange` left pointing at them.
+            guard !textView.hasMarkedText() else { return false }
+            guard let textStorage = textView.textStorage else { return false }
 
             // The guard covers the whole bracket, not just the storage mutation:
             // `shouldChangeText(inRanges:replacementStrings:)` reaches the
@@ -3014,32 +3127,41 @@ struct CodeEditorView: NSViewRepresentable {
             // interceptor acts on.
             isApplyingProgrammaticEdit = true
             defer { isApplyingProgrammaticEdit = false }
-            let editedRanges = plan.replacements.map { NSValue(range: $0.range) }
-            let replacements = plan.replacements.map(\.replacement)
-            // A refusal is *not* "handled": returning `true` would eat the key and
-            // do nothing, where `false` hands it back to the responder chain, the
-            // same as the literal-tab answer above.
+            let editedRanges = plan.edits.map { NSValue(range: $0.range) }
+            let replacements = plan.edits.map(\.replacement)
             guard textView.shouldChangeText(
                 inRanges: editedRanges,
                 replacementStrings: replacements
             ) else { return false }
-            // The spaces carry `typingAttributes` explicitly. Every other
+            // The inserted text carries `typingAttributes` explicitly. Every other
             // programmatic edit here goes through `insertText(_:replacementRange:)`,
             // which applies them; the raw storage path (which the multi-range
             // fan-out needs) would otherwise inherit whatever the adjacent text
             // has — and in a buffer with no adjacent text, no font at all.
             let attributes = textView.typingAttributes
-            textStorage.beginEditing()
-            for replacement in plan.replacements.reversed() {
+            // One `beginEditing` … `endEditing` per edit, not one around them all:
+            // the storage would coalesce the edits into a single `editedRange`
+            // running from the first to the last, and the edit hooks — the fold
+            // shift and the diagnostics shift — drop everything intersecting
+            // that span, so a fold or a squiggle *between* two distant carets
+            // would be lost though no character in it changed. Each pass posts
+            // its own exact range; undo is unaffected — it is registered by
+            // `shouldChangeText` above and closed by `didChangeText` below.
+            for edit in plan.edits.reversed() {
+                textStorage.beginEditing()
                 textStorage.replaceCharacters(
-                    in: replacement.range,
-                    with: NSAttributedString(string: replacement.replacement, attributes: attributes)
+                    in: edit.range,
+                    with: NSAttributedString(string: edit.replacement, attributes: attributes)
                 )
+                textStorage.endEditing()
             }
-            textStorage.endEditing()
             textView.didChangeText()
+            afterEdit?()
+            // `setSelectedRanges` raises on an empty array, and a plan with no
+            // selection leaves wherever the edit put the caret.
+            guard !plan.selections.isEmpty else { return true }
             textView.setSelectedRanges(
-                plan.carets.map { NSValue(range: $0) },
+                plan.selections.map { NSValue(range: $0) },
                 affinity: .downstream,
                 stillSelecting: false
             )
@@ -3050,17 +3172,48 @@ struct CodeEditorView: NSViewRepresentable {
             // `textViewDidChangeSelection`. Without this, Tab under
             // `indent_style = space` would type into a scrolled-away caret while a
             // literal tab — the same key, one property apart — jumps back to it.
-            // The *first* caret, which is what `selectedRange()` reports for a
+            // The *first* selection, which is what `selectedRange()` reports for a
             // multi-range selection and therefore what the native key scrolls to.
             //
-            // **The one scroll in this file that is not the reveal funnel**, and
-            // named rather than routed. It re-shows a caret `setSelectedRanges`
-            // above has just produced, which the fold caret rule has already
-            // sanitized through `textViewDidChangeSelection` — so it can never
-            // target hidden text, and asking `revealRange` here would put the
-            // reveal rule a question whose answer is always "nothing to unfold".
-            if let caret = plan.carets.first { textView.scrollRangeToVisible(caret) }
+            // **The one scroll in this file that is not the reveal funnel**: the
+            // edit applier's, and named rather than routed. It re-shows a
+            // selection `setSelectedRanges` above has just produced, which the
+            // fold caret rule has already sanitized through
+            // `textViewDidChangeSelection` — so it can never target hidden text,
+            // and asking `revealRange` here would put the reveal rule a question
+            // whose answer is always "nothing to unfold".
+            if let first = plan.selections.first { textView.scrollRangeToVisible(first) }
             return true
+        }
+
+        // MARK: - Move Line
+
+        /// *Move Line Up* (⌥⌘[) / *Move Line Down* (⌥⌘]): swap every block of
+        /// touched lines with the line — or the folded region — beside it.
+        ///
+        /// Every decision is `MoveLineEngine.move`'s, asked with the folded
+        /// regions as they stand. The plan's edit goes through the applier, so
+        /// the move is one undo step, and the edit's own shift drops any fold
+        /// the swapped span touched; the plan's complete fold state is then
+        /// installed whole through `FoldController.apply(_:)` — inside the
+        /// applier's `afterEdit`, before the selection is set and scrolled to, so
+        /// both are measured against the folded layout — and a fold is never
+        /// revealed by a move and never left over text that moved.
+        ///
+        /// **Undo is an ordinary edit**: it replays the inverse replacement
+        /// through the same shift rule and nothing else, so a fold inside the
+        /// swapped span may open on undo. No fold is registered in undo.
+        ///
+        /// `false` — the command's beep — for no editor, a read-only one, a
+        /// composition in flight, or a block already at the edge (the engine's
+        /// `nil`, which applies nothing and registers no undo).
+        func moveLines(_ direction: MoveLineDirection) -> Bool {
+            guard let textView, textView.isEditable, !textView.hasMarkedText() else { return false }
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            guard let plan = MoveLineEngine.move(
+                text: textView.string as NSString, ranges: ranges, direction: direction, folds: folds.state
+            ) else { return false }
+            return apply(plan.edit, in: textView) { [folds] in folds.apply(plan.folds) }
         }
 
         /// Intercept Backspace so an empty auto-inserted pair `(|)`, `"|"`, … is
@@ -3122,53 +3275,49 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: - Duplicate line/selection
 
-        /// Duplicate the caret's line (or the selection) — the Cmd+D handler.
+        /// Duplicate every caret's line and every selection — the Cmd+D handler.
         ///
         /// All the math is pure and lives in `PisakaCore.DuplicateEngine`; this
-        /// reads the live buffer + selection, applies the engine's edit with one
-        /// `insertText(_:replacementRange:)` at a zero-length range (so the
-        /// per-file undo manager records the whole duplication as a single
-        /// undoable step), then installs the resulting selection — a caret inside
-        /// the copied line, or the inserted copy itself for a selection, so
-        /// repeated presses grow the text.
+        /// reads the live buffer and **every** selected range, and applies the
+        /// engine's plan through the applier, so a column selection or several
+        /// carets duplicate as one undoable step. Each range leaves one caret
+        /// inside its copied line, or its copy selected, so repeated presses grow
+        /// the text.
         ///
-        /// `isApplyingProgrammaticEdit` is mandatory here, not defensive:
-        /// `insertText` re-invokes `shouldChangeTextIn` synchronously and the
-        /// auto-pair interceptor fires on any single-character replacement, so
-        /// duplicating a one-character *selection* holding a lone `(` would
-        /// otherwise fall into auto-pair and insert `()`. (The line path can emit
-        /// a single character too — duplicating an *empty* line inserts just
-        /// `"\n"` — so the guard covers both paths unconditionally.)
+        /// The applier holds `isApplyingProgrammaticEdit` across its bracket,
+        /// which is mandatory here, not defensive: duplicating a one-character
+        /// selection holding a lone `(` — or an *empty* line, which inserts just
+        /// `"\n"` — would otherwise fall into the auto-pair interceptor.
         ///
         /// Always returns `true` (the key is consumed).
         func duplicateSelection(in textView: NSTextView) -> Bool {
-            let edit = DuplicateEngine.duplicate(
+            let plan = DuplicateEngine.duplicate(
                 text: textView.string as NSString,
-                selectedRange: textView.selectedRange()
+                selectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue)
             )
-            isApplyingProgrammaticEdit = true
-            textView.insertText(
-                edit.text,
-                replacementRange: NSRange(location: edit.insertionLocation, length: 0)
-            )
-            isApplyingProgrammaticEdit = false
-            textView.setSelectedRange(edit.selectedRange)
+            _ = apply(plan, in: textView)
             return true
         }
 
+        /// Toggle the comment state of every line any selected range touches —
+        /// the Cmd+/ handler. `ToggleCommentEngine` decides everything, with one
+        /// all-commented decision and one aligned marker column across the
+        /// ranges; the applier makes it one undo step. A `nil` plan is a silent
+        /// no-op. In JSX children the marker is `{/* … */}`: the engine asks
+        /// where each block's first and last lines sit, answered off the syntax
+        /// tree through `CommentContextTreeWalk`, parsed at most once and only
+        /// when the engine first asks.
         func toggleComment(in textView: NSTextView) {
-            guard let edit = ToggleCommentEngine.toggle(
-                text: textView.string as NSString,
-                selectedRange: textView.selectedRange(),
-                language: language
+            let text = textView.string as NSString
+            guard let plan = ToggleCommentEngine.toggle(
+                text: text,
+                selectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue),
+                language: language,
+                context: CommentContextTreeWalk.resolver(
+                    snapshot: treeSnapshot, text: text, language: language, fileID: fileID
+                )
             ) else { return }
-            isApplyingProgrammaticEdit = true
-            textView.insertText(
-                edit.text,
-                replacementRange: edit.replacementRange
-            )
-            isApplyingProgrammaticEdit = false
-            textView.setSelectedRange(edit.selectedRange)
+            _ = apply(plan, in: textView)
         }
 
         /// Intercept single-character input for auto-close brackets/quotes and,

@@ -3,6 +3,92 @@
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a per-file index and the cross-cutting invariants). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `ColumnSelectionEngine.swift` — pure, testable middle-drag column-selection computation. Visual columns mean the horizontal edges must be resolved by the glyph layout per line, which only the view can do. The engine owns the two decisions that are not layout: `bounds(anchor:head:)` normalizes two drag corners (any of the four corner orders, in the flipped text-view coordinate space) into one rectangle (left/right, top/bottom); `ranges(for:in:)` turns the layout's per-line answers (`ColumnSelectionLine`) into the ordered `selectedRanges`. It clamps each pair into that line's own character range, trims the line terminator (`LineStartIndex.isLineSeparator`, CRLF as one) so it is never swallowed, orders the pair, sorts and de-duplicates, and lets a zero-width rectangle fall out naturally as one zero-length range per line (the multi-caret case). The view passes each line's own character range (taken from the line fragment's glyph range) rather than letting the engine infer the line from an offset: a point right of a short line can resolve to an offset past that line's content, and inferring the line from that offset would attach the range to the *next* line and collide. An empty document line yields a single insertion caret range, while an empty input line list yields no ranges. AppKit requires ordered, non-overlapping ranges, which this engine guarantees.
+  - `RangeEditPlan.swift` — one editing command's whole answer, the value every
+    multi-range line command hands the app: `edits`, an ascending,
+    non-overlapping `[IndentReplacement]` against the **original** text's UTF-16
+    offsets, and `selections`, the post-edit `[NSRange]` for `setSelectedRanges`.
+    The ordering is **enforced, not trusted**: the failable initializer refuses an
+    unsorted or overlapping list (and a negative location or length), so a plan
+    that exists is one the app's applier can apply back-to-front in one bracket.
+    Two insertions at the same offset are not an overlap — back-to-front they
+    land in list order — and neither is an edit starting exactly where the
+    previous one ends; a range listed before an insertion at its own start is,
+    since that insertion falls inside it. `isEmpty` asks the edits alone, so a
+    plan carrying only a selection is still "nothing to apply". `mapped(offset:
+    bias:)` moves an original offset into the resulting text, which is how the
+    engines place carets: before an edit it shifts by every earlier edit's net
+    change; strictly inside a replaced range it lands at the replacement's start
+    (`.before`) or end (`.after`), because the text it pointed into is gone; at
+    an edit's start — always the case for an insertion — `bias` decides, and
+    several insertions at one offset are passed as one; at or past a non-empty
+    edit's end it shifts by that edit's full change. The default is `.after`.
+    `TabInsertionPlan` stays as it is for the iOS caller and converts losslessly
+    (pinned). The app half is the coordinator's `apply(_:in:)` (`app-editor.md`).
+    Unit-tested in `RangeEditPlanTests`.
+  - `BlockIndentEngine.swift` — block indent (Tab on a multi-line selection)
+    and outdent (Shift+Tab on any caret or selection), each answering a
+    `RangeEditPlan`. The `unit` is handed in — Enter's `IndentUnitRule.unit`,
+    EditorConfig first, inference second; the engine never decides it.
+    `isBlockSelection(text:ranges:)` is true when any range contains a line
+    separator (it spans lines, or covers a whole line with its terminator); a
+    caret, an in-line selection and a whole terminator-less last line answer
+    false and keep plain Tab. **Touched lines** are `ToggleCommentEngine`'s rule
+    — a non-empty range ending exactly at a line start does not touch that line —
+    merged across all ranges so no line is edited twice. `indent` inserts the unit
+    at the start of every touched **non-blank** line (blank and whitespace-only
+    lines are skipped, so no trailing whitespace is created). `outdent` removes at
+    most one unit per touched line: a leading tab is removed alone whatever the
+    unit (the mixed-indentation rule), otherwise up to the unit's width in leading
+    spaces or the shorter run that exists — a tab unit counts as
+    `tabUnitSpaceWidth` (4, the inference's fallback width) there — and a line
+    with no leading whitespace is left alone; an empty plan means nothing changed.
+    Every selection endpoint is mapped `.before`, which, since every edit sits at
+    a line start, keeps an endpoint at column 0 at its line start (so a selection
+    starting there covers the inserted unit and an end at the next line's start
+    stays out of it), moves every other endpoint with its text, and clamps an
+    endpoint inside removed indentation to the line start. Lines come from
+    `LineStartIndex`, so all six separators work and a terminator is never
+    edited. `IndentUnitRule.tabInsertionPlan` is unchanged — it still replaces a
+    multi-line selection (pinned in `IndentUnitRuleTests`, whose whole value is
+    pinned for one range and for several); choosing the block path is the macOS
+    caller's job — the coordinator asks `isBlockSelection` first and only then
+    falls through to the plan (`app-editor.md`). `smartBackspace(text:selections:unit:)`
+    answers `nil` — stock deletion — unless **every** selection is a zero-width
+    caret with at least one character before it on its line, all of them spaces,
+    and the unit is made of spaces (a tab unit, a tab in the run, or a caret
+    after code all fall through, and one non-qualifying caret makes the whole
+    command stock, so a multi-caret Backspace is never half smart). Each deletion
+    runs from the caret back to the previous multiple of the unit's width
+    measured from the column — at most one unit, never across non-whitespace;
+    deletions of several carets on one line merge into one edit and carets
+    landing on one offset collapse. Unit-tested in `BlockIndentEngineTests`.
+  - `MoveLineEngine.swift` — Move Line Up / Down (⌥⌘[ / ⌥⌘]):
+    `move(text:ranges:direction:folds:)` answers a `MoveLinePlan` — `edit`, a
+    `RangeEditPlan` whose selections move with the text, and `folds`, the
+    **complete** `FoldState` against the resulting text — or `nil`, meaning
+    no-op with no undo. **Blocks** are the touched lines of every range under
+    `BlockIndentEngine`'s rule, adjacent or overlapping sets merged; each block
+    grows to cover every folded region it touches (header line plus every line
+    the hidden range reaches), so a fold moves as one unit and is never split.
+    The **neighbour** is the adjacent line, or the whole folded region that
+    line belongs to, so a folded block is swapped past in one press. Each
+    block-and-neighbour pair is one replacement over the pair's span, all pairs
+    in one plan; after merging, a neighbour always lies between two blocks, so
+    pairs never overlap. `nil` when any block already sits on the first (up) or
+    last (down) line, for empty text, and for a caret on the phantom empty line
+    after a final separator — there is no text there to carry. **Terminators**:
+    every line keeps its own; in a text with no final separator, when the swap
+    changes which line is last, the line becoming last gives its terminator to
+    the line leaving that position, so the line count and the final-terminator
+    state are preserved and each replacement is exactly as long as its span.
+    **Folds**: every folded region inside a moved block or neighbour is
+    translated by its part's displacement with its header line renumbered;
+    every other region is unchanged. The app applies `edit` (whose ordinary
+    shift drops what the span touched) and then installs `folds` whole, so a
+    move never reveals a fold — the undo rule and the wiring are in
+    `core-folding.md` and `app-editor.md`. Lines come from `TerminatedLines`,
+    so all six separators delimit. Unit-tested in `MoveLineEngineTests`,
+    including the undo path through `FoldShift.updated`.
   - `DuplicateEngine.swift` — pure, testable duplicate-line/selection computation
     for the editor's Cmd+D (Foundation only, no AppKit/Neon — the
     `IndentEngine`/`AutoPairEngine` precedent: the engine operates on an
@@ -44,6 +130,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     never trap) but is otherwise used as given: the engine never widens a range to
     a composed character sequence, since that would change selection semantics
     (and the text view never hands over a range splitting a surrogate pair).
+    **Every range at once**: `duplicate(text:selectedRanges:) -> RangeEditPlan`
+    answers ⌘D for several carets, a column selection or disjoint selections as
+    one plan. Each range keeps the single-range semantics, carets on one line
+    duplicate it **once** (each caret landing at its own column in the one
+    copy), and every original range leaves exactly one caret or selection in its
+    copy, in the given order; insertions at one offset keep the ranges' order.
+    The plan is *built from* the single-range answers, so one range equals the
+    `DuplicateEdit` exactly — pinned exhaustively over every range of a small
+    corpus.
     Unit-tested in `DuplicateEngineTests`. **Out of scope** (follow-ups): an iOS
     variant via `UIKeyCommand` for an external keyboard over this same engine, and
     an Edit → Duplicate Line menu item.
@@ -56,8 +151,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     toggle (mirroring `LanguageKeywords`). The tests assert that the set of
     styled languages and the set of no-comment languages are disjoint and
     exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
-    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. `.make` joins the `#` line group (GNU make's only comment form). Unit-tested in
-    `CommentStyleTests`.
+    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. `.make` joins the `#` line group (GNU make's only comment form). 
+    **Context** (`CommentContext`: `.code` / `.jsxChildren`): JSX children are
+    the one place a language's comment syntax changes, because `//` or `/* */`
+    there is text the page renders. `style(for:context:)` answers
+    `.block(open: "{/*", close: "*/}")` for `.jsxChildren` in javascript,
+    typescript and tsx and `style(for:)` for every other pairing, so this stays
+    the single table. `context(ancestors:commentOpensExpression:)` is the rule
+    that tells the two apart from the named syntax-tree nodes enclosing an
+    offset (a line's first non-whitespace offset for ⌘/, a range's start for
+    ⌥⌘/), innermost first, each with a `startsAtLineOffset`
+    flag — kinds alone cannot tell a child line opening with `<span>` from a
+    continuation line of a multi-line opening tag, so the flag is input. The
+    first listed kind met decides: `jsx_attribute` → code; a `jsx_expression`
+    that does not start at the offset → code (the line is inside `{…}`), one
+    that does → children when its parent is a `jsx_element` — the shape of a
+    wrapped child line `{/* … */}`, so a second ⌘/ or ⌥⌘/ unwraps what the first
+    wrote, and of any child `{…}`, where `//` would be rendered text; a
+    `comment` whose parent is a `jsx_expression` **and that starts right after
+    its `{`** (`commentOpensExpression`, the one positional fact the kinds
+    cannot carry, defaulting to `false`) → as that expression's lines
+    (children when the expression's parent is a `jsx_element`) — the later
+    lines of a wrap spanning several child lines sit inside the comment, and
+    answering code there would make the second ⌘/ write `//` into the children
+    instead of unwrapping; any other `comment` is skipped — including an
+    ordinary `/* note */` on its own line inside a multi-line `{…}`, whose kinds
+    equal a wrap's, so the walk meets the expression mid-line and answers code
+    rather than nesting it in `{/* /* note */ */}`;
+    `jsx_text` → children; an element or opening/closing tag that does not
+    start at the offset → code (the line is inside a tag), one that does →
+    children only when its element's parent is a `jsx_element` (the root
+    element of a `return (…)` is code); unlisted kinds are skipped; the root →
+    code. There is no `jsx_fragment` case — the pinned TSX grammar has none,
+    and `<>…</>` is a `jsx_element` with an unnamed opening tag. The tree walk
+    feeding the rule is app-side (`CommentContextTreeWalk`,
+    `app-editor-overlays.md`). **Block delimiters**:
+    `blockDelimiters(for:context:)` is a table of its own — `style(for:)`
+    names the *line* style where a language has both — answering `/* */` for
+    the C family and css, `<!-- -->` for html and `{/* */}` in JSX children,
+    `nil` elsewhere; `languagesWithBlockComments` and
+    `languagesWithoutBlockComments` partition `allCases`, pinned by set
+    equality like the no-comment set. Unit-tested in `CommentStyleTests`.
   - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
     the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
     carries `replacementRange`, `text`, and `selectedRange` (the resulting
@@ -79,7 +213,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Selection placement becomes the touched lines' post-edit whole-line span
     (from the first touched line's start to the last's contents end).
     Line mode skips blank/whitespace-only lines in both directions. It inserts
-    the token after leading indentation with one space after. When removing, it accepts both
+    `token + " "` **aligned**: at the *minimum* leading-whitespace length of the
+    non-blank touched lines, counted in UTF-16 units, so a tab counts as one unit
+    like a space (lines indented 4 and 8 both get `//` at column 4; a tab line
+    beside a 4-space line aligns both at column 1, a documented consequence). The
+    caret delta applies when the caret column is at or past that insertion
+    column. Uncommenting strips the token after each line's *own* indentation,
+    so the aligned form and the older per-line form both uncomment, and an
+    aligned comment uncomments byte-for-byte. When removing, it accepts both
     the token alone (`//x`) or with at most one immediately following space
     (`// x`), allowing leading whitespace before the token.
     Block mode normalizes the "first/last touched line" to the first and last
@@ -88,7 +229,59 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     of the last non-blank line's contents. Unwrap tolerates one space inside
     each delimiter and trailing whitespace after the closer. Delimiters already
     inside the target are left exactly as they are without rebalancing.
+    **Every range at once**: `toggle(text:selectedRanges:language:style:) ->
+    RangeEditPlan?` answers ⌘/ for several carets and selections as one plan;
+    `style` overrides the language's own style when a caller resolved a
+    contextual one. Touched lines are `BlockIndentEngine`'s rule (the same as
+    above), merged across ranges. **Line style**: one all-commented decision and
+    one alignment column across the union, and per-line edits only — a
+    zero-length insertion, or the deletion of the token plus an optional space —
+    so carets and selections map through the plan. **Block style**: the touched
+    lines merge into contiguous line blocks, each wrapped or unwrapped
+    separately in one plan; a block holding one range is answered by the
+    single-range block toggle with that range, and a block several ranges merged
+    into leaves one selection over the whole block. Identical resulting
+    selections collapse into one. The single-range line answer is *composed*
+    from this plan (its text is the touched span with the plan's edits applied),
+    so the two entry points cannot drift; a test pins their equality for both
+    styles over every range of a small corpus.
+    **Contextual style**: `toggle(text:selectedRanges:language:context:)` is
+    the ⌘/ entry the app calls. `context` maps a line's first non-whitespace
+    offset to a `CommentContext` and is asked only for the first and last
+    non-blank touched lines of each merged line block, and only in a language
+    whose contextual style differs from its own (the JavaScript family) — every
+    other language never asks, so the app never parses for it. A block whose
+    first **and** last lines both answer `.jsxChildren` is wrapped or unwrapped
+    as one `{/* … */}` block; every other block takes the language's own style,
+    sharing one all-commented decision and one alignment column. With no JSX
+    block the answer equals the plain toggle's, with only JSX blocks the block
+    toggle's under `{/* */}` — both pinned, as is a test that fails if `//`
+    were ever written into JSX children.
     Unit-tested in `ToggleCommentEngineTests`.
+  - `BlockCommentEngine.swift` — Toggle Block Comment (⌥⌘/), each range
+    answered on its own, all in one `RangeEditPlan` (one undo step). A
+    selection that starts with `open` and ends with `close`, at least
+    `open + close` long so the two never share characters, **unwraps**, taking
+    one optional inner space each side, and the selection then covers what was
+    inside; any other selection **wraps** as `open + " " + text + " " + close`
+    and the selection covers the wrapped text, so a second press unwraps; a
+    **caret** inserts `open` + two spaces + `close` (`/*  */`) and lands between
+    the spaces (offset `k` → `k + 3` for `/*`). Identical carets are answered
+    once, and a range overlapping an earlier one is dropped rather than
+    producing an overlapping plan. `toggle(text:selectedRanges:language:context:)`
+    is the whole command: delimiters come from `CommentStyle.blockDelimiters`;
+    **the chosen fallback** is that a language with a line comment but no block
+    syntax (the `#` and `--` languages) runs the line toggle instead, so the key
+    still comments something; json, markdown and no language answer `nil`, which
+    the view beeps. In the JavaScript family `context` is asked **where each
+    range starts** — not at its line, as the line toggle asks, because this
+    command wraps the range: `value` selected in a child `{render(value)}`
+    line is inside `{…}` and gets `/* */`, where `{/* */}` would be an empty
+    object argument — except that a range starting in its line's leading
+    indentation is asked at the first non-whitespace offset, so a whole-line
+    selection answers as its line does. A range starting in JSX children wraps
+    `{/* … */}`. Lines
+    come from `BlockIndentEngine.Lines`. Unit-tested in `BlockCommentEngineTests`.
   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func
     shouldRefresh(changedPaths: [String], root: URL) -> Bool }` answers "is this

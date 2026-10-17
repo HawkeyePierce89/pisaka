@@ -131,12 +131,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `selectedRange()` — the middle-drag column selection makes several
     zero-width carets a first-class state, and replacing only one would silently
     collapse the selection) go through `IndentUnitRule.tabInsertionPlan`, whose
-    sorted, non-overlapping replacements are applied **back-to-front** — later
-    ranges first, so earlier offsets stay valid — inside one
-    `shouldChangeText(inRanges:replacementStrings:)` /
-    `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
-    (one undoable step, one change notification), followed by `setSelectedRanges`
-    with the plan's carets. A `shouldChangeText` **refusal** returns `false`, not
+    plan is converted to a Core `RangeEditPlan` and handed to the coordinator's
+    **shared edit applier**, `apply(_:in:)` — the one bracket every multi-range
+    line command funnels through. It applies the sorted, non-overlapping edits
+    **back-to-front** — later ranges first, so earlier offsets stay valid — inside one
+    `shouldChangeText(inRanges:replacementStrings:)` / `didChangeText()`
+    bracket (one undoable step, one change notification), each edit in its
+    **own** `textStorage.beginEditing()` … `endEditing()` — one pass around them
+    all would coalesce them into a single `editedRange` from the first edit to
+    the last, and the fold and diagnostics shifts drop whatever intersects that
+    span, so a fold or squiggle between two distant carets would be lost though
+    nothing in it changed — followed by `setSelectedRanges`
+    with the plan's selections (skipped for a plan carrying none, since an empty
+    array raises) and one `scrollRangeToVisible` of the first. The applier answers
+    `false` for an empty plan, a composition in flight, a missing storage and a
+    refusal, so a key handler can hand its key back to AppKit on that answer. A `shouldChangeText` **refusal** returns `false`, not
     `true` — a refused edit is not a handled key, and eating it would leave Tab
     doing nothing at all — and the spaces are written as an `NSAttributedString`
     carrying `textView.typingAttributes`, since the raw storage path this fan-out
@@ -152,20 +161,48 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hands the key to AppKit's own `insertTab`, which is what Tab did before the
     feature existed; it is the guard `handleCompletionKey` already takes, for the
     same reason.
+    `EditingCommandRoutingTests` (app bundle) drives the routing through a real
+    `NSTextView`: Tab on a block and ⌘D on two selections each undo in one step,
+    Tab at a caret with no config hands the key back, Shift+Tab is consumed with
+    nothing to outdent, Backspace in space indentation stops at the indent stop,
+    and the applier refuses mid-composition without touching the text.
     The existing `isApplyingProgrammaticEdit` guard wraps
     the *whole* bracket rather than just the storage mutation, because the
     single-range case reaches the single-range delegate callback where the
-    auto-pair interceptor acts on one-character insertions. `insertBacktab` is
-    untouched. The config itself arrives as `var editorConfig:
+    auto-pair interceptor acts on one-character insertions.
+    **Block indent, Shift+Tab and smart Backspace** sit in the same
+    `doCommandBy` switch and all apply a `BlockIndentEngine` plan through the
+    shared applier, with Enter's unit (`indentUnit(text:)`, i.e.
+    `IndentUnitRule.unit` — the one sanctioned use of the inferred unit by a
+    key, `core-editorconfig.md`). **Tab** asks `indentBlock(in:)` first: with no
+    marked text and `isBlockSelection` true it applies `indent` and returns
+    `true` — even when every touched line is blank and the plan is empty, so
+    the key never falls through to replacing the selection, the old behaviour;
+    a caret-only selection answers `false` before the buffer is read, and every
+    `false` runs `insertConfiguredTab` untouched. **`insertBacktab`** routes to
+    `outdentLines(in:)` and always returns `true`: mid-composition it is
+    consumed as a no-op, and an empty plan is refused by the applier before
+    anything is touched, so it registers no undo and does not beep.
+    **Backspace** runs `deleteAutoPair` first, which keeps its precedence, then
+    `deleteToIndentStop(in:)`: a cheap pre-check on the live storage (every
+    selection a caret preceded by a space) runs before the unit is computed, so
+    an ordinary Backspace after code never pays for the inference walk; then
+    `smartBackspace`, whose `nil` — and an applier refusal — answer `false` and
+    let the stock `deleteBackward:` run. Option- and Command-Backspace are other
+    selectors and never reach the switch. The completion popup's precedence is
+    unchanged: `keyDown` hands Tab/Return/arrows to `onCompletionKey` before
+    `super.keyDown`, so `doCommandBy` is never consulted while it commits, and
+    `handleCompletionKey` refuses any modifier, so Shift+Tab always reaches
+    the outdent. The config itself arrives as `var editorConfig:
     EditorConfigModel` — a plain, **undefaulted** property beside `symbolIndex`
     (a default would be a second live disk reader built for a view nobody
     constructs), owned by `PisakaApp`, deliberately *not* observed because it
     publishes nothing, and held **weakly** by the coordinator like `symbolIndex`:
     a deallocated one answers empty properties, which is exactly the "no
     configuration applies" case, so the editor degrades to the content inference
-    rather than misbehaving. Enter and Tab both read it through one private
-    helper, so they can never disagree about the unit — they differ only in
-    *whether* it is used. Enter reads a **second** private helper of its own,
+    rather than misbehaving. Enter, Tab and the three block commands all read it
+    through one private helper, so they can never disagree about the unit —
+    they differ only in *whether* it is used. Enter reads a **second** private helper of its own,
     `newlineTerminator()` (`endOfLine?.terminator ?? "\n"`), the terminator it
     splices: `end_of_line` is consumed in full, so a newly typed terminator and a
     normalized one can never disagree, and a project stating no `end_of_line`
@@ -301,18 +338,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ordinary text and leave the marked range pointing at a region the insertion
     moved. All four conditions are load-bearing; dropping any one reintroduces a
     concrete misfire. `Coordinator.duplicateSelection(in:)` reads the live
-    `textView.string`/`selectedRange()`, calls `DuplicateEngine.duplicate`, applies
-    the result with a single `insertText(edit.text, replacementRange: NSRange(
-    location: edit.insertionLocation, length: 0))` (a zero-length replacement, so
-    the per-file undo manager records the whole duplication as *one* undoable
-    step), then installs `edit.selectedRange`. It is bracketed by the shared
-    `isApplyingProgrammaticEdit` flag for the same mandatory reason as the indent
-    and auto-pair edits: `insertText` re-invokes `shouldChangeTextIn`
-    synchronously and the auto-pair interceptor fires on any single-character
-    replacement, so duplicating a one-character *selection* holding a lone `(`
-    would otherwise fall into auto-pair and insert `()`. The line path can emit a
-    single character too — duplicating an *empty* line inserts just `"\n"` — so
-    the guard covers both paths unconditionally. The closure `makeNSView` installs into
+    `textView.string` and **every** range of `selectedRanges`, calls
+    `DuplicateEngine.duplicate(text:selectedRanges:)`, and applies the plan
+    through the coordinator's one multi-range applier, so several carets or a
+    column selection duplicate as *one* undoable step and each range leaves its
+    caret or selection in its copy. `toggleComment(in:)` (⌘/) is wired the same
+    way over `ToggleCommentEngine.toggle(text:selectedRanges:language:context:)`,
+    a `nil` plan being the silent no-op; `context` is
+    `CommentContextTreeWalk.resolver` (`app-editor-overlays.md`), so JSX
+    children comment as `{/* … */}` and the tree is parsed at most once, only
+    when the engine first asks. The applier holds the shared
+    `isApplyingProgrammaticEdit` flag across its whole bracket, which is
+    mandatory here for the same reason as the indent and auto-pair edits: the
+    single-range `shouldChangeText` callback reaches the auto-pair interceptor,
+    which fires on any single-character replacement, so duplicating a
+    one-character *selection* holding a lone `(` would otherwise fall into
+    auto-pair and insert `()`. The line path can emit a single character too —
+    duplicating an *empty* line inserts just `"\n"` — so the guard covers both
+    paths unconditionally. The closure `makeNSView` installs into
     `onDuplicate` captures the coordinator **weakly**: the coordinator holds the
     text view weakly, but the `PredicateResolvingHighlighter` — which the coordinator owns
     strongly — keeps a strong `textView`, so a strong capture would close the cycle
@@ -1061,8 +1104,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rows, the Usages rows and the symbol jump) and `EditorSearchController.select(_:)`
     through the `revealRange` hook `attachSearch` installs, which is why the find
     bar no longer selects or scrolls for itself. This file holds exactly **two**
-    `scrollRangeToVisible` calls: the funnel's own and the Tab plan's caret scroll
-    after a raw-storage edit, and the second is named as **not a reveal** — it
+    `scrollRangeToVisible` calls: the funnel's own and the shared edit applier's
+    (`apply(_:in:)`) selection scroll after a raw-storage edit, and the second is named as **not a reveal** — it
     re-shows a caret the selection path just produced and the caret rule has already
     sanitized, on a line that is visible by construction. Three further text views in
     the app scroll and are excluded because they hold no fold state at all:
@@ -1332,6 +1375,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `HoverContent` type it always drew; the server's own range stays the honest
     span when it answered, and a diagnostics-only answer anchors to the union set
     at ask time.
+    **`showDiagnostics(at:in:)` is the keyboard's way in**, and the only one:
+    *Next / Previous Problem* (`ProblemCommands.swift`) calls it after the caret
+    has landed. No dwell and no server request — the messages at the offset come
+    from the same `Source.diagnosticsAtOffset` lookup, composed by the same
+    `hoverContent(for:merging:)` with no type answer, and anchored to the same
+    union `question(for:identifier:diagnostics:)` builds, so a pointer resting
+    inside it keeps the popover up exactly as after a dwell. It opens with
+    `dismiss()`, which bumps the generation, and captures the token; when TextKit
+    has not yet laid out the anchor (`firstUnlaidCharacterIndex()`), the
+    presentation waits one main-loop turn, for `applyReveal`'s reason, and is
+    dropped if anything bumped the token meanwhile. It is called *after* the
+    selection change, so the selection-change dismissal has already run and
+    cannot take it down.
    - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
      drawing a `HoverContent` beside the identifier the pointer rests on.
      On the chrome roles since part five (a) (`core-theme.md`): a flat `bgPopover`
@@ -1913,6 +1969,61 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     keystrokes. Paragraph direction is a rich-text attribute a plain-text code
     buffer neither shows nor saves. ⌃←/⌃→ alone, the line-end moves, are
     untouched. The type's doc comment records the same check.
+  - `LineCommands.swift` (macOS) — the Edit menu's *Move Line Up* (⌥⌘[) and
+    *Move Line Down* (⌥⌘]), in a `CommandGroup(after: .pasteboard)`, shaped
+    like `SelectionCommands`: stateless items reaching the focused editor
+    through `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` and its
+    coordinator (the text view's delegate), with one beep
+    (`PlatformFeedback.warning()`) for a focus that is not an editor, a
+    read-only viewer or a composition in flight — Fold's refusals, since a move
+    is an edit — and for an editor answering that nothing moved. `PisakaApp`
+    names the type once inside the shared `Group`, so the `.commands { }`
+    builder gains no entry. The coordinator's `moveLines(_:)` reads the folded
+    state from the `FoldController`, asks `MoveLineEngine.move`, applies
+    `plan.edit` through `apply(_:in:)` — one undo step, the selections moving
+    with the text — and only on success installs `plan.folds` whole through
+    `folds.apply(_:)`; the engine's `nil` (a block at an edge) applies nothing,
+    registers no undo and beeps. Undo is an ordinary edit through the shift
+    rule, so a fold inside the swapped span may open on undo
+    (`core-folding.md`). **The chords**: free among the app's own shortcuts
+    (`MenuShortcutUniquenessTests` pins them to this file and keeps them apart
+    from tab navigation's ⌘⇧[ / ⌘⇧]), and `StandardKeyBinding.dict` binds no
+    bracket key at all, so the text view gives up nothing.
+  - `CommentCommands.swift` (macOS) — the action of the Edit menu's *Toggle
+    Block Comment* (⌥⌘/), whose item sits beside *Toggle Comment* in
+    `PisakaApp`'s existing Edit block; the action and the coordinator's
+    `toggleBlockComment(in:)` live here because `PisakaApp.swift` and
+    `CodeEditorView.swift` sit at their lint size caps (`style-lint.md`).
+    Shaped like `LineCommands`: stateless, reaching the focused editor through
+    `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` and its
+    coordinator, beeping (`PlatformFeedback.warning()`) for a focus that is not
+    an editable editor, a composition in flight, or an editor answering that
+    nothing changed — json and markdown. The coordinator asks
+    `BlockCommentEngine.toggle(text:selectedRanges:language:context:)` with the
+    same `CommentContextTreeWalk.resolver` as ⌘/, and applies the plan through
+    `apply(_:in:)`; the line-toggle fallback for `#` and `--` languages is the
+    engine's, not the view's. **The chord** is pinned to its item by
+    `MenuShortcutUniquenessTests`; ⌘/ keeps Toggle Comment.
+  - `ProblemCommands.swift` (macOS) — the Find menu's *Next Problem* (⌘') and
+    *Previous Problem* (⌘⇧'), plus the coordinator's `goToProblem(_:)`. The items
+    are a `View` (`ProblemNavigationItems`: a divider and two buttons), named
+    once at the foot of `PisakaApp`'s `CommandMenu("Find")`, because a custom
+    menu has no `CommandGroupPlacement` a separate `Commands` type could target;
+    both are disabled with no tab open, the Find menu's usual gate. The action
+    reaches the focused editor through `EditorCommandTarget.focusedEditor(in:)`
+    and its coordinator, beeping (`PlatformFeedback.warning()`) when nothing
+    focused can answer or the answer is `false`. A move rather than an edit, so a
+    read-only editor and a composition in flight are *not* refusals.
+    `goToProblem(_:)` reads `diagnosticsModel.store.entry(for:)` — already
+    shifted by `DiagnosticShift`, no server request — asks
+    `DiagnosticNavigationRule.target` with the selection's start as the caret,
+    and lands the caret through `revealRange(_:)`, the funnel the Problems row
+    uses, so a problem inside a folded block unfolds by `FoldReveal`'s rule.
+    Only then does it ask the coordinator's `hover` (internal rather than private
+    for this one reader) to `showDiagnostics(at:in:)`. No file, no editor, no
+    diagnostic, or a target past the live buffer answers `false`. **The chords**
+    are claimed by nothing else (`MenuShortcutUniquenessTests` pins them to this
+    file), and `StandardKeyBinding.dict` binds no apostrophe with ⌘ held.
   - `SelectionExpansionController.swift` (macOS) — Expand / Shrink Selection's
     editor side: one per editor, held by the coordinator as **one lazy
     property** (`CodeEditorView.swift` sits at its `file_length` ceiling, which

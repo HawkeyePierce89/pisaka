@@ -1381,6 +1381,9 @@ struct PisakaApp: App {
                 Button("Toggle Comment") { toggleCommentAtCaret() }
                     .keyboardShortcut("/", modifiers: .command)
                     .disabled(model.selectedID == nil)
+                Button("Toggle Block Comment") { CommentCommands.toggleBlockComment() }
+                    .keyboardShortcut("/", modifiers: [.command, .option])
+                    .disabled(model.selectedID == nil)
             }
 
             // The self-contained command types, as one entry: this builder
@@ -1396,6 +1399,10 @@ struct PisakaApp: App {
                 // Expand / Shrink Selection (⌃⌘→ / ⌃⌘←), in the same Edit
                 // group, reaching the focused editor the same way.
                 SelectionCommands()
+
+                // Move Line Up / Down (⌥⌘[ / ⌥⌘]), in the same Edit group,
+                // reaching the focused editor the same way.
+                LineCommands()
 
                 // Tab navigation, in the Window menu above its window list; its
                 // items observe the workspace in `TabNavigationCommands.swift`.
@@ -1596,6 +1603,10 @@ struct PisakaApp: App {
                 // Greying it out says *why* nothing happens.
                 Button("Complete") { completeAtCaret() }
                     .disabled(model.selectedID == nil || !settings.completionEnabled)
+
+                // Next / Previous Problem (⌘' / ⌘⇧'), its divider and both
+                // items in `ProblemCommands.swift`.
+                ProblemNavigationItems(isDisabled: model.selectedID == nil)
             }
 
             CommandMenu("Git") {

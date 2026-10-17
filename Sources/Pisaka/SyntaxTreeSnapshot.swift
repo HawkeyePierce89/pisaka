@@ -282,4 +282,93 @@ enum SelectionExpansionTreeWalk {
     }
 }
 
+/// Reads the ancestor chain `CommentStyle.context(ancestors:)` takes off a
+/// syntax tree (R6): the **named** nodes enclosing an offset — a line's first
+/// non-whitespace offset for ⌘/, a range's start for ⌥⌘/ — innermost first,
+/// each paired with whether it starts exactly at that offset, plus whether a
+/// `comment` among them starts right after its `jsx_expression`'s `{`. Every
+/// decision about what that means is the rule's; this only walks parents.
+///
+/// Only the JSX-capable grammars are walked (`.javascript`, which covers
+/// `.jsx`, and `.tsx`); `.typescript` has no JSX, so its chain is never asked
+/// for. The tree is the snapshot's cached one, else a synchronous parse of the
+/// buffer — Toggle Comment is one keystroke and must answer now. No tree
+/// answers an empty chain, which the rule reads as code: silently `//`.
+enum CommentContextTreeWalk {
+    static func supports(_ language: SyntaxLanguage?) -> Bool {
+        switch language {
+        case .javascript, .tsx: true
+        default: false
+        }
+    }
+
+    /// The `context` Toggle Comment hands the engine: a line offset to its
+    /// `CommentContext`. The tree is resolved on the first ask and reused —
+    /// `snapshot`'s cached tree, else one synchronous parse of `text` — so a
+    /// toggle the engine never asks about (no JSX language, no block) parses
+    /// nothing.
+    @MainActor
+    static func resolver(
+        snapshot: SyntaxTreeSnapshot, text: NSString, language: SyntaxLanguage?, fileID: UUID?
+    ) -> (Int) -> CommentContext {
+        var resolved: Tree??
+        return { offset in
+            if resolved == nil {
+                resolved = .some(tree(snapshot: snapshot, text: text as String, language: language, fileID: fileID))
+            }
+            guard let tree = resolved ?? nil else { return .code }
+            return context(in: tree, at: offset, textLength: text.length)
+        }
+    }
+
+    /// The tree describing `text`: `snapshot`'s cached tree, else a fresh
+    /// synchronous parse; `nil` for a language this walk does not read.
+    @MainActor
+    static func tree(
+        snapshot: SyntaxTreeSnapshot, text: String, language: SyntaxLanguage?, fileID: UUID?
+    ) -> Tree? {
+        guard supports(language), let language else { return nil }
+        if let fileID, let cached = snapshot.cached(language: language, fileID: fileID) { return cached }
+        return SyntaxTreeSnapshot.parse(text: text, language: language)
+    }
+
+    /// The rule's answer at `offset`: the chain, plus whether its `comment`
+    /// starts right after a parent `jsx_expression`'s `{` — the one fact the
+    /// rule needs that the kinds cannot carry.
+    static func context(in tree: Tree, at offset: Int, textLength: Int) -> CommentContext {
+        CommentStyle.context(
+            ancestors: ancestors(in: tree, at: offset, textLength: textLength),
+            commentOpensExpression: commentOpensExpression(in: tree, at: offset, textLength: textLength)
+        )
+    }
+
+    static func commentOpensExpression(in tree: Tree, at offset: Int, textLength: Int) -> Bool {
+        guard let root = tree.rootNode, offset >= 0, offset < textLength else { return false }
+        let bytes = UInt32(offset * 2)
+        var node = root.descendant(in: bytes..<(bytes + 2))
+        while let current = node {
+            if current.isNamed, current.nodeType == "comment" {
+                guard let parent = current.parent, parent.nodeType == "jsx_expression" else { return false }
+                return current.range.location == parent.range.location + 1
+            }
+            node = current.parent
+        }
+        return false
+    }
+
+    static func ancestors(in tree: Tree, at offset: Int, textLength: Int) -> [(kind: String, startsAtLineOffset: Bool)] {
+        guard let root = tree.rootNode, offset >= 0, offset < textLength else { return [] }
+        let bytes = UInt32(offset * 2)
+        var node = root.descendant(in: bytes..<(bytes + 2))
+        var chain: [(kind: String, startsAtLineOffset: Bool)] = []
+        while let current = node {
+            if current.isNamed, let kind = current.nodeType {
+                chain.append((kind: kind, startsAtLineOffset: current.range.location == offset))
+            }
+            node = current.parent
+        }
+        return chain
+    }
+}
+
 #endif

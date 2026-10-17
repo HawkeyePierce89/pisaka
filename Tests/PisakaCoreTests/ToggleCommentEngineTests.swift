@@ -488,4 +488,336 @@ final class ToggleCommentEngineTests: XCTestCase {
         XCTAssertEqual(restore?.replacementRange, NSRange(location: 7, length: 15))
         XCTAssertEqual(restore?.text, "\tswift build\n")
     }
+
+    // MARK: - Multi-range plan and alignment
+
+    private func apply(_ plan: RangeEditPlan, to text: String) -> String {
+        let result = NSMutableString(string: text)
+        for edit in plan.edits.reversed() {
+            result.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        return result as String
+    }
+
+    private func plan(
+        _ text: String, _ ranges: [NSRange], language: SyntaxLanguage? = .swift
+    ) -> RangeEditPlan? {
+        ToggleCommentEngine.toggle(text: text as NSString, selectedRanges: ranges, language: language)
+    }
+
+    private func carets(_ locations: Int...) -> [NSRange] {
+        locations.map { NSRange(location: $0, length: 0) }
+    }
+
+    func testMarkersAlignAtTheMinimumIndentationAndUncommentRestoresBytes() throws {
+        let text = "    a\n        b\n"
+        let all = [NSRange(location: 0, length: (text as NSString).length)]
+        let commented = try XCTUnwrap(plan(text, all))
+        let once = apply(commented, to: text)
+        XCTAssertEqual(once, "    // a\n    //     b\n")
+        XCTAssertEqual(commented.edits, [
+            IndentReplacement(range: NSRange(location: 4, length: 0), replacement: "// "),
+            IndentReplacement(range: NSRange(location: 10, length: 0), replacement: "// "),
+        ])
+        let uncommented = try XCTUnwrap(plan(once, commented.selections))
+        XCTAssertEqual(apply(uncommented, to: once), text)
+    }
+
+    /// The single-range entry point aligns too: it is composed from the plan.
+    func testSingleRangeEntryPointAligns() {
+        let text = "    a\n        b"
+        assertToggle(
+            text,
+            selectedRange: NSRange(location: 0, length: 15),
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 15),
+                text: "    // a\n    //     b",
+                selectedRange: NSRange(location: 0, length: 21)
+            )
+        )
+    }
+
+    func testTheOlderPerLineFormStillUncomments() throws {
+        let text = "    // a\n        // b\n"
+        let commented = try XCTUnwrap(plan(text, [NSRange(location: 0, length: 21)]))
+        XCTAssertEqual(apply(commented, to: text), "    a\n        b\n")
+    }
+
+    /// A tab is one UTF-16 unit, so a tab-indented line aligns a space-indented
+    /// one at column 1.
+    func testATabCountsAsOneUnitOfIndentation() throws {
+        let text = "\ta\n    b"
+        let commented = try XCTUnwrap(plan(text, [NSRange(location: 0, length: 8)]))
+        XCTAssertEqual(apply(commented, to: text), "\t// a\n //    b")
+    }
+
+    /// The caret moves with the marker only when it sits at or past the
+    /// insertion column.
+    func testCaretDeltaAppliesFromTheInsertionColumn() {
+        assertToggle("    abc", selectedRange: NSRange(location: 2, length: 0),
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 7),
+                text: "    // abc",
+                selectedRange: NSRange(location: 2, length: 0)
+            )
+        )
+        assertToggle("    abc", selectedRange: NSRange(location: 4, length: 0),
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 7),
+                text: "    // abc",
+                selectedRange: NSRange(location: 7, length: 0)
+            )
+        )
+    }
+
+    func testAColumnSelectionCommentsEveryLine() throws {
+        let text = "abc\ndef\nghi"
+        let column = [1, 5, 9].map { NSRange(location: $0, length: 1) }
+        let commented = try XCTUnwrap(plan(text, column))
+        XCTAssertEqual(apply(commented, to: text), "// abc\n// def\n// ghi")
+        XCTAssertEqual(commented.selections, [
+            NSRange(location: 0, length: 6),
+            NSRange(location: 7, length: 6),
+            NSRange(location: 14, length: 6),
+        ])
+    }
+
+    /// The regression the multi-range plan exists for: before it, only the
+    /// first range's line was toggled.
+    func testEveryRangeIsToggledNotOnlyTheFirst() throws {
+        let text = "a\nb\nc\n"
+        let commented = try XCTUnwrap(plan(text, carets(0, 4)))
+        XCTAssertEqual(apply(commented, to: text), "// a\nb\n// c\n")
+        // Each caret moves to the line below, column kept, as a single caret does.
+        XCTAssertEqual(commented.selections, carets(5, 12))
+    }
+
+    /// One all-commented decision across the union: a commented line beside an
+    /// uncommented one gains a second marker, never loses its own.
+    func testOneDecisionAcrossEveryRange() throws {
+        let text = "// a\nb\nc\n"
+        let commented = try XCTUnwrap(plan(text, carets(0, 7)))
+        XCTAssertEqual(apply(commented, to: text), "// // a\nb\n// c\n")
+    }
+
+    func testCaretsOnOneLineToggleItOnce() throws {
+        let text = "abc\n"
+        let commented = try XCTUnwrap(plan(text, carets(1, 2)))
+        XCTAssertEqual(apply(commented, to: text), "// abc\n")
+        XCTAssertEqual(commented.edits.count, 1)
+    }
+
+    func testBlankLinesAreNeverTouched() throws {
+        let text = "    a\n\n  \n    b"
+        let commented = try XCTUnwrap(plan(text, [NSRange(location: 0, length: 15)]))
+        XCTAssertEqual(apply(commented, to: text), "    // a\n\n  \n    // b")
+        XCTAssertNil(plan("\n  \n", carets(0, 1)))
+    }
+
+    func testEverySeparatorAcrossSeveralCarets() throws {
+        for separator in ["\n", "\r", "\r\n", "\u{0085}", "\u{2028}", "\u{2029}"] {
+            let text = "  a" + separator + "    b" + separator + "c"
+            let secondLine = 3 + (separator as NSString).length
+            let commented = try XCTUnwrap(plan(text, carets(0, secondLine)))
+            XCTAssertEqual(
+                apply(commented, to: text),
+                "  // a" + separator + "  //   b" + separator + "c",
+                "separator \(separator.unicodeScalars.map { $0.value })"
+            )
+        }
+    }
+
+    func testTwoCSSBlocksWrapAndUnwrapInOnePlan() throws {
+        let text = "a\nb\nc"
+        let wrapped = try XCTUnwrap(plan(text, carets(0, 4), language: .css))
+        let once = apply(wrapped, to: text)
+        XCTAssertEqual(once, "/* a */\nb\n/* c */")
+        XCTAssertEqual(wrapped.edits.count, 2)
+
+        let unwrapped = try XCTUnwrap(plan(once, carets(0, 10), language: .css))
+        XCTAssertEqual(apply(unwrapped, to: once), text)
+        XCTAssertEqual(unwrapped.edits.count, 2)
+    }
+
+    /// Adjacent ranges merge into one block, wrapped once and left as one
+    /// selection over it.
+    func testAdjacentCSSRangesMergeIntoOneWrap() throws {
+        let text = "a\nb\nc"
+        let wrapped = try XCTUnwrap(plan(text, carets(0, 2), language: .css))
+        XCTAssertEqual(apply(wrapped, to: text), "/* a\nb */\nc")
+        XCTAssertEqual(wrapped.selections, [NSRange(location: 0, length: 9)])
+    }
+
+    func testAnExplicitStyleOverridesTheLanguage() throws {
+        let text = "a"
+        let wrapped = try XCTUnwrap(ToggleCommentEngine.toggle(
+            text: text as NSString, selectedRanges: carets(0), language: .swift, style: .block(open: "{/*", close: "*/}")
+        ))
+        XCTAssertEqual(apply(wrapped, to: text), "{/* a */}")
+        XCTAssertNil(plan(text, carets(0), language: nil))
+        XCTAssertNil(plan(text, carets(0), language: .json))
+        XCTAssertNil(plan(text, [], language: .swift))
+    }
+
+    /// With one range, the plan's text and selection are the single-range
+    /// engine's for the block style, across carets and selections. The line
+    /// style is left out on purpose: its single-range entry is built from this
+    /// very plan, so comparing the two would compare a function with itself —
+    /// the line style is pinned instead by the explicit expectations above.
+    func testASingleRangePlanMatchesTheSingleRangeEngine() throws {
+        let texts = ["", "a", "  a\n    b\n", "// a\n//b", "x\r\n  y\r\nz", "/* a */\nb", "  \n a \n "]
+        for language in [SyntaxLanguage.css, .html] {
+            for text in texts {
+                let length = (text as NSString).length
+                for location in 0...length {
+                    for selectionLength in 0...(length - location) {
+                        let range = NSRange(location: location, length: selectionLength)
+                        let label = "\(language) \(text.debugDescription) \(range)"
+                        let single = ToggleCommentEngine.toggle(text: text as NSString, selectedRange: range, language: language)
+                        let multi = plan(text, [range], language: language)
+                        guard let single else {
+                            XCTAssertNil(multi, label)
+                            continue
+                        }
+                        let expected = (text as NSString).replacingCharacters(in: single.replacementRange, with: single.text)
+                        let actual = try XCTUnwrap(multi, label)
+                        XCTAssertEqual(apply(actual, to: text), expected, label)
+                        XCTAssertEqual(actual.selections, [single.selectedRange], label)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Contextual JSX style
+
+    /// Toggle with `jsxLines` (0-based line indices) answering `.jsxChildren`.
+    private func jsxPlan(_ text: String, _ ranges: [NSRange], jsxLines: Set<Int>,
+                         language: SyntaxLanguage = .tsx) -> RangeEditPlan? {
+        let ns = text as NSString
+        return ToggleCommentEngine.toggle(text: ns, selectedRanges: ranges, language: language) { offset in
+            let line = ns.substring(to: offset).components(separatedBy: "\n").count - 1
+            return jsxLines.contains(line) ? .jsxChildren : .code
+        }
+    }
+
+    private let jsxSource = """
+    return (
+      <div>
+        <span>a</span>
+        text
+      </div>
+    );
+    """
+
+    func testJSXChildrenWrapAndUnwrapWithBraces() throws {
+        let caret = (jsxSource as NSString).range(of: "<span>").location
+        let wrapped = apply(try XCTUnwrap(jsxPlan(jsxSource, carets(caret), jsxLines: [2, 3])), to: jsxSource)
+        XCTAssertTrue(wrapped.contains("\n    {/* <span>a</span> */}\n"), wrapped)
+        let again = (wrapped as NSString).range(of: "{/*").location
+        let unwrapped = apply(try XCTUnwrap(jsxPlan(wrapped, carets(again), jsxLines: [2, 3])), to: wrapped)
+        XCTAssertEqual(unwrapped, jsxSource)
+    }
+
+    func testJSXChildrenNeverGetALineComment() throws {
+        let source = jsxSource as NSString
+        let selection = NSRange(location: source.range(of: "<span>").location,
+                                length: source.range(of: "text").location + 4 - source.range(of: "<span>").location)
+        let result = apply(try XCTUnwrap(jsxPlan(jsxSource, [selection], jsxLines: [2, 3])), to: jsxSource)
+        XCTAssertFalse(result.contains("// "), result)
+        XCTAssertTrue(result.contains("{/* <span>a</span>\n    text */}"), result)
+    }
+
+    func testTwoSeparateJSXBlocksGetTwoWrapsInOnePlan() throws {
+        let source = """
+        <div>
+          <a />
+          <hr />
+          <b />
+        </div>
+        """
+        let ns = source as NSString
+        let ranges = carets(ns.range(of: "<a").location, ns.range(of: "<b").location)
+        let plan = try XCTUnwrap(jsxPlan(source, ranges, jsxLines: [1, 2, 3]))
+        XCTAssertEqual(plan.edits.count, 2)
+        let wrapped = apply(plan, to: source)
+        XCTAssertTrue(wrapped.contains("  {/* <a /> */}\n  <hr />\n  {/* <b /> */}"), wrapped)
+        let wrappedNS = wrapped as NSString
+        let again = carets(wrappedNS.range(of: "{/* <a").location, wrappedNS.range(of: "{/* <b").location)
+        XCTAssertEqual(apply(try XCTUnwrap(jsxPlan(wrapped, again, jsxLines: [1, 2, 3])), to: wrapped), source)
+    }
+
+    func testABlockOnlyHalfInJSXChildrenTakesTheLineStyle() throws {
+        let source = "  <span />\n  foo()\n"
+        let selection = NSRange(location: 0, length: (source as NSString).length)
+        let result = apply(try XCTUnwrap(jsxPlan(source, [selection], jsxLines: [0])), to: source)
+        XCTAssertEqual(result, "  // <span />\n  // foo()\n")
+    }
+
+    func testCodeAndJSXBlocksMixInOnePlan() throws {
+        let source = """
+        const x = 1
+        return (
+          <div>
+            <span />
+          </div>
+        )
+        """
+        let ns = source as NSString
+        let codeCaret = 0
+        let jsxCaret = ns.range(of: "<span").location
+        let plan = try XCTUnwrap(jsxPlan(source, carets(codeCaret, jsxCaret), jsxLines: [3]))
+        let result = apply(plan, to: source)
+        XCTAssertTrue(result.hasPrefix("// const x = 1\n"), result)
+        XCTAssertTrue(result.contains("\n    {/* <span /> */}\n"), result)
+        // Each caret moves to the next line at its column, as the single-range rules do.
+        let resultNS = result as NSString
+        XCTAssertEqual(plan.selections, [
+            NSRange(location: resultNS.range(of: "return").location, length: 0),
+            NSRange(location: resultNS.range(of: "  </div>").location + 4, length: 0),
+        ])
+    }
+
+    func testAJSXSelectionMixedWithACodeCaretSelectsTheWrappedText() throws {
+        let source = """
+        const x = 1
+        return (
+          <div>
+            <span />
+            text
+          </div>
+        )
+        """
+        let ns = source as NSString
+        let start = ns.range(of: "<span").location
+        let selection = NSRange(location: start, length: ns.range(of: "text").location + 4 - start)
+        let plan = try XCTUnwrap(jsxPlan(source, [NSRange(location: 0, length: 0), selection], jsxLines: [3, 4]))
+        let result = apply(plan, to: source)
+        XCTAssertTrue(result.hasPrefix("// const x = 1\n"), result)
+        XCTAssertTrue(result.contains("\n    {/* <span />\n    text */}\n"), result)
+        // The JSX selection covers what the JSX-only toggle selects, shifted by
+        // the code half's `// `.
+        let alone = try XCTUnwrap(jsxPlan(source, [selection], jsxLines: [3, 4]))
+        let aloneNS = apply(alone, to: source) as NSString
+        let resultNS = result as NSString
+        XCTAssertEqual(plan.selections.count, 2)
+        XCTAssertEqual(plan.selections[1].location, alone.selections[0].location + 3)
+        XCTAssertEqual(resultNS.substring(with: plan.selections[1]), aloneNS.substring(with: alone.selections[0]))
+        XCTAssertTrue(resultNS.substring(with: plan.selections[1]).hasSuffix("{/* <span />\n    text */}"))
+    }
+
+    func testNoJSXBlockMatchesThePlainToggle() throws {
+        let ranges = carets(0, (jsxSource as NSString).range(of: "<span>").location)
+        XCTAssertEqual(jsxPlan(jsxSource, ranges, jsxLines: []), plan(jsxSource, ranges, language: .tsx))
+    }
+
+    func testANonJSXLanguageNeverAsksTheContext() throws {
+        let result = ToggleCommentEngine.toggle(
+            text: "let a = 1" as NSString, selectedRanges: carets(0), language: .swift
+        ) { _ in
+            XCTFail("swift has no contextual style")
+            return .code
+        }
+        XCTAssertEqual(apply(try XCTUnwrap(result), to: "let a = 1"), "// let a = 1")
+    }
 }

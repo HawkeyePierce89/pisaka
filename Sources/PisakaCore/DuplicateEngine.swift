@@ -111,6 +111,55 @@ public enum DuplicateEngine {
         )
     }
 
+    /// Duplicate for every range at once — ⌘D with several carets, a column
+    /// selection or disjoint selections — as one plan, so the whole command is
+    /// one undo step.
+    ///
+    /// Each range keeps the single-range semantics above: a caret duplicates
+    /// its line, a selection duplicates itself. Carets on the same line
+    /// duplicate that line **once**, each caret landing at its own column in
+    /// the one copy. Every original range leaves exactly one caret or selection
+    /// behind, placed in its copy, in the order the ranges were given. Every
+    /// edit is an insertion; insertions at one offset keep the ranges' order.
+    /// With one range the plan equals `duplicate(text:selectedRange:)`.
+    public static func duplicate(text: NSString, selectedRanges: [NSRange]) -> RangeEditPlan {
+        struct Insertion {
+            let location: Int
+            let text: String
+        }
+        var insertions: [Insertion] = []
+        // Per range: which insertion holds its copy, and where in the copy it lands.
+        var placements: [(insertion: Int, offset: Int, length: Int)] = []
+        for range in selectedRanges {
+            let edit = duplicate(text: text, selectedRange: range)
+            let isCaret = edit.selectedRange.length == 0
+            let shared = isCaret ? insertions.firstIndex {
+                $0.location == edit.insertionLocation && $0.text == edit.text
+            } : nil
+            let index = shared ?? insertions.count
+            if shared == nil { insertions.append(Insertion(location: edit.insertionLocation, text: edit.text)) }
+            placements.append((index, edit.selectedRange.location - edit.insertionLocation, edit.selectedRange.length))
+        }
+
+        // Stable by location, so ties keep the ranges' order.
+        let order = insertions.indices.sorted {
+            (insertions[$0].location, $0) < (insertions[$1].location, $1)
+        }
+        var newStart = Array(repeating: 0, count: insertions.count)
+        var shift = 0
+        for index in order {
+            newStart[index] = insertions[index].location + shift
+            shift += (insertions[index].text as NSString).length
+        }
+        let edits = order.map {
+            IndentReplacement(range: NSRange(location: insertions[$0].location, length: 0), replacement: insertions[$0].text)
+        }
+        let selections = placements.map {
+            NSRange(location: newStart[$0.insertion] + $0.offset, length: $0.length)
+        }
+        return RangeEditPlan(edits: edits, selections: selections) ?? .empty
+    }
+
     /// Coerce a possibly invalid selection (out-of-bounds location, `NSNotFound`,
     /// a negative or overlong length) into a valid range inside `[0, length]`.
     private static func clamped(_ range: NSRange, length: Int) -> NSRange {

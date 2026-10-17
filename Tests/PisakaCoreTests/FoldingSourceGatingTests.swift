@@ -233,6 +233,35 @@ final class FoldingSourceGatingTests: XCTestCase {
         )
     }
 
+    /// Move Line is a **whole-value writer**, not a fourth spelled mutation:
+    /// the engine computes the complete folded state against the moved text,
+    /// and the one file asking it hands that value through `apply(_:)`.
+    func testMoveLineHandsAWholeFoldStateThroughApply() throws {
+        XCTAssertEqual(
+            try fileNames(naming: "MoveLineEngine", under: "Sources/Pisaka"),
+            ["CodeEditorView.swift"],
+            "One app file asks where a move puts the lines and the folds: the coordinator, which holds both "
+                + "the buffer and the fold controller."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\bfolds\\.apply\\(plan\\.folds\\)",
+                in: try code(ofFileNamed: "CodeEditorView.swift", under: "Sources/Pisaka")
+            ),
+            1,
+            "The move installs the engine's fold state whole. Anything else — re-deriving it, or leaving the "
+                + "edit's shift to drop the moved folds — reveals a fold the user did not open."
+        )
+        XCTAssertEqual(
+            try occurrences(
+                of: "\\b\\w+\\.(fold|unfold|toggle)\\(region\\)",
+                in: try code(ofFileNamed: "FoldController.swift", under: "Sources/Pisaka")
+            ),
+            3,
+            "Still three spelled mutations: the move adds a whole-value writer, not a fourth."
+        )
+    }
+
     // MARK: - The reveal funnel
 
     /// Every jump into a buffer unfolds what it lands in before it scrolls.
@@ -240,8 +269,10 @@ final class FoldingSourceGatingTests: XCTestCase {
     /// Four sets, each by equality:
     ///
     /// 1. The coordinator's `revealRange(_:)` is called from the coordinator
-    ///    itself (the app's reveal request lands there through `applyReveal`) and
-    ///    from the find bar, whose one jump was routed through it. `UsageResult
+    ///    itself (the app's reveal request lands there through `applyReveal`),
+    ///    from the find bar, whose one jump was routed through it, and from
+    ///    *Next / Previous Problem*'s `goToProblem(_:)` in `ProblemCommands`,
+    ///    the coordinator extension that lands its caret there. `UsageResult
     ///    .revealRange(naming:in:)` is a different function on a different type
     ///    and is excluded by its first argument label.
     /// 2. `FoldReveal` is named in the coordinator alone: the rule that decides
@@ -252,7 +283,7 @@ final class FoldingSourceGatingTests: XCTestCase {
     ///    all — `SourceViewerContent` is the read-only out-of-project viewer,
     ///    `MergeView`'s is the merge result pane, and the iOS coordinator is on
     ///    the platform folding does not ship to. `CodeEditorView` is pinned to
-    ///    exactly two: the funnel's own scroll and the Tab plan's caret scroll,
+    ///    exactly two: the funnel's own scroll and the edit applier's caret scroll,
     ///    the one in-file site that is not a reveal (it follows an edit the user
     ///    just made, at a caret that is by construction on a visible line).
     ///    `EditorSearchController` must have none left.
@@ -263,8 +294,8 @@ final class FoldingSourceGatingTests: XCTestCase {
     func testTheRevealFunnelIsAFunnel() throws {
         XCTAssertEqual(
             try fileNames(matching: "(?<!func )\\brevealRange\\??\\((?!naming)", under: "Sources"),
-            ["CodeEditorView.swift", "EditorSearchController.swift"],
-            "Exactly two files call the coordinator's reveal. Anything else jumping into a buffer would be a "
+            ["CodeEditorView.swift", "EditorSearchController.swift", "ProblemCommands.swift"],
+            "Exactly three files call the coordinator's reveal. Anything else jumping into a buffer would be a "
                 + "jump that does not unfold first — a caret parked inside hidden text, with the view showing "
                 + "a placeholder where it thinks it is."
         )
@@ -294,7 +325,7 @@ final class FoldingSourceGatingTests: XCTestCase {
                 in: try code(ofFileNamed: "CodeEditorView.swift", under: "Sources/Pisaka")
             ),
             2,
-            "Two scrolls in the editor: the funnel's own, and the Tab plan's caret scroll — the one in-file "
+            "Two scrolls in the editor: the funnel's own, and the edit applier's caret scroll — the one in-file "
                 + "site that is not a reveal, following an edit the user just made at a caret that is on a "
                 + "visible line by construction. A third would need its own reason, here."
         )

@@ -107,8 +107,13 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   part of a name in JavaScript/TypeScript), highlighting of the name at the
   caret everywhere it occurs (from the language server when one answers, writes
   tinted stronger) and of a selection's other matches, matching JSX/TSX/HTML
-  tag-name highlighting, and Expand / Shrink Selection (Ctrl+Cmd+Right /
-  Ctrl+Cmd+Left).
+  tag-name highlighting, Expand / Shrink Selection (Ctrl+Cmd+Right /
+  Ctrl+Cmd+Left), block indent / outdent (Tab / Shift+Tab on a selection) and
+  smart Backspace through indentation, Move Line Up / Down
+  (Cmd+Option+[ / Cmd+Option+]) that carries folded blocks, Duplicate and
+  Toggle Comment on every caret, aligned and JSX-aware line comments plus
+  Toggle Block Comment (Cmd+Option+/), and Next / Previous Problem (Cmd+' /
+  Cmd+Shift+').
 - **Code folding** (macOS) — collapse a block behind its first line: a chevron in
   the gutter, a `…` you can click to open it again, and Cmd+Option+Left /
   Cmd+Option+Right for the block at the caret, plus Cmd+Option+Shift+Left /
@@ -187,12 +192,15 @@ server fetching JSON schemas while it runs.
 | Cmd+D       | Duplicate the current line or selection (Show Diff when Local Changes has focus) |
 | Cmd+Down    | Jump to Source when Local Changes has focus |
 | Cmd+/       | Toggle comment                             |
+| Cmd+Option+/ | Toggle block comment (macOS)              |
+| Cmd+Option+[ / Cmd+Option+] | Move line up / down (macOS) |
 | Cmd+Option+Left | Fold the block at the caret (macOS)     |
 | Cmd+Option+Right | Unfold the block at the caret (macOS) |
 | Cmd+Option+Shift+Left | Fold every block (macOS)          |
 | Cmd+Option+Shift+Right | Unfold every block (macOS)       |
 | Ctrl+Cmd+Right / Ctrl+Cmd+Left | Expand / Shrink Selection (macOS) |
-| Tab         | Insert one indentation level (commits the selected completion row when the popup is open) |
+| Tab         | Insert one indentation level; on a multi-line selection, indent every line (macOS) (commits the selected completion row when the popup is open) |
+| Shift+Tab   | Outdent the caret's line or every selected line by one level (macOS) |
 | Cmd+F       | Find in the current file                   |
 | Cmd+G / Cmd+Shift+G | Find Next / Previous               |
 | Cmd+Option+F| Replace in the current file                |
@@ -212,6 +220,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+T | Show/Hide the terminal panel               |
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
+| Cmd+' / Cmd+Shift+' | Next / previous problem in the file (macOS) |
 | Cmd+Shift+U | Show/Hide the Usages panel                 |
 | Cmd+Shift+R | Show/Hide the Pull Requests panel          |
 | Cmd+Shift+H | Local History for the active file          |

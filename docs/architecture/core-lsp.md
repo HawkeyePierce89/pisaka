@@ -82,7 +82,9 @@ each edit and dropped where the edit touched (D31–D32). Every teardown path cl
 what its server reported (D33), and hover carries the messages so there is no second
 popover surface (D34). Four Core files carry all of it — `Diagnostic.swift`,
 `DiagnosticShift.swift`, `DiagnosticStore.swift` and `DiagnosticsModel.swift`, with
-entries in their own section below — plus wire types in `LSPProtocolTypes.swift`, the
+entries in their own section below, and a fifth only reads it:
+`DiagnosticNavigationRule.swift`, *Next / Previous Problem*'s pure step over the
+store's entry — plus wire types in `LSPProtocolTypes.swift`, the
 stream in `LSPSession.swift` and routing/clears in `LSPWorkspace.swift`; the app half
 (the debounced sync controller, the squiggle/marker/panel surfaces) is documented in
 `app-editor.md`, `app-editor-overlays.md` and `app-window.md`. There is no setting,
@@ -2639,7 +2641,8 @@ what the registry gets.
 ### Diagnostics (D29–D34)
 
 Four Core files — three pure value/engine types and one observable model — that
-turn `publishDiagnostics` pushes into state three macOS surfaces can share. They
+turn `publishDiagnostics` pushes into state three macOS surfaces can share, and a
+fifth, pure rule that only reads that state. They
 sit *beside* the request stack rather than under it: nothing above reads them to
 answer a question the editor asked, and the only thing they consume is the
 workspace's sink. The app-side half of the feature is documented where it lives:
@@ -2867,6 +2870,23 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     hop — the generation-token rule, one layer up from the models it usually
     guards. The read-only queries forward to the store unchanged; the views hold
     no logic to be thin about.
+
+  - `DiagnosticNavigationRule.swift` — *Next / Previous Problem*'s (⌘' / ⌘⇧')
+    whole decision: `target(diagnostics:caret:direction:)` answers the offset to
+    put the caret at, or `nil`. A **reader over the store** and nothing more: it is
+    handed the entry's diagnostics as they stand — already moved across every edit
+    by `DiagnosticShift` (D32) — and no server is asked anything, so the jump lands
+    where the squiggle is drawn now, not where a fresh push would put it. **Errors
+    first**: when any error exists only errors are stops, so the command walks what
+    breaks the build without stopping at every warning on the way; with none, every
+    severity is a stop. The stops are the **distinct** start offsets, ascending, so
+    two diagnostics at one start (two servers, or one construct named twice) are one
+    place to go. Next is the first stop **strictly** after the caret, wrapping to the
+    first; previous is the last stop strictly before it, wrapping to the last. That
+    strictness is what moves a caret already on a problem, which is where the
+    previous press left it. No stops answers `nil`, which the app turns into a beep.
+    The caret placement, the reveal and the popover are the app's
+    (`ProblemCommands.swift`, `app-editor.md`).
 
 ## Decisions
 

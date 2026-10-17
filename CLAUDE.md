@@ -84,7 +84,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
-  `ColumnSelectionEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
+  `ColumnSelectionEngine.swift`, `RangeEditPlan.swift`, `BlockIndentEngine.swift`, `MoveLineEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `BlockCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
 
 `docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
   `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
@@ -96,7 +96,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
 
 `docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D45:
-  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `DocumentHighlight.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`
+  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `DocumentHighlight.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`, `DiagnosticNavigationRule.swift`
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
   `SHA256.swift`, `LSPProvisioningManifest.swift`, `LSPInstallLayout.swift`, `LSPInstallEngine.swift`, `LSPProvisioning.swift`
@@ -184,7 +184,7 @@ headlessly in `Tests/PisakaAppTests`.
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
+  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `LineCommands.swift` / `CommentCommands.swift` / `ProblemCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
   `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
@@ -347,8 +347,10 @@ because nothing else states them.
 - **Indentation is EditorConfig-first, inference-second** (`core-editorconfig.md`): the unit
   Enter appends comes from `IndentUnitRule`, never from the inference alone; each half no
   applicable `.editorconfig` states falls back to the inference, so a project without one
-  behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only when a config
-  says so outright, so the inference alone can never change what a keystroke does. The
+  behaves byte-for-byte as before. **Plain Tab at a caret is stricter**: it inserts spaces only
+  when a config says so outright, so the inference alone never changes what that keystroke
+  inserts. Block indent, Shift+Tab and smart Backspace are the **three stated exceptions**:
+  they edit existing indentation in Enter's unit, so the inferred unit may drive them. The
   indentation-level painting and the fold scanner's indentation blocks are third and fourth
   consumers of that same unit, never second opinions about it. A **reader** that adds no
   write of its own, and the walk stops at the project root on both platforms. **Six
