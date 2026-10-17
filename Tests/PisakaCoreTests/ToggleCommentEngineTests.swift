@@ -660,10 +660,13 @@ final class ToggleCommentEngineTests: XCTestCase {
     }
 
     /// With one range, the plan's text and selection are the single-range
-    /// engine's, for both styles, across carets and selections.
+    /// engine's for the block style, across carets and selections. The line
+    /// style is left out on purpose: its single-range entry is built from this
+    /// very plan, so comparing the two would compare a function with itself —
+    /// the line style is pinned instead by the explicit expectations above.
     func testASingleRangePlanMatchesTheSingleRangeEngine() throws {
         let texts = ["", "a", "  a\n    b\n", "// a\n//b", "x\r\n  y\r\nz", "/* a */\nb", "  \n a \n "]
-        for language in [SyntaxLanguage.swift, .css, .html] {
+        for language in [SyntaxLanguage.css, .html] {
             for text in texts {
                 let length = (text as NSString).length
                 for location in 0...length {
@@ -773,6 +776,34 @@ final class ToggleCommentEngineTests: XCTestCase {
             NSRange(location: resultNS.range(of: "return").location, length: 0),
             NSRange(location: resultNS.range(of: "  </div>").location + 4, length: 0),
         ])
+    }
+
+    func testAJSXSelectionMixedWithACodeCaretSelectsTheWrappedText() throws {
+        let source = """
+        const x = 1
+        return (
+          <div>
+            <span />
+            text
+          </div>
+        )
+        """
+        let ns = source as NSString
+        let start = ns.range(of: "<span").location
+        let selection = NSRange(location: start, length: ns.range(of: "text").location + 4 - start)
+        let plan = try XCTUnwrap(jsxPlan(source, [NSRange(location: 0, length: 0), selection], jsxLines: [3, 4]))
+        let result = apply(plan, to: source)
+        XCTAssertTrue(result.hasPrefix("// const x = 1\n"), result)
+        XCTAssertTrue(result.contains("\n    {/* <span />\n    text */}\n"), result)
+        // The JSX selection covers what the JSX-only toggle selects, shifted by
+        // the code half's `// `.
+        let alone = try XCTUnwrap(jsxPlan(source, [selection], jsxLines: [3, 4]))
+        let aloneNS = apply(alone, to: source) as NSString
+        let resultNS = result as NSString
+        XCTAssertEqual(plan.selections.count, 2)
+        XCTAssertEqual(plan.selections[1].location, alone.selections[0].location + 3)
+        XCTAssertEqual(resultNS.substring(with: plan.selections[1]), aloneNS.substring(with: alone.selections[0]))
+        XCTAssertTrue(resultNS.substring(with: plan.selections[1]).hasSuffix("{/* <span />\n    text */}"))
     }
 
     func testNoJSXBlockMatchesThePlainToggle() throws {

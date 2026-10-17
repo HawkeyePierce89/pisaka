@@ -75,6 +75,23 @@ final class CommentStyleTests: XCTestCase {
         XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
     }
 
+    func testAChildExpressionOpeningTheLineIsJSXChildren() {
+        // `    {/* <span>a</span> */}` — a wrapped child line — and
+        // `    {items.map(f)}` among the children: `{` → expression → div.
+        let chain: Chain = [("jsx_expression", true), ("jsx_element", false), ("program", false)]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .jsxChildren)
+    }
+
+    func testAnExpressionOpeningTheLineOutsideChildrenIsCode() {
+        // `      {value}` continuing `<input value=` from the line above.
+        let chain: Chain = [
+            ("jsx_expression", true), ("jsx_attribute", false),
+            ("jsx_self_closing_element", false), ("jsx_element", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+        XCTAssertEqual(CommentStyle.context(ancestors: [("jsx_expression", true)]), .code)
+    }
+
     func testTheRootElementOfAReturnIsCode() {
         let chain: Chain = [
             ("jsx_opening_element", true), ("jsx_element", true),

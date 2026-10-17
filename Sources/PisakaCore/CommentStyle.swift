@@ -58,8 +58,14 @@ public enum CommentStyle: Equatable {
     /// part of the input.
     ///
     /// The first listed kind met decides:
-    /// - `jsx_expression` or `jsx_attribute` answers `.code` — the line is
-    ///   inside `{…}` or an attribute;
+    /// - `jsx_attribute` answers `.code` — the line is inside an attribute;
+    /// - `jsx_expression` that does **not** start at the line offset answers
+    ///   `.code` — the line is inside `{…}`; one that does is a child of its
+    ///   parent like an element is, answering `.jsxChildren` only when that
+    ///   parent is a `jsx_element`. That is what lets ⌘/ undo its own wrap: a
+    ///   commented child line `{/* … */}` parses as a `jsx_expression` holding
+    ///   the comment, and `//` in front of any child `{…}` would be rendered
+    ///   text;
     /// - `jsx_text` answers `.jsxChildren`;
     /// - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or
     ///   `jsx_closing_element` that does **not** start at the line offset
@@ -77,8 +83,11 @@ public enum CommentStyle: Equatable {
     public static func context(ancestors: [(kind: String, startsAtLineOffset: Bool)]) -> CommentContext {
         for (index, ancestor) in ancestors.enumerated() {
             switch ancestor.kind {
-            case "jsx_expression", "jsx_attribute":
+            case "jsx_attribute":
                 return .code
+            case "jsx_expression":
+                guard ancestor.startsAtLineOffset, index + 1 < ancestors.count else { return .code }
+                return ancestors[index + 1].kind == "jsx_element" ? .jsxChildren : .code
             case "jsx_text":
                 return .jsxChildren
             case "jsx_element", "jsx_self_closing_element", "jsx_opening_element", "jsx_closing_element":

@@ -1463,8 +1463,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     reused, so a toggle the engine never asks about parses nothing. No tree
     answers an empty chain, which the rule reads as code: silently `//`. Both ⌘/
     and ⌥⌘/ use it. `CommentContextTreeWalkTests` parses real TSX and pins a
-    `<div>` child line and a fragment child line as children, and a `{…}` line,
-    plain TS and an attribute line inside a multi-line opening tag as code.
+    `<div>` child line, a child `{…}` line and a fragment child line as
+    children, and the root element, plain TS and an attribute line inside a
+    multi-line opening tag as code; it runs ⌘/ and ⌥⌘/ twice through the
+    resolver and gets the source back byte for byte, walks the javascript
+    grammar too, and puts a non-ASCII prefix before the walked line.
   - `TagHighlightController.swift` (macOS) — drives the matching-tag highlight
     on the occurrence highlight's 75 ms settle, so both land together. It reads
     the caret's enclosing elements off the shared `SyntaxTreeSnapshot`, asks

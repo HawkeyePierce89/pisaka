@@ -162,7 +162,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     non-whitespace offset, innermost first, each with a `startsAtLineOffset`
     flag — kinds alone cannot tell a child line opening with `<span>` from a
     continuation line of a multi-line opening tag, so the flag is input. The
-    first listed kind met decides: `jsx_expression` / `jsx_attribute` → code;
+    first listed kind met decides: `jsx_attribute` → code; a `jsx_expression`
+    that does not start at the offset → code (the line is inside `{…}`), one
+    that does → children when its parent is a `jsx_element` — the shape of a
+    wrapped child line `{/* … */}`, so a second ⌘/ or ⌥⌘/ unwraps what the first
+    wrote, and of any child `{…}`, where `//` would be rendered text;
     `jsx_text` → children; an element or opening/closing tag that does not
     start at the offset → code (the line is inside a tag), one that does →
     children only when its element's parent is a `jsx_element` (the root

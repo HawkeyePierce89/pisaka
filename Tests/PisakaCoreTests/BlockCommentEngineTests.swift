@@ -166,6 +166,43 @@ final class BlockCommentEngineTests: XCTestCase {
         XCTAssertEqual(plan.selections.count, 1)
     }
 
+    func testARangeOverlappingAnEarlierOneIsDropped() throws {
+        let text = "abcdef"
+        let ranges = [NSRange(location: 0, length: 4), NSRange(location: 2, length: 3)]
+        let plan = try XCTUnwrap(toggle(text, ranges, language: .swift))
+        XCTAssertEqual(apply(plan, to: text), "/* abcd */ef")
+        XCTAssertEqual(selected(plan, in: text), ["/* abcd */"])
+    }
+
+    func testUnsortedRangesAreAnsweredInTextOrder() throws {
+        let text = "a b"
+        let plan = try XCTUnwrap(toggle(text, [range(of: "b", in: text), range(of: "a", in: text)], language: .swift))
+        XCTAssertEqual(apply(plan, to: text), "/* a */ /* b */")
+        XCTAssertEqual(selected(plan, in: text), ["/* a */", "/* b */"])
+    }
+
+    func testACaretAtEitherEndOfASelectionSharesItsOffset() throws {
+        let text = "ab"
+        let atStart = try XCTUnwrap(toggle(text, [NSRange(location: 0, length: 1), NSRange(location: 0, length: 0)],
+                                           language: .swift))
+        XCTAssertEqual(apply(atStart, to: text), "/*  *//* a */b")
+        XCTAssertEqual(selected(atStart, in: text), ["", "/* a */"])
+        XCTAssertEqual(atStart.selections[0].location, 3)
+
+        let atEnd = try XCTUnwrap(toggle(text, [NSRange(location: 0, length: 1), NSRange(location: 1, length: 0)],
+                                         language: .swift))
+        XCTAssertEqual(apply(atEnd, to: text), "/* a *//*  */b")
+        XCTAssertEqual(selected(atEnd, in: text), ["/* a */", ""])
+        XCTAssertEqual(atEnd.selections[1].location, 10)
+
+        let wrapped = "/* a */"
+        let unwrapAtStart = try XCTUnwrap(toggle(
+            wrapped, [NSRange(location: 0, length: 7), NSRange(location: 0, length: 0)], language: .swift
+        ))
+        XCTAssertEqual(apply(unwrapAtStart, to: wrapped), "/*  */a")
+        XCTAssertEqual(selected(unwrapAtStart, in: wrapped), ["", "a"])
+    }
+
     // MARK: - Fallbacks
 
     func testLineOnlyLanguagesRunTheLineToggle() throws {

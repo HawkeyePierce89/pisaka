@@ -157,6 +157,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     hands the key to AppKit's own `insertTab`, which is what Tab did before the
     feature existed; it is the guard `handleCompletionKey` already takes, for the
     same reason.
+    `EditingCommandRoutingTests` (app bundle) drives the routing through a real
+    `NSTextView`: Tab on a block and ⌘D on two selections each undo in one step,
+    Tab at a caret with no config hands the key back, Shift+Tab is consumed with
+    nothing to outdent, Backspace in space indentation stops at the indent stop,
+    and the applier refuses mid-composition without touching the text.
     The existing `isApplyingProgrammaticEdit` guard wraps
     the *whole* bracket rather than just the storage mutation, because the
     single-range case reaches the single-range delegate callback where the

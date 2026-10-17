@@ -29,8 +29,10 @@ import XCTest
 ///   caller), `PisakaApp.swift` (the menu item and the five caret commands),
 ///   `CodeEditorView.swift` (the scroll callback), `SyntaxTheme.swift` (the
 ///   theme derivation), `FoldCommands.swift` (the sixth caret command),
-///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection) and
-///   `LineCommands.swift` (the eighth, Move Line Up / Down).
+///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection),
+///   `LineCommands.swift` (the eighth, Move Line Up / Down),
+///   `CommentCommands.swift` (the ninth, Toggle Block Comment) and
+///   `ProblemCommands.swift` (the tenth, Next / Previous Problem).
 ///   Rules that must hold for the *whole* app layer say so by scanning
 ///   `Sources/Pisaka` rather than by listing these.
 ///
@@ -63,7 +65,7 @@ import XCTest
 ///    is one global switch; a second writer is a second opinion about whether
 ///    the pane is shown, and it would compile.
 /// 6. The compiler cannot count the definitions of "which editor is this
-///    keystroke for". Seven call sites ask it; the expression they each used
+///    keystroke for". Ten call sites ask it; the expression they each used
 ///    to spell answers `nil` while the preview holds focus, which is a beep
 ///    instead of a comment toggle. A site spelling it again compiles and
 ///    diverges silently, exactly where nobody looks.

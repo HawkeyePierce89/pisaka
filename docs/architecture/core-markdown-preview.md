@@ -300,12 +300,15 @@ error in the document rather than as a guess by the viewer.
 
 App-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
 Toggle Comment, Complete, `FoldCommands`' four items, `SelectionCommands`'
-two and `LineCommands`' two — and each used to spell
-`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **eight
+two, `LineCommands`' two, Toggle Block Comment and Next / Previous Problem's
+two — and each used to spell
+`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **ten
 call sites**: five in `PisakaApp.swift`, one in `FoldCommands.swift`, which asks
 once for all four fold items, one in `SelectionCommands.swift`, which asks once
-for Expand and Shrink Selection, and one in `LineCommands.swift`, which asks once
-for Move Line Up and Down. (Every count of call sites in this feature is a
+for Expand and Shrink Selection, one in `LineCommands.swift`, which asks once
+for Move Line Up and Down, one in `CommentCommands.swift`, Toggle Block
+Comment's one action, and one in `ProblemCommands.swift`, which asks once for
+both problem-navigation items. (Every count of call sites in this feature is a
 count of those sites, not of chords.) The preview is a **focusable** web view (selection
 and links must work), so clicking into it made all of them beep.
 
