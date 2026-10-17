@@ -232,19 +232,19 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Create: `Sources/PisakaCore/TagMatchRule.swift`
 - Create: `Tests/PisakaCoreTests/TagMatchRuleTests.swift`
 
-- [ ] Input `TagElement { range, openName: NSRange, closeName: NSRange? }`. A fragment's names are its `<>`/`</>` ranges; a self-closing or unclosed element has `closeName == nil`. The input also carries the caret's chain of enclosing elements, innermost first, and whether the bracket pair is active at the caret.
-- [ ] Output `(tagRanges: [NSRange], suppressBracketPair: Bool)`.
+- [x] Input `TagElement { range, openName: NSRange, closeName: NSRange? }`. A fragment's names are its `<>`/`</>` ranges; a self-closing or unclosed element has `closeName == nil`. The input also carries the caret's chain of enclosing elements, innermost first, and whether the bracket pair is active at the caret.
+- [x] Output `(tagRanges: [NSRange], suppressBracketPair: Bool)`.
   - **Caret in a tag name** (inclusive end): that element's names; a self-closing element gives its one name. The bracket pair is suppressed.
   - **Caret at an active bracket and not in a tag name:** no tag ranges.
   - **Otherwise:** the innermost enclosing element that has a closing name gives its two names, one level only. Both highlights may show.
-- [ ] Tests:
+- [x] Tests:
   - the `Header` sample (`</header>` caret; caret in `<span>` text);
   - nested same-name elements;
   - fragments;
   - self-closing elements, in the name and elsewhere;
   - attributes and children;
   - bracket priority both ways.
-- [ ] Run `make test` before Task 10.
+- [x] Run `make test` before Task 10.
 
 ### Task 10: Tree snapshot and tag highlighting (app, R5)
 
