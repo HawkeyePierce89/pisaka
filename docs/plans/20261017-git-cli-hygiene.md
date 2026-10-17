@@ -66,11 +66,11 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 - Modify: `Sources/Pisaka/GitCLIService.swift`
 - Modify: `Tests/PisakaCoreTests/CommitParserTests.swift`
 
-- [ ] Add `private static let globalOptions = ["--no-optional-locks", "-c", "log.showSignature=false"]` with a doc comment covering: why each option is there; why it is an argument rather than an environment variable; the accepted stat-cache consequence.
-- [ ] Prepend `globalOptions` in `runBlocking`.
-- [ ] Add `--encoding=UTF-8` to `commits` (before the filter arguments) and to `headMessage`'s `log -1 --pretty=%B`. Update both doc comments.
-- [ ] In `CommitParserTests`, add a test that feeds `Commit.parse` two records, the second preceded by signature lines exactly as `log.showSignature=true` emits them (text between the previous `\u{1e}` and the hash). Assert that the second commit parses with a hash field that is not the commit hash and contains the signature text. Its comment explains that this corruption is why the service forces `log.showSignature=false`, and points to the gating suite.
-- [ ] Run `swift test`: must pass.
+- [x] Add `private static let globalOptions = ["--no-optional-locks", "-c", "log.showSignature=false"]` with a doc comment covering: why each option is there; why it is an argument rather than an environment variable; the accepted stat-cache consequence.
+- [x] Prepend `globalOptions` in `runBlocking`.
+- [x] Add `--encoding=UTF-8` to `commits` (before the filter arguments) and to `headMessage`'s `log -1 --pretty=%B`. Update both doc comments.
+- [x] In `CommitParserTests`, add a test that feeds `Commit.parse` two records, the second preceded by signature lines exactly as `log.showSignature=true` emits them (text between the previous `\u{1e}` and the hash). Assert that the second commit parses with a hash field that is not the commit hash and contains the signature text. Its comment explains that this corruption is why the service forces `log.showSignature=false`, and points to the gating suite.
+- [x] Run `swift test`: must pass.
 
 ### Task 2: Fetch prompt, checkout terminators, blame flags (R3, R4, R5)
 

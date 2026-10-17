@@ -61,10 +61,17 @@ struct GitCLIService: GitServicing {
 
     /// The commit history of the repository at `root`, most recent first.
     ///
-    /// Runs `git log --topo-order --parents -n <limit> --pretty=format:<format>`
-    /// plus `filter`'s revision/ref/path arguments (the default filter contributes
-    /// `--all`), with the exact format `Commit.parse` expects, and feeds stdout to
-    /// the pure parser.
+    /// Runs `git log --topo-order --parents -n <limit> --encoding=UTF-8
+    /// --pretty=format:<format>` plus `filter`'s revision/ref/path arguments (the
+    /// default filter contributes `--all`), with the exact format `Commit.parse`
+    /// expects, and feeds stdout to the pure parser.
+    ///
+    /// `--encoding=UTF-8` re-encodes messages a repository's
+    /// `i18n.logOutputEncoding` (or a commit's own `encoding` header) would
+    /// otherwise print in a legacy encoding the UTF-8 read cannot decode. It
+    /// precedes the filter's arguments because those can end with `-- <paths>`.
+    /// The signature lines `log.showSignature` would add are suppressed for every
+    /// command by `globalOptions`.
     ///
     /// `--topo-order` keeps a branch's commits contiguous (never interleaving
     /// parallel branches by date), which the graph layout in a later stage relies
@@ -80,7 +87,8 @@ struct GitCLIService: GitServicing {
         // names and subjects, matching the `changedFiles` rationale.
         let arguments =
             ["-c", "core.quotePath=false", "log", "--topo-order", "--parents",
-             "-n", String(limit), "--pretty=format:\(Commit.prettyFormat)",
+             "-n", String(limit), "--encoding=UTF-8",
+             "--pretty=format:\(Commit.prettyFormat)",
             ]
             + filter.gitArguments()
         let result = try await run(arguments, in: root)
@@ -938,12 +946,13 @@ struct GitCLIService: GitServicing {
 
     /// The message of the current `HEAD` commit, or `nil` when there is none.
     ///
-    /// `git log -1 --pretty=%B` prints the raw subject and body; an unborn HEAD
+    /// `git log -1 --encoding=UTF-8 --pretty=%B` prints the raw subject and body,
+    /// re-encoded to UTF-8 as in `commits`; an unborn HEAD
     /// simply exits non-zero, which is an honest `nil` ("nothing to reuse") rather
     /// than an error — Amend offers this into an empty message field and does
     /// without it when there is none.
     func headMessage(root: URL) async throws -> String? {
-        let result = try await run(["log", "-1", "--pretty=%B"], in: root)
+        let result = try await run(["log", "-1", "--encoding=UTF-8", "--pretty=%B"], in: root)
         guard result.exitCode == 0 else { return nil }
         let message = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? nil : message
@@ -1410,10 +1419,39 @@ struct GitCLIService: GitServicing {
         }
     }
 
+    /// Global options prefixed to **every** git command, in the one launch funnel.
+    ///
+    /// - `--no-optional-locks`: the app's reads (`status`, `diff`, `log`, blame)
+    ///   run on its own schedule, not the user's, and a plain `git status`
+    ///   opportunistically takes `index.lock` to refresh the stat cache. Taken
+    ///   concurrently with git run in the embedded terminal, that lock makes the
+    ///   *user's* command fail with "Unable to create index.lock". The flag
+    ///   only waives locks git calls optional; a write still takes the locks it
+    ///   needs, so applying it to every command is safe.
+    /// - `-c log.showSignature=false`: with that setting on, `log` prints the
+    ///   signature check *before* each signed commit's `--pretty` record, so the
+    ///   text lands between the previous record separator and the hash and
+    ///   `Commit.parse` reads it as part of the hash field (pinned by
+    ///   `CommitParserTests`). It affects only `log`/`show` output, so it is
+    ///   inert on every other command, and any future `--pretty` site is covered
+    ///   by construction.
+    ///
+    /// They are arguments rather than `GIT_OPTIONAL_LOCKS=0` in the environment
+    /// because the environment is assigned only when an override exists (see
+    /// `run` for why that matters), because an argument is visible in the command
+    /// line `GitCLIArgumentSourceGatingTests` reads, and because an environment
+    /// variable would leak into the hook processes `commit` spawns.
+    ///
+    /// The accepted consequence: a lock-free `status` does not write back the
+    /// refreshed stat cache, so the user's next terminal `git status` re-does
+    /// that work once.
+    private static let globalOptions = ["--no-optional-locks", "-c", "log.showSignature=false"]
+
     /// The synchronous `Process` body of `run`, executed on one of the serial
-    /// queues above. `environment` is merged over the inherited environment and
-    /// `removedKeys` are dropped from it first — see `run` for why it must never
-    /// replace it, and why removal is not the same as an empty value.
+    /// queues above. Every command is prefixed with `globalOptions`.
+    /// `environment` is merged over the inherited environment and `removedKeys`
+    /// are dropped from it first — see `run` for why it must never replace it,
+    /// and why removal is not the same as an empty value.
     private static func runBlocking(
         _ arguments: [String],
         in directory: URL,
@@ -1422,7 +1460,7 @@ struct GitCLIService: GitServicing {
     ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
+        process.arguments = ["git"] + Self.globalOptions + arguments
         process.currentDirectoryURL = directory
         if !environment.isEmpty || !removedKeys.isEmpty {
             var merged = ProcessInfo.processInfo.environment

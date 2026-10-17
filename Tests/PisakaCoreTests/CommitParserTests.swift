@@ -153,4 +153,29 @@ final class CommitParserTests: XCTestCase {
         let commits = Commit.parse(bad + good)
         XCTAssertEqual(commits.map(\.hash), ["h2"])
     }
+
+    /// What `log.showSignature=true` does to the wire format, as git 2.55 emits it:
+    /// the signature check is printed *before* each signed commit's `--pretty`
+    /// record, so it lands between the previous `\u{1e}` and the hash. The record
+    /// still has six fields, so it is not dropped — its hash field silently
+    /// becomes the signature text plus the hash, which breaks the graph's parent
+    /// link and the `diff-tree` call when the row is selected. This corruption is
+    /// why `GitCLIService` forces `-c log.showSignature=false` on every command,
+    /// which `GitCLIArgumentSourceGatingTests` pins.
+    func testSignatureLinesBeforeARecordCorruptItsHash() {
+        let signature =
+            "gpg: Signature made Fri Oct 16 12:00:00 2026 UTC\n"
+            + "Good \"git\" signature for ada@example.com with ED25519 key SHA256:abc\n"
+        let output =
+            record(hash: "h1", parents: "h2", author: "A", date: "d1", subject: "s1", refs: "")
+            + "\n"
+            + signature
+            + record(hash: "h2", parents: "", author: "B", date: "d2", subject: "s2", refs: "")
+        let commits = Commit.parse(output)
+        XCTAssertEqual(commits.count, 2)
+        XCTAssertEqual(commits[0].hash, "h1")
+        XCTAssertNotEqual(commits[1].hash, "h2")
+        XCTAssertTrue(commits[1].hash.contains("Good \"git\" signature"))
+        XCTAssertTrue(commits[1].hash.hasSuffix("h2"))
+    }
 }
