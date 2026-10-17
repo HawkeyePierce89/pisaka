@@ -104,12 +104,12 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 **Files:**
 - Create: `Tests/PisakaAppTests/GitCLIServiceRepositoryTests.swift`
 
-- [ ] Add a helper that creates a temporary repository using `Process` (`/usr/bin/env git`, with a local user.name and user.email set) and removes it in `tearDown`.
-- [ ] R4 regression guard (the ticket's scenario): with a local branch `docs` and a tracked directory `docs/`, `GitCLIService().checkout(branch: "docs", root:)` leaves the current branch as `docs`.
-- [ ] R4 stale-name case: no branch `docs`, a tracked `docs/f` with an unstaged edit. `checkout(branch: "docs")` throws `GitError.checkoutFailed`, and `docs/f` still holds the edit. Without the terminator, git restores the file and exits 0.
-- [ ] R4 tracking-ambiguity case: clone a repository whose `origin` has branch `docs` and whose tree has `docs/`. `checkout(branch: "docs")` in the clone succeeds and lands on `docs`.
-- [ ] R1: commit a file, then backdate its mtime so the index stat data is stale; read the `.git/index` bytes, call `changedFiles(root:)`, and assert the bytes are unchanged; control, so the test cannot pass vacuously: a plain `git status` run by the helper afterwards does change the index bytes.
-- [ ] Run `make test-app`: no new failures beyond the eight pre-existing scale-1.8 layout assertions.
+- [x] Add a helper that creates a temporary repository using `Process` (`/usr/bin/env git`, with a local user.name and user.email set) and removes it in `tearDown`.
+- [x] R4 regression guard (the ticket's scenario): with a local branch `docs` and a tracked directory `docs/`, `GitCLIService().checkout(branch: "docs", root:)` leaves the current branch as `docs`.
+- [x] R4 stale-name case: no branch `docs`, a tracked `docs/f` with an unstaged edit. `checkout(branch: "docs")` throws `GitError.checkoutFailed`, and `docs/f` still holds the edit. Without the terminator, git restores the file and exits 0.
+- [x] R4 tracking-ambiguity case: clone a repository whose `origin` has branch `docs` and whose tree has `docs/`. `checkout(branch: "docs")` in the clone succeeds and lands on `docs`.
+- [x] R1: commit a file, then backdate its mtime so the index stat data is stale; read the `.git/index` bytes, call `changedFiles(root:)`, and assert the bytes are unchanged; control, so the test cannot pass vacuously: a plain `git status` run by the helper afterwards does change the index bytes.
+- [x] Run `make test-app`: no new failures beyond the eight pre-existing scale-1.8 layout assertions.
 
 ### Task 5: Verify acceptance criteria
 
