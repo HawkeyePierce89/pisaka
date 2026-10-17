@@ -196,19 +196,19 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Create: `Sources/PisakaCore/OccurrenceHighlightModel.swift`
 - Create: `Tests/PisakaCoreTests/OccurrenceHighlightModelTests.swift`
 
-- [ ] Add a `@MainActor` model holding the current answer (`[OccurrenceHighlight]` with read/write/selectionMatch kinds) and a monotonic generation token.
-- [ ] `settle(text:selection:language:fileURL:fileID:)` captures the token synchronously, then picks a mode via `OccurrenceHighlightRule`.
+- [x] Add a `@MainActor` model holding the current answer (`[OccurrenceHighlight]` with read/write/selectionMatch kinds) and a monotonic generation token.
+- [x] `settle(text:selection:language:fileURL:fileID:)` captures the token synchronously, then picks a mode via `OccurrenceHighlightRule`.
   - **Identifier mode:** the provider's `documentHighlights`.
   - **Selection-match mode:** `OccurrenceScan.exactMatches` with the cap, run off the main actor on the immutable snapshot.
   - **None:** clears.
   - A superseded result is discarded.
-- [ ] `noteEdit()` bumps the token and clears, so an edit clears until the next settle. `reset()` runs on tab switch or teardown.
-- [ ] Tests using `Gate`:
+- [x] `noteEdit()` bumps the token and clears, so an edit clears until the next settle. `reset()` runs on tab switch or teardown.
+- [x] Tests using `Gate`:
   - a slow first request overtaken by a second never publishes;
   - an edit during flight discards the result;
   - the mode switching clears the other mode's answer;
   - the server answer's write kind survives into the published state.
-- [ ] Run `make test` before Task 8.
+- [x] Run `make test` before Task 8.
 
 ### Task 8: Occurrence highlighting in the editor (app, R2/R3)
 
