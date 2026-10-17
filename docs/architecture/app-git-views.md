@@ -238,9 +238,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       elsewhere and any future `--pretty` site is covered by construction.
 
     They are arguments rather than `GIT_OPTIONAL_LOCKS=0` because the environment
-    is assigned only when an override exists (the `run` reason below), because an
-    argument is visible in the command line the gating suite reads, and because an
-    environment variable would leak into the hook processes `commit` spawns.
+    is assigned only when an override exists (the `run` reason below), and because
+    an argument is visible in the command line the gating suite reads. Neither
+    spelling keeps them out of hooks: git exports the flag as
+    `GIT_OPTIONAL_LOCKS=0` and each `-c` through `GIT_CONFIG_PARAMETERS`, so the
+    hooks `commit`, `push`, `pull` and `checkout` spawn inherit both — accepted,
+    since a hook's reads merely skip the optional lock too and its `log` shows
+    signatures only on an explicit `--show-signature`.
     `-z`/NUL output is unnecessary — porcelain v2 keeps paths on the line tail
     and the parser reads them as the unsplit remainder. The Log view adds four more
     `run`-backed methods: `commits(filter:limit:root:)` runs `git log --topo-order

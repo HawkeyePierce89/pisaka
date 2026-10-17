@@ -4,11 +4,12 @@ import XCTest
 import PisakaCore
 @testable import Pisaka
 
-/// R4 and R1 against the real `git`, in throwaway repositories.
+/// R4, R1, R2 and R5 against the real `git`, in throwaway repositories.
 ///
 /// `GitCLIArgumentSourceGatingTests` pins the command lines `GitCLIService`
 /// spells — the trailing `--` on both branch checkouts and the
-/// `--no-optional-locks` global option — but whether those arguments do what
+/// `--no-optional-locks` global option, `--encoding=UTF-8` and blame's `-w -M`
+/// — but whether those arguments do what
 /// their doc comments claim is a fact about git itself, and this bundle is the
 /// only place a real git runs:
 ///
@@ -19,10 +20,16 @@ import PisakaCore
 ///   `GitError.checkoutFailed` and leaves that path's unstaged edit alone —
 ///   without `--`, git restores the path from the index and exits 0;
 /// - a name that exists only as `origin/<name>` and is also a path switches —
-///   without `--`, git refuses it as ambiguous;
+///   without `--`, git refuses it as ambiguous — and `createAndCheckout` from
+///   that remote start point, whose name is also a path, creates the branch;
 /// - `changedFiles` leaves `.git/index` byte-for-byte untouched when the stat
 ///   cache is stale, and a plain `git status` run by the helper afterwards does
-///   rewrite it, so the assertion cannot pass vacuously.
+///   rewrite it, so the assertion cannot pass vacuously;
+/// - a message stored in ISO-8859-1, in a repository whose
+///   `i18n.logOutputEncoding` is also ISO-8859-1, reads back as Unicode through
+///   both `--pretty` sites — without the flag git emits the Latin-1 bytes;
+/// - a re-indented line and a line moved within the file both stay attributed
+///   to the commit that wrote them — without `-w -M` both go to the later one.
 ///
 /// The helper's own git runs with the global and system configuration masked
 /// (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`), so a signing,
@@ -86,6 +93,18 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         XCTAssertEqual(try currentBranch(in: clone), "docs")
     }
 
+    func testCreateAndCheckoutFromARemoteStartPointThatIsAlsoAPath() async throws {
+        let origin = try makeRepository("origin")
+        try commitFile("docs/f", contents: "a\n", in: origin)
+        try git(["branch", "docs"], in: origin)
+        try git(["clone", "-q", origin.path, "clone"], in: scratch)
+        let clone = scratch.appendingPathComponent("clone", isDirectory: true)
+
+        try await GitCLIService().createAndCheckout(name: "feature", startPoint: "origin/docs", root: clone)
+
+        XCTAssertEqual(try currentBranch(in: clone), "feature")
+    }
+
     // MARK: - R1
 
     func testChangedFilesDoesNotRewriteTheIndex() async throws {
@@ -111,6 +130,49 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
             try Data(contentsOf: index), before,
             "plain git status did not refresh the index, so the assertion above proves nothing"
         )
+    }
+
+    // MARK: - R2
+
+    func testALegacyEncodedMessageReadsBackAsUnicode() async throws {
+        let repo = try makeRepository("repo")
+        try git(["config", "i18n.commitEncoding", "ISO-8859-1"], in: repo)
+        try git(["config", "i18n.logOutputEncoding", "ISO-8859-1"], in: repo)
+        try Data("a\n".utf8).write(to: repo.appendingPathComponent("a.txt"))
+        try git(["add", "--", "a.txt"], in: repo)
+        let message = scratch.appendingPathComponent("message")
+        try Data([0x63, 0x61, 0x66, 0xE9, 0x0A]).write(to: message)  // "café\n" in ISO-8859-1
+        try git(["commit", "-q", "-F", message.path], in: repo)
+
+        let service = GitCLIService()
+        let commits = try await service.commits(filter: LogFilter(), limit: 1, root: repo)
+        let headMessage = try await service.headMessage(root: repo)
+
+        XCTAssertEqual(commits.first?.subject, "café")
+        XCTAssertEqual(headMessage?.trimmingCharacters(in: .whitespacesAndNewlines), "café")
+    }
+
+    // MARK: - R5
+
+    func testBlameKeepsReindentedAndMovedLinesWithTheirAuthor() async throws {
+        let repo = try makeRepository("repo")
+        // Each line is long enough for `-M`'s default score of 20 characters.
+        try commitFile(
+            "f.swift",
+            contents: "let alphaBetaGammaDelta = 1\nlet epsilonZetaEtaTheta = 2\nlet iotaKappaLambdaMu = 3\n",
+            in: repo
+        )
+        let original = try git(["rev-parse", "HEAD"], in: repo).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Move the last line to the top and re-indent the middle one.
+        try commitFile(
+            "f.swift",
+            contents: "let iotaKappaLambdaMu = 3\nlet alphaBetaGammaDelta = 1\n    let epsilonZetaEtaTheta = 2\n",
+            in: repo
+        )
+
+        let lines = try await GitCLIService().blame(fileURL: repo.appendingPathComponent("f.swift"))
+
+        XCTAssertEqual(lines.map { $0?.hash }, [original, original, original])
     }
 
     // MARK: - Helpers
@@ -152,14 +214,19 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         environment["GIT_CONFIG_NOSYSTEM"] = "1"
         process.environment = environment
         let stdout = Pipe()
-        let stderr = Pipe()
+        // stderr goes to a file rather than a second pipe: reading two pipes one
+        // after the other deadlocks once git fills the unread one.
+        let errorLog = scratch.appendingPathComponent("helper-stderr-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: errorLog.path, contents: nil)
+        let stderr = try FileHandle(forWritingTo: errorLog)
+        defer { try? stderr.close() }
         process.standardOutput = stdout
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
         try process.run()
         let out = stdout.fileHandleForReading.readDataToEndOfFile()
-        let err = stderr.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        let err = (try? Data(contentsOf: errorLog)) ?? Data()
         guard process.terminationStatus == 0 else {
             throw HelperFailure(
                 arguments: arguments,

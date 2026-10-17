@@ -25,12 +25,14 @@ import XCTest
 ///   future one — launches without them.
 /// - **Every `--pretty` site re-encodes** (`testEveryPrettySiteForcesUTF8`):
 ///   the array literals spelling `"--pretty` are, by set equality, the ones
-///   spelling `"--encoding=UTF-8"`, neither set empty; and neither
+///   spelling `"--encoding=UTF-8"`, neither set empty, and every `"--pretty`
+///   literal sits inside one of them (an array the reader skips cannot escape
+///   the rule); and neither
 ///   `--show-signature` nor `log.showSignature=true` is spelled anywhere,
 ///   because signature text corrupts `Commit.parse`'s hash field
 ///   (`CommitParserTests`).
 /// - **The prompt-suppressing commands** (`testTheNetworkCommandsSuppressTheTerminalPrompt`):
-///   the set of functions whose bodies spell `GIT_TERMINAL_PROMPT` is exactly
+///   the set of functions whose bodies spell `"GIT_TERMINAL_PROMPT": "0"` is exactly
 ///   `{fetch, push, pull, commit}` — the commands that reach a remote or run
 ///   hooks that may. A set, not a count, so it is the one place that number
 ///   lives (`GitHubSourceGatingTests` defers here).
@@ -167,6 +169,10 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
         let encoded = Set(arrays.filter { $0.contains("\"--encoding=UTF-8\"") })
         XCTAssertFalse(pretty.isEmpty, "no --pretty site found — re-point this rule rather than losing it")
         XCTAssertEqual(pretty, encoded, "every --pretty array, and only those, passes --encoding=UTF-8")
+        XCTAssertEqual(
+            occurrences(of: "\"--pretty", in: code), pretty.count,
+            "every --pretty literal sits inside an array this rule reads"
+        )
         for banned in ["--show-signature", "log.showSignature=true"] {
             XCTAssertEqual(
                 occurrences(of: banned, in: code), 0,
@@ -177,7 +183,7 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
 
     func testTheNetworkCommandsSuppressTheTerminalPrompt() throws {
         let bodies = try functionBodies(in: try service())
-        let prompting = Set(bodies.filter { $0.value.contains("GIT_TERMINAL_PROMPT") }.keys)
+        let prompting = Set(bodies.filter { $0.value.contains("\"GIT_TERMINAL_PROMPT\": \"0\"") }.keys)
         XCTAssertEqual(
             prompting, ["fetch", "push", "pull", "commit"],
             "exactly the commands that reach a remote or run hooks pass GIT_TERMINAL_PROMPT=0 — a credential "

@@ -230,8 +230,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     branch-switcher's "New Branch…" dialog, separate from `isValidFileName` (a
     branch name has its own, stricter grammar per `git check-ref-format`). Rejects
     an empty/whitespace-only name, a leading `-` (git's own `branch`/`checkout -b`
-    refuse it, and the macOS CLI runs `git checkout -b <name> …` with no `--`
-    separator so a dash-led name would be mis-parsed as an option), a
+    refuse it, and the macOS CLI's `git checkout -b <name> <startPoint> --`
+    puts its `--` only after the start point, so a dash-led name before it would
+    still be mis-parsed as an option), a
     leading/trailing `/`, `..`, `//`, the
     characters space/`~`/`^`/`:`/`?`/`*`/`[`/`\`/NUL, any ASCII control char, and
     any line break (the scan tests `CharacterSet.newlines` *alongside* the control

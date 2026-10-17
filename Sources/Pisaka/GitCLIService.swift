@@ -1165,8 +1165,8 @@ struct GitCLIService: GitServicing {
         case let .unavailable(reason):
             throw GitError.pushFailed(reason: reason.message)
         }
-        // `GIT_TERMINAL_PROMPT=0` because push is the one command here that
-        // routinely needs authentication. Without it, a remote whose credentials
+        // `GIT_TERMINAL_PROMPT=0` because push, like fetch and pull, routinely
+        // needs authentication. Without it, a remote whose credentials
         // are not cached makes git block on a prompt it can never be answered
         // through: `isRunning` stays raised so the sheet's Commit button is
         // disabled forever, and — since every other call shares this service's
@@ -1188,8 +1188,8 @@ struct GitCLIService: GitServicing {
     /// Exactly those two arguments: no remote, no refspec, no rebase, no merge
     /// fallback (see `GitServicing.pull(root:)` for why `--ff-only` is the
     /// contract rather than a preference). `GIT_TERMINAL_PROMPT=0` for the reason
-    /// `push` sets it — this is the other command here that routinely reaches the
-    /// network, and a credential prompt nothing can answer would wedge this
+    /// `push` sets it — like fetch, this command routinely reaches the network,
+    /// and a credential prompt nothing can answer would wedge this
     /// service's serial queue and with it every other git read in the app.
     ///
     /// A non-zero exit throws `GitError.pullFailed(reason:)` carrying git's own
@@ -1467,9 +1467,13 @@ struct GitCLIService: GitServicing {
     ///
     /// They are arguments rather than `GIT_OPTIONAL_LOCKS=0` in the environment
     /// because the environment is assigned only when an override exists (see
-    /// `run` for why that matters), because an argument is visible in the command
-    /// line `GitCLIArgumentSourceGatingTests` reads, and because an environment
-    /// variable would leak into the hook processes `commit` spawns.
+    /// `run` for why that matters), and because an argument is visible in the
+    /// command line `GitCLIArgumentSourceGatingTests` reads. Either spelling
+    /// reaches the hooks `commit`, `push`, `pull` and `checkout` spawn: git
+    /// exports the flag as `GIT_OPTIONAL_LOCKS=0` and every `-c` through
+    /// `GIT_CONFIG_PARAMETERS`. That is accepted: a hook's own reads skip the
+    /// optional lock too, and its `log` shows signatures only when it asks for
+    /// them with `--show-signature`.
     ///
     /// The accepted consequence: a lock-free `status` does not write back the
     /// refreshed stat cache, so the user's next terminal `git status` re-does
