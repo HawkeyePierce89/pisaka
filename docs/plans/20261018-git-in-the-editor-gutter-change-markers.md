@@ -171,11 +171,11 @@ None new.
 - Create: `Tests/PisakaCoreTests/ChangeNavigationRuleTests.swift`
 - Create: `Tests/PisakaCoreTests/HunkRevertPlanTests.swift`
 
-- [ ] Add `ChangeNavigationRule.targetLine(hunks:caretLine:direction:) -> Int?`, reusing `DiagnosticNavigationDirection`. Stops are each hunk's first new-side line, or its anchor line for a deletion (line 0 for before line 1); stops are distinct and ascending. The search is strictly past the caret, wrapping. No stops answers `nil`.
-- [ ] Add `HunkRevertPlan.plan(hunk:base:buffer:) -> RangeEditPlan?`: one edit plus a caret at the hunk's first line start, built from `TerminatedLines` on both sides with terminators verbatim, applying the end-of-text rule from Decisions.
-- [ ] Write navigation tests: wrap both ways; caret inside a hunk; caret on a hunk's first line moves on; caret on a deletion's anchor; no hunks.
-- [ ] Write revert tests: hunk at the start of the file; modified hunk ending at an unterminated last line; added line at an unterminated end; CRLF file; deletion after the last line, with HEAD both terminated and unterminated; modified hunk with unequal side counts; a fuzz test — reverting every hunk of random small texts, back to front, yields HEAD byte for byte, and reverting one hunk leaves the others' hunks intact.
-- [ ] Run `swift test`; it must pass.
+- [x] Add `ChangeNavigationRule.targetLine(hunks:caretLine:direction:) -> Int?`, reusing `DiagnosticNavigationDirection`. Stops are each hunk's first new-side line, or its anchor line for a deletion (line 0 for before line 1); stops are distinct and ascending. The search is strictly past the caret, wrapping. No stops answers `nil`.
+- [x] Add `HunkRevertPlan.plan(hunk:base:buffer:) -> RangeEditPlan?`: one edit plus a caret at the hunk's first line start, built from `TerminatedLines` on both sides with terminators verbatim, applying the end-of-text rule from Decisions.
+- [x] Write navigation tests: wrap both ways; caret inside a hunk; caret on a hunk's first line moves on; caret on a deletion's anchor; no hunks.
+- [x] Write revert tests: hunk at the start of the file; modified hunk ending at an unterminated last line; added line at an unterminated end; CRLF file; deletion after the last line, with HEAD both terminated and unterminated; modified hunk with unequal side counts; a fuzz test — reverting every hunk of random small texts, back to front, yields HEAD byte for byte, and reverting one hunk leaves the others' hunks intact.
+- [x] Run `swift test`; it must pass.
 
 ### Task 5: Word-level diff engine
 
