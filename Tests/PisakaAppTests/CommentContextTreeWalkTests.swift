@@ -17,6 +17,10 @@ import XCTest
 /// - the root element of a `return (…)` and plain TS are code;
 /// - an attribute line and a lone `/>` line inside a multi-line tag are code;
 /// - a child line of a `<>…</>` fragment is JSX children;
+/// - an ordinary `/* … */` on its own line inside a multi-line child `{…}`
+///   is code, so ⌘/ writes `//` rather than nesting it in `{/* … */}`;
+/// - ⌥⌘/ over a selection inside a child `{render(value)}` wraps `/* */`,
+///   asked where the range starts rather than at its line;
 /// - the whole toggle through the resolver writes `{/* */}` on a child line,
 ///   and a second ⌘/ — or ⌥⌘/ over the wrapped text — gives the source back
 ///   byte for byte, because the wrapped line is itself a child `{…}` line;
@@ -65,8 +69,43 @@ final class CommentContextTreeWalkTests: XCTestCase {
         let line = text.lineRange(for: NSRange(location: found.location, length: 0))
         var offset = line.location
         while offset < NSMaxRange(line), text.character(at: offset) == 0x20 { offset += 1 }
-        let chain = CommentContextTreeWalk.ancestors(in: tree, at: offset, textLength: text.length)
-        return CommentStyle.context(ancestors: chain)
+        return CommentContextTreeWalk.context(in: tree, at: offset, textLength: text.length)
+    }
+
+    func testAnOrdinaryCommentInsideAMultiLineChildExpressionIsCode() throws {
+        let source = """
+        function View() {
+          return (
+            <div>
+              {
+                /* note */
+              }
+            </div>
+          );
+        }
+        """
+        XCTAssertEqual(try context(ofLineContaining: "/* note */", in: source), .code)
+        XCTAssertTrue(try lineToggle(source, caretAt: "/* note */").contains("// /* note */"))
+    }
+
+    func testTheBlockToggleWrapsASelectionInsideAChildExpressionInSlashStar() throws {
+        let source = """
+        function View() {
+          return (
+            <div>
+              {render(value)}
+            </div>
+          );
+        }
+        """
+        let text = source as NSString
+        let plan = try XCTUnwrap(BlockCommentEngine.toggle(
+            text: text, selectedRanges: [text.range(of: "value")], language: .tsx,
+            context: CommentContextTreeWalk.resolver(
+                snapshot: SyntaxTreeSnapshot(), text: text, language: .tsx, fileID: nil
+            )
+        ))
+        XCTAssertTrue(applying(plan, to: source).contains("{render(/* value */)}"), applying(plan, to: source))
     }
 
     func testChildLinesAreJSXChildren() throws {

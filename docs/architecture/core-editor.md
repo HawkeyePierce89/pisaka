@@ -157,9 +157,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     there is text the page renders. `style(for:context:)` answers
     `.block(open: "{/*", close: "*/}")` for `.jsxChildren` in javascript,
     typescript and tsx and `style(for:)` for every other pairing, so this stays
-    the single table. `context(ancestors:)` is the rule that tells the two
-    apart from the named syntax-tree nodes enclosing a line's first
-    non-whitespace offset, innermost first, each with a `startsAtLineOffset`
+    the single table. `context(ancestors:commentOpensExpression:)` is the rule
+    that tells the two apart from the named syntax-tree nodes enclosing an
+    offset (a line's first non-whitespace offset for ⌘/, a range's start for
+    ⌥⌘/), innermost first, each with a `startsAtLineOffset`
     flag — kinds alone cannot tell a child line opening with `<span>` from a
     continuation line of a multi-line opening tag, so the flag is input. The
     first listed kind met decides: `jsx_attribute` → code; a `jsx_expression`
@@ -167,11 +168,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that does → children when its parent is a `jsx_element` — the shape of a
     wrapped child line `{/* … */}`, so a second ⌘/ or ⌥⌘/ unwraps what the first
     wrote, and of any child `{…}`, where `//` would be rendered text; a
-    `comment` whose parent is a `jsx_expression` → as that expression's lines
+    `comment` whose parent is a `jsx_expression` **and that starts right after
+    its `{`** (`commentOpensExpression`, the one positional fact the kinds
+    cannot carry, defaulting to `false`) → as that expression's lines
     (children when the expression's parent is a `jsx_element`) — the later
     lines of a wrap spanning several child lines sit inside the comment, and
     answering code there would make the second ⌘/ write `//` into the children
-    instead of unwrapping; any other `comment` is skipped;
+    instead of unwrapping; any other `comment` is skipped — including an
+    ordinary `/* note */` on its own line inside a multi-line `{…}`, whose kinds
+    equal a wrap's, so the walk meets the expression mid-line and answers code
+    rather than nesting it in `{/* /* note */ */}`;
     `jsx_text` → children; an element or opening/closing tag that does not
     start at the offset → code (the line is inside a tag), one that does →
     children only when its element's parent is a `jsx_element` (the root
@@ -267,9 +273,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **the chosen fallback** is that a language with a line comment but no block
     syntax (the `#` and `--` languages) runs the line toggle instead, so the key
     still comments something; json, markdown and no language answer `nil`, which
-    the view beeps. In the JavaScript family `context` is asked for the first
-    non-whitespace offset of each range's starting line, exactly as the line
-    toggle asks, and a range starting in JSX children wraps `{/* … */}`. Lines
+    the view beeps. In the JavaScript family `context` is asked **where each
+    range starts** — not at its line, as the line toggle asks, because this
+    command wraps the range: `value` selected in a child `{render(value)}`
+    line is inside `{…}` and gets `/* */`, where `{/* */}` would be an empty
+    object argument — except that a range starting in its line's leading
+    indentation is asked at the first non-whitespace offset, so a whole-line
+    selection answers as its line does. A range starting in JSX children wraps
+    `{/* … */}`. Lines
     come from `BlockIndentEngine.Lines`. Unit-tested in `BlockCommentEngineTests`.
   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func

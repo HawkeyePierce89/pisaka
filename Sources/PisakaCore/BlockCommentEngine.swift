@@ -38,11 +38,15 @@ public enum BlockCommentEngine {
     /// key still comments something rather than beeping in a file that has
     /// comments.
     ///
-    /// `context` is asked, exactly as the line toggle asks it, for the offset of
-    /// the **first non-whitespace character** of each range's starting line,
-    /// and only in a language whose JSX-children delimiters differ from its
-    /// code ones (the JavaScript family); a range starting in JSX children is
-    /// wrapped `{/* … */}`.
+    /// `context` is asked only in a language whose JSX-children delimiters
+    /// differ from its code ones (the JavaScript family), and a range starting
+    /// in JSX children is wrapped `{/* … */}`. Unlike the line toggle it is
+    /// asked **where the range starts**, because this command wraps the range
+    /// and not its lines: `value` selected in a child `{render(value)}` line
+    /// sits inside `{…}` and must get `/* */`, not the `{/* */}` an empty
+    /// object would make of it. A range starting inside its line's leading
+    /// indentation is asked at the first non-whitespace character instead,
+    /// so a whole-line selection answers as its line does.
     public static func toggle(
         text: NSString,
         selectedRanges: [NSRange],
@@ -62,9 +66,9 @@ public enum BlockCommentEngine {
         let lines = BlockIndentEngine.Lines(text: text)
         return toggle(text: text, selectedRanges: selectedRanges) { range in
             let line = lines.index(of: range.location)
-            let offset = lines.start(of: line)
+            let firstNonWhitespace = lines.start(of: line)
                 + ToggleCommentEngine.indentation(text: text, lines: lines, line: line)
-            return context(offset) == .jsxChildren ? jsx : code
+            return context(max(range.location, firstNonWhitespace)) == .jsxChildren ? jsx : code
         }
     }
 

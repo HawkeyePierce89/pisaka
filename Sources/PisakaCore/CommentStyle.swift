@@ -50,9 +50,10 @@ public enum CommentStyle: Equatable {
         }
     }
 
-    /// Where a line sits, read off the syntax-tree ancestors enclosing its
-    /// first non-whitespace offset, **innermost first**. `startsAtLineOffset`
-    /// is true when the node starts exactly at that offset: ancestor kinds alone
+    /// Where an offset sits — a line's first non-whitespace offset for ⌘/, a
+    /// range's own start for ⌥⌘/ — read off the syntax-tree ancestors
+    /// enclosing it, **innermost first**. `startsAtLineOffset` is true when
+    /// the node starts exactly at that offset: ancestor kinds alone
     /// cannot tell a child line (`<span>` opening the line) from a continuation
     /// line inside a multi-line opening tag (`/>` closing it), so the flag is
     /// part of the input.
@@ -66,13 +67,18 @@ public enum CommentStyle: Equatable {
     ///   commented child line `{/* … */}` parses as a `jsx_expression` holding
     ///   the comment, and `//` in front of any child `{…}` would be rendered
     ///   text;
-    /// - `comment` directly inside a `jsx_expression` is a continuation line of
-    ///   a wrap `{/* … */}` spanning several lines, and answers as that
-    ///   expression's lines do: `.jsxChildren` when its parent is a
-    ///   `jsx_element`, `.code` otherwise. Without it the wrap's last line
-    ///   would meet the expression mid-line and answer `.code`, and the second
-    ///   ⌘/ would write `//` into the children instead of unwrapping. Any
-    ///   other comment is skipped like an unlisted kind;
+    /// - `comment` directly inside a `jsx_expression`, **when
+    ///   `commentOpensExpression` says it starts right after the expression's
+    ///   `{`**, is a continuation line of a wrap `{/* … */}` spanning several
+    ///   lines, and answers as that expression's lines do: `.jsxChildren` when
+    ///   its parent is a `jsx_element`, `.code` otherwise. Without it the
+    ///   wrap's last line would meet the expression mid-line and answer
+    ///   `.code`, and the second ⌘/ would write `//` into the children instead
+    ///   of unwrapping. Any other comment — including an ordinary `/* … */`
+    ///   on its own line inside a multi-line `{…}`, which only that flag
+    ///   tells apart from the wrap, the two having the same kinds — is
+    ///   skipped like an unlisted kind, so the walk meets the expression
+    ///   mid-line and answers `.code`;
     /// - `jsx_text` answers `.jsxChildren`;
     /// - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or
     ///   `jsx_closing_element` that does **not** start at the line offset
@@ -87,7 +93,13 @@ public enum CommentStyle: Equatable {
     /// There is no `jsx_fragment` case: the pinned TSX grammar has no such
     /// node, and a fragment `<>…</>` is a `jsx_element` whose opening element
     /// has no name, so its children are answered by the element rule.
-    public static func context(ancestors: [(kind: String, startsAtLineOffset: Bool)]) -> CommentContext {
+    ///
+    /// `commentOpensExpression` is the one positional fact the kinds cannot
+    /// carry: whether the chain's `comment` (comments do not nest, so there
+    /// is at most one) starts immediately after its parent's opening `{`.
+    public static func context(
+        ancestors: [(kind: String, startsAtLineOffset: Bool)], commentOpensExpression: Bool = false
+    ) -> CommentContext {
         for (index, ancestor) in ancestors.enumerated() {
             switch ancestor.kind {
             case "jsx_attribute":
@@ -96,7 +108,8 @@ public enum CommentStyle: Equatable {
                 guard ancestor.startsAtLineOffset, index + 1 < ancestors.count else { return .code }
                 return ancestors[index + 1].kind == "jsx_element" ? .jsxChildren : .code
             case "comment":
-                guard index + 1 < ancestors.count, ancestors[index + 1].kind == "jsx_expression" else { continue }
+                guard commentOpensExpression, index + 1 < ancestors.count,
+                      ancestors[index + 1].kind == "jsx_expression" else { continue }
                 guard index + 2 < ancestors.count else { return .code }
                 return ancestors[index + 2].kind == "jsx_element" ? .jsxChildren : .code
             case "jsx_text":

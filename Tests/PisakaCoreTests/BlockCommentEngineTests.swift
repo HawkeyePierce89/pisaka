@@ -115,14 +115,35 @@ final class BlockCommentEngineTests: XCTestCase {
         XCTAssertEqual(apply(back, to: wrapped), text)
     }
 
-    func testTheContextIsAskedAtTheStartingLinesFirstNonWhitespace() throws {
+    func testTheContextIsAskedWhereTheRangeStarts() throws {
         let text = "a\n    b c\n"
         var asked: [Int] = []
         _ = toggle(text, [range(of: "c", in: text)], language: .javascript) { offset in
             asked.append(offset)
             return .code
         }
+        XCTAssertEqual(asked, [range(of: "c", in: text).location])
+    }
+
+    func testARangeStartingInTheIndentationIsAskedAtTheFirstNonWhitespace() throws {
+        let text = "a\n    b c\n"
+        var asked: [Int] = []
+        _ = toggle(text, [NSRange(location: 2, length: 7)], language: .javascript) { offset in
+            asked.append(offset)
+            return .code
+        }
         XCTAssertEqual(asked, [range(of: "b", in: text).location])
+    }
+
+    func testASelectionInsideAChildExpressionGetsSlashStar() throws {
+        // The line `{render(value)}` is a JSX child, but `value` sits inside
+        // `{…}`: `{/* value */}` there would be an empty object argument.
+        let text = "    {render(value)}"
+        let lineStart = range(of: "{", in: text).location
+        let plan = try XCTUnwrap(toggle(text, [range(of: "value", in: text)], language: .tsx) { offset in
+            offset == lineStart ? .jsxChildren : .code
+        })
+        XCTAssertEqual(apply(plan, to: text), "    {render(/* value */)}")
     }
 
     func testCodeInAJSXLanguageUsesSlashStar() throws {

@@ -88,13 +88,29 @@ final class CommentStyleTests: XCTestCase {
         let chain: Chain = [
             ("comment", false), ("jsx_expression", false), ("jsx_element", false), ("program", false),
         ]
-        XCTAssertEqual(CommentStyle.context(ancestors: chain), .jsxChildren)
+        XCTAssertEqual(CommentStyle.context(ancestors: chain, commentOpensExpression: true), .jsxChildren)
     }
 
     func testALineInsideAWrapOutsideChildrenIsCode() {
         let chain: Chain = [("comment", false), ("jsx_expression", false), ("jsx_attribute", false)]
-        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
-        XCTAssertEqual(CommentStyle.context(ancestors: [("comment", false), ("jsx_expression", false)]), .code)
+        XCTAssertEqual(CommentStyle.context(ancestors: chain, commentOpensExpression: true), .code)
+        XCTAssertEqual(
+            CommentStyle.context(ancestors: [("comment", false), ("jsx_expression", false)], commentOpensExpression: true),
+            .code
+        )
+    }
+
+    func testAnOrdinaryCommentInsideAMultiLineExpressionIsCode() {
+        // `{` on one line, `/* note */` on the next: the same kinds as a wrap's
+        // continuation line, told apart only by where the comment starts.
+        let ownLine: Chain = [
+            ("comment", true), ("jsx_expression", false), ("jsx_element", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: ownLine), .code)
+        let continuation: Chain = [
+            ("comment", false), ("jsx_expression", false), ("jsx_element", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: continuation, commentOpensExpression: false), .code)
     }
 
     func testACommentOutsideAnExpressionIsSkipped() {
