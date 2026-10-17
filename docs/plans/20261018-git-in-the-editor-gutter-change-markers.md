@@ -157,11 +157,11 @@ None new.
 - Modify: `Sources/PisakaCore/LineDiff.swift` (internal no-words entry point only, used here; full word wiring in Task 6)
 - Create: `Tests/PisakaCoreTests/GutterChangeModelTests.swift`
 
-- [ ] Add `GutterChangeModel.compute(base: String?, buffer: String) -> GutterChanges`, where `GutterChanges` holds `hunks` and `markers`. It is pure and safe to call off the main thread. No base means empty; either side's UTF-8 count over `maxSideBytes` means empty.
-- [ ] Declare `GutterChangeModel.maxSideBytes = 1 << 20`, restated, and pin it equal to `LocalChangesInlineDiff.maxSideBytes` with a test.
-- [ ] Add `GutterChanges.hunk(atLine:)` for click/caret lookup: the hunk containing the line, or the deleted hunk anchored at that line boundary; the first in order wins.
-- [ ] Write tests: no base, an identical file, the three kinds together; CRLF, separators NEL/LS/PS; whitespace-only change is modified; the cap on each side (just under, just over); `hunk(atLine:)` for strip lines, anchor lines and line 1 carrying both wedges.
-- [ ] Run `swift test`; it must pass.
+- [x] Add `GutterChangeModel.compute(base: String?, buffer: String) -> GutterChanges`, where `GutterChanges` holds `hunks` and `markers`. It is pure and safe to call off the main thread. No base means empty; either side's UTF-8 count over `maxSideBytes` means empty.
+- [x] Declare `GutterChangeModel.maxSideBytes = 1 << 20`, restated, and pin it equal to `LocalChangesInlineDiff.maxSideBytes` with a test.
+- [x] Add `GutterChanges.hunk(atLine:)` for click/caret lookup: the hunk containing the line, or the deleted hunk anchored at that line boundary; the first in order wins.
+- [x] Write tests: no base, an identical file, the three kinds together; CRLF, separators NEL/LS/PS; whitespace-only change is modified; the cap on each side (just under, just over); `hunk(atLine:)` for strip lines, anchor lines and line 1 carrying both wedges.
+- [x] Run `swift test`; it must pass.
 
 ### Task 4: Navigation rule and revert plan
 

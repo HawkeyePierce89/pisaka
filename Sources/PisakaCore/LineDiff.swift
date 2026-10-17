@@ -65,6 +65,15 @@ public enum LineDiff {
     /// Build aligned side-by-side rows comparing `old` (left/`HEAD`) to `new`
     /// (right/working copy).
     public static func rows(old: String, new: String) -> [DiffRow] {
+        rows(old: old, new: new, wordRanges: true)
+    }
+
+    /// The same rows, with the word-range pass optional: the gutter change model
+    /// (`GutterChangeModel`) asks with `wordRanges: false`, because it never draws
+    /// words and recomputes on every typing pause. The line algorithm, matrix cap
+    /// and pairing are identical on both paths — this switch only ever skips work
+    /// layered on top of finished rows.
+    static func rows(old: String, new: String, wordRanges: Bool) -> [DiffRow] {
         let oldLines = splitLines(old)
         let newLines = splitLines(new)
         let ops = diffOps(oldLines, newLines)
