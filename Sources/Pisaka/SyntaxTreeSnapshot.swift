@@ -218,4 +218,64 @@ enum TagElementExtraction {
     }
 }
 
+/// Reads the chain Expand Selection climbs off a syntax tree, as
+/// `SelectionExpansionRule.candidates` takes it (R6): the ranges of the
+/// **named** nodes enclosing the selection, innermost first, and whether the
+/// innermost of them is string content. Every decision about which rung comes
+/// next is the rule's; this only walks parents.
+///
+/// The walk starts at the smallest node spanning the selection — for a caret,
+/// the character after it, or the one before it at the very end of the text,
+/// the probe `TagElementExtraction` uses — and keeps every named node whose
+/// range contains the selection. Anonymous nodes (punctuation, keywords) are
+/// never a rung.
+///
+/// **String content** is a literal or a comment: the tree has no node smaller
+/// than the whole of either, so the rule's word step is always tried inside
+/// one. Read by node type — a type naming `string` or `comment` — because the
+/// grammars agree on that much and on nothing finer (`string_fragment`,
+/// `string_content`, `template_string`, `line_comment`, …).
+enum SelectionExpansionTreeWalk {
+    struct Chain: Equatable {
+        let ancestors: [NSRange]
+        let stringContent: Bool
+    }
+
+    static func chain(in tree: Tree, selection: NSRange, textLength: Int) -> Chain {
+        let empty = Chain(ancestors: [], stringContent: false)
+        guard let root = tree.rootNode, selection.location != NSNotFound, selection.location >= 0,
+              NSMaxRange(selection) <= textLength else { return empty }
+        var start = selection.location
+        var end = NSMaxRange(selection)
+        if selection.length == 0 {
+            if start < textLength {
+                end = start + 1
+            } else if start > 0 {
+                start -= 1
+            }
+        }
+        var node = root.descendant(in: UInt32(start * 2)..<UInt32(end * 2))
+        var ancestors: [NSRange] = []
+        var stringContent: Bool?
+        while let current = node {
+            let range = current.range
+            if current.isNamed,
+               range.location <= selection.location,
+               NSMaxRange(range) >= NSMaxRange(selection) {
+                if stringContent == nil {
+                    stringContent = isStringContent(current.nodeType)
+                }
+                ancestors.append(range)
+            }
+            node = current.parent
+        }
+        return Chain(ancestors: ancestors, stringContent: stringContent ?? false)
+    }
+
+    private static func isStringContent(_ type: String?) -> Bool {
+        guard let type else { return false }
+        return type.contains("string") || type.contains("comment")
+    }
+}
+
 #endif

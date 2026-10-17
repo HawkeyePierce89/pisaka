@@ -180,12 +180,16 @@ line_length:
 # the `TabNavigationCommands(model:)` entry and the two braces of the `Group`
 # it shares with `FoldCommands`, because the Window menu's thirteen items and
 # their four helpers live in `TabNavigationCommands.swift` — the `.commands`
-# builder was already at its ten-entry ceiling. The number tracks the one file that
+# builder was already at its ten-entry ceiling. Then 1948 with Expand / Shrink
+# Selection: one line, the `SelectionCommands()` entry inside that same
+# `Group`, because the two Edit menu items live in `SelectionCommands.swift`,
+# the step and its history in `SelectionExpansionController.swift` and every
+# decision in Core's `SelectionExpansionRule`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1947
-  error: 1947
+  warning: 1948
+  error: 1948
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -232,10 +236,12 @@ file_length:
 # measured numbers. Then to 1937 with Reveal in Project Tree's seven, the same
 # seven `file_length` counts. Then to 1940 with the tab navigation commands'
 # three, the same three `file_length` counts: the `TabNavigationCommands(model:)`
-# entry and its `Group`'s two braces inside the `.commands` builder.
+# entry and its `Group`'s two braces inside the `.commands` builder. Then to
+# 1941 with Expand / Shrink Selection's one, the same one `file_length` counts:
+# the `SelectionCommands()` entry inside that `Group`.
 type_body_length:
-  warning: 1940
-  error: 1940
+  warning: 1941
+  error: 1941
 
 function_body_length:
   warning: 140

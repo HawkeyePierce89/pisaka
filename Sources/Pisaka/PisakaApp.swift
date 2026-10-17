@@ -1383,7 +1383,7 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
-            // The two self-contained command types, as one entry: this builder
+            // The self-contained command types, as one entry: this builder
             // holds ten entries at most (found on Xcode 16.4; app-shell.md).
             // `Group` is a `Commands` when its content is.
             Group {
@@ -1392,6 +1392,10 @@ struct PisakaApp: App {
                 // carry no state and reach the focused editor through the first
                 // responder, so there is nothing for this scene to hand them.
                 FoldCommands()
+
+                // Expand / Shrink Selection (⌃⌘→ / ⌃⌘←), in the same Edit
+                // group, reaching the focused editor the same way.
+                SelectionCommands()
 
                 // Tab navigation, in the Window menu above its window list; its
                 // items observe the workspace in `TabNavigationCommands.swift`.

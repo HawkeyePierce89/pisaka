@@ -301,17 +301,19 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Tests/PisakaCoreTests/MenuShortcutUniquenessTests.swift` (doc inventory), `FoldingSourceGatingTests` if its scene-file rule needs it
 - Create: `Tests/PisakaAppTests/SelectionExpansionTests.swift`
 
-- [ ] Add Edit menu items "Expand Selection" (⌃⌘→) and "Shrink Selection" (⌃⌘←) in a `CommandGroup(after: .pasteboard)`. Without a focused editor, or with no further step, they beep through `PlatformFeedback.warning()`.
-- [ ] Verify the chords are free:
+- [x] Add Edit menu items "Expand Selection" (⌃⌘→) and "Shrink Selection" (⌃⌘←) in a `CommandGroup(after: .pasteboard)`. Without a focused editor, or with no further step, they beep through `PlatformFeedback.warning()`.
+- [x] Verify the chords are free:
   - against every `keyboardShortcut` (the uniqueness suite);
   - against AppKit's `StandardKeyBinding.dict` (read with `plutil`).
 
   Record the result in the type's doc comment, as `FoldCommands` does.
-- [ ] The editor walks the `SyntaxTreeSnapshot` from the selection up through named ancestors, marking string-content nodes, and feeds `SelectionExpansionRule`. A language with no grammar uses `fallbackCandidates`.
+  (Result: free among the app's shortcuts; AppKit binds `@^←`/`@^→` to base writing direction, which the menu equivalent takes precedence over — recorded in `SelectionCommands`' doc comment.)
+- [x] The editor walks the `SyntaxTreeSnapshot` from the selection up through named ancestors, marking string-content nodes, and feeds `SelectionExpansionRule`. A language with no grammar uses `fallbackCandidates`.
   - The editor's own selection changes are flagged so they keep the history.
   - Any other selection change, and any edit, resets it.
-- [ ] App test: on a TS fixture, expand from a caret steps through word, argument contents, call, statement, then shrink returns along the same path. A manual selection change or an edit clears the history. Plain text uses the fallback.
-- [ ] Run `make test`, `make test-app` and `make lint` before Task 13.
+  - (Implemented in a new `SelectionExpansionController.swift`, held by the coordinator as one lazy property, because `CodeEditorView.swift` sits at the `file_length` ceiling; `PisakaApp.swift`'s ceilings rose by one for the `SelectionCommands()` entry, following `style-lint.md`'s procedure.)
+- [x] App test: on a TS fixture, expand from a caret steps through word, argument contents, call, statement, then shrink returns along the same path. A manual selection change or an edit clears the history. Plain text uses the fallback.
+- [x] Run `make test`, `make test-app` and `make lint` before Task 13.
 
 ### Task 13: Verify acceptance criteria
 

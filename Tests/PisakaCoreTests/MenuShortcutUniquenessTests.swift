@@ -19,8 +19,8 @@ import XCTest
 /// `.keyboardShortcut("p", modifiers: […])` — which is the form most menu
 /// commands use, and the `KeyEquivalent` *constant* form —
 /// `.keyboardShortcut(.tab, modifiers: .control)` — which is how the Window
-/// menu's ⌃Tab / ⌃⇧Tab tab commands and `FoldCommands`' four arrow chords are
-/// spelled; a constant is recorded under its dotted name (`.tab`), which no
+/// menu's ⌃Tab / ⌃⇧Tab tab commands, `FoldCommands`' four arrow chords and
+/// `SelectionCommands`' ⌃⌘→ / ⌃⌘← are spelled; a constant is recorded under its dotted name (`.tab`), which no
 /// single character can equal. Two spellings stay outside the set, excluded by
 /// the pattern rather than by an exception list: the semantic forms
 /// (`.cancelAction`, `.defaultAction`), which carry no `modifiers:`, and the
@@ -149,6 +149,18 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         for chord in chords {
             let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
             XCTAssertEqual(declarations.map(\.location), ["TabNavigationCommands.swift"], chord)
+        }
+    }
+
+    /// Expand / Shrink Selection's chords, held by `SelectionCommands.swift`
+    /// alone. AppKit's own key binding for the pair (base writing direction) is
+    /// not a menu item and so not this scan's concern; the type's doc comment
+    /// records why the menu item winning it is acceptable.
+    func testTheSelectionExpansionChordsAreDeclaredOnceEach() throws {
+        let byChord = Dictionary(grouping: try declaredShortcuts(), by: \.chord)
+        for chord in [".rightArrow + .command .control", ".leftArrow + .command .control"] {
+            let declarations = try XCTUnwrap(byChord[chord], "\(chord) is declared by nothing")
+            XCTAssertEqual(declarations.map(\.location), ["SelectionCommands.swift"], chord)
         }
     }
 

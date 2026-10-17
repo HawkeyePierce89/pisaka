@@ -1144,6 +1144,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// overlay layout manager, and the bracket pair it may take the place of.
         private let tagHighlight = TagHighlightController()
 
+        /// Expand / Shrink Selection (R6): the history and the step, over the
+        /// snapshot above. Lazy because it observes nothing until first used.
+        private(set) lazy var selectionExpansion = SelectionExpansionController(coordinator: self)
+
         /// Code folding's owner: the debounced ask for this file's collapsible
         /// blocks, the folded state over them, and the per-run memory of both.
         /// Owned strongly here (it holds the text view and the gutter weakly, so
