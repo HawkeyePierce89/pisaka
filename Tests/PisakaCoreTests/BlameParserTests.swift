@@ -549,6 +549,47 @@ final class BlameParserTests: XCTestCase {
         XCTAssertEqual(lines.map { $0?.author }, ["Ada", "Ada"])
     }
 
+    /// The shape `git blame --porcelain -w -M` emits when a block was moved
+    /// within the file: the moved lines keep their original commit, so the
+    /// output carries several groups for the same commits out of line order,
+    /// each first group carrying `previous <hash> <same file>` and `filename`,
+    /// and a later group that reuses an already-described commit carrying only
+    /// its header (plus a `filename` line, which git repeats for a commit that
+    /// touched more than one path). The headers are skipped by the ordinary
+    /// grammar — nothing here is special-cased — and every line still lands on
+    /// its own final line number with the right commit.
+    func testMovedBlockOutputMapsLinesToTheirCommits() {
+        let output = [
+            // Final lines 1–2: the moved block, still attributed to its author.
+            group(
+                hash: hashA, origLine: 5, finalLine: 1, numLines: 2,
+                author: "Ada", summary: "Original block",
+                extraFields: ["previous \(hashB) src/main.swift"],
+                content: "func moved() {"
+            ),
+            repeatGroup(hash: hashA, origLine: 6, finalLine: 2, content: "}"),
+            // Final line 3: the commit that did the move, owning only the new line.
+            group(
+                hash: hashB, origLine: 3, finalLine: 3, numLines: 1,
+                author: "Grace", summary: "Reorder",
+                extraFields: ["previous \(hashA) src/main.swift"],
+                content: "// moved above"
+            ),
+            // Final lines 4–5: back to the first commit, metadata not repeated.
+            "\(hashA) 1 4 2\nfilename src/main.swift\n\tfunc kept() {",
+            repeatGroup(hash: hashA, origLine: 2, finalLine: 5, content: "}"),
+        ].joined(separator: "\n")
+
+        let lines = BlameParser.parse(output)
+        XCTAssertEqual(lines.count, 5)
+        XCTAssertEqual(lines.map { $0?.hash }, [hashA, hashA, hashB, hashA, hashA])
+        XCTAssertEqual(lines.map { $0?.author }, ["Ada", "Ada", "Grace", "Ada", "Ada"])
+        XCTAssertEqual(
+            lines.map { $0?.summary },
+            ["Original block", "Original block", "Reorder", "Original block", "Original block"]
+        )
+    }
+
     // MARK: - `BlameLine` itself
 
     func testIsUncommittedIsTheAllZeroHash() {

@@ -562,9 +562,9 @@ final class GitHubSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             try occurrences(of: "GIT_TERMINAL_PROMPT", in: service),
-            3,
-            "…and it passes GIT_TERMINAL_PROMPT=0 like the other two commands here that routinely reach the "
-                + "network — push and commit — because a credential prompt would wedge the shared serial "
+            4,
+            "…and it passes GIT_TERMINAL_PROMPT=0 like the other three commands here that routinely reach the "
+                + "network — fetch, push and commit — because a credential prompt would wedge the shared serial "
                 + "queue behind a child waiting on a terminal nobody can see."
         )
     }

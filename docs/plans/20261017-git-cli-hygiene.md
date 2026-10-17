@@ -78,11 +78,11 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 - Modify: `Sources/Pisaka/GitCLIService.swift`
 - Modify: `Tests/PisakaCoreTests/BlameParserTests.swift`
 
-- [ ] `fetch`: `run(["fetch", remote], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])`. Its doc comment states why: git prompts on `/dev/tty` despite stdin being `/dev/null`, and the serial queue would wedge. It also states that the user's ssh command is never overridden.
-- [ ] `checkout(branch:root:)` becomes `["checkout", branch, "--"]` and `createAndCheckout` becomes `["checkout", "-b", name, startPoint, "--"]`. Doc comments name the two failure modes the terminator closes (a stale name discarding a same-named path's unstaged edits, and the tracking-branch ambiguity). `checkoutReason` is unchanged.
-- [ ] `blame`: `["-c", "core.quotePath=false", "blame", "--porcelain", "-w", "-M", "--", name]`. The doc comment records why `-w` and `-M` are used and why `-C` is deliberately absent.
-- [ ] In `BlameParserTests`, add a fixture shaped like `-M` output for a block moved within the file: several groups with `previous <hash> <same file>` lines; per-group `filename` lines naming the same file; a later group reusing a commit without metadata. Assert that the lines map to the right commits and that the headers are skipped, not special-cased.
-- [ ] Run `swift test`: must pass.
+- [x] `fetch`: `run(["fetch", remote], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])`. Its doc comment states why: git prompts on `/dev/tty` despite stdin being `/dev/null`, and the serial queue would wedge. It also states that the user's ssh command is never overridden.
+- [x] `checkout(branch:root:)` becomes `["checkout", branch, "--"]` and `createAndCheckout` becomes `["checkout", "-b", name, startPoint, "--"]`. Doc comments name the two failure modes the terminator closes (a stale name discarding a same-named path's unstaged edits, and the tracking-branch ambiguity). `checkoutReason` is unchanged.
+- [x] `blame`: `["-c", "core.quotePath=false", "blame", "--porcelain", "-w", "-M", "--", name]`. The doc comment records why `-w` and `-M` are used and why `-C` is deliberately absent.
+- [x] In `BlameParserTests`, add a fixture shaped like `-M` output for a block moved within the file: several groups with `previous <hash> <same file>` lines; per-group `filename` lines naming the same file; a later group reusing a commit without metadata. Assert that the lines map to the right commits and that the headers are skipped, not special-cased.
+- [x] Run `swift test`: must pass.
 
 ### Task 3: Source-gating suite for the git command lines (R6)
 

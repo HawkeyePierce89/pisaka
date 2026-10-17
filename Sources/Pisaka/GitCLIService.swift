@@ -320,13 +320,20 @@ struct GitCLIService: GitServicing {
     /// toggle would make a read-only inspection command write the user's file — the
     /// accepted dirty-buffer trade recorded in full on `BlameController`.
     ///
+    /// `-w` ignores whitespace-only changes and `-M` follows lines moved or copied
+    /// *within* the file, so a reformat or a block reordering does not take over
+    /// the attribution of lines whose content it never changed. `-C` (moves across
+    /// files) is deliberately absent: it is far more expensive on large histories,
+    /// and it changes what a line's commit means for the file on screen — the
+    /// column would name a commit that touched some other file.
+    ///
     /// A non-zero exit (the file is outside a repository, the path is untracked,
     /// git cannot interpret it) surfaces as `GitError.notARepository`, matching
     /// every other non-`nil`-mapping call here; the controller swallows it and
     /// leaves the column empty.
     func blame(fileURL: URL) async throws -> [BlameLine?] {
         let result = try await run(
-            ["-c", "core.quotePath=false", "blame", "--porcelain",
+            ["-c", "core.quotePath=false", "blame", "--porcelain", "-w", "-M",
              "--", fileURL.lastPathComponent,
             ],
             in: fileURL.deletingLastPathComponent(),
@@ -367,7 +374,17 @@ struct GitCLIService: GitServicing {
         )
     }
 
-    /// Check out the local branch `branch` via `git checkout <branch>`.
+    /// Check out the local branch `branch` via `git checkout <branch> --`.
+    ///
+    /// The trailing `--` forces git to read `branch` as a revision, never as a
+    /// path. Without it two cases go wrong when the name is also a path in the
+    /// tree: a name with no local branch (one deleted in the terminal while the
+    /// switcher's list was stale) silently restores that path from the index,
+    /// discarding its unstaged edits, and exits 0 — a switch reported that never
+    /// happened; and a name existing only as `origin/<name>` is refused as
+    /// "could be both a local file and a tracking branch". With `--` the first
+    /// fails with "invalid reference" and the edits survive, and the second
+    /// switches.
     ///
     /// A dirty working tree can make git refuse the switch (it will not overwrite
     /// local changes); on a non-zero exit we throw `GitError.checkoutFailed(reason:)`
@@ -375,21 +392,25 @@ struct GitCLIService: GitServicing {
     /// show exactly what blocked the switch. `run` already throws
     /// `GitError.gitUnavailable` if git cannot launch.
     func checkout(branch: String, root: URL) async throws {
-        let result = try await run(["checkout", branch], in: root)
+        let result = try await run(["checkout", branch, "--"], in: root)
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
     }
 
     /// Create branch `name` starting at `startPoint` (any ref/hash) and check it
-    /// out in one step, via `git checkout -b <name> <startPoint>`.
+    /// out in one step, via `git checkout -b <name> <startPoint> --`.
+    ///
+    /// The trailing `--` pins `startPoint` as a revision, for the reason
+    /// `checkout(branch:root:)` gives: a start point that is also a path must
+    /// never be read as one.
     ///
     /// The caller validates `name` via `GitRefName.isValid(_:)` and, for a remote
     /// start point, fetches first so the ref is up to date. A non-zero exit (an
     /// invalid start point git rejects, or a dirty tree blocking the switch) throws
     /// `GitError.checkoutFailed(reason:)` with git's stderr.
     func createAndCheckout(name: String, startPoint: String, root: URL) async throws {
-        let result = try await run(["checkout", "-b", name, startPoint], in: root)
+        let result = try await run(["checkout", "-b", name, startPoint, "--"], in: root)
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -402,8 +423,16 @@ struct GitCLIService: GitServicing {
     /// so this needs no credentials plumbing on macOS. A non-zero exit (network
     /// failure, auth refused, unknown remote) throws `GitError.fetchFailed(reason:)`
     /// with git's stderr.
+    ///
+    /// `GIT_TERMINAL_PROMPT=0` for the reason `push` sets it: stdin being
+    /// `/dev/null` does not stop git from prompting for a username on `/dev/tty`,
+    /// and a fetch blocked on a prompt nobody can answer would wedge this
+    /// service's serial queue and every git call behind it. The credential helper
+    /// still answers. The user's ssh command is never overridden — no
+    /// `GIT_SSH_COMMAND` or `BatchMode` is forced, so their ssh configuration
+    /// behaves exactly as in their terminal.
     func fetch(remote: String, root: URL) async throws {
-        let result = try await run(["fetch", remote], in: root)
+        let result = try await run(["fetch", remote], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             throw GitError.fetchFailed(reason: fetchReason(result.stderr))
         }
