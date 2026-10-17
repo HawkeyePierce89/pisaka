@@ -113,11 +113,11 @@ Corrections to the ticket's descriptions, found by running git 2.55 locally:
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] Run `swift test`: green.
-- [ ] Run `swiftlint --strict`: clean.
-- [ ] Run `make test-app` under the pinned Xcode: only the eight known failures.
-- [ ] Run `make build` (macOS Release) under the pinned Xcode.
-- [ ] Confirm `git diff` shows no change under `Sources/Pisaka/iOS/`.
+- [x] Run `swift test`: green.
+- [x] Run `swiftlint --strict`: clean.
+- [x] Run `make test-app` under the pinned Xcode: only the eight known failures.
+- [x] Run `make build` (macOS Release) under the pinned Xcode.
+- [x] Confirm `git diff` shows no change under `Sources/Pisaka/iOS/`.
 
 ### Task 6: Update documentation
 
