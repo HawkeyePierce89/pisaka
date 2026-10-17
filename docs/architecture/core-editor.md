@@ -50,7 +50,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `LineStartIndex`, so all six separators work and a terminator is never
     edited. `IndentUnitRule.tabInsertionPlan` is unchanged — it still replaces a
     multi-line selection (pinned in `IndentUnitRuleTests`); choosing the block
-    path is the macOS caller's job. Unit-tested in `BlockIndentEngineTests`.
+    path is the macOS caller's job. `smartBackspace(text:selections:unit:)`
+    answers `nil` — stock deletion — unless **every** selection is a zero-width
+    caret with at least one character before it on its line, all of them spaces,
+    and the unit is made of spaces (a tab unit, a tab in the run, or a caret
+    after code all fall through, and one non-qualifying caret makes the whole
+    command stock, so a multi-caret Backspace is never half smart). Each deletion
+    runs from the caret back to the previous multiple of the unit's width
+    measured from the column — at most one unit, never across non-whitespace;
+    deletions of several carets on one line merge into one edit and carets
+    landing on one offset collapse. Unit-tested in `BlockIndentEngineTests`.
   - `DuplicateEngine.swift` — pure, testable duplicate-line/selection computation
     for the editor's Cmd+D (Foundation only, no AppKit/Neon — the
     `IndentEngine`/`AutoPairEngine` precedent: the engine operates on an

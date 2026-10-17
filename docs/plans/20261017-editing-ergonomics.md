@@ -119,12 +119,12 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 
 - Modify: `Sources/PisakaCore/BlockIndentEngine.swift`
 - Modify: `Tests/PisakaCoreTests/BlockIndentEngineTests.swift`
-- [ ] Add `smartBackspace(text:selections:unit:) -> RangeEditPlan?`. It answers nil, meaning stock deletion, unless every selection is a zero-width caret with:
+- [x] Add `smartBackspace(text:selections:unit:) -> RangeEditPlan?`. It answers nil, meaning stock deletion, unless every selection is a zero-width caret with:
   - at least one character of leading whitespace before it;
   - only spaces between the line start and the caret;
   - a unit made of spaces, so its width is known.
-- [ ] Each deletion runs back to the previous multiple of the unit width, measured from the column. It removes at most one unit and never crosses non-whitespace. Several carets on one line merge.
-- [ ] Tests:
+- [x] Each deletion runs back to the previous multiple of the unit width, measured from the column. It removes at most one unit and never crosses non-whitespace. Several carets on one line merge.
+- [x] Tests:
   - 4-space unit: column 8 goes to 4, column 6 goes to 4, column 1 goes to 0;
   - after `foo` answers nil;
   - a selection answers nil;
@@ -133,7 +133,7 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - one non-qualifying caret makes the whole command nil;
   - multi-caret gives one plan;
   - CRLF and other separators.
-- [ ] Run `swift test`. It must pass.
+- [x] Run `swift test`. It must pass.
 
 ### Task 4: Wire Tab, Shift+Tab and Backspace (R1/R2, app)
 

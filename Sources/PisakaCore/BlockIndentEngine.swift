@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure block indent / outdent: Tab on a multi-line selection and Shift+Tab on
-/// any caret or selection.
+/// any caret or selection — plus smart Backspace inside space indentation.
 ///
 /// Both answers are a `RangeEditPlan` the app applies through its one
 /// multi-range bracket, so a whole block moves as one undo step. The `unit` is
@@ -90,6 +90,57 @@ public enum BlockIndentEngine {
             }
         }
         return plan(edits: edits, ranges: clampedRanges)
+    }
+
+    /// Backspace inside space indentation: delete back to the previous indent
+    /// stop rather than one space.
+    ///
+    /// Answers `nil` — stock deletion — unless **every** selection qualifies,
+    /// so a multi-caret Backspace is never half smart:
+    /// - it is a zero-width caret;
+    /// - at least one character sits between its line's start and the caret,
+    ///   and every one of them is a space (a tab anywhere there disqualifies);
+    /// - `unit` is made of spaces, so its width is known (a tab unit answers
+    ///   `nil`).
+    ///
+    /// Each deletion runs from the caret back to the previous multiple of the
+    /// unit's width, measured from the column: at most one unit, never across
+    /// non-whitespace, since only spaces precede the caret. Deletions of
+    /// several carets on one line overlap and merge into one edit; carets that
+    /// land on the same offset collapse into one.
+    public static func smartBackspace(text: NSString, selections: [NSRange], unit: String) -> RangeEditPlan? {
+        let width = unit.utf16.count
+        guard width > 0, unit.utf16.allSatisfy({ $0 == 0x20 }), !selections.isEmpty else { return nil }
+        let lines = Lines(text: text)
+        var deletions: [NSRange] = []
+        for selection in selections {
+            guard selection.length == 0, selection.location > 0, selection.location <= text.length else { return nil }
+            let caret = selection.location
+            let start = lines.start(of: lines.index(of: caret))
+            let column = caret - start
+            guard column > 0 else { return nil }
+            for offset in start..<caret where text.character(at: offset) != 0x20 {
+                return nil
+            }
+            let stop = ((column - 1) / width) * width
+            deletions.append(NSRange(location: start + stop, length: column - stop))
+        }
+        var merged: [NSRange] = []
+        for deletion in deletions.sorted(by: { $0.location < $1.location }) {
+            if let last = merged.last, deletion.location <= NSMaxRange(last) {
+                merged[merged.count - 1] = NSUnionRange(last, deletion)
+            } else {
+                merged.append(deletion)
+            }
+        }
+        let edits = merged.map { IndentReplacement(range: $0, replacement: "") }
+        guard let shell = RangeEditPlan(edits: edits, selections: []) else { return nil }
+        var carets: [NSRange] = []
+        for selection in selections {
+            let caret = NSRange(location: shell.mapped(offset: selection.location, bias: .before), length: 0)
+            if !carets.contains(caret) { carets.append(caret) }
+        }
+        return RangeEditPlan(edits: edits, selections: carets)
     }
 
     // MARK: - Helpers

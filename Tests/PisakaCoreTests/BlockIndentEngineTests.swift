@@ -248,4 +248,102 @@ final class BlockIndentEngineTests: XCTestCase {
         XCTAssertEqual(apply(plan, to: text), "a")
         XCTAssertEqual(plan.selections, [NSRange(location: 1, length: 0)])
     }
+
+    // MARK: - Smart Backspace
+
+    private func backspace(_ text: String, _ carets: [Int], unit: String = "    ") -> RangeEditPlan? {
+        BlockIndentEngine.smartBackspace(
+            text: text as NSString,
+            selections: carets.map { NSRange(location: $0, length: 0) },
+            unit: unit
+        )
+    }
+
+    func testBackspaceDeletesBackToThePreviousIndentStop() {
+        for (column, expected) in [(8, 4), (6, 4), (1, 0), (4, 0), (5, 4)] {
+            let text = String(repeating: " ", count: column) + "x"
+            let plan = backspace(text, [column])
+            XCTAssertNotNil(plan, "column \(column)")
+            guard let plan else { continue }
+            XCTAssertEqual(apply(plan, to: text), String(repeating: " ", count: expected) + "x", "column \(column)")
+            XCTAssertEqual(plan.selections, [NSRange(location: expected, length: 0)], "column \(column)")
+        }
+    }
+
+    func testBackspaceOnAWhitespaceOnlyLineStillStopsAtTheIndentStop() {
+        let text = "a\n          "
+        let plan = backspace(text, [2 + 10])
+        XCTAssertEqual(plan.map { apply($0, to: text) }, "a\n        ")
+    }
+
+    func testBackspaceAfterCodeAnswersNil() {
+        XCTAssertNil(backspace("    foo", [7]))
+        XCTAssertNil(backspace("foo    ", [7]))
+    }
+
+    func testBackspaceAtTheLineStartAnswersNil() {
+        XCTAssertNil(backspace("a\n    b", [2]))
+        XCTAssertNil(backspace("", [0]))
+    }
+
+    func testBackspaceOnASelectionAnswersNil() {
+        let plan = BlockIndentEngine.smartBackspace(
+            text: "        x",
+            selections: [NSRange(location: 4, length: 4)],
+            unit: "    "
+        )
+        XCTAssertNil(plan)
+    }
+
+    func testBackspaceAfterTabWhitespaceAnswersNil() {
+        XCTAssertNil(backspace("\t    x", [5]))
+        XCTAssertNil(backspace("  \t  x", [5]))
+    }
+
+    func testBackspaceWithATabUnitAnswersNil() {
+        XCTAssertNil(backspace("        x", [8], unit: "\t"))
+        XCTAssertNil(backspace("        x", [8], unit: ""))
+    }
+
+    func testOneNonQualifyingCaretMakesTheWholeCommandNil() {
+        let text = "        a\n    foo"
+        XCTAssertNotNil(backspace(text, [8]))
+        XCTAssertNil(backspace(text, [8, 17]))
+    }
+
+    func testSeveralCaretsAnswerOnePlan() {
+        let text = "        a\n      b\n    c"
+        let plan = backspace(text, [8, 16, 22])
+        XCTAssertEqual(plan.map { apply($0, to: text) }, "    a\n    b\nc")
+        XCTAssertEqual(plan?.edits.count, 3)
+        XCTAssertEqual(plan?.selections, [
+            NSRange(location: 4, length: 0),
+            NSRange(location: 10, length: 0),
+            NSRange(location: 12, length: 0),
+        ])
+    }
+
+    func testSeveralCaretsOnOneLineMerge() {
+        let text = "        x"
+        let plan = backspace(text, [6, 8])
+        XCTAssertEqual(plan?.edits.count, 1)
+        XCTAssertEqual(plan.map { apply($0, to: text) }, "    x")
+        XCTAssertEqual(plan?.selections, [NSRange(location: 4, length: 0)])
+    }
+
+    func testBackspaceUnderEachSeparator() {
+        for separator in ["\n", "\r", "\r\n", "\u{85}", "\u{2028}", "\u{2029}"] {
+            let text = "a" + separator + "      b"
+            let caret = 1 + (separator as NSString).length + 6
+            let plan = backspace(text, [caret])
+            XCTAssertEqual(plan.map { apply($0, to: text) }, "a" + separator + "    b", separator.debugDescription)
+            XCTAssertEqual(plan?.selections, [NSRange(location: caret - 2, length: 0)], separator.debugDescription)
+        }
+    }
+
+    func testBackspaceWithATwoSpaceUnit() {
+        let text = "     x"
+        XCTAssertEqual(backspace(text, [5], unit: "  ").map { apply($0, to: text) }, "    x")
+        XCTAssertEqual(backspace(text, [4], unit: "  ").map { apply($0, to: text) }, "   x")
+    }
 }
