@@ -78,6 +78,11 @@ public final class OccurrenceHighlightModel: ObservableObject {
     /// The mode the published answer (or the one in flight) was asked in.
     private var publishedMode: ModeKind?
 
+    /// The first character of the identifier the published answer (or the one
+    /// in flight) was asked about, or `nil` in selection-match mode. Offsets
+    /// stay comparable across settles because every edit clears first.
+    private var publishedAnchor: Int?
+
     private enum ModeKind {
         case identifier
         case selectionMatch
@@ -128,7 +133,7 @@ public final class OccurrenceHighlightModel: ObservableObject {
             return Task {}
 
         case .identifier(let match):
-            prepare(for: .identifier, fileID: fileID)
+            prepare(for: .identifier, fileID: fileID, anchor: match.range.location)
             let request = DocumentHighlightRequest(
                 identifier: match.text,
                 fileURL: fileURL,
@@ -157,7 +162,7 @@ public final class OccurrenceHighlightModel: ObservableObject {
             }
 
         case .selectionMatch(let selected):
-            prepare(for: .selectionMatch, fileID: fileID)
+            prepare(for: .selectionMatch, fileID: fileID, anchor: nil)
             let scan = selectionScan
             return Task { [weak self] in
                 let ranges = await Task.detached(priority: .userInitiated) { scan(selected, text) }.value
@@ -188,12 +193,13 @@ public final class OccurrenceHighlightModel: ObservableObject {
     // MARK: - Private
 
     /// Clear up front when the published answer cannot stand until the new one
-    /// lands: another mode's answer, or another buffer's.
-    private func prepare(for mode: ModeKind, fileID: UUID) {
-        if publishedMode != mode || self.fileID != fileID {
+    /// lands: another mode's answer, another buffer's, or another identifier's.
+    private func prepare(for mode: ModeKind, fileID: UUID, anchor: Int?) {
+        if publishedMode != mode || self.fileID != fileID || publishedAnchor != anchor {
             clear()
         }
         publishedMode = mode
+        publishedAnchor = anchor
     }
 
     private func publish(

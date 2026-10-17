@@ -304,4 +304,31 @@ final class OccurrenceHighlightModelTests: XCTestCase {
         await other.value
         XCTAssertNotEqual(model.fileID, fileID)
     }
+
+    func testAnotherIdentifierClearsPreviousAnswerBeforeItsOwnLands() async {
+        let source = "alpha = beta; alpha + beta"
+        let alpha = NSRange(location: 0, length: 5)
+        let beta = NSRange(location: 8, length: 4)
+        let provider = StubProvider()
+        let gate = Gate()
+        provider.answers["alpha"] = textual([alpha])
+        provider.answers["beta"] = textual([beta])
+        let model = OccurrenceHighlightModel(provider: { provider })
+
+        await model.settle(
+            text: source, selection: caret(at: 2), language: .typescript, fileURL: fileURL, fileID: fileID
+        ).value
+        XCTAssertEqual(model.highlights.map(\.range), [alpha])
+
+        provider.gates["beta"] = gate
+        let other = model.settle(
+            text: source, selection: caret(at: 10), language: .typescript, fileURL: fileURL, fileID: fileID
+        )
+        XCTAssertTrue(model.highlights.isEmpty)
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.highlights.isEmpty)
+        gate.release()
+        await other.value
+        XCTAssertEqual(model.highlights.map(\.range), [beta])
+    }
 }

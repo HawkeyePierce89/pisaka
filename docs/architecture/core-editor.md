@@ -1038,9 +1038,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     bump the same token and clear. An answer computed against text that has
     since changed is therefore discarded rather than painted at offsets that
     no longer mean what they did. **One mode per settle**
-    (`OccurrenceHighlightRule.mode`). A settle whose mode or buffer differs from
-    the published one clears at once, before its own answer arrives. A settle
-    of the same mode on the same buffer keeps the published answer until the
+    (`OccurrenceHighlightRule.mode`). A settle whose mode, buffer or identifier
+    (anchored at its first character) differs from the published one clears at
+    once, before its own answer arrives, so a slow server never leaves the
+    previous name's occurrences painted under the caret's new one. A settle of
+    the same mode on the same identifier keeps the published answer until the
     new one replaces it, which keeps the highlight from flickering while the
     caret walks within one name. **Sources.** The identifier answer is the
     provider's `documentHighlights(for:)`, server or textual as the provider
@@ -1055,8 +1057,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     silently. Only a server can name a `.write`. Unit-tested in
     `OccurrenceHighlightModelTests` with `Gate`: a slow first request overtaken
     by a second never publishes, an edit during flight discards the result, a
-    mode switch clears the other mode's answer, and a server's write kind
-    survives into the published state.
+    mode switch clears the other mode's answer, moving to another identifier
+    clears the previous one's at once, and a server's write kind survives into
+    the published state.
   - `TagMatchRule.swift` — which tag names the caret highlights in JSX, TSX and
     HTML, and whether that highlight takes the bracket pair's place. The input
     is `TagElement { range, openName, closeName? }`, read by the app off the
