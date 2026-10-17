@@ -141,25 +141,25 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Create: `Sources/PisakaCore/OccurrenceScan.swift`, `Sources/PisakaCore/OccurrenceHighlightRule.swift`
 - Create: `Tests/PisakaCoreTests/OccurrenceScanTests.swift`, `Tests/PisakaCoreTests/OccurrenceHighlightRuleTests.swift`
 
-- [ ] `OccurrenceScan.identifierMatches(of:in:language:budget:) -> [NSRange]?`
+- [x] `OccurrenceScan.identifierMatches(of:in:language:budget:) -> [NSRange]?`
   - Matches are whole-word and case-sensitive. Whole-word means `IdentifierScanner.identifier(in:at:language:)` resolves exactly that range to that text, as `TextualUsageScanner` already asks. It builds no line index and no previews.
   - `nil` means "budget exhausted", and the caller shows nothing.
-- [ ] `OccurrenceScan.exactMatches(of:in:budget:)` does the same for R3: literal and case-sensitive.
-- [ ] Both use double-entry work bookkeeping. `record(_:)` counts the UTF-16 units searched plus each whole-word check. `spend(_:)` charges them, as two separate calls at each site.
+- [x] `OccurrenceScan.exactMatches(of:in:budget:)` does the same for R3: literal and case-sensitive.
+- [x] Both use double-entry work bookkeeping. `record(_:)` counts the UTF-16 units searched plus each whole-word check. `spend(_:)` charges them, as two separate calls at each site.
   - The production ceiling is a stated constant (2,097,152 units).
   - An `internal` seam takes a smaller budget and exposes the performed work for tests.
-- [ ] `OccurrenceHighlightRule.mode(text:selection:language:) -> .identifier(Match) | .selectionMatch(String) | .none`.
+- [x] `OccurrenceHighlightRule.mode(text:selection:language:) -> .identifier(Match) | .selectionMatch(String) | .none`.
   - **Identifier:** a caret in or touching an identifier, or a selection equal to exactly one identifier.
   - **Selection match:** a non-empty selection within one line (no `LineStartIndex` separator inside), not exactly one identifier, at least two UTF-16 units, not all whitespace.
   - **None:** anything else.
-- [ ] `OccurrenceHighlightRule.selectionMatchCap = 50`. Past 50 matches the answer is empty.
-- [ ] Tests:
+- [x] `OccurrenceHighlightRule.selectionMatchCap = 50`. Past 50 matches the answer is empty.
+- [x] Tests:
   - whole-word and case-sensitivity, including `foo` in `foo.bar` but not in `foobar`/`_foo`, and `$x` in TS;
   - the `createStoreApiClient` sample's three `started`;
   - budget exhaustion on a pathological one-line input, asserting `nil` **and** performed work ≈ charged work at the ceiling (not a clock);
   - every R3 eligibility edge (multi-line, one-unit, whitespace, the exact identifier);
   - the cap at 50 and 51.
-- [ ] Run `make test` before Task 6.
+- [x] Run `make test` before Task 6.
 
 ### Task 6: `textDocument/documentHighlight` and the routing (Core, R2)
 
