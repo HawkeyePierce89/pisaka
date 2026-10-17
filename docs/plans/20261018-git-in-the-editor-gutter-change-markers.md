@@ -183,12 +183,12 @@ None new.
 - Create: `Sources/PisakaCore/WordDiff.swift`
 - Create: `Tests/PisakaCoreTests/WordDiffTests.swift`
 
-- [ ] Add the tokenizer from Decisions.
-- [ ] Add `WordDiff.ranges(old:new:work:) -> WordDiffRanges?`: common-token prefix/suffix strip, LCS over the middle, merge of adjacent/touching ranges, and the 60% threshold measured on the longer side.
-- [ ] Add a `Work` struct with `record` / `spend`, a per-row ceiling (250,000 cells) and an internal seam taking a caller-owned `Work`, so tests read both what was performed and what was left. A shared per-build `Work` (4,000,000) is threaded through by the caller.
-- [ ] Write tests: one changed word, with ranges on both sides; punctuation as single tokens; whitespace runs; non-ASCII letters and surrogate pairs (UTF-16 offsets); merge of touching ranges; threshold just below and just above 60%; identical sides and empty sides.
-- [ ] Write the budget test: a minified ~20k-character line against a near-copy drives the per-row ceiling to exhaustion. Assert no ranges, assert the performed cells relative to the charged ceiling (performed ≤ charged, and performed > 0), and assert the per-build ceiling stops later rows.
-- [ ] Run `swift test`; it must pass.
+- [x] Add the tokenizer from Decisions.
+- [x] Add `WordDiff.ranges(old:new:work:) -> WordDiffRanges?`: common-token prefix/suffix strip, LCS over the middle, merge of adjacent/touching ranges, and the 60% threshold measured on the longer side.
+- [x] Add a `Work` struct with `record` / `spend`, a per-row ceiling (250,000 cells) and an internal seam taking a caller-owned `Work`, so tests read both what was performed and what was left. A shared per-build `Work` (4,000,000) is threaded through by the caller.
+- [x] Write tests: one changed word, with ranges on both sides; punctuation as single tokens; whitespace runs; non-ASCII letters and surrogate pairs (UTF-16 offsets); merge of touching ranges; threshold just below and just above 60%; identical sides and empty sides.
+- [x] Write the budget test: a minified ~20k-character line against a near-copy drives the per-row ceiling to exhaustion. Assert no ranges, assert the performed cells relative to the charged ceiling (performed ≤ charged, and performed > 0), and assert the per-build ceiling stops later rows.
+- [x] Run `swift test`; it must pass.
 
 ### Task 6: Carry word ranges with the rows (one Core answer)
 
