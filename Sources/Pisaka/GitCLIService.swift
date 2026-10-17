@@ -61,10 +61,17 @@ struct GitCLIService: GitServicing {
 
     /// The commit history of the repository at `root`, most recent first.
     ///
-    /// Runs `git log --topo-order --parents -n <limit> --pretty=format:<format>`
-    /// plus `filter`'s revision/ref/path arguments (the default filter contributes
-    /// `--all`), with the exact format `Commit.parse` expects, and feeds stdout to
-    /// the pure parser.
+    /// Runs `git log --topo-order --parents -n <limit> --encoding=UTF-8
+    /// --pretty=format:<format>` plus `filter`'s revision/ref/path arguments (the
+    /// default filter contributes `--all`), with the exact format `Commit.parse`
+    /// expects, and feeds stdout to the pure parser.
+    ///
+    /// `--encoding=UTF-8` re-encodes messages a repository's
+    /// `i18n.logOutputEncoding` (or a commit's own `encoding` header) would
+    /// otherwise print in a legacy encoding the UTF-8 read cannot decode. It
+    /// precedes the filter's arguments because those can end with `-- <paths>`.
+    /// The signature lines `log.showSignature` would add are suppressed for every
+    /// command by `globalOptions`.
     ///
     /// `--topo-order` keeps a branch's commits contiguous (never interleaving
     /// parallel branches by date), which the graph layout in a later stage relies
@@ -80,7 +87,8 @@ struct GitCLIService: GitServicing {
         // names and subjects, matching the `changedFiles` rationale.
         let arguments =
             ["-c", "core.quotePath=false", "log", "--topo-order", "--parents",
-             "-n", String(limit), "--pretty=format:\(Commit.prettyFormat)",
+             "-n", String(limit), "--encoding=UTF-8",
+             "--pretty=format:\(Commit.prettyFormat)",
             ]
             + filter.gitArguments()
         let result = try await run(arguments, in: root)
@@ -312,13 +320,20 @@ struct GitCLIService: GitServicing {
     /// toggle would make a read-only inspection command write the user's file — the
     /// accepted dirty-buffer trade recorded in full on `BlameController`.
     ///
+    /// `-w` ignores whitespace-only changes and `-M` follows lines moved or copied
+    /// *within* the file, so a reformat or a block reordering does not take over
+    /// the attribution of lines whose content it never changed. `-C` (moves across
+    /// files) is deliberately absent: it is far more expensive on large histories,
+    /// and it changes what a line's commit means for the file on screen — the
+    /// column would name a commit that touched some other file.
+    ///
     /// A non-zero exit (the file is outside a repository, the path is untracked,
     /// git cannot interpret it) surfaces as `GitError.notARepository`, matching
     /// every other non-`nil`-mapping call here; the controller swallows it and
     /// leaves the column empty.
     func blame(fileURL: URL) async throws -> [BlameLine?] {
         let result = try await run(
-            ["-c", "core.quotePath=false", "blame", "--porcelain",
+            ["-c", "core.quotePath=false", "blame", "--porcelain", "-w", "-M",
              "--", fileURL.lastPathComponent,
             ],
             in: fileURL.deletingLastPathComponent(),
@@ -359,7 +374,17 @@ struct GitCLIService: GitServicing {
         )
     }
 
-    /// Check out the local branch `branch` via `git checkout <branch>`.
+    /// Check out the local branch `branch` via `git checkout <branch> --`.
+    ///
+    /// The trailing `--` forces git to read `branch` as a revision, never as a
+    /// path. Without it two cases go wrong when the name is also a path in the
+    /// tree: a name with no local branch (one deleted in the terminal while the
+    /// switcher's list was stale) silently restores that path from the index,
+    /// discarding its unstaged edits, and exits 0 — a switch reported that never
+    /// happened; and a name existing only as `origin/<name>` is refused as
+    /// "could be both a local file and a tracking branch". With `--` the first
+    /// fails with "invalid reference" and the edits survive, and the second
+    /// switches.
     ///
     /// A dirty working tree can make git refuse the switch (it will not overwrite
     /// local changes); on a non-zero exit we throw `GitError.checkoutFailed(reason:)`
@@ -367,21 +392,25 @@ struct GitCLIService: GitServicing {
     /// show exactly what blocked the switch. `run` already throws
     /// `GitError.gitUnavailable` if git cannot launch.
     func checkout(branch: String, root: URL) async throws {
-        let result = try await run(["checkout", branch], in: root)
+        let result = try await run(["checkout", branch, "--"], in: root)
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
     }
 
     /// Create branch `name` starting at `startPoint` (any ref/hash) and check it
-    /// out in one step, via `git checkout -b <name> <startPoint>`.
+    /// out in one step, via `git checkout -b <name> <startPoint> --`.
+    ///
+    /// The trailing `--` pins `startPoint` as a revision, for the reason
+    /// `checkout(branch:root:)` gives: a start point that is also a path must
+    /// never be read as one.
     ///
     /// The caller validates `name` via `GitRefName.isValid(_:)` and, for a remote
     /// start point, fetches first so the ref is up to date. A non-zero exit (an
     /// invalid start point git rejects, or a dirty tree blocking the switch) throws
     /// `GitError.checkoutFailed(reason:)` with git's stderr.
     func createAndCheckout(name: String, startPoint: String, root: URL) async throws {
-        let result = try await run(["checkout", "-b", name, startPoint], in: root)
+        let result = try await run(["checkout", "-b", name, startPoint, "--"], in: root)
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -394,8 +423,16 @@ struct GitCLIService: GitServicing {
     /// so this needs no credentials plumbing on macOS. A non-zero exit (network
     /// failure, auth refused, unknown remote) throws `GitError.fetchFailed(reason:)`
     /// with git's stderr.
+    ///
+    /// `GIT_TERMINAL_PROMPT=0` for the reason `push` sets it: stdin being
+    /// `/dev/null` does not stop git from prompting for a username on `/dev/tty`,
+    /// and a fetch blocked on a prompt nobody can answer would wedge this
+    /// service's serial queue and every git call behind it. The credential helper
+    /// still answers. The user's ssh command is never overridden — no
+    /// `GIT_SSH_COMMAND` or `BatchMode` is forced, so their ssh configuration
+    /// behaves exactly as in their terminal.
     func fetch(remote: String, root: URL) async throws {
-        let result = try await run(["fetch", remote], in: root)
+        let result = try await run(["fetch", remote], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             throw GitError.fetchFailed(reason: fetchReason(result.stderr))
         }
@@ -938,12 +975,13 @@ struct GitCLIService: GitServicing {
 
     /// The message of the current `HEAD` commit, or `nil` when there is none.
     ///
-    /// `git log -1 --pretty=%B` prints the raw subject and body; an unborn HEAD
+    /// `git log -1 --encoding=UTF-8 --pretty=%B` prints the raw subject and body,
+    /// re-encoded to UTF-8 as in `commits`; an unborn HEAD
     /// simply exits non-zero, which is an honest `nil` ("nothing to reuse") rather
     /// than an error — Amend offers this into an empty message field and does
     /// without it when there is none.
     func headMessage(root: URL) async throws -> String? {
-        let result = try await run(["log", "-1", "--pretty=%B"], in: root)
+        let result = try await run(["log", "-1", "--encoding=UTF-8", "--pretty=%B"], in: root)
         guard result.exitCode == 0 else { return nil }
         let message = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? nil : message
@@ -1127,8 +1165,8 @@ struct GitCLIService: GitServicing {
         case let .unavailable(reason):
             throw GitError.pushFailed(reason: reason.message)
         }
-        // `GIT_TERMINAL_PROMPT=0` because push is the one command here that
-        // routinely needs authentication. Without it, a remote whose credentials
+        // `GIT_TERMINAL_PROMPT=0` because push, like fetch and pull, routinely
+        // needs authentication. Without it, a remote whose credentials
         // are not cached makes git block on a prompt it can never be answered
         // through: `isRunning` stays raised so the sheet's Commit button is
         // disabled forever, and — since every other call shares this service's
@@ -1150,8 +1188,8 @@ struct GitCLIService: GitServicing {
     /// Exactly those two arguments: no remote, no refspec, no rebase, no merge
     /// fallback (see `GitServicing.pull(root:)` for why `--ff-only` is the
     /// contract rather than a preference). `GIT_TERMINAL_PROMPT=0` for the reason
-    /// `push` sets it — this is the other command here that routinely reaches the
-    /// network, and a credential prompt nothing can answer would wedge this
+    /// `push` sets it — like fetch, this command routinely reaches the network,
+    /// and a credential prompt nothing can answer would wedge this
     /// service's serial queue and with it every other git read in the app.
     ///
     /// A non-zero exit throws `GitError.pullFailed(reason:)` carrying git's own
@@ -1410,10 +1448,43 @@ struct GitCLIService: GitServicing {
         }
     }
 
+    /// Global options prefixed to **every** git command, in the one launch funnel.
+    ///
+    /// - `--no-optional-locks`: the app's reads (`status`, `diff`, `log`, blame)
+    ///   run on its own schedule, not the user's, and a plain `git status`
+    ///   opportunistically takes `index.lock` to refresh the stat cache. Taken
+    ///   concurrently with git run in the embedded terminal, that lock makes the
+    ///   *user's* command fail with "Unable to create index.lock". The flag
+    ///   only waives locks git calls optional; a write still takes the locks it
+    ///   needs, so applying it to every command is safe.
+    /// - `-c log.showSignature=false`: with that setting on, `log` prints the
+    ///   signature check *before* each signed commit's `--pretty` record, so the
+    ///   text lands between the previous record separator and the hash and
+    ///   `Commit.parse` reads it as part of the hash field (pinned by
+    ///   `CommitParserTests`). It affects only `log`/`show` output, so it is
+    ///   inert on every other command, and any future `--pretty` site is covered
+    ///   by construction.
+    ///
+    /// They are arguments rather than `GIT_OPTIONAL_LOCKS=0` in the environment
+    /// because the environment is assigned only when an override exists (see
+    /// `run` for why that matters), and because an argument is visible in the
+    /// command line `GitCLIArgumentSourceGatingTests` reads. Either spelling
+    /// reaches the hooks `commit`, `push`, `pull` and `checkout` spawn: git
+    /// exports the flag as `GIT_OPTIONAL_LOCKS=0` and every `-c` through
+    /// `GIT_CONFIG_PARAMETERS`. That is accepted: a hook's own reads skip the
+    /// optional lock too, and its `log` shows signatures only when it asks for
+    /// them with `--show-signature`.
+    ///
+    /// The accepted consequence: a lock-free `status` does not write back the
+    /// refreshed stat cache, so the user's next terminal `git status` re-does
+    /// that work once.
+    private static let globalOptions = ["--no-optional-locks", "-c", "log.showSignature=false"]
+
     /// The synchronous `Process` body of `run`, executed on one of the serial
-    /// queues above. `environment` is merged over the inherited environment and
-    /// `removedKeys` are dropped from it first — see `run` for why it must never
-    /// replace it, and why removal is not the same as an empty value.
+    /// queues above. Every command is prefixed with `globalOptions`.
+    /// `environment` is merged over the inherited environment and `removedKeys`
+    /// are dropped from it first — see `run` for why it must never replace it,
+    /// and why removal is not the same as an empty value.
     private static func runBlocking(
         _ arguments: [String],
         in directory: URL,
@@ -1422,7 +1493,7 @@ struct GitCLIService: GitServicing {
     ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
+        process.arguments = ["git"] + Self.globalOptions + arguments
         process.currentDirectoryURL = directory
         if !environment.isEmpty || !removedKeys.isEmpty {
             var merged = ProcessInfo.processInfo.environment

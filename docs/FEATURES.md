@@ -148,7 +148,10 @@ user sees it.
   per line, who last changed it and when. Right-click again ("Close Annotations")
   to hide it and the gutter returns to its previous width. The toggle is per tab,
   so each open file remembers its own state; lines that are not committed yet, and
-  lines git had nothing to say about, are left blank. The column follows the editor
+  lines git had nothing to say about, are left blank. Whitespace-only changes and
+  lines moved within the file do not take over a line's attribution — a reformat
+  or a reordered block keeps naming the commit that wrote each line's content
+  (moves *across* files are deliberately not followed). The column follows the editor
   font (it resizes with the code zoom and the Preferences font size) and refreshes
   itself whenever the file on disk changes — after a save or autosave, a Save As, a
   revert, a branch checkout, or renaming the file. Committing from the embedded
@@ -1376,7 +1379,10 @@ user sees it.
   panel's bar button again). The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
-  ones.
+  ones. The app's own git reads (Local Changes, the Log, blame, the branch widget)
+  take no index lock, so they never make a `git` you run in the terminal fail with
+  "Unable to create index.lock"; the one cost is that your next terminal
+  `git status` refreshes git's stat cache itself.
   (Terminal emulation is provided by
   SwiftTerm; the two built-in palettes are not user-configurable — no custom
   color scheme or ANSI palette, no custom font — and there are no split terminals,

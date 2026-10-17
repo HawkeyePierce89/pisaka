@@ -14,8 +14,9 @@ public enum GitRefName {
     /// Whether `name` is a valid new branch name.
     ///
     /// Rejects: empty/whitespace-only; a leading `-` (git's own `branch`/`checkout
-    /// -b` refuse it, and the macOS CLI runs `git checkout -b <name> …` with no
-    /// `--` separator so a dash-led name is mis-parsed as an option); a
+    /// -b` refuse it, and the macOS CLI's `git checkout -b <name> <startPoint> --`
+    /// puts its `--` only after the start point, so a dash-led name before it is
+    /// still mis-parsed as an option); a
     /// leading/trailing slash; `..`; the characters space, `~`, `^`, `:`, `?`, `*`,
     /// `[`, `\`, any ASCII control character (incl. DEL) or NUL, and any line
     /// break — including the non-ASCII NEL/LINE SEPARATOR/PARAGRAPH SEPARATOR

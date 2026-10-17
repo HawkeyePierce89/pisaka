@@ -560,13 +560,10 @@ final class GitHubSourceGatingTests: XCTestCase {
                     + "step reports, never a rewrite of a branch nobody has looked at yet."
             )
         }
-        XCTAssertEqual(
-            try occurrences(of: "GIT_TERMINAL_PROMPT", in: service),
-            3,
-            "…and it passes GIT_TERMINAL_PROMPT=0 like the other two commands here that routinely reach the "
-                + "network — push and commit — because a credential prompt would wedge the shared serial "
-                + "queue behind a child waiting on a terminal nobody can see."
-        )
+        // That `pull` passes GIT_TERMINAL_PROMPT=0 is pinned by
+        // `GitCLIArgumentSourceGatingTests.testTheNetworkCommandsSuppressTheTerminalPrompt`,
+        // as set equality over the functions that spell it, so the count is not
+        // restated here.
     }
 
     func testNoFileUnderTheFeatureNamesTheWriterGate() throws {

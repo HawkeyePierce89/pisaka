@@ -203,7 +203,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (skipping a wrong-field-count record); parents are space-split; `parseRefs`
     decodes the `%D` decoration (comma-split, stripping `HEAD -> ` and `tag: `
     prefixes and dropping a lone detached-`HEAD` entry). Empty output → `[]`.
-    Foundation-only; the `Process` call lives in `GitCLIService`.
+    Foundation-only; the `Process` call lives in `GitCLIService`. **One corruption
+    the parser cannot see is prevented by the service**: with
+    `log.showSignature=true`, git prints a signed commit's signature check before
+    its record, between the previous `%x1e` and the hash, so the record still has
+    six fields but its hash field becomes `Good "git" signature …\n<hash>` —
+    breaking the graph's parent link and the row's `diff-tree`.
+    `CommitParserTests.testSignatureLinesBeforeARecordCorruptItsHash` pins that
+    real shape, and `GitCLIService` forces `-c log.showSignature=false` on every
+    command (`app-git-views.md`, `GitCLIArgumentSourceGatingTests`).
   - `CommitChangesParser.swift` — pure `static func parse(_:) -> [ChangedFile]`
     over `git diff-tree --name-status` output (a commit's files vs its first
     parent), mirroring `GitStatusParser`'s shape and reusing its `FileStatus`/
