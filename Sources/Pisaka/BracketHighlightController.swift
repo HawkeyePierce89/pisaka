@@ -54,6 +54,13 @@ final class BracketHighlightController {
     /// switch, a further edit) that landed while it was waiting out the debounce.
     private var generation = 0
 
+    /// The caret's pair as `BracketMatchEngine` last answered it, painted
+    /// unless `isPairSuppressed`.
+    private var pairRanges: [NSRange] = []
+
+    /// See `setPairSuppressed(_:)`.
+    private var isPairSuppressed = false
+
     /// Debounce before a (non-immediate) rescan, coalescing rapid keystrokes.
     private let debounceInterval: Duration = .milliseconds(100)
 
@@ -195,6 +202,7 @@ final class BracketHighlightController {
         guard editedRange.location != NSNotFound else { return }
         tokens.removeAll { $0.location >= editedRange.location }
         cacheKey = nil
+        pairRanges = []
         editEpoch &+= 1
 
         let preEditLength = max(0, postEditLength - changeInLength)
@@ -246,10 +254,23 @@ final class BracketHighlightController {
             text: textView.string as NSString,
             selectedRange: selectedRange
         ) else {
+            pairRanges = []
             layoutManager.setPairRanges([])
             return
         }
-        layoutManager.setPairRanges([pair.open, pair.close])
+        pairRanges = [pair.open, pair.close]
+        layoutManager.setPairRanges(isPairSuppressed ? [] : pairRanges)
+    }
+
+    /// Whether the matching-tag highlight has taken the bracket pair's place
+    /// (`TagMatchRule`'s `suppressBracketPair`). The pair is still computed on
+    /// every selection change — the tag rule needs to know it is active — and
+    /// only its painting is withheld. Held until the tag highlight's next
+    /// settle or clear says otherwise.
+    func setPairSuppressed(_ suppressed: Bool) {
+        guard suppressed != isPairSuppressed else { return }
+        isPairSuppressed = suppressed
+        overlayLayoutManager?.setPairRanges(suppressed ? [] : pairRanges)
     }
 
     // MARK: - Teardown
@@ -261,6 +282,8 @@ final class BracketHighlightController {
         generation += 1
         cacheKey = nil
         tokens = []
+        pairRanges = []
+        isPairSuppressed = false
     }
 
     // MARK: - Internals

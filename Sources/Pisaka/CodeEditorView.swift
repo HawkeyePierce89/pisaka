@@ -672,7 +672,7 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.caretColumnMemo = nil
             context.coordinator.caretEditFloor = nil
             // Nothing the outgoing tab asked or was answered survives the swap.
-            context.coordinator.resetOccurrenceHighlight()
+            context.coordinator.resetCaretHighlights()
         }
 
         // Same tab, new coordinates. Two retargets keep the file id and the text
@@ -1133,6 +1133,16 @@ struct CodeEditorView: NSViewRepresentable {
         /// answer, painted through the same overlay layout manager. Only this
         /// coordinator owns one — no other text surface gets the highlight.
         private let occurrenceHighlight = OccurrenceHighlightController()
+
+        /// The buffer's on-demand syntax tree, parsed off the main actor and
+        /// cached until the next edit. Shared by the matching-tag highlight and
+        /// Expand / Shrink Selection, so the two never parse the same text twice.
+        let treeSnapshot = SyntaxTreeSnapshot()
+
+        /// The matching-tag highlight (R5): the caret's enclosing element names,
+        /// settled with the occurrence highlight and painted through the same
+        /// overlay layout manager, and the bracket pair it may take the place of.
+        private let tagHighlight = TagHighlightController()
 
         /// Code folding's owner: the debounced ask for this file's collapsible
         /// blocks, the folded state over them, and the per-run memory of both.
@@ -1750,11 +1760,21 @@ struct CodeEditorView: NSViewRepresentable {
             occurrenceHighlight.fileID = { [weak self] in self?.fileID }
             occurrenceHighlight.language = { [weak self] in self?.language }
             occurrenceHighlight.fileURL = { [weak self] in self?.fileURL }
+            tagHighlight.attach(textView: textView)
+            tagHighlight.snapshot = treeSnapshot
+            tagHighlight.fileID = { [weak self] in self?.fileID }
+            tagHighlight.language = { [weak self] in self?.language }
+            tagHighlight.onBracketPairSuppression = { [weak self] suppressed in
+                self?.bracketHighlight.setPairSuppressed(suppressed)
+            }
         }
 
-        /// A tab switch: drop the occurrence answer and anything scheduled.
-        func resetOccurrenceHighlight() {
+        /// A tab switch: drop the occurrence and tag answers, the tree they
+        /// were read from, and anything scheduled.
+        func resetCaretHighlights() {
             occurrenceHighlight.reset()
+            tagHighlight.reset()
+            treeSnapshot.reset()
         }
 
         /// Rescan the buffer's brackets (debounced unless `immediate`) and
@@ -1797,6 +1817,10 @@ struct CodeEditorView: NSViewRepresentable {
             // layout manager as a no-op rather than a removal at post-edit
             // offsets the storage has not shifted yet.
             occurrenceHighlight.noteEdit()
+            // The tree described the pre-edit text; the tag pair is cleared on
+            // the same terms as the occurrences.
+            treeSnapshot.noteEdit()
+            tagHighlight.noteEdit()
             // The find bar's matches moved with the edit too. The re-run is
             // deferred to the next main-loop turn rather than done here: this
             // notification is posted *before* the storage notifies its layout
@@ -1828,6 +1852,7 @@ struct CodeEditorView: NSViewRepresentable {
             previousFoldSelection = textView.selectedRange()
             bracketHighlight.updateSelection(textView.selectedRange())
             occurrenceHighlight.selectionChanged()
+            tagHighlight.selectionChanged()
             // A selection change is the user working in the text rather than
             // reading an annotation of it — and a click, a drag-select or an
             // arrow key can all move the caret out from under a popover that is
@@ -3397,6 +3422,8 @@ struct CodeEditorView: NSViewRepresentable {
             // Supersedes a scheduled or in-flight occurrence answer, so a
             // torn-down tab cannot paint a closed file's occurrences.
             occurrenceHighlight.reset()
+            tagHighlight.reset()
+            treeSnapshot.reset()
             // Drops the match highlight and unregisters this editor from the
             // (window-scoped, longer-lived) bar state, so a torn-down tab can't
             // keep serving its commands.

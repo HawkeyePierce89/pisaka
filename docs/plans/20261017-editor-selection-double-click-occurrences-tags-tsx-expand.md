@@ -253,19 +253,19 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/Pisaka/CodeEditorView.swift`, `Sources/Pisaka/BracketHighlightController.swift`
 - Create: `Tests/PisakaAppTests/TagElementExtractionTests.swift` (+ fixtures in `Tests/PisakaAppTests/Fixtures/`)
 
-- [ ] `SyntaxTreeSnapshot` parses the buffer with the language's root grammar through a private `Parser`, off the main actor.
+- [x] `SyntaxTreeSnapshot` parses the buffer with the language's root grammar through a private `Parser`, off the main actor.
   - It caches per `(fileID, edit generation)` and is invalidated on edit, with a generation token on every parse.
   - It is shared by Task 12.
-- [ ] Extract the caret's enclosing element chain:
+- [x] Extract the caret's enclosing element chain:
   - **JSX** (`.javascript`, `.tsx`): `jsx_element` with the opening/closing `name` fields; `jsx_self_closing_element`; a nameless opening/closing element is a fragment.
   - **HTML:** `element`/`script_element`/`style_element` with `start_tag`/`end_tag` `tag_name`, and `self_closing_tag`.
-- [ ] `TagHighlightController`, on the same 75 ms settle:
+- [x] `TagHighlightController`, on the same 75 ms settle:
   - feeds `TagMatchRule`, with the bracket-pair state from `BracketMatchEngine.pair`;
   - paints through `setTagRanges`;
   - tells `BracketHighlightController` to suppress the pair when asked;
   - clears on edit.
-- [ ] App test: parse TSX, JSX and HTML fixtures, then assert the extracted chains at chosen offsets and the resulting ranges, including nested same-name elements and a fragment.
-- [ ] Run `make test` and `make test-app` before Task 11.
+- [x] App test: parse TSX, JSX and HTML fixtures, then assert the extracted chains at chosen offsets and the resulting ranges, including nested same-name elements and a fragment.
+- [x] Run `make test` and `make test-app` before Task 11.
 
 ### Task 11: Expansion rule, history and the text fallback (Core, R6)
 
