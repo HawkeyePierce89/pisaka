@@ -157,9 +157,12 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
             "globalOptions is gone — re-point this rule rather than losing it"
         )
         let literal = try XCTUnwrap(code[definition.upperBound...].split(separator: "]").first)
-        for option in ["\"--no-optional-locks\"", "\"log.showSignature=false\""] {
-            XCTAssertTrue(literal.contains(option), "globalOptions must carry \(option)")
-        }
+        let elements = literal.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        XCTAssertEqual(
+            elements, ["\"--no-optional-locks\"", "\"-c\"", "\"log.showSignature=false\""],
+            "globalOptions is exactly these three tokens in this order — without its -c, git would read "
+                + "log.showSignature=false as the subcommand"
+        )
     }
 
     func testEveryPrettySiteForcesUTF8() throws {

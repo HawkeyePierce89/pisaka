@@ -449,8 +449,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file, so `GitCLIArgumentSourceGatingTests` (Core, `#filePath`) reads it through
     `GitHubSourceGatingTests.strippingComments(_:)` — comments stripped, literals
     *kept*, because every subject is a string literal — and pins: one
-    `process.arguments` assignment, carrying `globalOptions`, which holds
-    `--no-optional-locks` and `log.showSignature=false`, and one `Process()` in the
+    `process.arguments` assignment, carrying `globalOptions`, which is exactly
+    `["--no-optional-locks", "-c", "log.showSignature=false"]` in that order (without
+    its `-c`, git would read the setting as the subcommand), and one `Process()` in the
     file, so no second launch path skips the prefix; the set of array literals
     containing `"--pretty` equal to the set containing `"--encoding=UTF-8"`, neither
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
@@ -462,9 +463,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     real git in throwaway repositories: a local branch named like a tracked
     directory still switches; a stale name matching a path throws
     `checkoutFailed` and the unstaged edit survives; a name only on `origin` that is
-    also a path switches in a clone; and `changedFiles` leaves a stale-stat
-    `.git/index` byte-for-byte unchanged, with a plain `git status` afterwards
-    rewriting it as the control that keeps the assertion from passing vacuously.
+    also a path switches in a clone; `createAndCheckout` from an `origin/` start
+    point that is also a path creates and switches to the new branch in a clone;
+    `changedFiles` leaves a stale-stat `.git/index` byte-for-byte unchanged, with a
+    plain `git status` afterwards rewriting it as the control that keeps the
+    assertion from passing vacuously; a commit message recorded in ISO-8859-1 under
+    `i18n.logOutputEncoding=ISO-8859-1` reads back as Unicode through both
+    `commits` and `headMessage`; and `blame` attributes a moved line and a
+    re-indented line to the commit that wrote them, which is what `-w`/`-M` buy.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the
     "Commit Changes" strip, the message box at full width, the changed files
