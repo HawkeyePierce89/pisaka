@@ -3653,6 +3653,23 @@ is only *about* anything once D7 has counted a failure, so a healthy server's lo
 lines are never shown. Consequence, accepted: a crash is counted by the next
 request that notices it, not at the moment the process dies.
 
+**D45 — Occurrence highlights are the server's or the scan's, whole, and a
+server's empty answer is final.** `textDocument/documentHighlight` is asked
+(`LSPSession.documentHighlight`, completion's 1.5 s in both budget tables) only
+when the server advertises `documentHighlightProvider`, in either spelling. The
+client capability carries `dynamicRegistration: false` and nothing else.
+`LSPIntelligenceProvider.documentHighlights(for:)` maps every range through
+`LSPPositionMap` and drops empty or duplicate ones. `Write` maps to write, and
+`Read`, `Text`, an absent kind and an unnamed number all map to read. It answers
+`nil` for no server, no capability, a failure and a buffer no longer held
+(`stillHolds`). The router falls back to `SymbolIntelligenceProvider`'s
+`OccurrenceScan.identifierMatches` **only on `nil`**: unlike folding, an empty
+server list is final, because a server that resolved the symbol and found no
+other use has answered, and the scan would only add same-spelled guesses. The
+answer carries its provenance (`.server` / `.textual`) and is never a merge. The
+fallback is silent, with no alert. An exhausted scan budget is `nil`, and the
+editor paints nothing.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the

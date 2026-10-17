@@ -131,6 +131,13 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// command to hang this on, and a default keeps them from growing a call site
     /// for a question they would throw away.
     func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion]
+    /// Every occurrence in this buffer of the identifier at `request.offset`, as
+    /// one whole answer that names its source, or `nil` when this provider has no
+    /// answer (D45).
+    ///
+    /// Defaulted to `nil` for `foldRegions`' reason: occurrence highlighting is
+    /// macOS-only, so the iOS surfaces have nothing to paint.
+    func documentHighlights(for request: DocumentHighlightRequest) async -> DocumentHighlightAnswer?
 }
 
 public extension CodeIntelligenceProviding {
@@ -149,6 +156,7 @@ public extension CodeIntelligenceProviding {
     func references(for request: UsagesRequest) async -> [UsageResult] { [] }
     func renameEdits(for request: RenameRequest) async -> RenameAnswer? { nil }
     func foldRegions(for request: FoldRegionRequest) async -> [FoldRegion] { [] }
+    func documentHighlights(for request: DocumentHighlightRequest) async -> DocumentHighlightAnswer? { nil }
 }
 
 // MARK: - Go to definition

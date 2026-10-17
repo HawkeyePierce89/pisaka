@@ -124,6 +124,26 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         FoldRegionScanner.scan(text: request.text as NSString, widths: request.indentWidths)
     }
 
+    /// The textual occurrence scan's answer: every whole-word, case-sensitive
+    /// spelling of the identifier in the request's text, each one a read.
+    ///
+    /// Like `foldRegions(for:)` it reads no index and takes no main-actor hop. The
+    /// answer comes from the text the request carries. `nil` when the scan's work
+    /// budget ran out, so the caller paints nothing rather than a partial list.
+    public func documentHighlights(
+        for request: DocumentHighlightRequest
+    ) async -> DocumentHighlightAnswer? {
+        guard let ranges = OccurrenceScan.identifierMatches(
+            of: request.identifier,
+            in: request.text as NSString,
+            language: request.language
+        ) else { return nil }
+        return DocumentHighlightAnswer(
+            provenance: .textual,
+            highlights: ranges.map { DocumentHighlightAnswer.Highlight(range: $0, kind: .read) }
+        )
+    }
+
     /// Both reads in one main-actor hop — see the type's note on why the read is
     /// isolated and the ranking is not. One hop rather than two so a request
     /// cannot straddle a chunk publication and pair one walk's index with the

@@ -108,6 +108,9 @@ final class LSPProtocolTypesTests: XCTestCase {
         // The recorded sourcekit-lsp advertises `hoverProvider: true`; D25 asks
         // nothing at all of a server that does not.
         XCTAssertTrue(result.capabilities.supportsHover)
+        // And `documentHighlightProvider: true`, so a Swift caret is asked
+        // rather than scanned.
+        XCTAssertTrue(result.capabilities.supportsDocumentHighlight)
         XCTAssertTrue(result.capabilities.supportsCompletion)
         XCTAssertTrue(result.capabilities.resolvesCompletionItems)
         XCTAssertEqual(result.capabilities.completionTriggerCharacters, [".", "("])
@@ -261,6 +264,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             "contextSupport":true,\
             "dynamicRegistration":false},\
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
+            "documentHighlight":{"dynamicRegistration":false},\
             "foldingRange":{"dynamicRegistration":false,\
             "foldingRange":{"collapsedText":false},\
             "foldingRangeKind":{"valueSet":["comment","imports","region"]},\

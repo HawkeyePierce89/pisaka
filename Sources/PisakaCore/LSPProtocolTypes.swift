@@ -62,6 +62,7 @@ public enum LSPMethod {
     public static let completion = "textDocument/completion"
     public static let resolveCompletionItem = "completionItem/resolve"
     public static let foldingRange = "textDocument/foldingRange"
+    public static let documentHighlight = "textDocument/documentHighlight"
 
     // Server-initiated, answered by `LSPSession` (task 3).
     public static let registerCapability = "client/registerCapability"
@@ -1235,6 +1236,79 @@ public struct LSPFoldingRangeResponse: Equatable, Hashable, Sendable, Decodable 
     public var isEmpty: Bool { ranges.isEmpty }
 }
 
+// MARK: - Document highlights
+
+/// `textDocument/documentHighlight`'s params are a plain position request. The
+/// alias names the request at its call sites, the way `LSPFoldingRangeParams`
+/// names folding's, without a second shape that would only repeat the first.
+public typealias LSPDocumentHighlightParams = LSPTextDocumentPositionParams
+
+/// LSP's `DocumentHighlightKind`. It is an open set like the other kinds in this
+/// file, so an unknown number decodes rather than refusing the element. What a
+/// value *means* to the editor is `LSPIntelligenceProvider`'s mapping, not this
+/// type's.
+public struct LSPDocumentHighlightKind: RawRepresentable, Equatable, Hashable, Sendable, Codable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let text = LSPDocumentHighlightKind(rawValue: 1)
+    public static let read = LSPDocumentHighlightKind(rawValue: 2)
+    public static let write = LSPDocumentHighlightKind(rawValue: 3)
+}
+
+/// One `DocumentHighlight`: a range in the asked document and an optional kind.
+///
+/// An unreadable `kind` decodes as absent rather than as a refusal, because the
+/// range is still a good occurrence even when its kind is not.
+public struct LSPDocumentHighlight: Equatable, Hashable, Sendable, Decodable {
+    public var range: LSPRange
+    public var kind: LSPDocumentHighlightKind?
+
+    public init(range: LSPRange, kind: LSPDocumentHighlightKind? = nil) {
+        self.range = range
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey { case range, kind }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        range = try container.decode(LSPRange.self, forKey: .range)
+        kind = try? container.decodeIfPresent(LSPDocumentHighlightKind.self, forKey: .kind)
+    }
+}
+
+/// The whole `textDocument/documentHighlight` result: `DocumentHighlight[]` or
+/// `null`.
+///
+/// `LSPReferencesResponse`'s three rules, for its reasons. `null` and an absent
+/// `result` are one empty answer. One unreadable element is dropped and its
+/// siblings survive. A top level that is neither throws, because "no
+/// occurrences" and "could not read the answer" are different facts. Only the
+/// second one sends the editor to its own scan.
+public struct LSPDocumentHighlightResponse: Equatable, Hashable, Sendable, Decodable {
+    public var highlights: [LSPDocumentHighlight]
+
+    public init(highlights: [LSPDocumentHighlight]) { self.highlights = highlights }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            highlights = []
+            return
+        }
+        guard let entries = try? container.decode([JSONValue].self) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Not a DocumentHighlight[] or null"
+            )
+        }
+        highlights = entries.compactMap { try? $0.decoded(as: LSPDocumentHighlight.self) }
+    }
+
+    public var isEmpty: Bool { highlights.isEmpty }
+}
+
 // MARK: - Handshake
 
 /// `$/cancelRequest`'s params — the one notification that carries a request id.
@@ -1308,6 +1382,12 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
 
         var references = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "references")
         try references.encode(false, forKey: "dynamicRegistration")
+
+        var documentHighlight = textDocument.nestedContainer(
+            keyedBy: StringKey.self,
+            forKey: "documentHighlight"
+        )
+        try documentHighlight.encode(false, forKey: "dynamicRegistration")
 
         var rename = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "rename")
         try rename.encode(false, forKey: "dynamicRegistration")
@@ -1512,6 +1592,11 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
     /// server that does not advertise it costs the file nothing but the round
     /// trip that is now never sent.
     public var supportsFoldingRange: Bool
+    /// Whether `textDocument/documentHighlight` is worth asking at all. Like
+    /// folding it has a second answer, the textual occurrence scan, so a server
+    /// that does not advertise it costs the caret only the round trip that is
+    /// never sent.
+    public var supportsDocumentHighlight: Bool
 
     public init(
         positionEncoding: String? = nil,
@@ -1522,7 +1607,8 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         supportsCompletion: Bool = false,
         resolvesCompletionItems: Bool = false,
         completionTriggerCharacters: [String] = [],
-        supportsFoldingRange: Bool = false
+        supportsFoldingRange: Bool = false,
+        supportsDocumentHighlight: Bool = false
     ) {
         self.positionEncoding = positionEncoding
         self.supportsDefinition = supportsDefinition
@@ -1533,11 +1619,13 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         self.resolvesCompletionItems = resolvesCompletionItems
         self.completionTriggerCharacters = completionTriggerCharacters
         self.supportsFoldingRange = supportsFoldingRange
+        self.supportsDocumentHighlight = supportsDocumentHighlight
     }
 
     private enum CodingKeys: String, CodingKey {
         case positionEncoding, definitionProvider, hoverProvider, completionProvider
         case referencesProvider, renameProvider, foldingRangeProvider
+        case documentHighlightProvider
     }
 
     public init(from decoder: Swift.Decoder) throws {
@@ -1568,6 +1656,11 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
         // through the same collapse as every provider above it.
         let folding = try container.decodeIfPresent(JSONValue.self, forKey: .foldingRangeProvider)
         supportsFoldingRange = LSPServerCapabilities.isEnabled(folding)
+
+        // `documentHighlightProvider` is `boolean | DocumentHighlightOptions`,
+        // read through the same collapse.
+        let highlight = try container.decodeIfPresent(JSONValue.self, forKey: .documentHighlightProvider)
+        supportsDocumentHighlight = LSPServerCapabilities.isEnabled(highlight)
 
         let completion = try container.decodeIfPresent(JSONValue.self, forKey: .completionProvider)
         supportsCompletion = LSPServerCapabilities.isEnabled(completion)

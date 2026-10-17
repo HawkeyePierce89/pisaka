@@ -622,6 +622,73 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertTrue(response.isEmpty)
     }
 
+    /// The occurrence highlight is asked for by nobody, the caret merely
+    /// settled, so it spends its own completion-sized span, not a definition's.
+    func testDocumentHighlightSpendsItsOwnBudgetWithoutDisturbingOtherRequests() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.documentHighlight, .drop)
+        transport.script(LSPMethod.definition, .reply(definitionResult))
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 30,
+                references: 30,
+                rename: 30,
+                foldingRange: 30,
+                documentHighlight: 0.05
+            )
+        )
+
+        let started = Date()
+        do {
+            _ = try await session.documentHighlight(definitionParams)
+            XCTFail("A dropped documentHighlight must not hang forever")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.documentHighlight))
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 4,
+            "documentHighlight spent a budget other than its own"
+        )
+        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        let definitions = try await session.definition(definitionParams)
+        XCTAssertEqual(definitions.targets.count, 1)
+    }
+
+    func testTheDefaultDocumentHighlightBudgetIsCompletions() {
+        let standard = LSPSession.Budgets.standard
+        XCTAssertEqual(standard.documentHighlight, 1.5)
+        XCTAssertEqual(standard.documentHighlight, standard.completion)
+    }
+
+    /// End to end: the request carries the document and the position, and the
+    /// answer arrives as typed highlights.
+    func testADocumentHighlightAnswerDecodesThroughTheSession() async throws {
+        let transport = makeTransport()
+        let range: JSONValue = .object([
+            "start": .object(["line": .int(3), "character": .int(10)]),
+            "end": .object(["line": .int(3), "character": .int(15)]),
+        ])
+        transport.script(
+            LSPMethod.documentHighlight,
+            .reply(.array([.object(["range": range, "kind": .int(3)]), .object(["range": range])]))
+        )
+        let session = try await start(transport)
+
+        let response = try await session.documentHighlight(definitionParams)
+        XCTAssertEqual(response.highlights.map(\.kind), [.write, nil])
+
+        let sent = transport.requests(for: LSPMethod.documentHighlight)
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent.first?.params?["textDocument"]?["uri"]?.stringValue, documentURI)
+        XCTAssertEqual(sent.first?.params?["position"]?["line"]?.intValue, 3)
+        XCTAssertEqual(sent.first?.params?["position"]?["character"]?.intValue, 12)
+    }
+
     /// The default table gives rename materially more room than `references`,
     /// which is the whole point of splitting them: a number that merely differed
     /// by rounding would be two numbers to keep in step and no more.

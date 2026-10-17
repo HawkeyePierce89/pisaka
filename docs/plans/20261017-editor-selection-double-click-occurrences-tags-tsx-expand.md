@@ -168,27 +168,27 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/PisakaCore/LSPProtocolTypes.swift`, `LSPSession.swift`, `LSPIntelligenceProvider.swift`, `CodeIntelligence.swift`, `RoutingIntelligenceProvider.swift`, `SymbolIntelligenceProvider.swift`
 - Modify/create the LSP suites: protocol coding, session, provider, routing (using `ScriptedLSPTransport`)
 
-- [ ] Protocol layer:
+- [x] Protocol layer:
   - the method constant;
   - `LSPDocumentHighlightParams` and the `DocumentHighlight[] | null` result, where `kind` is 1 Text, 2 Read, 3 Write, or absent;
   - the client capability `textDocument.documentHighlight`;
   - the server capability `supportsDocumentHighlight`, decoded from `boolean | options`.
-- [ ] `LSPSession.documentHighlight(_:)`, with a `documentHighlight` budget in `LSPSession.Budgets` and `RoutingIntelligenceProvider.Budgets` set to completion's 1.5 s.
-- [ ] `LSPIntelligenceProvider.documentHighlights(for:)`.
+- [x] `LSPSession.documentHighlight(_:)`, with a `documentHighlight` budget in `LSPSession.Budgets` and `RoutingIntelligenceProvider.Budgets` set to completion's 1.5 s.
+- [x] `LSPIntelligenceProvider.documentHighlights(for:)`.
   - It returns `nil` unless the server is prepared and advertises the capability, and when the buffer is no longer held (`stillHolds`).
   - Ranges are mapped through `LSPPositionMap`. `Write` maps to write; `Read`, `Text` and absent map to read.
-- [ ] `CodeIntelligenceProviding.documentHighlights(for:)`, defaulting to `nil`.
+- [x] `CodeIntelligenceProviding.documentHighlights(for:)`, defaulting to `nil`.
   - `SymbolIntelligenceProvider` answers with `OccurrenceScan.identifierMatches`: provenance `.textual`, every range read, and `nil` on an exhausted budget.
   - The router asks the server within its budget when `canServe(language)`. **A server answer, even an empty one, is final.** Only `nil` (no server, no capability, failure, timeout) falls back. The answer is never a merge.
-- [ ] Record the decision as D45 in `core-lsp.md` (Task 14). Silent fallback, no alert.
-- [ ] Tests:
+- [x] Record the decision as D45 in `core-lsp.md` (Task 14). Silent fallback, no alert. (D45 entry written now; Task 14 adds the index and cross-references.)
+- [x] Tests:
   - capability decoding in both spellings;
   - kind mapping including absent;
   - the server answer used whole with `.server` provenance;
   - failure, timeout and a missing capability falling back to `.textual`;
   - no answer ever containing both provenances;
   - a stale buffer answering `nil`.
-- [ ] Run `make test` before Task 7.
+- [x] Run `make test` before Task 7.
 
 ### Task 7: The occurrence-highlight model (Core, ordering)
 
