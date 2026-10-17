@@ -217,14 +217,14 @@ All decisions are made in `PisakaCore` and tested in `swift test`. The app layer
 - Modify: `Sources/Pisaka/CodeEditorView.swift` (Coordinator only)
 - Create: `Tests/PisakaAppTests/OccurrenceHighlightControllerTests.swift`
 
-- [ ] The controller is owned by the `CodeEditorView` coordinator alone. The source viewer, diff/merge, Markdown preview and database viewer never get one.
-- [ ] Behaviour:
+- [x] The controller is owned by the `CodeEditorView` coordinator alone. The source viewer, diff/merge, Markdown preview and database viewer never get one.
+- [x] Behaviour:
   - a selection change schedules `model.settle` after a 75 ms debounce;
   - the text-storage edit observer calls `model.noteEdit()` and clears the layer;
   - a tab switch calls `reset()`;
   - on publish and on scroll it pushes only the on-screen slice to `setOccurrenceRuns`, in the colours from Task 4.
-- [ ] App test: publishing never registers undo or dirties the buffer, and only on-screen runs are pushed. The causal hop is a published-state observation, not a sleep.
-- [ ] Run `make test` and `make test-app` before Task 9.
+- [x] App test: publishing never registers undo or dirties the buffer, and only on-screen runs are pushed. The causal hop is a published-state observation, not a sleep.
+- [x] Run `make test` and `make test-app` before Task 9.
 
 ### Task 9: Matching-tag rule (Core, R5)
 

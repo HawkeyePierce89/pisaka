@@ -671,6 +671,8 @@ struct CodeEditorView: NSViewRepresentable {
             // A buffer swap: the caret memo counted another file's line.
             context.coordinator.caretColumnMemo = nil
             context.coordinator.caretEditFloor = nil
+            // Nothing the outgoing tab asked or was answered survives the swap.
+            context.coordinator.resetOccurrenceHighlight()
         }
 
         // Same tab, new coordinates. Two retargets keep the file id and the text
@@ -1125,6 +1127,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// `BracketMatchEngine` pair, painted through
         /// `BracketOverlayLayoutManager`.
         private let bracketHighlight = BracketHighlightController()
+
+        /// The occurrence and selection-match highlight (R2/R3): the debounced
+        /// settle of `OccurrenceHighlightModel` and the on-screen slice of its
+        /// answer, painted through the same overlay layout manager. Only this
+        /// coordinator owns one — no other text surface gets the highlight.
+        private let occurrenceHighlight = OccurrenceHighlightController()
 
         /// Code folding's owner: the debounced ask for this file's collapsible
         /// blocks, the folded state over them, and the per-run memory of both.
@@ -1714,6 +1722,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// notification, it coexists with Neon owning the storage's `delegate`.
         func attachBracketHighlighting(textView: NSTextView) {
             bracketHighlight.attach(textView: textView)
+            attachOccurrenceHighlighting(textView: textView)
             // The indentation-level widths ride this controller's debounce and
             // generation token rather than growing a second pair (see
             // `bracketScanApplied()`). The closure captures `self` weakly: the
@@ -1729,6 +1738,23 @@ struct CodeEditorView: NSViewRepresentable {
                 name: NSTextStorage.didProcessEditingNotification,
                 object: textStorage
             )
+        }
+
+        /// Bind the occurrence highlight. Every closure captures `self` weakly:
+        /// the controller is owned by this coordinator. The provider is read at
+        /// each settle through `symbolIndex`, which hands out the routing
+        /// provider once the LSP layer is up — `attachHover`'s shape.
+        private func attachOccurrenceHighlighting(textView: NSTextView) {
+            occurrenceHighlight.attach(textView: textView)
+            occurrenceHighlight.provider = { [weak self] in self?.symbolIndex?.provider }
+            occurrenceHighlight.fileID = { [weak self] in self?.fileID }
+            occurrenceHighlight.language = { [weak self] in self?.language }
+            occurrenceHighlight.fileURL = { [weak self] in self?.fileURL }
+        }
+
+        /// A tab switch: drop the occurrence answer and anything scheduled.
+        func resetOccurrenceHighlight() {
+            occurrenceHighlight.reset()
         }
 
         /// Rescan the buffer's brackets (debounced unless `immediate`) and
@@ -1766,6 +1792,11 @@ struct CodeEditorView: NSViewRepresentable {
                 changeInLength: textStorage.changeInLength,
                 postEditLength: textStorage.length
             )
+            // After the brackets' clear, which already dropped the occurrence
+            // layer in pre-edit coordinates: the model's clear then reaches the
+            // layout manager as a no-op rather than a removal at post-edit
+            // offsets the storage has not shifted yet.
+            occurrenceHighlight.noteEdit()
             // The find bar's matches moved with the edit too. The re-run is
             // deferred to the next main-loop turn rather than done here: this
             // notification is posted *before* the storage notifies its layout
@@ -1796,6 +1827,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             previousFoldSelection = textView.selectedRange()
             bracketHighlight.updateSelection(textView.selectedRange())
+            occurrenceHighlight.selectionChanged()
             // A selection change is the user working in the text rather than
             // reading an annotation of it — and a click, a drag-select or an
             // arrow key can all move the caret out from under a popover that is
@@ -3264,6 +3296,7 @@ struct CodeEditorView: NSViewRepresentable {
             completion.clipViewDidScroll()
             refreshGeometry()
             bracketHighlight.refreshVisible()
+            occurrenceHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
             // The Markdown preview follows the editor, and this is the one
             // observation of a scroll the editor has. It costs nothing when
@@ -3295,6 +3328,7 @@ struct CodeEditorView: NSViewRepresentable {
             // which does dismiss it.
             refreshGeometry()
             bracketHighlight.refreshVisible()
+            occurrenceHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
         }
 
@@ -3360,6 +3394,9 @@ struct CodeEditorView: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
             tokenizer.reset()
             bracketHighlight.reset()
+            // Supersedes a scheduled or in-flight occurrence answer, so a
+            // torn-down tab cannot paint a closed file's occurrences.
+            occurrenceHighlight.reset()
             // Drops the match highlight and unregisters this editor from the
             // (window-scoped, longer-lived) bar state, so a torn-down tab can't
             // keep serving its commands.
