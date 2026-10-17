@@ -48,4 +48,93 @@ final class CommentStyleTests: XCTestCase {
         XCTAssertEqual(CommentStyle.style(for: .make), .line("#"))
         XCTAssertFalse(CommentStyle.languagesWithoutComments.contains(.make))
     }
+
+    // MARK: - JSX context
+
+    private typealias Chain = [(kind: String, startsAtLineOffset: Bool)]
+
+    func testAChildElementLineIsJSXChildren() {
+        // `    <span>a</span>` inside `<div>`: `<` → opening element → span → div.
+        let chain: Chain = [
+            ("jsx_opening_element", true), ("jsx_element", true), ("jsx_element", false),
+            ("parenthesized_expression", false), ("return_statement", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .jsxChildren)
+    }
+
+    func testAJSXTextLineIsJSXChildren() {
+        let chain: Chain = [("jsx_text", false), ("jsx_element", false), ("program", false)]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .jsxChildren)
+    }
+
+    func testALineInsideAnExpressionIsCode() {
+        let chain: Chain = [
+            ("identifier", true), ("member_expression", true), ("jsx_expression", false),
+            ("jsx_element", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+    }
+
+    func testTheRootElementOfAReturnIsCode() {
+        let chain: Chain = [
+            ("jsx_opening_element", true), ("jsx_element", true),
+            ("parenthesized_expression", false), ("return_statement", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+    }
+
+    func testPlainCodeAndAnEmptyChainAreCode() {
+        let chain: Chain = [("identifier", true), ("lexical_declaration", true), ("program", false)]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+        XCTAssertEqual(CommentStyle.context(ancestors: []), .code)
+    }
+
+    func testAnAttributeLineInsideAMultiLineOpeningTagIsCode() {
+        // `      className="x"` continuing `<span` from the line above.
+        let chain: Chain = [
+            ("property_identifier", true), ("jsx_attribute", true),
+            ("jsx_opening_element", false), ("jsx_element", false), ("jsx_element", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+    }
+
+    func testALoneSelfClosingEndIsCode() {
+        // `    />` closing a multi-line `<img` among the children.
+        let chain: Chain = [("jsx_self_closing_element", false), ("jsx_element", false), ("program", false)]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .code)
+    }
+
+    func testAChildsClosingTagLineIsJSXChildren() {
+        // `    </span>` ending a multi-line child span.
+        let chain: Chain = [
+            ("jsx_closing_element", true), ("jsx_element", false), ("jsx_element", false), ("program", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: chain), .jsxChildren)
+    }
+
+    func testTheChildrenOfAFragmentAreJSXChildren() {
+        // A fragment is a `jsx_element` whose opening element has no name.
+        let element: Chain = [
+            ("jsx_opening_element", true), ("jsx_element", true), ("jsx_element", false),
+            ("parenthesized_expression", false),
+        ]
+        XCTAssertEqual(CommentStyle.context(ancestors: element), .jsxChildren)
+        let selfClosing: Chain = [("jsx_self_closing_element", true), ("jsx_element", false)]
+        XCTAssertEqual(CommentStyle.context(ancestors: selfClosing), .jsxChildren)
+    }
+
+    func testContextualStyleOverEveryLanguage() {
+        let jsx: Set<SyntaxLanguage> = [.javascript, .typescript, .tsx]
+        for language in SyntaxLanguage.allCases {
+            XCTAssertEqual(CommentStyle.style(for: language, context: .code), CommentStyle.style(for: language),
+                           "\(language)")
+            if jsx.contains(language) {
+                XCTAssertEqual(CommentStyle.style(for: language, context: .jsxChildren),
+                               .block(open: "{/*", close: "*/}"), "\(language)")
+            } else {
+                XCTAssertEqual(CommentStyle.style(for: language, context: .jsxChildren),
+                               CommentStyle.style(for: language), "\(language)")
+            }
+        }
+    }
 }

@@ -685,4 +685,108 @@ final class ToggleCommentEngineTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Contextual JSX style
+
+    /// Toggle with `jsxLines` (0-based line indices) answering `.jsxChildren`.
+    private func jsxPlan(_ text: String, _ ranges: [NSRange], jsxLines: Set<Int>,
+                         language: SyntaxLanguage = .tsx) -> RangeEditPlan? {
+        let ns = text as NSString
+        return ToggleCommentEngine.toggle(text: ns, selectedRanges: ranges, language: language) { offset in
+            let line = ns.substring(to: offset).components(separatedBy: "\n").count - 1
+            return jsxLines.contains(line) ? .jsxChildren : .code
+        }
+    }
+
+    private let jsxSource = """
+    return (
+      <div>
+        <span>a</span>
+        text
+      </div>
+    );
+    """
+
+    func testJSXChildrenWrapAndUnwrapWithBraces() throws {
+        let caret = (jsxSource as NSString).range(of: "<span>").location
+        let wrapped = apply(try XCTUnwrap(jsxPlan(jsxSource, carets(caret), jsxLines: [2, 3])), to: jsxSource)
+        XCTAssertTrue(wrapped.contains("\n    {/* <span>a</span> */}\n"), wrapped)
+        let again = (wrapped as NSString).range(of: "{/*").location
+        let unwrapped = apply(try XCTUnwrap(jsxPlan(wrapped, carets(again), jsxLines: [2, 3])), to: wrapped)
+        XCTAssertEqual(unwrapped, jsxSource)
+    }
+
+    func testJSXChildrenNeverGetALineComment() throws {
+        let source = jsxSource as NSString
+        let selection = NSRange(location: source.range(of: "<span>").location,
+                                length: source.range(of: "text").location + 4 - source.range(of: "<span>").location)
+        let result = apply(try XCTUnwrap(jsxPlan(jsxSource, [selection], jsxLines: [2, 3])), to: jsxSource)
+        XCTAssertFalse(result.contains("// "), result)
+        XCTAssertTrue(result.contains("{/* <span>a</span>\n    text */}"), result)
+    }
+
+    func testTwoSeparateJSXBlocksGetTwoWrapsInOnePlan() throws {
+        let source = """
+        <div>
+          <a />
+          <hr />
+          <b />
+        </div>
+        """
+        let ns = source as NSString
+        let ranges = carets(ns.range(of: "<a").location, ns.range(of: "<b").location)
+        let plan = try XCTUnwrap(jsxPlan(source, ranges, jsxLines: [1, 2, 3]))
+        XCTAssertEqual(plan.edits.count, 2)
+        let wrapped = apply(plan, to: source)
+        XCTAssertTrue(wrapped.contains("  {/* <a /> */}\n  <hr />\n  {/* <b /> */}"), wrapped)
+        let wrappedNS = wrapped as NSString
+        let again = carets(wrappedNS.range(of: "{/* <a").location, wrappedNS.range(of: "{/* <b").location)
+        XCTAssertEqual(apply(try XCTUnwrap(jsxPlan(wrapped, again, jsxLines: [1, 2, 3])), to: wrapped), source)
+    }
+
+    func testABlockOnlyHalfInJSXChildrenTakesTheLineStyle() throws {
+        let source = "  <span />\n  foo()\n"
+        let selection = NSRange(location: 0, length: (source as NSString).length)
+        let result = apply(try XCTUnwrap(jsxPlan(source, [selection], jsxLines: [0])), to: source)
+        XCTAssertEqual(result, "  // <span />\n  // foo()\n")
+    }
+
+    func testCodeAndJSXBlocksMixInOnePlan() throws {
+        let source = """
+        const x = 1
+        return (
+          <div>
+            <span />
+          </div>
+        )
+        """
+        let ns = source as NSString
+        let codeCaret = 0
+        let jsxCaret = ns.range(of: "<span").location
+        let plan = try XCTUnwrap(jsxPlan(source, carets(codeCaret, jsxCaret), jsxLines: [3]))
+        let result = apply(plan, to: source)
+        XCTAssertTrue(result.hasPrefix("// const x = 1\n"), result)
+        XCTAssertTrue(result.contains("\n    {/* <span /> */}\n"), result)
+        // Each caret moves to the next line at its column, as the single-range rules do.
+        let resultNS = result as NSString
+        XCTAssertEqual(plan.selections, [
+            NSRange(location: resultNS.range(of: "return").location, length: 0),
+            NSRange(location: resultNS.range(of: "  </div>").location + 4, length: 0),
+        ])
+    }
+
+    func testNoJSXBlockMatchesThePlainToggle() throws {
+        let ranges = carets(0, (jsxSource as NSString).range(of: "<span>").location)
+        XCTAssertEqual(jsxPlan(jsxSource, ranges, jsxLines: []), plan(jsxSource, ranges, language: .tsx))
+    }
+
+    func testANonJSXLanguageNeverAsksTheContext() throws {
+        let result = ToggleCommentEngine.toggle(
+            text: "let a = 1" as NSString, selectedRanges: carets(0), language: .swift
+        ) { _ in
+            XCTFail("swift has no contextual style")
+            return .code
+        }
+        XCTAssertEqual(apply(try XCTUnwrap(result), to: "let a = 1"), "// let a = 1")
+    }
 }

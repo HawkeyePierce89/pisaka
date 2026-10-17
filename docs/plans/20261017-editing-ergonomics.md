@@ -254,23 +254,23 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
 - Modify: `Tests/PisakaCoreTests/CommentStyleTests.swift`, `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
 - Modify: `Sources/Pisaka/SyntaxTreeSnapshot.swift`, `Sources/Pisaka/CodeEditorView.swift`
 - Create: `Tests/PisakaAppTests/CommentContextTreeWalkTests.swift`
-- [ ] In CommentStyle, add `enum CommentContext { case code, jsxChildren }`.
-- [ ] Add `CommentStyle.context(ancestors: [(kind: String, startsAtLineOffset: Bool)]) -> CommentContext`, read innermost first. `startsAtLineOffset` is true when the node starts exactly at the line's first non-whitespace offset. Ancestor kinds alone cannot tell a child line from a continuation line inside a multi-line opening tag, which is why the flag is part of the input. Rule:
+- [x] In CommentStyle, add `enum CommentContext { case code, jsxChildren }`.
+- [x] Add `CommentStyle.context(ancestors: [(kind: String, startsAtLineOffset: Bool)]) -> CommentContext`, read innermost first. `startsAtLineOffset` is true when the node starts exactly at the line's first non-whitespace offset. Ancestor kinds alone cannot tell a child line from a continuation line inside a multi-line opening tag, which is why the flag is part of the input. Rule:
   - `jsx_expression` or `jsx_attribute` answers code;
   - `jsx_text` answers jsxChildren;
   - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or `jsx_closing_element` answers jsxChildren only when the node starts at the line offset and its enclosing element's parent is `jsx_element`;
   - one of those element nodes that does not start at the line offset answers code, because the line is inside a tag;
   - unlisted kinds are skipped and the walk continues;
   - reaching the root answers code. There is no `jsx_fragment` case: the pinned TSX grammar has no such node, and a fragment is a `jsx_element` whose opening element has no name. The doc comment says so.
-- [ ] Add `CommentStyle.style(for:context:)`:
+- [x] Add `CommentStyle.style(for:context:)`:
   - jsxChildren in javascript, typescript or tsx answers `.block(open: "{/*", close: "*/}")`;
   - every other case answers `style(for:)`. CommentStyle stays the single table.
-- [ ] Toggle Comment uses the contextual style for a merged line block only when both its first and its last non-blank touched lines answer jsxChildren. The block path of Task 7 then wraps and unwraps `{/* … */}` around that block.
-- [ ] App side, in a new `CommentContextTreeWalk` beside `SelectionExpansionTreeWalk`:
+- [x] Toggle Comment uses the contextual style for a merged line block only when both its first and its last non-blank touched lines answer jsxChildren. The block path of Task 7 then wraps and unwraps `{/* … */}` around that block.
+- [x] App side, in a new `CommentContextTreeWalk` beside `SelectionExpansionTreeWalk`:
   - for each of those lines, collect the innermost-first ancestor chain at the line's first non-whitespace offset as (kind, startsAtLineOffset) pairs;
   - use `SyntaxTreeSnapshot.cached`, else a synchronous `SyntaxTreeSnapshot.parse`, for JSX-capable languages only;
   - no tree answers code silently.
-- [ ] Core tests:
+- [x] Core tests:
   - the rule over synthetic chains: a child element line, a jsx_text line, a line inside `{…}`, the root element in a `return (…)`, plain code;
   - an attribute line inside a multi-line opening tag (`className="x"`) answers code;
   - a lone `/>` line answers code;
@@ -280,12 +280,12 @@ Decision from the Q&A: block indent, Shift+Tab and smart Backspace all use Enter
   - toggle wraps and unwraps `{/* */}`;
   - two separate blocks in JSX children get two `{/* */}` wraps in one plan;
   - a test that fails if `//` were written into JSX children.
-- [ ] App test: parse real TSX and assert that:
+- [x] App test: parse real TSX and assert that:
   - a `<div>` child line is jsxChildren;
   - a `{…}` line and plain TS are code;
   - an attribute line inside a multi-line opening tag is code;
   - a child line of a `<>...</>` fragment is jsxChildren.
-- [ ] Run `swift test` and `make test-app`. Both must pass.
+- [x] Run `swift test` and `make test-app`. Both must pass. (swift test green; make test-app: the new suite passes, and the 8 failures in BottomBarLayoutTests, BottomBarToolTipTests, ChromePopoverLayoutTests and CommitDialogLayoutTests at scale 1.8 reproduce identically on the untouched HEAD, so they are local-environment and pre-existing)
 
 ### Task 9: Toggle Block Comment (R6, ⌥⌘/)
 

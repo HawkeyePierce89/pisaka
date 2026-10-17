@@ -197,7 +197,50 @@ public enum ToggleCommentEngine {
     /// over the whole block, and leaves that one selection behind.
     private static func blockToggle(text: NSString, ranges: [NSRange], open: String, close: String) -> RangeEditPlan? {
         let lines = BlockIndentEngine.Lines(text: text)
-        let touched = BlockIndentEngine.touchedLines(lines: lines, ranges: ranges)
+        let wraps = blockWraps(text: text, lines: lines, ranges: ranges, open: open, close: close)
+        var edits: [IndentReplacement] = []
+        var selections: [NSRange] = []
+        var shift = 0
+        for wrap in wraps {
+            edits.append(wrap.edit)
+            let selection = NSRange(location: wrap.selection.location + shift, length: wrap.selection.length)
+            if !selections.contains(selection) { selections.append(selection) }
+            shift += (wrap.edit.replacement as NSString).length - wrap.edit.range.length
+        }
+        guard !edits.isEmpty else { return nil }
+        return RangeEditPlan(edits: edits, selections: selections)
+    }
+
+    /// One block's wrap or unwrap: the whole-block replacement, and the
+    /// selection the single-range toggle leaves — expressed as if this were the
+    /// only edit.
+    private struct BlockWrap {
+        let edit: IndentReplacement
+        let selection: NSRange
+    }
+
+    private static func blockWraps(
+        text: NSString, lines: BlockIndentEngine.Lines, ranges: [NSRange], open: String, close: String
+    ) -> [BlockWrap] {
+        var wraps: [BlockWrap] = []
+        for block in contiguousBlocks(BlockIndentEngine.touchedLines(lines: lines, ranges: ranges)) {
+            let span = blockSpan(block, text: text, lines: lines)
+            let members = ranges.filter { block.contains(lines.index(of: $0.location)) }
+            let range = members.count == 1 ? members[0] : span
+            let infos = lineInfos(text: text, span: span, range: range)
+            guard let edit = toggleBlockComment(
+                text: text, lines: infos, open: open, close: close, range: range, touchedSpan: span
+            ) else { continue }
+            wraps.append(BlockWrap(
+                edit: IndentReplacement(range: edit.replacementRange, replacement: edit.text),
+                selection: edit.selectedRange
+            ))
+        }
+        return wraps
+    }
+
+    /// Touched lines merged into maximal runs of consecutive lines.
+    private static func contiguousBlocks(_ touched: [Int]) -> [ClosedRange<Int>] {
         var blocks: [ClosedRange<Int>] = []
         for line in touched {
             if let last = blocks.last, last.upperBound + 1 == line {
@@ -206,26 +249,114 @@ public enum ToggleCommentEngine {
                 blocks.append(line...line)
             }
         }
+        return blocks
+    }
 
-        var edits: [IndentReplacement] = []
-        var selections: [NSRange] = []
-        var shift = 0
-        for block in blocks {
-            let spanStart = lines.start(of: block.lowerBound)
-            let spanEnd = block.upperBound + 1 < lines.starts.count ? lines.start(of: block.upperBound + 1) : text.length
-            let span = NSRange(location: spanStart, length: spanEnd - spanStart)
-            let members = ranges.filter { block.contains(lines.index(of: $0.location)) }
-            let range = members.count == 1 ? members[0] : span
-            let infos = lineInfos(text: text, span: span, range: range)
-            guard let edit = toggleBlockComment(
-                text: text, lines: infos, open: open, close: close, range: range, touchedSpan: span
-            ) else { continue }
-            edits.append(IndentReplacement(range: edit.replacementRange, replacement: edit.text))
-            let selection = NSRange(location: edit.selectedRange.location + shift, length: edit.selectedRange.length)
-            if !selections.contains(selection) { selections.append(selection) }
-            shift += (edit.text as NSString).length - edit.replacementRange.length
+    /// The block's whole lines, terminator of the last included.
+    private static func blockSpan(_ block: ClosedRange<Int>, text: NSString, lines: BlockIndentEngine.Lines) -> NSRange {
+        let start = lines.start(of: block.lowerBound)
+        let end = block.upperBound + 1 < lines.starts.count ? lines.start(of: block.upperBound + 1) : text.length
+        return NSRange(location: start, length: end - start)
+    }
+
+    // MARK: - Contextual (JSX) style
+
+    /// Toggle Comment where the style depends on where each line sits — JSX
+    /// children comment as `{/* … */}`, code as `//`.
+    ///
+    /// `context` is asked for the offset of a line's **first non-whitespace
+    /// character**, and only for the first and last non-blank touched lines of
+    /// each merged line block. A block takes the contextual style
+    /// (`CommentStyle.style(for:context: .jsxChildren)`) only when **both**
+    /// answer `.jsxChildren`; it is then wrapped or unwrapped as one block, as
+    /// the block style of `toggle(text:selectedRanges:language:style:)` does.
+    /// Every other block takes the language's own style, its lines sharing one
+    /// all-commented decision and one alignment column across all of them.
+    ///
+    /// With no JSX block the answer is exactly the plain toggle's, and with
+    /// only JSX blocks exactly the block toggle's under `{/* */}`. A language
+    /// whose contextual style equals its own (everything outside the
+    /// JavaScript family) never asks `context` at all.
+    public static func toggle(
+        text: NSString,
+        selectedRanges: [NSRange],
+        language: SyntaxLanguage?,
+        context: (Int) -> CommentContext
+    ) -> RangeEditPlan? {
+        guard let language,
+              let base = CommentStyle.style(for: language),
+              let contextual = CommentStyle.style(for: language, context: .jsxChildren),
+              contextual != base,
+              case .block(let open, let close) = contextual else {
+            return toggle(text: text, selectedRanges: selectedRanges, language: language)
         }
-        guard !edits.isEmpty else { return nil }
+        let ranges = selectedRanges.map { clamped($0, length: text.length) }
+        guard !ranges.isEmpty else { return nil }
+        let lines = BlockIndentEngine.Lines(text: text)
+
+        var jsxBlocks: [ClosedRange<Int>] = []
+        for block in contiguousBlocks(BlockIndentEngine.touchedLines(lines: lines, ranges: ranges)) {
+            let nonBlank = block.filter { !lines.isBlank($0) }
+            guard let first = nonBlank.first, let last = nonBlank.last else { continue }
+            let firstOffset = lines.start(of: first) + indentation(text: text, lines: lines, line: first)
+            let lastOffset = lines.start(of: last) + indentation(text: text, lines: lines, line: last)
+            if context(firstOffset) == .jsxChildren, first == last || context(lastOffset) == .jsxChildren {
+                jsxBlocks.append(block)
+            }
+        }
+
+        let isJSX: (NSRange) -> Bool = { range in
+            let line = lines.index(of: range.location)
+            return jsxBlocks.contains { $0.contains(line) }
+        }
+        let jsxRanges = ranges.filter(isJSX)
+        let codeRanges = ranges.filter { !isJSX($0) }
+        if jsxRanges.isEmpty { return toggle(text: text, selectedRanges: ranges, language: language, style: base) }
+        if codeRanges.isEmpty { return blockToggle(text: text, ranges: ranges, open: open, close: close) }
+        return mixedToggle(
+            text: text, lines: lines, codeRanges: codeRanges, jsxRanges: jsxRanges,
+            base: base, open: open, close: close
+        )
+    }
+
+    /// Code blocks and JSX blocks in one plan. Each half's edits are its own;
+    /// their selections are re-placed through the combined plan: a code range
+    /// by the line rules, a JSX block's selection at its offset inside the
+    /// block's replacement, or — a caret moved past the block — at its original
+    /// offset on the following line.
+    private static func mixedToggle(
+        text: NSString, lines: BlockIndentEngine.Lines, codeRanges: [NSRange], jsxRanges: [NSRange],
+        base: CommentStyle, open: String, close: String
+    ) -> RangeEditPlan? {
+        let codeEdits: [IndentReplacement]
+        switch base {
+        case .line(let token):
+            codeEdits = lineToggle(text: text, ranges: codeRanges, token: token)?.edits ?? []
+        case .block(let baseOpen, let baseClose):
+            codeEdits = blockWraps(text: text, lines: lines, ranges: codeRanges, open: baseOpen, close: baseClose)
+                .map(\.edit)
+        }
+        let wraps = blockWraps(text: text, lines: lines, ranges: jsxRanges, open: open, close: close)
+        let edits = (codeEdits + wraps.map(\.edit)).sorted { $0.range.location < $1.range.location }
+        guard !edits.isEmpty, let combined = RangeEditPlan(edits: edits, selections: []) else { return nil }
+
+        var selections: [NSRange] = []
+        let add: (NSRange) -> Void = { if !selections.contains($0) { selections.append($0) } }
+        for range in codeRanges {
+            add(mappedSelection(range, text: text, lines: lines, plan: combined))
+        }
+        for wrap in wraps {
+            let spanStart = wrap.edit.range.location
+            let local = wrap.selection.location - spanStart
+            let newLength = (wrap.edit.replacement as NSString).length
+            if wrap.selection.length > 0 || local < newLength {
+                add(NSRange(location: combined.mapped(offset: spanStart, bias: .before) + local,
+                            length: wrap.selection.length))
+            } else {
+                let original = NSMaxRange(wrap.edit.range) + local - newLength
+                add(NSRange(location: combined.mapped(offset: original, bias: .after), length: 0))
+            }
+        }
         return RangeEditPlan(edits: edits, selections: selections)
     }
 

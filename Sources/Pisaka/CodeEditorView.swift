@@ -3278,12 +3278,19 @@ struct CodeEditorView: NSViewRepresentable {
         /// the Cmd+/ handler. `ToggleCommentEngine` decides everything, with one
         /// all-commented decision and one aligned marker column across the
         /// ranges; the applier makes it one undo step. A `nil` plan is a silent
-        /// no-op.
+        /// no-op. In JSX children the marker is `{/* … */}`: the engine asks
+        /// where each block's first and last lines sit, answered off the syntax
+        /// tree through `CommentContextTreeWalk`, parsed at most once and only
+        /// when the engine first asks.
         func toggleComment(in textView: NSTextView) {
+            let text = textView.string as NSString
             guard let plan = ToggleCommentEngine.toggle(
-                text: textView.string as NSString,
+                text: text,
                 selectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue),
-                language: language
+                language: language,
+                context: CommentContextTreeWalk.resolver(
+                    snapshot: treeSnapshot, text: text, language: language, fileID: fileID
+                )
             ) else { return }
             _ = apply(plan, in: textView)
         }

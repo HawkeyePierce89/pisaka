@@ -37,6 +37,68 @@ public enum CommentStyle: Equatable {
         }
     }
 
+    /// The comment style for `language` in `context`: JSX children in
+    /// javascript, typescript or tsx comment as `{/* … */}`, because `//` there
+    /// is text the page renders, not a comment. Every other pairing answers
+    /// `style(for:)`, so this stays the single table.
+    public static func style(for language: SyntaxLanguage, context: CommentContext) -> CommentStyle? {
+        switch (language, context) {
+        case (.javascript, .jsxChildren), (.typescript, .jsxChildren), (.tsx, .jsxChildren):
+            return .block(open: "{/*", close: "*/}")
+        default:
+            return style(for: language)
+        }
+    }
+
+    /// Where a line sits, read off the syntax-tree ancestors enclosing its
+    /// first non-whitespace offset, **innermost first**. `startsAtLineOffset`
+    /// is true when the node starts exactly at that offset: ancestor kinds alone
+    /// cannot tell a child line (`<span>` opening the line) from a continuation
+    /// line inside a multi-line opening tag (`/>` closing it), so the flag is
+    /// part of the input.
+    ///
+    /// The first listed kind met decides:
+    /// - `jsx_expression` or `jsx_attribute` answers `.code` — the line is
+    ///   inside `{…}` or an attribute;
+    /// - `jsx_text` answers `.jsxChildren`;
+    /// - `jsx_element`, `jsx_self_closing_element`, `jsx_opening_element` or
+    ///   `jsx_closing_element` that does **not** start at the line offset
+    ///   answers `.code`, because the line is inside a tag; one that does
+    ///   answers `.jsxChildren` only when its element — the node itself, or for
+    ///   an opening/closing element the `jsx_element` it belongs to — has a
+    ///   `jsx_element` parent, and `.code` otherwise (the root element of a
+    ///   `return (…)` is code);
+    /// - unlisted kinds are skipped and the walk continues;
+    /// - reaching the root answers `.code`.
+    ///
+    /// There is no `jsx_fragment` case: the pinned TSX grammar has no such
+    /// node, and a fragment `<>…</>` is a `jsx_element` whose opening element
+    /// has no name, so its children are answered by the element rule.
+    public static func context(ancestors: [(kind: String, startsAtLineOffset: Bool)]) -> CommentContext {
+        for (index, ancestor) in ancestors.enumerated() {
+            switch ancestor.kind {
+            case "jsx_expression", "jsx_attribute":
+                return .code
+            case "jsx_text":
+                return .jsxChildren
+            case "jsx_element", "jsx_self_closing_element", "jsx_opening_element", "jsx_closing_element":
+                guard ancestor.startsAtLineOffset else { return .code }
+                let isTag = ancestor.kind == "jsx_opening_element" || ancestor.kind == "jsx_closing_element"
+                var elementIndex = index
+                if isTag {
+                    guard index + 1 < ancestors.count, ancestors[index + 1].kind == "jsx_element" else { return .code }
+                    elementIndex = index + 1
+                }
+                let parentIndex = elementIndex + 1
+                guard parentIndex < ancestors.count else { return .code }
+                return ancestors[parentIndex].kind == "jsx_element" ? .jsxChildren : .code
+            default:
+                continue
+            }
+        }
+        return .code
+    }
+
     /// The languages that have no comment syntax to toggle.
     ///
     /// Toggling a comment in these languages is a silent no-op. The absence
@@ -45,4 +107,11 @@ public enum CommentStyle: Equatable {
     public static let languagesWithoutComments: Set<SyntaxLanguage> = [
         .json, .markdown
     ]
+}
+
+/// Where a line sits for Toggle Comment: ordinary code, or the children of a
+/// JSX element, where a comment must be written `{/* … */}`.
+public enum CommentContext: Equatable, Sendable {
+    case code
+    case jsxChildren
 }
