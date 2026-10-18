@@ -30,12 +30,18 @@ import PisakaCore
 ///   both `--pretty` sites — without the flag git emits the Latin-1 bytes;
 /// - a re-indented line and a line moved within the file both stay attributed
 ///   to the commit that wrote them — without `-w -M` both go to the later one.
+/// - the gutter's base (`headText`) resolves a file in a subdirectory relative
+///   to its own directory — the `./` prefix; without it git reads the path from
+///   the repository root and finds nothing — comes back with a checkout's CRLF
+///   endings under `eol=crlf` — without `--filters`, the stored LF bytes — and is
+///   `nil` for a binary blob, an untracked file and a file outside any repository;
+/// - that base's read is bounded at `GutterChangeModel.maxSideBytes` *after* the
+///   filters: exactly the cap reads back, one byte over is `nil`, and a blob under
+///   the cap that the checkout's CRLF conversion grows past it is `nil` too.
 ///
-/// The helper's own git runs with the global and system configuration masked
-/// (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`), so a signing,
-/// hook or default-branch setting on the machine cannot change the fixture.
-/// The service under test inherits the process environment, as it does in the
-/// app.
+/// The repositories come from `ThrowawayRepository`, whose own git runs with
+/// the machine's configuration masked; the service under test inherits the
+/// process environment, as it does in the app.
 final class GitCLIServiceRepositoryTests: XCTestCase {
     private var scratch: URL!
 
@@ -175,71 +181,85 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         XCTAssertEqual(lines.map { $0?.hash }, [original, original, original])
     }
 
+    // MARK: - Gutter base
+
+    func testHeadTextResolvesAFileInASubdirectory() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("src/deep/file.txt", contents: "deep\n", in: repo)
+        try commitFile("file.txt", contents: "root\n", in: repo)
+
+        let text = try await GitCLIService().headText(fileURL: repo.appendingPathComponent("src/deep/file.txt"))
+
+        XCTAssertEqual(text, "deep\n")
+    }
+
+    func testHeadTextAppliesTheCheckoutsLineEndingConversion() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile(".gitattributes", contents: "*.txt eol=crlf\n", in: repo)
+        try commitFile("file.txt", contents: "one\ntwo\n", in: repo)
+        XCTAssertEqual(try git(["cat-file", "blob", "HEAD:file.txt"], in: repo), "one\ntwo\n")
+
+        let text = try await GitCLIService().headText(fileURL: repo.appendingPathComponent("file.txt"))
+
+        XCTAssertEqual(text, "one\r\ntwo\r\n")
+    }
+
+    func testHeadTextIsNilForABinaryBlobAnUntrackedFileAndAFileOutsideARepository() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("binary.bin", contents: "a\u{0}b", in: repo)
+        try Data("new\n".utf8).write(to: repo.appendingPathComponent("untracked.txt"))
+        let outside = scratch.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("x\n".utf8).write(to: outside.appendingPathComponent("file.txt"))
+        let service = GitCLIService()
+
+        let binary = try await service.headText(fileURL: repo.appendingPathComponent("binary.bin"))
+        let untracked = try await service.headText(fileURL: repo.appendingPathComponent("untracked.txt"))
+        let unrepositoried = try await service.headText(fileURL: outside.appendingPathComponent("file.txt"))
+
+        XCTAssertNil(binary)
+        XCTAssertNil(untracked)
+        XCTAssertNil(unrepositoried)
+    }
+
+    func testHeadTextIsBoundedAtTheGutterCapAfterTheFilters() async throws {
+        let cap = GutterChangeModel.maxSideBytes
+        let repo = try makeRepository("repo")
+        try commitFile(".gitattributes", contents: "grown.txt eol=crlf\n", in: repo)
+        try commitFile("atCap.txt", contents: String(repeating: "a", count: cap), in: repo)
+        try commitFile("overCap.txt", contents: String(repeating: "a", count: cap + 1), in: repo)
+        // Under the cap as stored, half again as long once LF becomes CRLF.
+        try commitFile("grown.txt", contents: String(repeating: "a\n", count: cap / 2 - 1), in: repo)
+        let service = GitCLIService()
+
+        let atCap = try await service.headText(fileURL: repo.appendingPathComponent("atCap.txt"))
+        let overCap = try await service.headText(fileURL: repo.appendingPathComponent("overCap.txt"))
+        let grown = try await service.headText(fileURL: repo.appendingPathComponent("grown.txt"))
+
+        XCTAssertEqual(atCap?.utf8.count, cap)
+        XCTAssertNil(overCap)
+        XCTAssertNil(grown)
+    }
+
     // MARK: - Helpers
 
+    private var repository: ThrowawayRepository { ThrowawayRepository(scratch: scratch) }
+
     private func makeRepository(_ name: String) throws -> URL {
-        let repo = scratch.appendingPathComponent(name, isDirectory: true)
-        try git(["init", "-q", "-b", "main", repo.path], in: scratch)
-        try git(["config", "user.name", "Pisaka Tests"], in: repo)
-        try git(["config", "user.email", "tests@pisaka.invalid"], in: repo)
-        return repo
+        try repository.makeRepository(name)
     }
 
     private func commitFile(_ path: String, contents: String, in repo: URL) throws {
-        let url = repo.appendingPathComponent(path)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(contents.utf8).write(to: url)
-        try git(["add", "--", path], in: repo)
-        try git(["commit", "-q", "-m", "add \(path)"], in: repo)
+        try repository.commitFile(path, contents: contents, in: repo)
     }
 
     private func currentBranch(in repo: URL) throws -> String {
-        try git(["branch", "--show-current"], in: repo)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try repository.currentBranch(in: repo)
     }
 
-    /// Runs `git` in `directory` with the machine's configuration masked and
-    /// fails the call on a non-zero exit, returning stdout.
     @discardableResult
     private func git(_ arguments: [String], in directory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
-        process.currentDirectoryURL = directory
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        environment["GIT_CONFIG_NOSYSTEM"] = "1"
-        process.environment = environment
-        let stdout = Pipe()
-        // stderr goes to a file rather than a second pipe: reading two pipes one
-        // after the other deadlocks once git fills the unread one.
-        let errorLog = scratch.appendingPathComponent("helper-stderr-\(UUID().uuidString)")
-        FileManager.default.createFile(atPath: errorLog.path, contents: nil)
-        let stderr = try FileHandle(forWritingTo: errorLog)
-        defer { try? stderr.close() }
-        process.standardOutput = stdout
-        process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
-        try process.run()
-        let out = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let err = (try? Data(contentsOf: errorLog)) ?? Data()
-        guard process.terminationStatus == 0 else {
-            throw HelperFailure(
-                arguments: arguments,
-                stderr: String(decoding: err, as: UTF8.self)
-            )
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-
-    private struct HelperFailure: Error, CustomStringConvertible {
-        let arguments: [String]
-        let stderr: String
-        var description: String { "git \(arguments.joined(separator: " ")) failed: \(stderr)" }
+        try repository.git(arguments, in: directory)
     }
 }
 

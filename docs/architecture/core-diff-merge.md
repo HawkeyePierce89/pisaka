@@ -104,8 +104,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     leftover removed/added rows. The LCS matrix is capped (`maxMatrixCells`); a
     pathologically large fully-divergent middle skips the quadratic matrix and
     falls back to a plain replace, so memory and main-thread time stay bounded
-    even for huge files. No word-level intra-line ranges (the optional refinement
-    was deferred). Foundation-only. `splitLines` is **not** an independent
+    even for huge files. Foundation-only. `splitLines` is **not** an independent
     splitter: it is a one-line *projection* of `TerminatedLines.split` (see the
     next entry), because the commit dialog indexes one splitter's output with the
     other's indices.
@@ -121,6 +120,79 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ThreeWayMerge`'s private ours/theirs side**, which names merge sides rather
     than diff sides and answers a different question; the iOS diff view's own
     private side type is likewise untouched (it has no chrome palette to read).
+    **`DiffRow.words: WordDiffRanges?`** is the row's word-level emphasis,
+    defaulted to `nil` in `init` so every hand-built row compiles unchanged. It
+    is filled by `rows(old:new:)` for `.modified` rows **only, and only after
+    pairing** — the word pass is asked once a delete/insert pair is fixed, so it
+    can never influence which lines pair up, and the line algorithm, matrix cap
+    and pairing are byte-for-byte what they were (the fifteen `LineDiffTests`
+    compare fields and pass unchanged). Every modified row of one build shares
+    one `WordDiff.Work` at `maximumBuildCells`, so a diff of many long lines
+    stops emphasising rather than growing without bound. `nil` on a modified row
+    means a rewrite (the threshold) or a row the budget did not reach; unchanged,
+    added and removed rows never carry any. **One Core answer per build**: every
+    surface that draws emphasis reads it from the row — `DiffView`'s two panes
+    (Local Changes inline, the Log, Local History) and, through
+    `UnifiedDiffLine.emphasis`, the commit dialog — so no view re-splits a line.
+    An internal `rows(old:new:wordRanges: false)` skips the pass for
+    `GutterChangeModel` (`core-git-models.md`), which never draws words and
+    recomputes on every typing pause; the switch only ever skips work layered on
+    top of finished rows. **`UnifiedDiffLine.emphasis: [NSRange]`**
+    (`CommitDiffUnits.swift`, `core-commit.md`), defaulted to empty, is the
+    unified flattening's copy: `CommitDiffUnits.unified` puts a modified row's
+    old-side ranges on its `-` line and its new-side ranges on its `+` line,
+    verbatim, and gives every other line none. Tested in
+    `LineDiffWordRangesTests` (modified rows carry ranges, the other kinds never
+    do, a rewritten line carries none) and `CommitDiffUnitsTests` (the pairing
+    kept, the `-`/`+` emphasis equal to the row's two sides).
+  - `WordDiff.swift` — the word-level emphasis of one modified row (pure,
+    Foundation-only). `WordDiffRanges` (`old` / `new`, ascending,
+    non-overlapping `[NSRange]` UTF-16 offsets into each side's
+    separator-stripped `DiffLine.text`, touching spans already merged; either
+    side may be empty — a pure insertion inside a line marks the new side alone)
+    and `enum WordDiff { static func ranges(old:new:work:) -> WordDiffRanges? }`
+    plus a fresh-ceiling convenience `ranges(old:new:)`.
+    - **Tokens.** A run of word characters (Unicode letters, combining marks
+      included, decimal digits and `_`), a run of whitespace, or one other
+      Unicode scalar. Tokens compare by exact UTF-16 units, never canonical
+      equivalence — a precomposed and a decomposed `é` differ here as they differ
+      on disk — and a surrogate pair is one token two units long, so the ranges
+      always cut on character boundaries and a view can slice at them safely.
+    - **Diff.** The common token prefix and suffix are stripped, an LCS runs over
+      the middle, every unmatched token becomes a range, and touching ranges are
+      merged.
+    - **Threshold.** A row whose change is most of the line is a rewrite, and
+      emphasising nearly all of it says nothing the row's wash does not: `nil`
+      when the changed non-whitespace UTF-16 units on the **longer** side (the
+      new side on a tie) exceed 60% of that side's non-whitespace units. Both
+      sides of 60% are tested, on each side being the longer one.
+    - **Budget.** A row's work is charged in steps against a per-row ceiling
+      (`maximumRowCells`, 250,000) and a per-build one (`maximumBuildCells`,
+      4,000,000) that the caller threads through as a `Work`; over either the
+      row gets `nil`, and a spent build answers `nil` for every later row without
+      tokenizing it. Tokenizing costs **one step per UTF-16 unit of both sides,
+      charged before either side is split**, so a multi-megabyte minified line
+      is refused without a single token allocated and a build of many long
+      modified rows stops tokenizing once the shared ceiling is spent — the
+      side-by-side diffs run this pass on the main actor with no size cap of
+      their own, so the tokenizer is the work that ceiling must reach. The LCS
+      costs one step per matrix cell, its table allocated **one row at a time,
+      after that row is charged**, so a minified line never allocates past its
+      ceiling. Bookkeeping is double-entry, `OccurrenceScan.Work`'s pattern and
+      reasoning (`core-editor.md`): `spend` charges both sides' units up front
+      and each DP row its width before filling it, `record` counts each unit
+      from inside the tokenizer and each cell from inside the fill loop, and the
+      two are never hoisted into one local. An internal
+      `ranges(old:new:rowWork:)` seam takes a caller-owned per-row `Work`, so
+      `WordDiffTests`' budget tests — a ~20k-character minified line against a
+      near-copy, and a line whose units alone exceed the row ceiling — assert
+      no ranges, `0 < performed ≤ charged` (and `performed == 0` for the
+      refused line), and that a spent per-build ceiling stops later rows:
+      charged, not timed.
+    Tested in `WordDiffTests`: one changed word on both sides, punctuation as
+    single tokens, whitespace runs, non-ASCII letters and surrogate pairs,
+    merging, the threshold just below and above 60%, identical and empty sides,
+    and the budget.
   - `TerminatedLines.swift` — the single line representation shared by the diff
     and the partial-commit builder (Foundation-only). `TerminatedLine`
     (`content` — the separator-stripped text a `DiffRow` compares — plus

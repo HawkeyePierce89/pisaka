@@ -61,7 +61,18 @@ final class ChromePopoverPresenter: ObservableObject {
         var selection: PopoverSelection
     }
 
+    /// Where an open popover is placed relative to its anchor.
+    enum Placement {
+        /// Upward from the bottom bar, left-aligned to its widget.
+        case bar
+        /// Beside an anchor inside the window — the gutter's change marker
+        /// (`PopoverPlacement.beside`).
+        case beside
+    }
+
     @Published private(set) var openID: String?
+    /// How the open popover is placed. Changes only together with `openID`.
+    private(set) var placement = Placement.bar
     /// The open popover's widget, in the root's coordinate space.
     @Published private(set) var anchor: CGRect = .zero
     /// The open popover's content. Not published on its own: it changes only
@@ -105,7 +116,12 @@ final class ChromePopoverPresenter: ObservableObject {
 
     /// Open the popover `id` from the widget at `anchor`, or close it when it is
     /// the one already open — the widget's button is a toggle.
-    func present(id: String, anchor: CGRect, content: @escaping (ChromePopoverContext) -> AnyView) {
+    func present(
+        id: String,
+        anchor: CGRect,
+        placement: Placement = .bar,
+        content: @escaping (ChromePopoverContext) -> AnyView
+    ) {
         if openID == id {
             dismiss()
             return
@@ -118,6 +134,7 @@ final class ChromePopoverPresenter: ObservableObject {
         rowTops = [:]
         selection = PopoverSelection(count: 0)
         self.anchor = anchor
+        self.placement = placement
         self.content = content
         openID = id
         installMonitors()
@@ -228,6 +245,14 @@ final class ChromePopoverPresenter: ObservableObject {
 
     func attachRootView(_ view: NSView) {
         rootView = view
+    }
+
+    /// `rect`, in `view`'s coordinates, in the root's top-left, y-down space —
+    /// the anchor an AppKit view hands `present` (the gutter's marker rect).
+    /// `nil` while no root is attached or `view` is in another window.
+    func rootRect(_ rect: NSRect, from view: NSView) -> CGRect? {
+        guard let rootView, view.window != nil, view.window === rootView.window else { return nil }
+        return rootView.convert(rect, from: view)
     }
 
     // MARK: - Focus
@@ -449,7 +474,18 @@ struct ChromePopoverHost: View {
         .background(ChromePopoverRootAnchor(presenter: presenter))
     }
 
+    @ViewBuilder
     private func popover(
+        content: (ChromePopoverContext) -> AnyView,
+        window: CGRect
+    ) -> some View {
+        switch presenter.placement {
+        case .bar: barPopover(content: content, window: window)
+        case .beside: besidePopover(content: content, window: window)
+        }
+    }
+
+    private func barPopover(
         content: (ChromePopoverContext) -> AnyView,
         window: CGRect
     ) -> some View {
@@ -470,6 +506,38 @@ struct ChromePopoverHost: View {
             .chromePopoverFrame { [presenter] in presenter.notePopoverFrame($0) }
             .padding(.leading, placed.x)
             .frame(width: window.width, height: max(0, placed.bottom), alignment: .bottomLeading)
+    }
+
+    /// Hanging down from the anchor's top, or rising from its bottom — the
+    /// direction is `PopoverPlacement.beside`'s answer, not decided here.
+    @ViewBuilder
+    private func besidePopover(
+        content: (ChromePopoverContext) -> AnyView,
+        window: CGRect
+    ) -> some View {
+        let placed = PopoverPlacement.beside(
+            anchor: presenter.anchor,
+            window: window,
+            width: metrics.scaled(ChromeGeometry.popoverWidth),
+            maxHeight: metrics.scaled(ChromeGeometry.popoverMaxHeight),
+            gap: metrics.scaled(ChromeGeometry.popoverBarGap)
+        )
+        let context = ChromePopoverContext(
+            maxHeight: placed.availableHeight,
+            selectedRowID: presenter.selectedRowID,
+            activateRow: { [presenter] in presenter.activateRow(id: $0) }
+        )
+        let drawn = content(context)
+            .chromePopoverFrame { [presenter] in presenter.notePopoverFrame($0) }
+            .padding(.leading, placed.x)
+        if placed.growsDown {
+            drawn
+                .padding(.top, placed.edge)
+                .frame(width: window.width, height: window.height, alignment: .topLeading)
+        } else {
+            drawn
+                .frame(width: window.width, height: max(0, placed.edge), alignment: .bottomLeading)
+        }
     }
 
     private func submenuView(_ submenu: ChromePopoverPresenter.Submenu, window: CGRect) -> some View {

@@ -287,6 +287,12 @@ import XCTest
 ///   reaches, and around the whole focusable container rather than the row or
 ///   cell the keyboard is on; the chrome draws its own focus border there
 ///   instead, or — on the Welcome root — deliberately none.
+/// - **The gutter's change marks and their popover colour only through roles.**
+///   The change kind's role is Core's one answer, read by the ruler's change
+///   column alone, whose marks fill only through the palette; the popover
+///   constructs one colour — the HEAD lines' plain code row — and paints no
+///   ground of its own. A mark or a popover in a colour of its own compiles and
+///   drifts from the status colours the Local Changes rows draw the same kinds in.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -428,6 +434,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Part five (d): the shared two-pane split, its hairline divider and
         // its drag strip, which replaces the platform's split views.
         "ChromeSplitView.swift",
+        // The gutter change marker's popover: its Head, message and Revert
+        // foot through the popover components' roles (rule fifty).
+        "ChangeHunkPopover.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -5967,6 +5976,107 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule fifty: the gutter's change marks and their popover colour only through roles
+
+    /// The app files reading `ChromeColorRole.changeMarkerRole(for:)`: the
+    /// ruler's change column alone. The popover draws no mark, only HEAD's
+    /// lines and its chrome.
+    private static let changeMarkerRoleReaders: Set<String> = [
+        "LineNumberRulerView.swift",
+    ]
+
+    /// The popover's one non-role colour, spelled whole: the HEAD lines are
+    /// file content at the code font, so they take the code table's plain row
+    /// (`SyntaxBaseForegroundGatingTests`), never a chrome role and never a
+    /// platform label.
+    private static let changeHunkPopoverContentColour = "SyntaxTheme.shared.color(for: .plain)"
+
+    /// Rule fifty. Over stripped source:
+    ///
+    /// - no app file declares `func changeMarkerRole` (the kind-to-role
+    ///   mapping is Core's), and the app files spelling `changeMarkerRole(for:`
+    ///   equal `changeMarkerRoleReaders`;
+    /// - the ruler's `drawChangeMarker(` body sets its fill only through
+    ///   `ChromePalette.nsColor(`, as many times as it reads the mapping, and
+    ///   names no `NSColor`, no `SyntaxTheme` and no `withAlphaComponent` — a
+    ///   mark in a colour of its own drifts from the status colours the Local
+    ///   Changes rows draw the same kinds in;
+    /// - `ChangeHunkPopover.swift` names no `NSColor`, `.foregroundColor(` or
+    ///   `.tint(`, constructs exactly one `Color(` — whose argument is
+    ///   `changeHunkPopoverContentColour`, the HEAD lines' plain row — and every
+    ///   `.background(` it spells carries the zoom marker and nothing painted,
+    ///   so its chrome reaches the screen only through the popover components'
+    ///   roles.
+    func testTheGuttersChangeMarksAndTheirPopoverColourOnlyThroughRoles() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func changeMarkerRole"),
+                "\(name) declares its own changeMarkerRole — the change-kind mapping is Core's one answer"
+            )
+            if Self.spellsCall("changeMarkerRole(for:", in: code) {
+                readers.insert(name)
+            }
+        }
+        XCTAssertEqual(
+            readers, Self.changeMarkerRoleReaders,
+            "the app files reading ChromeColorRole.changeMarkerRole(for:) must be exactly the ruler's change column"
+        )
+
+        let ruler = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "LineNumberRulerView.swift"))
+        )
+        let marks = try XCTUnwrap(
+            Self.matchedBody(after: "func drawChangeMarker(", in: ruler),
+            "LineNumberRulerView.swift no longer declares drawChangeMarker( — re-point rule fifty"
+        )
+        let mappingReads = Self.callCount("changeMarkerRole(for:", in: marks)
+        XCTAssertGreaterThan(mappingReads, 0, "the change column no longer reads changeMarkerRole(for:)")
+        XCTAssertEqual(
+            Self.callCount("ChromePalette.nsColor(", in: marks), mappingReads,
+            "every change-mark fill must resolve its kind's role through ChromePalette.nsColor(_:)"
+        )
+        for token in ["NSColor", "SyntaxTheme", "withAlphaComponent"] {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(token, in: marks),
+                "the ruler's change marks name \(token) — a mark is coloured by its kind's role alone"
+            )
+        }
+
+        let popover = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
+            try Self.read(Self.source(named: "ChangeHunkPopover.swift"))
+        )
+        XCTAssertFalse(
+            LSPSourceGatingTests.containsToken("NSColor", in: popover),
+            "ChangeHunkPopover.swift names NSColor — its chrome is coloured by the popover components' roles"
+        )
+        for call in [".foregroundColor(", ".tint("] {
+            XCTAssertFalse(
+                Self.spellsCall(call, in: popover),
+                "ChangeHunkPopover.swift spells \(call) — its chrome is coloured by the popover components' roles"
+            )
+        }
+        let colours = Self.callRanges("Color(", in: popover)
+        XCTAssertEqual(colours.count, 1, "ChangeHunkPopover.swift must construct exactly one Color — the HEAD lines'")
+        for call in colours {
+            let rest = popover[call.upperBound...]
+            XCTAssertTrue(
+                rest.hasPrefix(Self.changeHunkPopoverContentColour + ")"),
+                "ChangeHunkPopover.swift's one Color must be the code table's plain row, \(Self.changeHunkPopoverContentColour)"
+            )
+        }
+        let backgrounds = Self.callRanges(".background(", in: popover)
+        XCTAssertFalse(backgrounds.isEmpty, "ChangeHunkPopover.swift no longer plants its zoom marker — re-point rule fifty")
+        for call in backgrounds {
+            XCTAssertTrue(
+                popover[call.upperBound...].hasPrefix("ZoomSurfaceMarker("),
+                "ChangeHunkPopover.swift paints a background of its own — the popover's ground is ChromePopover's"
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -6069,7 +6179,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
-        49: "forty-nine", 64: "sixty-four",
+        49: "forty-nine", 50: "fifty", 65: "sixty-five",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

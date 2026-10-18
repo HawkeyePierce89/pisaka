@@ -153,6 +153,13 @@ two new geometry tokens) and each with its readers pinned by a gating
     every case's answer over `allCases`, and exactly the three conflicted kinds
     reaching `conflictBackground`. Rule twenty-nine pins its one reader,
     `MergeView.swift`.
+    **The gutter change marks added a fifth**, `changeMarkerRole(for:
+    ChangeMarkerKind)` — added `statusGreen`, modified `statusYellow`, deleted
+    `statusRed` — a mapping like `changedFileRole(for:)`, not a new role, so the
+    gutter and the Local Changes panel say the three kinds in the same colours
+    (`core-git-models.md`, `ChangeHunk.swift`). Its total answer over `allCases`
+    is pinned in `ChangeHunkTests`; rule fifty pins its one reader,
+    `LineNumberRulerView.swift`.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
@@ -382,6 +389,21 @@ two new geometry tokens) and each with its readers pinned by a gating
     would pass the window's bottom, never above the top. `PopoverPlacementTests`
     pins the ordinary case, the right-edge shift, the narrow window, the short
     window, and the submenu's fit, flip and upward clamp, on literal frames.
+    `beside(anchor:window:width:maxHeight:gap:)` answers a
+    `PopoverBesideAnchoring` for a popover opened from **inside** the window —
+    the editor gutter's change marker (`ChangeHunkPopover.swift`,
+    `app-editor.md`), presented through `ChromePopoverPresenter`'s `.beside`
+    placement with its anchor converted by `rootRect(_:from:)`. The leading x is
+    `gap` past the anchor's `maxX`, shifted left to keep the right edge inside the
+    window and never past its left edge — the bar rule's horizontal half, from the
+    anchor's trailing side. It **hangs down** from the anchor's top, beside the
+    lines the marker stands for, when the room below holds `maxHeight` or at
+    least as much as the room above the anchor's bottom, and otherwise **rises**
+    from the anchor's bottom, so a marker near the window's foot opens upward;
+    the available height is the room in the chosen direction, capped at
+    `maxHeight` and never negative. `PopoverPlacementTests` pins hanging, rising,
+    the short window taking the roomier side, equal room hanging down, and the
+    horizontal keep-inside.
   - `PopoverSelection.swift` — the keyboard selection over a popover's rows: a
     row count and an optional selected index. `init(count:)` selects the first
     row, or nothing at zero; `movedDown()`/`movedUp()` clamp at both ends with
@@ -2649,7 +2671,9 @@ tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
 
 The project switcher and the branch switcher are **one design component**, so
 they are one view: both popovers, and the remote row's submenu, are a
-`ChromePopover`. It opens **upward** from its widget, left-aligned to it,
+`ChromePopover` — as is the gutter's change-hunk popover, the component's third
+user, which opens **beside** its marker instead (below). A bar popover opens
+**upward** from its widget, left-aligned to it,
 `popoverBarGap` (4) above the bar, clamped inside the window, with **no arrow
 and no material** — a flat `bgPopover` fill at `cornerRadiusMax`, a `hairline`
 stroke at `hairlineWidth` (both reused, neither a token of its own) and a
@@ -2733,10 +2757,14 @@ and moves with it, re-places itself on a resize through the root's
 status from the main window, so the field inside it keeps the text focus and
 "closes when the window resigns key" stays one notification. The root declares
 a named coordinate space; the widgets, the bar's top edge and the rows report
-their frames in it, and the host asks `PopoverPlacement.popover(...)` with
-`popoverWidth`, `popoverMaxHeight` and `popoverBarGap` scaled, drawing the
-content bottom-leading at the answer with the available height as its
-`maxHeight`. An open submenu is a Head-less `ChromePopover` of two rows, its
+their frames in it, and for a `.bar` placement the host asks
+`PopoverPlacement.popover(...)` with `popoverWidth`, `popoverMaxHeight` and
+`popoverBarGap` scaled, drawing the content bottom-leading at the answer with
+the available height as its `maxHeight`. A `.beside` placement — the gutter's
+change marker — asks `PopoverPlacement.beside(...)` with the same three tokens
+and either hangs the content down from the anchor's top or raises it from the
+anchor's bottom, as that answer's `growsDown` says; the direction is decided in
+Core, not in the host. An open submenu is a Head-less `ChromePopover` of two rows, its
 height known from the row tokens and the List padding, placed by
 `PopoverPlacement.submenu(...)` with `popoverSubmenuGap` scaled. Its anchor
 row's top is **live**: a row-top report for the row the open submenu hangs from
@@ -2751,7 +2779,11 @@ widget's button then presents nothing) holds the open id, the anchor frame, the
 content, the bar's top, the rows the content registers in display order (an
 action row is an ordinary entry; a remote row carries its submenu's rows), the
 main `PopoverSelection`, the optional submenu with its own selection, and the
-drawn frames. `present(id:anchor:content:)` toggles when the same id is open;
+drawn frames. `present(id:anchor:placement:content:)` toggles when the same id
+is open; `placement` (`.bar` by default, or `.beside`) changes only together
+with `openID`. An AppKit anchor reaches it through `rootRect(_:from:)`, which
+converts a view's rect into the root's space and answers `nil` while no root is
+attached or the view is in another window;
 `setRows(_:)` resets the selection to the first row and closes a submenu, and
 each content re-registers on appear and on every filter change. **Every
 activation dismisses everything before its closure runs**; the current
@@ -3109,7 +3141,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more: **sixty-four** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more: **sixty-five** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -3117,7 +3149,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-nine rules, each invisible to the compiler:
+The fifty rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -4117,6 +4149,21 @@ The forty-nine rules, each invisible to the compiler:
     reading keeps it a token rule; the shared field's `TextField`, which
     disables the effect without being `.focusable(`, sits in a file spelling
     no `.focusable(` and is rule forty-five's.
+50. **The gutter's change marks and their popover colour only through roles.**
+    No app file declares `func changeMarkerRole`, and the app files spelling
+    `changeMarkerRole(for:` equal the pinned `changeMarkerRoleReaders` — the
+    ruler alone. Inside the ruler's `drawChangeMarker(` body every fill goes
+    through `ChromePalette.nsColor(`, as many times as the body reads the
+    mapping, and the body names no `NSColor`, `SyntaxTheme` or
+    `withAlphaComponent`. `ChangeHunkPopover.swift` names no `NSColor`,
+    `.foregroundColor(` or `.tint(`, constructs exactly one `Color(` — the
+    HEAD lines' `SyntaxTheme.shared.color(for: .plain)`, file content at the
+    code font, as `SyntaxBaseForegroundGatingTests` requires of every code-zone
+    surface — and every `.background(` it spells is the `ZoomSurfaceMarker`, so
+    its Head, message and Revert foot are coloured only by the popover
+    components' roles. A mark or a popover in a colour of its own compiles and
+    drifts from the status colours the Local Changes rows draw the same kinds
+    in. Matched against comment- and literal-stripped text.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
@@ -4169,8 +4216,8 @@ document spelling it checked against that. The gated set's size is held the
 same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
 `gatedFiles.count`, spelled from the same `spelled` table, must appear in both
 summaries in the sentence naming it — the running total in the gated-files
-entry above, ending on "**sixty-four** in all today", and `CLAUDE.md`'s "pins
-which files obey the rule (sixty-four, by set equality)". Before it only prose
+entry above, ending on "**sixty-five** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-five, by set equality)". Before it only prose
 stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'

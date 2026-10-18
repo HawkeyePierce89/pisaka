@@ -105,13 +105,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `LeetCodeTransport.swift`, `LeetCodeCredentials.swift`, `LeetCodeLoginGate.swift`, `LeetCodeError.swift`, `LeetCodeProblem.swift`, `LeetCodeJudge.swift`, `LeetCodeAPI.swift`, `LeetCodeProblemInput.swift`, `LeetCodeSolutionFile.swift`, `LeetCodeCacheLayout.swift`, `LeetCodeCatalog.swift`, `LeetCodeProblemFilter.swift`, `LeetCodeStatementDocument.swift`, `LeetCodeModel.swift`, `LeetCodeJudgeModel.swift`, `LeetCodeBrowserModel.swift`
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
-  `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`
+  `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`, `LineShift.swift`
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
-  `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
+  `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `WordDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
+  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangeHunk.swift`, `GutterChangeModel.swift`, `ChangeNavigationRule.swift`, `HunkRevertPlan.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
@@ -184,10 +184,10 @@ headlessly in `Tests/PisakaAppTests`.
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `LineCommands.swift` / `CommentCommands.swift` / `ProblemCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
+  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `LineCommands.swift` / `CommentCommands.swift` / `ProblemCommands.swift` / `ChangeCommands.swift`, `ChangeHunkPopover.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
+  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `GitChangeController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
 
 `docs/architecture/app-git-views.md` — git UI & CLI service (macOS):
   `FilePanels.swift`, `BranchSwitcherView.swift`, `GitCLIService.swift`, `CommitDialogView.swift` / `CommitUnifiedDiffView.swift`, `MergeView.swift` / `MergeWindowController.swift`, `EscClosableWindow.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift`
@@ -317,8 +317,8 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-four, by set
-  equality) and its forty-nine rules, inventoried in that suite's own header and
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-five, by set
+  equality) and its fifty rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces,
@@ -392,6 +392,13 @@ because nothing else states them.
   read one lookup whose fallback is granted to the preview's web view and its descendants
   alone, so every other responder keeps beeping.
 
+- **Gutter change markers are a reader; a hunk revert is a buffer edit that raises no
+  gate and consults one** (macOS only, `core-git-models.md`, `app-editor-overlays.md`): the
+  column diffs the **live buffer** against `HEAD` through `LineDiff`'s rows, never a second
+  diff, and every command recomputes from the buffer at the moment it runs rather than
+  acting on the drawn answer. A revert is one undoable edit through the editor's funnel —
+  no disk write, no Local History capture — refused silently while the writer gate is up.
+  Word emphasis is computed once per diff build in Core and carried on the rows.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are snapshotted
   before the hop; a clean, unchanged tab gets `reloadFromDisk`, an edited one
   `reconcileSavedBaseline` + beep, a deleted file force-closes (except after a commit,
@@ -416,8 +423,8 @@ test` runs `Tests/PisakaAppTests/`, headless XCTest (not UI automation) covering
 `swift test` is blind to: the AppKit overlays with behaviour of their own, the app-layer
 rules the Core gate structurally cannot see, the two suites that drive a real `WKWebView`,
 the one that executes the bundled diagram renderer, the four that execute a shipped
-tree-sitter query, the one that drives `GitCLIService` against a real `git` in throwaway
-repositories, the code zone's one cross-file rule, and the SwiftUI chrome whose
+tree-sitter query, the two that drive a real `git` in throwaway
+repositories (`GitCLIService`, `GitChangeController`), the code zone's one cross-file rule, and the SwiftUI chrome whose
 drawn layout is its contract, measured off a bitmap through the shared `HostedRender`. It exists because the folding
 launch-time trap passed **every gate the pipeline had** — the Core suites *and* the smoke
 launch — so it is the only net for that class. `Package.swift` ignores that directory

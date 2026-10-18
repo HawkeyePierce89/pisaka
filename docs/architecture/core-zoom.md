@@ -286,8 +286,8 @@ items, and applies the three scales to views.
     (`EditorTextView`, `DiffTextView`, `MergePaneTextView`,
     `SourceViewerTextView`), by `CodeScrollView` — the scroll view each of those
     four is the document of — by the three views that draw **beside** a text view
-    rather than inside it — `LineNumberRulerView` (the editor's gutter *and* its
-    blame column), `DiffGutterView` and `MinimapView` — by the custom completion popup's content view (`CompletionPanel.swift`) — by SwiftTerm's
+    rather than inside it — `LineNumberRulerView` (the editor's gutter, its
+    blame column *and* its git change column), `DiffGutterView` and `MinimapView` — by the custom completion popup's content view (`CompletionPanel.swift`) — by SwiftTerm's
     `TerminalView` — declared as an
     extension on the dependency's own class because that is the view the pointer
     is over, with `TerminalView` rather than `LocalProcessTerminalView` since the
@@ -390,7 +390,11 @@ items, and applies the three scales to views.
     followed the code size would be the same incoherence), and the Markdown
     preview's page (`MarkdownPreviewPane`, whose body text and fenced blocks are
     sized from `settings.fontSize`, so the pointer over it is over the code zone
-    for the LeetCode statement's reason — `core-markdown-preview.md`): an empty,
+    for the LeetCode statement's reason — `core-markdown-preview.md`), and the
+    gutter change marker's popover (`ChangeHunkPopover`, whose List shows the
+    hunk's `HEAD` lines at the code font beside interface-scaled chrome — the
+    code text is the surface, the Head and the *Revert* foot stay interface,
+    `app-editor.md`): an empty,
     non-drawing, hit-test-transparent `NSView` placed *behind* the content with
     `.background(...)`, so it inherits exactly that content's frame and nothing
     else about it. Zero-cost is meant literally — it draws nothing, `hitTest`
@@ -596,9 +600,15 @@ pass while the code it describes was deleted) and asserts:
     already appear in it for their roots.
   - **The set of files declaring a zoom surface** (by conformance or by
     `ZoomSurfaceMarker`) equals the table in that suite — the surfaces described
-    under `ZoomSurface.swift` above, of which the SwiftUI-drawn ones are five
-    since the Markdown preview landed. This is the rule that has already gone
+    under `ZoomSurface.swift` above, of which the SwiftUI-drawn ones are six
+    since the gutter change popover landed. This is the rule that has already gone
     wrong once, and the sibling trap makes it silent.
+  - **The change popover's code font comes from `EditorFont`.** Every `.font(`
+    in `ChangeHunkPopover.swift` is `EditorFont.swiftUIFont(` over
+    `settings.fontSize` and the editor font family, and none names the interface
+    metrics: its `HEAD` lines sit beside interface-scaled chrome in one view, so a
+    font built from the metrics there compiles, looks right at 100% and follows
+    the wrong zoom.
   - **The hover popover passes every mouse event through and declares no
     surface.** `ignoresMouseEvents = true` and the `canBecomeKey` override are one
     line each and invisible to every other check here: delete either and the panel

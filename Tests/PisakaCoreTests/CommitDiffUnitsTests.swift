@@ -298,4 +298,41 @@ final class CommitDiffUnitsTests: XCTestCase {
         XCTAssertEqual(unified.map(\.kind), [.added])
         XCTAssertEqual(unified.map(\.unitIndex), [1])
     }
+
+    // MARK: - Emphasis
+
+    func testUnifiedCopiesEachSideOfTheRowsWordRanges() throws {
+        let rows = LineDiff.rows(old: "ctx\nlet a = 1\ngone\n", new: "ctx\nlet bb = 1\n")
+        XCTAssertEqual(rows.map(\.kind), [.unchanged, .modified, .removed])
+        let words = try XCTUnwrap(rows[1].words)
+
+        let unified = CommitDiffUnits.unified(rows: rows)
+        XCTAssertEqual(unified.map(\.kind), [.context, .removed, .added, .removed])
+        // The pairing survives: both halves name the modified row's unit.
+        XCTAssertEqual(unified.map(\.unitIndex), [nil, 1, 1, 2])
+        // Verbatim copies of the row's two sides — nothing re-splits.
+        XCTAssertEqual(unified[1].emphasis, words.old)
+        XCTAssertEqual(unified[2].emphasis, words.new)
+        XCTAssertEqual(unified[2].emphasis, [NSRange(location: 4, length: 2)])
+        // Context and an unpaired removal carry none.
+        XCTAssertEqual(unified[0].emphasis, [])
+        XCTAssertEqual(unified[3].emphasis, [])
+    }
+
+    func testUnifiedGivesAModifiedRowWithoutRangesNoEmphasis() {
+        let line = DiffLine(number: 1, text: "x")
+        let unified = CommitDiffUnits.unified(rows: [DiffRow(kind: .modified, left: line, right: line)])
+        XCTAssertEqual(unified.map(\.emphasis), [[], []])
+    }
+
+    func testUnifiedNeverEmphasisesAnAddedOrRemovedRowEvenIfHandedRanges() {
+        let line = DiffLine(number: 1, text: "word")
+        let stray = WordDiffRanges(old: [NSRange(location: 0, length: 4)], new: [NSRange(location: 0, length: 4)])
+        let unified = CommitDiffUnits.unified(rows: [
+            DiffRow(kind: .added, left: nil, right: line, words: stray),
+            DiffRow(kind: .removed, left: line, right: nil, words: stray),
+            DiffRow(kind: .unchanged, left: line, right: line, words: stray),
+        ])
+        XCTAssertTrue(unified.allSatisfy { $0.emphasis.isEmpty })
+    }
 }

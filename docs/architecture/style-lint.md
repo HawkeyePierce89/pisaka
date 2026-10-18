@@ -86,13 +86,23 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is Next / Previous Problem's, `file_length` 1952 → **1953**
+The most recent bump is Revert Change's, `file_length` 1953 → **1954** and
+`type_body_length` 1946 → **1947**: one line in `PisakaApp`, the
+`ChangeCommandItems` entry in the Git menu, whose divider, item, action and the
+coordinator's `revertChange` half live in `ChangeCommands.swift`, and every
+decision in Core's `GutterChangeModel` and `HunkRevertPlan` (`core-git-models.md`,
+`app-editor.md`). The same change brings `CodeEditorView.swift` to the same 1954
+with one line, its `changePopover` input; the marker-click hook rides the
+existing `attach` call and the popover the per-update `configure` call that
+replaced the gate's assignment, and the popover lives in `ChangeHunkPopover.swift`.
+
+The bump before it is Next / Previous Problem's, `file_length` 1952 → **1953**
 and `type_body_length` 1945 → **1946**: one line, the `ProblemNavigationItems`
 entry at the foot of the Find menu. Its divider, both items, their action and
 the coordinator's `goToProblem(_:)` live in `ProblemCommands.swift`, and every
 decision in Core's `DiagnosticNavigationRule` (`core-lsp.md`, `app-editor.md`).
 
-The bump before it is Toggle Block Comment's, `file_length` 1949 → **1952**
+The bump before that is Toggle Block Comment's, `file_length` 1949 → **1952**
 and `type_body_length` 1942 → **1945**: three lines, the ⌥⌘/ item and its two
 modifiers beside Toggle Comment in the Edit block's `CommandGroup`. Its action
 and the coordinator's apply live in `CommentCommands.swift`, and every decision

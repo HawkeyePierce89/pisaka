@@ -399,6 +399,138 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     byte count — publishes `.tooLarge` having read neither side, that an
     over-cap `HEAD` size publishes `.tooLarge` with no blob read, and that an
     at-cap or unknown `HEAD` size still fetches.
+  - `ChangeHunk.swift` — the gutter change column's vocabulary, pure and
+    `Sendable` (macOS draws it today; Foundation-only so iOS can later).
+    `ChangeMarkerKind` (`added` / `modified` / `deleted`) is **the one
+    vocabulary** — a hunk's kind, a line's strip and the colour answer
+    (`ChromeColorRole.changeMarkerRole(for:)`, `core-theme.md`) all speak it, so
+    no mapping site exists between two spellings. `ChangeHunk` is one maximal run
+    of changed lines between `HEAD` (old side) and the live buffer (new side):
+    `kind`, `newLines`, `oldLines` (0-based, `LineDiff`'s line semantics, so a
+    trailing separator adds no line) and `anchor = newLines.lowerBound - 1` — the
+    buffer line just above the hunk, total for every kind, and for a `deleted`
+    hunk (empty `newLines`) the line it sits after, `-1` meaning before line 1.
+    A `modified` hunk carries no constraint on its two counts.
+    - **`hunks(from: [DiffRow])`** reads maximal runs of non-`unchanged` rows
+      **off `LineDiff`'s rows, never a second diff**, its kind decided by which
+      sides the run carries. Positions are counted row by row rather than read off
+      `DiffLine.number`, because a deleted run has no new-side line to say where
+      it sits.
+    - **`lineMarkers(for:lineCount:)`** projects hunks onto **ruler lines** —
+      one `ChangeLineMarker` per `LineStartIndex.offsets` element — so the array
+      rides `LineShift` (`core-git.md`) with its `result.count ==
+      newLineStarts.count` invariant. `ChangeLineMarker` holds an optional
+      `strip` (`added`/`modified`, never `deleted`) and two wedge flags:
+      `deletedBelow` (lines removed after this one) and `deletedAbove`, which
+      only line 1 carries, every other "before" being the previous line's
+      "below". A trailing-separator buffer's final empty ruler line never carries
+      a strip; a deletion after the last real line still marks that real line.
+      An empty buffer against a non-empty `HEAD` marks index 0 `deletedAbove` —
+      the only place left to say "HEAD had lines here". Anything past
+      `lineCount` is dropped, not trapped.
+    - **`headLines(in: base)`** — the hunk's `HEAD` lines, separators stripped;
+      empty for an added hunk or one that does not fit `base`.
+      **`headLines(in:limit:)`** cuts them to the first `limit` and counts the
+      rest, building only the kept strings; the popover asks it with
+      `popoverLineLimit` (200), since a hunk inside the size cap can still hold
+      hundreds of thousands of short lines. An added hunk answers empty without
+      reading the base — fitting or not, it has no `HEAD` lines — so a click on
+      an insertion near the end of a large file walks nothing. Otherwise it never
+      splits or indexes the whole base: one `.byLines` walk (the same separator set, one visit per
+      `TerminatedLines` line) runs from the start only as far as the hunk's
+      last line — which is what proves the hunk fits — recording just the shown
+      span's two ends, with no per-line offset array allocated, so a click on a
+      marker near the top of a newline-dense file pays for the top alone. Only
+      the shown span is split, through the bounded
+      `TerminatedLines.ranges(in:range:)` — so the answer is the whole split's,
+      which a test checks for every span, limit and separator.
+    Tested in `ChangeHunkTests`: each kind, adjacent rows merging, deletion before
+    line 1, after the last line and mid-file, unequal modified counts, an empty
+    buffer, marker length equal to the line-start count (trailing separator
+    included), out-of-range lines dropped, the role mapping, and the head lines
+    whole and cut to a limit.
+  - `GutterChangeModel.swift` — the column, answered. `static func
+    compute(base: String?, buffer: String) -> GutterChanges`, pure and safe off
+    the main thread, so the app's controller runs the **same function** on a
+    detached task for drawing and synchronously for a command. **No base** (an
+    untracked file, a failed or non-text read) is empty, and so is **either side
+    over `maxSideBytes`** (`1 << 20` UTF-8 bytes) — the column says nothing
+    rather than something partial. `maxSideBytes` is restated
+    `LocalChangesInlineDiff.maxSideBytes`, so a file the panel refuses to diff
+    inline is a file the gutter draws nothing for — one threshold for "too large
+    to read line by line" across the git surfaces; restated rather than
+    referenced so this rule names no panel policy, and a test pins the two equal.
+    It diffs through `LineDiff.rows(old:new:wordRanges: false)` — identical rows,
+    no word pass, because the gutter never draws words and recomputes on every
+    typing pause. `GutterChanges` holds `hunks` and `markers`, the markers
+    always exactly the buffer's ruler-line count, even when empty. Two lookups:
+    - `hunk(atLine:)` — lenient, for the **caret**: the hunk whose new lines
+      contain the line, or a deleted hunk anchored at its boundary (after it, or
+      before line 1 asked as line 0); the first in order wins. The **empty tail
+      line** a trailing separator opens (`lastLineIsEmptyTail`, set by `compute`)
+      also answers the deletion anchored on the line above it — the caret at the
+      very end of the file sits where those `HEAD` lines were, and their wedge is
+      drawn on the line above; an unterminated last line is a real line and
+      never does.
+    - `hunk(atMarkerLine:)` — exact, for the **ruler's hit test**: `-1` is the
+      wedge above line 1, any other line a strip on it or a wedge after it, so
+      line 1 carrying both wedges never answers the same hunk for both halves.
+    Tested in `GutterChangeModelTests`: no base, an identical file, the three
+    kinds together, CRLF and NEL/LS/PS, a whitespace-only change as modified, the
+    cap on each side just under and just over, the cap pinned equal to the
+    panel's, and both lookups on strip lines, anchor lines, the empty tail line
+    (and an unterminated last line that is not one) and line 1 carrying both
+    wedges.
+  - `ChangeNavigationRule.swift` — where *Next Change* / *Previous Change* put
+    the caret. `static func targetLine(hunks:caretLine:direction:) -> Int?`
+    copies `DiagnosticNavigationRule`'s shape and **reuses its
+    `DiagnosticNavigationDirection`**, so the two "step through what is marked"
+    commands cannot drift in how they wrap. **One stop per hunk, on a buffer
+    line**: an added or modified hunk's first new-side line, a deleted hunk's
+    anchor (it owns no buffer line), a deletion before line 1 stopping on line 0;
+    the stops are made distinct and ascending through a set rather than trusted
+    to be. **Strictly past the caret, wrapping**: next is the first stop after
+    `caretLine`, else the first; previous the last before it, else the last — so
+    a caret left on a stop by the previous press moves on. **No stops is `nil`**,
+    which the app turns into a beep. Tested in `ChangeNavigationRuleTests`: wrap
+    both ways, a caret inside a hunk, on a hunk's first line, on a deletion's
+    anchor, and no hunks.
+  - `HunkRevertPlan.swift` — *Revert Change*, answered: `static func
+    plan(hunk:base:buffer:) -> RangeEditPlan?`, one edit plus one caret, which
+    puts a hunk's `HEAD` lines back **byte for byte**. Built from
+    `TerminatedLines` on both sides, so every terminator in the replacement is
+    `HEAD`'s own, verbatim — a revert never normalizes a line ending it was not
+    asked to touch.
+    - **The range.** A hunk not reaching the end of the buffer replaces exactly
+      its new-side lines, terminators included, with its old-side lines; a
+      deletion inserts at the start of the line after its anchor (offset 0 before
+      line 1). In the middle of a file every line is terminated on both sides, so
+      that is enough.
+    - **The end-of-text rule.** At the end it is not: `LineDiff` compares
+      separator-stripped lines, so whether the last line carries a final newline
+      is invisible to the hunk, and a deletion anchored after an unterminated last
+      line would otherwise be glued onto it. When the hunk reaches the end of the
+      buffer (a strip covering the last line, or a deletion anchored after it) and
+      a line precedes it, the range starts at **that line's terminator** and the
+      replacement starts with **`HEAD`'s terminator for that line** — the
+      preceding line is unchanged (hunks are maximal runs), so it is old line
+      `oldLines.lowerBound - 1`. The presence or absence of a final newline comes
+      back exactly on either side. A hunk that is the whole buffer replaces the
+      whole buffer with the whole old side, which carries `HEAD`'s ending already.
+    - **The caret** goes to the start of the hunk's first line in the result:
+      the first restored line, or for an added hunk the line now following.
+    - **`nil`** for a hunk that does not fit the two texts (negative bounds, past
+      either side, or an end-of-buffer hunk with no unchanged line above on the
+      `HEAD` side) — a stale answer never edits.
+    It is **pure**: it applies nothing, raises no gate and takes no Local History
+    capture; the app applies the plan as one undo step through its edit funnel,
+    and the next autosave captures the buffer as for any edit (`app-editor.md`,
+    `ChangeCommands.swift`). Tested in `HunkRevertPlanTests`: a hunk at the start
+    of the file, a modified hunk ending at an unterminated last line, an added
+    line at an unterminated end, a CRLF file, deletion after the last line with
+    `HEAD` terminated and unterminated, unequal modified counts, both `nil`
+    guards, and a fuzz — reverting every hunk of random small texts back to front
+    yields `HEAD` byte for byte, and reverting one hunk leaves the others intact.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
     grouping. `group(_:rootName:projectPrefix:repositoryName:)` returns one
     `ChangedFileGroup` (`path`, `label`, `files`; identity `path`, always the

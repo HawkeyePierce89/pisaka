@@ -75,9 +75,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     bypass is exactly the drift the guarded overload exists to prevent (the tests
     reach it through `@testable`). `UnifiedDiffLine`
     (`kind` `.context`/`.removed`/`.added`, `text`, `oldNumber`, `newNumber`,
-    `unitIndex`) + `unified(rows:)` flatten the side-by-side rows into the
+    `unitIndex`, and `emphasis` — the word ranges, empty by default) +
+    `unified(rows:)` flatten the side-by-side rows into the
     dialog's single-column diff: a `.modified` row expands into a removed/added
-    **pair sharing one `unitIndex`** (one change, one checkbox), and a context
+    **pair sharing one `unitIndex`** (one change, one checkbox), the `-` line
+    carrying the row's old-side `DiffRow.words` and the `+` line its new-side
+    ones, copied and never recomputed (`core-diff-merge.md`), and a context
     line carries no `unitIndex` so it can never be checked. **The line-endings
     boundary is deliberate:** `LineDiff` compares terminator-*stripped* lines, so
     a file whose only change is a CRLF↔LF rewrite produces no changed row and

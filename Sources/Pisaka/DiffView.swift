@@ -282,7 +282,8 @@ struct DiffView: NSViewRepresentable {
 /// per-row wash by `DiffRowKind` (so removed/added/changed rows read at a glance)
 /// behind the glyphs and Neon's syntax colors. The wash is Core's answer,
 /// `ChromeColorRole.diffWashRole(for:side:)`, resolved through the dynamic
-/// `ChromePalette.nsColor(_:)`; a filler row carries none.
+/// `ChromePalette.nsColor(_:)`; a filler row carries none. A modified row's
+/// changed words (`DiffRow.words`) are filled once more in the same role.
 @MainActor
 final class DiffTextView: NSTextView, ZoomSurfaceProviding {
     /// Which side of the diff this pane shows — Core's `DiffSide`, the one
@@ -362,6 +363,37 @@ final class DiffTextView: NSTextView, ZoomSurfaceProviding {
             )
             ChromePalette.nsColor(role).setFill()
             fill.fill()
+            // Word emphasis: the same wash again over the row's changed tokens,
+            // once per row (its first fragment), so the words read at roughly
+            // twice the wash's opacity.
+            if charIndex == self.lineStartOffsets[row] {
+                self.fillWordEmphasis(row: row, in: layoutManager, textContainer)
+            }
+        }
+    }
+
+    /// Re-fills this side's `DiffRow.words` ranges of `row` with the row's own
+    /// wash role (already set as the fill colour). The ranges are UTF-16 offsets
+    /// into the row's line text, so each is shifted by the line's start; only a
+    /// `.modified` row carries any (Core's `LineDiff.rows`).
+    private func fillWordEmphasis(row: Int, in layoutManager: NSLayoutManager, _ textContainer: NSTextContainer) {
+        guard let words = diffRows[row].words else { return }
+        let ranges = side == .old ? words.old : words.new
+        let lineStart = lineStartOffsets[row]
+        let length = (string as NSString).length
+        let origin = textContainerOrigin
+        for range in ranges {
+            let location = lineStart + range.location
+            guard range.length > 0, location + range.length <= length else { continue }
+            let glyphs = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: location, length: range.length), actualCharacterRange: nil
+            )
+            layoutManager.enumerateEnclosingRects(
+                forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                in: textContainer
+            ) { rect, _ in
+                rect.offsetBy(dx: origin.x, dy: origin.y).fill()
+            }
         }
     }
 }

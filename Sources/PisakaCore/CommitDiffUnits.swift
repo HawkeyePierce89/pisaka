@@ -126,13 +126,25 @@ public struct UnifiedDiffLine: Equatable {
     /// The `LineDiff.rows` index this line belongs to — the selection unit —
     /// or `nil` for a context line.
     public let unitIndex: Int?
+    /// The word-level emphasis inside `text`, as UTF-16 ranges: the old side of
+    /// a `.modified` row's `DiffRow.words` on its `-` line, the new side on its
+    /// `+` line, copied verbatim. Every other line carries none.
+    public let emphasis: [NSRange]
 
-    public init(kind: Kind, text: String, oldNumber: Int?, newNumber: Int?, unitIndex: Int?) {
+    public init(
+        kind: Kind,
+        text: String,
+        oldNumber: Int?,
+        newNumber: Int?,
+        unitIndex: Int?,
+        emphasis: [NSRange] = []
+    ) {
         self.kind = kind
         self.text = text
         self.oldNumber = oldNumber
         self.newNumber = newNumber
         self.unitIndex = unitIndex
+        self.emphasis = emphasis
     }
 }
 
@@ -180,7 +192,9 @@ public enum CommitDiffUnits {
 
     /// Flatten side-by-side rows into the unified lines the dialog draws, in row
     /// order: `unchanged` → one context line, `removed`/`added` → one line each,
-    /// `modified` → a removed/added pair sharing the row's unit index.
+    /// `modified` → a removed/added pair sharing the row's unit index, the
+    /// `-` line carrying the row's old-side word ranges and the `+` line its
+    /// new-side ones (copied, never recomputed).
     ///
     /// A row missing the side its kind requires (which `LineDiff` never produces)
     /// simply contributes nothing rather than trapping.
@@ -225,7 +239,8 @@ public enum CommitDiffUnits {
                         text: left.text,
                         oldNumber: left.number,
                         newNumber: nil,
-                        unitIndex: index
+                        unitIndex: index,
+                        emphasis: row.words?.old ?? []
                     ))
                 }
                 if let right = row.right {
@@ -234,7 +249,8 @@ public enum CommitDiffUnits {
                         text: right.text,
                         oldNumber: nil,
                         newNumber: right.number,
-                        unitIndex: index
+                        unitIndex: index,
+                        emphasis: row.words?.new ?? []
                     ))
                 }
             }

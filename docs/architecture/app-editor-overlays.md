@@ -641,6 +641,105 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (follow-ups): an iOS variant (there is no gutter there), a commit-detail popup
     on clicking an annotation, "annotate previous revision", jumping from an
     annotation into the Git Log, and a date-format setting.
+  - `GitChangeController.swift` — the macOS `@MainActor` owner of the gutter's git
+    **change column**, beside `BlameController` and shaped like it: weak ruler and
+    text-view references, its own `GitCLIService()`, a monotonic `generation`
+    captured synchronously before every hop, at most one base read in flight plus
+    one pending, silent failure; `attach(ruler:textView:revert:)`,
+    `sync(fileID:fileURL:diskRevision:gitRevision:contentReplaced:)`,
+    `noteEdit()`, `currentChanges(buffer:)`, `beginBufferSwap()` and `reset()`.
+    Thin and untested by pixel — every decision is `GutterChangeModel.compute`
+    (`core-git-models.md`); this class only schedules it. **The one difference
+    from blame is what it describes**: blame describes the file *on disk*, this
+    column describes the **buffer**. So the only thing read from git is the
+    *base* — the file's `HEAD` text, `GitCLIService.headText(fileURL:)`, which runs
+    `git cat-file --filters HEAD:./<name>` in the file's directory as blame does
+    (no repository-root resolution) and classifies the bytes through
+    `GitBlobText`. `--filters` applies the checkout's end-of-line conversion and
+    smudge filters, so the base is what a checkout would write: the stored blob
+    would mark every line of an `eol=crlf` file modified and revert it to LF, and
+    revert an LFS file to its pointer.
+    Not text, an absent path, a thrown error or a side over the cap all mean "no
+    markers", with no alert and no beep: markers are an inspection affordance.
+    - **When the base is re-read.** A different file or path (a switched file
+      first clears the outgoing file's base and marks; the same file keeps both,
+      so a save never flickers), a wholesale replacement (`contentReplaced`), a
+      moved `diskRevision`, or a moved `gitRevision` — `ContentView` passes
+      `LocalChangesModel.listRevision`, which bumps on every refresh publish, so
+      a commit (partial included), pull, checkout, merge apply, the pull-request
+      checkout and the post-merge tail all re-read it. A `nil` URL (an untitled
+      buffer) has no `HEAD` and draws nothing.
+    - **A re-read base is not a held base.** Any re-read of the same file may
+      mean `HEAD` moved — not only a moved `gitRevision`: a checkout resyncs the
+      open tabs (`resyncOpenTabsAfterCheckout`, moving `diskRevision` and, for a
+      clean tab, replacing the buffer) *before* the Local Changes refresh that
+      moves `gitRevision` starts, and an edited tab keeps its buffer through that
+      resync, so its sync looks exactly like a save's. So while any re-read runs
+      the old base keeps feeding the *drawing* (no flicker) but not the
+      commands: `commandBase` — what `currentChanges(buffer:)`, the popover and
+      every command read — is `nil` until the new base lands, and the open
+      popover is dismissed. A revert in that window answers `.noHunk` (a beep)
+      rather than restoring the previous commit's or branch's lines. A save pays
+      the same window, being indistinguishable at `sync`; the cost is a beep for
+      a command pressed within one `cat-file` of a save or a refresh — correct
+      over convenient.
+    - **The terminal-commit limit.** A commit made in the embedded terminal moves
+      none of those tokens, so the column keeps describing the old `HEAD` — every
+      line just committed still marked — until a tab switch, a save or a Local
+      Changes refresh. It is `BlameController`'s inaccuracy (c) above, recorded for
+      the same reason: no signal exists to key it on.
+    - **Recompute: 250 ms after the last edit** (`recomputeDelay`). Typical
+      inter-key intervals are under 200 ms, so a burst coalesces into one diff,
+      yet the markers settle within a quarter-second of a pause; the autosave's
+      2-second window is not reused, because the markers describe the buffer, not
+      the disk. `noteEdit()` (forwarded from the coordinator's edit callback) bumps
+      a separate `computeToken` — kept apart from `generation` so an edit never
+      supersedes a base read — dismisses the popover and restarts the timer; the
+      recompute snapshots the buffer string and the token synchronously, runs
+      `compute` on a detached task and installs only if the token is still
+      current. A base arrival recomputes too. Between an edit and the recompute
+      the ruler shifts the installed marks with `LineShift` (below).
+    - **Commands never act on a stale answer.** The async answer only feeds
+      drawing; `currentChanges(buffer:)` recomputes synchronously from the held
+      base and the buffer handed in, and Revert (popover or menu) and Next /
+      Previous Change act on that (`app-editor.md`, `ChangeCommands.swift`). The
+      cost is bounded by the size cap and `LineDiff`'s prefix/suffix strip and
+      matrix cap, and is usually not paid at all: the last installed answer is
+      kept with the base and buffer it was computed from, and handed back when
+      both compare equal to the command's — the same inputs, so the same
+      answer, for two string comparisons. Only a command inside the 250 ms after
+      an edit (or before the first install) diffs on the main thread.
+    - **The popover.** `markerClicked(line:rect:)` (installed on the ruler's
+      `onChangeMarkerClicked` by `attach`) recomputes, finds the hunk through the
+      exact `hunk(atMarkerLine:)`, and presents its first
+      `ChangeHunk.popoverLineLimit` `HEAD` lines, with the count of the rest,
+      through the window's presenter (`ChangeHunkPopover.swift`, `app-editor.md`).
+      The popover remembers the clicked **line**, not the hunk, and any buffer
+      change (`noteEdit`), buffer swap, file switch or moved `gitRevision`
+      dismisses it, so its *Revert* recomputes against the buffer it was shown
+      for. **A scroll dismisses it too**: its anchor is converted to root space
+      once, so `attach` observes the editor's clip-view bounds (on the posting
+      thread, so the dismissal lands before the redraw) rather than leave it
+      pointing at another line — which also keeps a click on the moved marker
+      from closing and reopening it in one press. `reset()` removes the observer.
+    - **The gate.** `writeInFlight` is a read-only consult of
+      `LocalChangesModel.isReverting`, handed in with the popover by
+      `configure(writeInFlight:popover:)` on every editor update; the revert path
+      refuses silently while it is raised. Nothing here raises it.
+    - `beginBufferSwap()` drops the marks ahead of a wholesale `textView.string =`
+      assignment, whose single full-range edit the ruler would otherwise shift
+      them across; the base is kept for the `sync` that follows. `reset()` drops
+      everything unconditionally, for `BlameController.reset()`'s reason.
+    - `onChangesInstalled` fires on the main actor after every answer reaches the
+      ruler, an empty one included — the causal rendezvous
+      `GitChangeControllerRepositoryTests` waits on. That app suite runs against a
+      throwaway repository (`ThrowawayRepository.swift`, shared with
+      `GitCLIServiceRepositoryTests`): the base loads, an edit produces a hunk,
+      the revert's output equals the committed bytes exactly, an untracked file
+      yields no markers, undo/redo round-trips a revert, a raised gate changes
+      nothing, and Next / Previous Change step and wrap.
+    **Out of scope** (follow-ups): an iOS variant, staged-versus-unstaged
+    markers, and a base other than `HEAD`.
   - `LineNumberRulerView.swift` — `NSRulerView` subclass drawing right-aligned,
     1-based line numbers in the editor's gutter (TextKit 1). It also declares
     itself a **code** zoom surface (`ZoomSurfaceProviding`, `zoomSurfaceKind =
@@ -942,6 +1041,52 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     foldable and which are folded is `FoldRegionScanner`'s and `FoldState`'s
     (`core-folding.md`); all this view does is draw a chevron, skip a hidden line and
     name the region a click landed on.
+    **The git change column** (`GitChangeController` above decides what it
+    shows). `setChangeMarkers(_:)` installs one `ChangeLineMarker` per ruler line
+    and **refuses an array of any other length** — a different count means the
+    answer was computed for a buffer this view no longer shows, so it is not
+    drawn against the wrong lines and the next recompute replaces it;
+    `clearChangeMarkers()` drops them all. In `lineMapDidChange` the marks are
+    shifted with **`LineShift`** beside the blame annotations — the same span
+    rule, so between two recomputes a keystroke keeps them on their lines and a
+    span whose line count changed is blanked, which is honest until the recompute
+    (`core-git.md`). **Geometry: zero width.** The column is the existing trailing
+    padding between the right-aligned numbers and the hairline —
+    `horizontalPadding`, 4 points, exactly a 1-point gap + the 2-point strip + the
+    hairline's point — so `updateThickness` is untouched and `ruleThickness` is
+    identical with and without markers: the gutter never moves when markers
+    arrive or clear, and a file with none has today's width. That beats the
+    diagnostics column's constant-width trade because nothing at all is added.
+    `drawVisibleLine` draws the strip down the line's **full height across every
+    wrapped fragment** (its first glyph's fragment united with its last's; the
+    extra fragment for the trailing empty line and for an empty buffer), and a
+    deletion wedge — a triangle the column's width wide and about 0.6 of the
+    ruler font tall, so it scales with the code zoom — centred on the line
+    boundary, clamped inside the first fragment's top before line 1 and inside the
+    last fragment's bottom after the last line. Colour is
+    `ChromePalette.nsColor(ChromeColorRole.changeMarkerRole(for:))` — added
+    `statusGreen`, modified `statusYellow`, deleted `statusRed`, the colours a
+    changed file's letter carries in Local Changes; chrome gating rule fifty pins
+    that the ruler alone reads the mapping and fills only through the palette
+    (`core-theme.md`). **The click.** `mouseDown` asks the column after the
+    chevron, behind the same `clickCount == 1`/no-modifier gate.
+    `changeMarkerHit(at:)` resolves a point to a ruler line through the layout
+    manager (`rulerLine(atY:)`, the chevron click's mapping, plus the extra
+    fragment), or `nil` outside the column, on an unmarked line or before layout;
+    on line 1 carrying both wedges the top half answers `-1` (the boundary before
+    line 1, a deleted hunk's `anchor`) and the bottom half `0`, and a wedge's lower
+    half overhanging the next line answers the line above. `onChangeMarkerClicked`
+    (weakly captured, like the other closures) receives the line and, as the
+    popover's anchor, the marker's **click target** rather than its drawn mark —
+    the column's full width over the region the hit test answers that line for,
+    the wedge's overhang included. The presenter counts a press inside its anchor
+    as the widget's own and leaves the toggle to the ruler, so an anchor as narrow
+    as the 2-point strip would let a second click elsewhere in the column dismiss
+    the popover and reopen it at once.
+    `LineNumberRulerChangeMarkerTests` (headless) pins the identical thickness,
+    the hit line for a strip, the wedges after the last line and before line 1, a
+    click outside the column, and the marks shifting across an Enter and blanking
+    across a multi-line paste.
   - `MinimapTokenizer.swift` — produces a `MinimapModel` (from `PisakaCore`) by
     parsing the *whole* text with SwiftTreeSitter into a per-UTF-16-unit
     `[SyntaxTokenKind]` (mapping each highlight capture through

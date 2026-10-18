@@ -345,6 +345,50 @@ struct GitCLIService: GitServicing {
         return BlameParser.parse(result.stdout)
     }
 
+    // MARK: - Gutter base
+
+    /// The `HEAD` text of the file at `fileURL`, or `nil` when there is none to
+    /// diff against: the path is absent from `HEAD` (an untracked or new file),
+    /// the file is outside a repository, or the blob is not text.
+    ///
+    /// Runs `git cat-file --filters HEAD:./<name>` with the file's **own parent
+    /// directory** as the working directory, for exactly `blame(fileURL:)`'s
+    /// reason: the caller is the editor gutter, which holds a workspace URL and no
+    /// repository root. The `./` prefix makes git resolve the name relative to that
+    /// directory rather than to the repository root, so no `repositoryRoot(for:)`
+    /// round-trip is needed and a file outside any repository simply exits
+    /// non-zero.
+    ///
+    /// `--filters` applies what a checkout applies — end-of-line conversion
+    /// (`eol=crlf`, `core.autocrlf`) and smudge filters such as Git LFS — because
+    /// the base is diffed against, and a hunk revert writes it into, a buffer read
+    /// from the *worktree*. The stored blob (`git show`) would mark every line of
+    /// a CRLF-converted file as modified and revert it to LF, and would revert an
+    /// LFS file to its pointer text.
+    ///
+    /// The bytes are then classified through `GitBlobText`, the one
+    /// standard both sides of every diff are judged by, so a binary blob reads as
+    /// "no markers" rather than as U+FFFD-laden text the gutter would diff
+    /// against. Only a missing `git` throws; `GitChangeController` swallows that
+    /// too.
+    ///
+    /// **The read is bounded** at `GutterChangeModel.maxSideBytes`: the column
+    /// draws nothing past that cap anyway, and the size only exists *after* the
+    /// filters ran (an LFS pointer smudges into the whole object), so no
+    /// pre-read size check can stand in. Stdout past the cap stops the process
+    /// and reads as `nil`, rather than holding a large file in memory — and the
+    /// shared queue — on every reload of a file that will never get markers.
+    /// GitBlobText accepts UTF-8 alone, so the byte cap is the text's.
+    func headText(fileURL: URL) async throws -> String? {
+        let result = try await run(
+            ["cat-file", "--filters", "HEAD:./\(fileURL.lastPathComponent)"],
+            in: fileURL.deletingLastPathComponent(),
+            stdoutLimit: GutterChangeModel.maxSideBytes
+        )
+        guard result.exitCode == 0, !result.stdoutOverflowed else { return nil }
+        return GitBlobText.classify(result.stdoutData).text
+    }
+
     // MARK: - Branch switcher
 
     /// The currently checked-out local branch of the repository at `root`, or
@@ -1307,6 +1351,9 @@ struct GitCLIService: GitServicing {
         /// someone else's job" (see `GitServicing.headBlob(of:root:)`).
         let stdoutData: Data
         let stderrData: Data
+        /// Stdout passed the run's `stdoutLimit`: the process was stopped and
+        /// `stdoutData` is a truncated prefix, never an answer.
+        let stdoutOverflowed: Bool
 
         /// The decoded forms, computed **on demand** rather than stored.
         ///
@@ -1320,10 +1367,11 @@ struct GitCLIService: GitServicing {
         var stdout: String { String(decoding: stdoutData, as: UTF8.self) }
         var stderr: String { String(decoding: stderrData, as: UTF8.self) }
 
-        init(exitCode: Int32, stdoutData: Data, stderrData: Data) {
+        init(exitCode: Int32, stdoutData: Data, stderrData: Data, stdoutOverflowed: Bool = false) {
             self.exitCode = exitCode
             self.stdoutData = stdoutData
             self.stderrData = stderrData
+            self.stdoutOverflowed = stdoutOverflowed
         }
     }
 
@@ -1429,7 +1477,8 @@ struct GitCLIService: GitServicing {
         in directory: URL,
         on queue: DispatchQueue = GitCLIService.queue,
         environment: [String: String] = [:],
-        unsetting removedKeys: [String] = []
+        unsetting removedKeys: [String] = [],
+        stdoutLimit: Int? = nil
     ) async throws -> ProcessResult {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -1438,7 +1487,8 @@ struct GitCLIService: GitServicing {
                         arguments,
                         in: directory,
                         environment: environment,
-                        unsetting: removedKeys
+                        unsetting: removedKeys,
+                        stdoutLimit: stdoutLimit
                     )
                     continuation.resume(returning: result)
                 } catch {
@@ -1489,7 +1539,8 @@ struct GitCLIService: GitServicing {
         _ arguments: [String],
         in directory: URL,
         environment: [String: String] = [:],
-        unsetting removedKeys: [String] = []
+        unsetting removedKeys: [String] = [],
+        stdoutLimit: Int? = nil
     ) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -1528,15 +1579,34 @@ struct GitCLIService: GitServicing {
         errQueue.async {
             errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         }
-        let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let (outData, overflowed) = Self.readStdout(stdoutPipe.fileHandleForReading, limit: stdoutLimit, of: process)
         errQueue.sync {} // wait for the stderr read to finish
         process.waitUntilExit()
 
         return ProcessResult(
             exitCode: process.terminationStatus,
             stdoutData: outData,
-            stderrData: errData
+            stderrData: errData,
+            stdoutOverflowed: overflowed
         )
+    }
+
+    /// Stdout to EOF, or — with a `limit` — until it passes `limit` bytes, at
+    /// which point `process` is terminated and the rest is drained unkept, so
+    /// memory stays at `limit` plus one chunk and the pipe never blocks the
+    /// dying process.
+    private static func readStdout(_ handle: FileHandle, limit: Int?, of process: Process) -> (Data, Bool) {
+        guard let limit else { return (handle.readDataToEndOfFile(), false) }
+        var data = Data()
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { return (data, false) }
+            data.append(chunk)
+            if data.count > limit { break }
+        }
+        process.terminate()
+        while !handle.availableData.isEmpty {}
+        return (data, true)
     }
 }
 

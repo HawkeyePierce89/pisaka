@@ -38,6 +38,15 @@ import PisakaCore
 /// blame labels and the severity dots sit inside that skipped branch and follow
 /// with no code of their own.
 ///
+/// It also hosts the git **change column**, in the trailing padding between
+/// the numbers and the hairline: a 2-point strip down every added or modified
+/// line and a wedge at every boundary where `HEAD` lines were deleted, in the
+/// kind's status role (`ChromeColorRole.changeMarkerRole(for:)`). It occupies
+/// padding that was already there, so it adds no width in any state — the
+/// gutter is the same width with and without markers. Which lines changed is
+/// `GutterChangeModel`'s answer, told to this view; between two answers the
+/// marks ride `LineShift` like the blame labels.
+///
 /// This is a pure view concern (no domain logic — the parsing lives in
 /// `BlameParser` and the edit-driven shift in `BlameShift`, and which blocks are
 /// foldable and which are folded are `FoldRegionScanner`'s and `FoldState`'s
@@ -191,6 +200,31 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
 
     /// Horizontal gap between the chevron column and the numbers beside it.
     private let chevronGap: CGFloat = 4
+
+    /// The git change marks for every displayed line, in ruler-line order —
+    /// `nil` where the line carries none — or empty when the displayed file has
+    /// no markers at all. Installed wholesale by ``setChangeMarkers(_:)`` from
+    /// `GutterChangeModel`'s answer and, between two installs, shifted across
+    /// each edit by `LineShift` beside the blame annotations, so the
+    /// `count == lineCount` invariant holds whenever it is non-empty. Optional
+    /// per entry because that is the shape `LineShift` carries: a span whose line
+    /// count an edit changed is blanked, which is honest until the recompute.
+    internal private(set) var changeMarkers: [ChangeLineMarker?] = []
+
+    /// Invoked when a change marker is clicked, carrying the ruler line it was
+    /// drawn beside — `-1` for the deletion wedge above line 1 — and the
+    /// marker's rect in this view's coordinates, the popover's anchor. The owner
+    /// captures itself **weakly** when installing this, for the same retain-cycle
+    /// reason as `onToggleAnnotate` above.
+    var onChangeMarkerClicked: ((Int, NSRect) -> Void)?
+
+    /// Width of the change strip, and the gap left on its leading side. The
+    /// column is the existing trailing padding between the right-aligned
+    /// numbers and the hairline — `horizontalPadding` points, which is exactly
+    /// gap + strip + the hairline's point — so it adds **zero** width: the
+    /// gutter never moves when markers arrive or clear.
+    private let changeStripWidth: CGFloat = 2
+    private let changeStripGap: CGFloat = 1
 
     /// Parses ``BlameLine/date``'s raw ISO-8601 string. One formatter, reused —
     /// a label is built once per *commit*, not per line, but the memo is rebuilt
@@ -459,6 +493,33 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         needsDisplay = true
     }
 
+    /// Install the per-line change marks for the displayed document and
+    /// redraw. The array arrives exactly ``lineCount`` long —
+    /// `GutterChangeModel.compute` indexes by `LineStartIndex.offsets` of the
+    /// buffer it was handed — and a different count means the answer was
+    /// computed for a buffer this view no longer shows, so it is refused rather
+    /// than drawn against the wrong lines; the next recompute replaces it.
+    ///
+    /// Thickness is deliberately *not* touched: the column lives in the
+    /// existing trailing padding, so markers add no width at all.
+    func setChangeMarkers(_ markers: [ChangeLineMarker]) {
+        guard markers.count == lineStartOffsets.count else { return }
+        let stored: [ChangeLineMarker?] = markers.contains { !$0.isEmpty }
+            ? markers.map { $0.isEmpty ? nil : $0 }
+            : []
+        guard stored != changeMarkers else { return }
+        changeMarkers = stored
+        needsDisplay = true
+    }
+
+    /// Drop every change mark — an untracked file, a failed base read, a file
+    /// over the size cap, or the pre-buffer-swap reset.
+    func clearChangeMarkers() {
+        guard !changeMarkers.isEmpty else { return }
+        changeMarkers = []
+        needsDisplay = true
+    }
+
     /// Build the `hash → label` memo for the distinct commits in `lines`.
     ///
     /// The label is `"<author> <short date>"`. Uncommitted lines are skipped: they
@@ -530,6 +591,18 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         if !annotations.isEmpty {
             annotations = BlameShift.updated(
                 previous: annotations,
+                previousLineStarts: previousLineStarts,
+                newLineStarts: lineStartOffsets,
+                editedRange: textStorage.editedRange,
+                changeInLength: textStorage.changeInLength
+            )
+        }
+        // The change marks ride the same span rule until the controller's
+        // recompute replaces them: a span keeping its line count keeps its
+        // marks, any other span is blanked rather than guessed at.
+        if !changeMarkers.isEmpty {
+            changeMarkers = LineShift.updated(
+                previous: changeMarkers,
                 previousLineStarts: previousLineStarts,
                 newLineStarts: lineStartOffsets,
                 editedRange: textStorage.editedRange,
@@ -685,6 +758,13 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
             textOrigin: textOrigin,
             relativePoint: relativePoint
         )
+        if !changeMarkers.isEmpty {
+            let band = lineBand(forLineRange: lineRange, layoutManager: layoutManager)
+            drawChangeMarker(
+                forLine: lineNumber,
+                band: band.offsetBy(dx: 0, dy: relativePoint.y + textOrigin.y)
+            )
+        }
     }
 
     /// Rebuild `lineStartOffsets` from the current text via the shared
@@ -954,6 +1034,10 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                     textOrigin: textOrigin,
                     relativePoint: relativePoint
                 )
+                drawChangeMarker(
+                    forLine: trailingNumber,
+                    band: extraRect.offsetBy(dx: 0, dy: relativePoint.y + textOrigin.y)
+                )
             }
         }
     }
@@ -1065,6 +1149,180 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         image.draw(in: rect)
     }
 
+    /// Draw one line's change marks in the change column: the strip down the
+    /// line's full height `band` (ruler coordinates, every wrapped fragment
+    /// included), and either deletion wedge. A line with no marks draws
+    /// nothing. Colour is the kind's role, resolved here inside the drawing
+    /// appearance like every other dynamic colour in this view.
+    private func drawChangeMarker(forLine number: Int, band: NSRect) {
+        let index = number - 1
+        guard index >= 0, index < changeMarkers.count, let marker = changeMarkers[index] else { return }
+        if let strip = marker.strip {
+            ChromePalette.nsColor(ChromeColorRole.changeMarkerRole(for: strip)).setFill()
+            changeStripRect(band: band).fill()
+        }
+        guard marker.deletedAbove || marker.deletedBelow else { return }
+        ChromePalette.nsColor(ChromeColorRole.changeMarkerRole(for: .deleted)).setFill()
+        if marker.deletedAbove {
+            fillWedge(in: changeWedgeRect(aboveBand: band))
+        }
+        if marker.deletedBelow {
+            fillWedge(in: changeWedgeRect(belowBand: band, isLastLine: number == lineStartOffsets.count))
+        }
+    }
+
+    /// A triangle the column's drawn width wide, its base on the column's
+    /// leading edge and its point on the hairline side, at the line boundary.
+    private func fillWedge(in rect: NSRect) {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: rect.minX, y: rect.minY))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.midY))
+        path.line(to: NSPoint(x: rect.minX, y: rect.maxY))
+        path.close()
+        path.fill()
+    }
+
+    /// Left edge of the change column: the numbers' trailing edge. The column
+    /// runs from here to the ruler's edge, the hairline included, which is the
+    /// click target; what is drawn stops at the hairline.
+    private var changeColumnMinX: CGFloat {
+        ruleThickness - horizontalPadding
+    }
+
+    /// The deletion wedge's height: about 0.6 of the ruler font, so it scales
+    /// with the code zoom like the numbers.
+    private var changeWedgeHeight: CGFloat {
+        ceil(rulerFont.pointSize * 0.6)
+    }
+
+    private func changeStripRect(band: NSRect) -> NSRect {
+        NSRect(x: changeColumnMinX + changeStripGap, y: band.minY, width: changeStripWidth, height: band.height)
+    }
+
+    /// The wedge above line 1, clamped inside the first fragment's top so
+    /// nothing is drawn above the document.
+    private func changeWedgeRect(aboveBand band: NSRect) -> NSRect {
+        let height = min(changeWedgeHeight, band.height)
+        return changeWedgeRect(minY: band.minY, height: height)
+    }
+
+    /// The wedge below a line, centred on the boundary with the next line — or,
+    /// after the last line, clamped inside its fragment's bottom.
+    private func changeWedgeRect(belowBand band: NSRect, isLastLine: Bool) -> NSRect {
+        let height = changeWedgeHeight
+        guard isLastLine else { return changeWedgeRect(minY: band.maxY - height / 2, height: height) }
+        let clamped = min(height, band.height)
+        return changeWedgeRect(minY: band.maxY - clamped, height: clamped)
+    }
+
+    private func changeWedgeRect(minY: CGFloat, height: CGFloat) -> NSRect {
+        NSRect(
+            x: changeColumnMinX,
+            y: minY,
+            width: horizontalPadding - CGFloat(ChromeGeometry.hairlineWidth),
+            height: height
+        )
+    }
+
+    /// The container-space rect of a line's full height: the fragment of its
+    /// first glyph united with the fragment of its last, so a wrapped line's
+    /// strip spans every row it wraps onto.
+    private func lineBand(forLineRange lineRange: NSRange, layoutManager: NSLayoutManager) -> NSRect {
+        let firstGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
+        let first = layoutManager.lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+        guard lineRange.length > 1 else { return first }
+        let lastGlyph = layoutManager.glyphIndexForCharacter(at: NSMaxRange(lineRange) - 1)
+        guard lastGlyph != firstGlyph else { return first }
+        return first.union(layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil))
+    }
+
+    /// Ruler line `index`'s full-height band in this view's coordinates — the
+    /// extra line fragment for the trailing empty line and for an empty buffer —
+    /// or `nil` when nothing is laid out for it.
+    internal func changeLineBand(forRulerLine index: Int) -> NSRect? {
+        guard let textView, let layoutManager = textView.layoutManager,
+              index >= 0, index < lineStartOffsets.count
+        else { return nil }
+        let content = textView.string as NSString
+        let offset = convert(NSPoint.zero, from: textView).y + textView.textContainerOrigin.y
+        let start = lineStartOffsets[index]
+        if start >= content.length {
+            let extra = layoutManager.extraLineFragmentRect
+            return extra.height > 0 ? extra.offsetBy(dx: 0, dy: offset) : nil
+        }
+        let lineRange = content.lineRange(for: NSRange(location: start, length: 0))
+        return lineBand(forLineRange: lineRange, layoutManager: layoutManager).offsetBy(dx: 0, dy: offset)
+    }
+
+    /// The ruler line (0-based) a click at `point` (this view's coordinates)
+    /// means for the change column, or `nil` when it is not one: outside the
+    /// column, on a line with no marks, or before anything is laid out.
+    ///
+    /// The line comes from the layout manager, by the chevron click's mapping
+    /// (`rulerLine(atY:)`), plus the extra fragment the trailing empty line is
+    /// drawn in. Line 1 can carry both wedges; there the top half answers the
+    /// upper one as `-1` — the boundary before line 1, a deleted hunk's
+    /// `anchor` — and the bottom half answers `0`. A wedge is centred on its
+    /// boundary, so its lower half overhangs the next line's top, and a click
+    /// there answers the line above.
+    internal func changeMarkerHit(at point: NSPoint) -> Int? {
+        guard !changeMarkers.isEmpty,
+              point.x >= changeColumnMinX, point.x < ruleThickness,
+              let line = changeRulerLine(atY: point.y),
+              line < changeMarkers.count,
+              let band = changeLineBand(forRulerLine: line)
+        else { return nil }
+        if line == 0, let marker = changeMarkers[0], marker.deletedAbove {
+            let alone = marker.strip == nil && !marker.deletedBelow
+            return alone || point.y < band.midY ? -1 : 0
+        }
+        if changeMarkers[line] != nil { return line }
+        if line > 0, changeMarkers[line - 1]?.deletedBelow == true,
+           point.y < band.minY + changeWedgeHeight / 2 {
+            return line - 1
+        }
+        return nil
+    }
+
+    /// The region `changeMarkerHit(at:)` answers `line` for — the popover's
+    /// anchor. It is the click target, not the drawn mark: the presenter treats
+    /// a press inside its anchor as the widget's own and leaves the toggle to
+    /// the ruler, so an anchor narrower than the target would let a second click
+    /// on the column dismiss the popover and immediately reopen it.
+    internal func changeMarkerRect(forHit line: Int) -> NSRect? {
+        if line == -1 {
+            guard let band = changeLineBand(forRulerLine: 0), let marker = changeMarkers.first ?? nil
+            else { return nil }
+            let alone = marker.strip == nil && !marker.deletedBelow
+            return changeColumnRect(minY: band.minY, maxY: alone ? band.maxY : band.midY)
+        }
+        guard line >= 0, line < changeMarkers.count, let marker = changeMarkers[line],
+              let band = changeLineBand(forRulerLine: line)
+        else { return nil }
+        let minY = line == 0 && marker.deletedAbove ? band.midY : band.minY
+        // The wedge's lower half overhangs the next line's top, which answers
+        // this line only while the next line carries no marks of its own.
+        let overhangs = marker.deletedBelow && line + 1 < changeMarkers.count && changeMarkers[line + 1] == nil
+        return changeColumnRect(minY: minY, maxY: band.maxY + (overhangs ? changeWedgeHeight / 2 : 0))
+    }
+
+    /// The change column's full width (the hairline included, as the hit test
+    /// counts it) between `minY` and `maxY`.
+    private func changeColumnRect(minY: CGFloat, maxY: CGFloat) -> NSRect {
+        NSRect(x: changeColumnMinX, y: minY, width: horizontalPadding, height: maxY - minY)
+    }
+
+    /// `rulerLine(atY:)`, plus the trailing empty line and the empty buffer,
+    /// which have no glyph to ask about and are drawn in the extra fragment.
+    private func changeRulerLine(atY y: CGFloat) -> Int? {
+        guard let textView, let layoutManager = textView.layoutManager else { return nil }
+        if (textView.string as NSString).length == 0 { return 0 }
+        let extra = layoutManager.extraLineFragmentRect
+        let offset = convert(NSPoint.zero, from: textView).y + textView.textContainerOrigin.y
+        if extra.height > 0, y >= extra.minY + offset { return lineStartOffsets.count - 1 }
+        return rulerLine(atY: y)
+    }
+
     /// The fold glyph's side: the design's 11 points at the default editor font
     /// size, scaled with the code font — the gutter is a code-zone surface, so it
     /// follows the code zoom, never the interface scale.
@@ -1106,17 +1364,63 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// every ruler behavior above are untouched.
     override func mouseDown(with event: NSEvent) {
         if toggleFoldIfChevronClicked(event) { return }
+        if reportChangeMarkerClick(event) { return }
         super.mouseDown(with: event)
     }
 
-    /// Resolve a click in the chevron column to a candidate and report it.
+    /// The text view's placeholder click's gate, verbatim and for its reason:
+    /// a modified click is a selection gesture and a double click is the stock
+    /// ruler behavior, so both must fall through to `super` rather than be
+    /// swallowed. Without the click-count half, macOS's second `mouseDown`
+    /// would fold and immediately unfold — a double click on a chevron would
+    /// look like nothing happened at all. The change column asks the same gate.
+    private static func isPlainSingleClick(_ event: NSEvent) -> Bool {
+        event.clickCount == 1
+            && event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control])
+    }
+
+    /// Resolve a click in the change column to a marker and report it with the
+    /// marker's rect. `false` means "not mine", exactly as for the chevron.
+    private func reportChangeMarkerClick(_ event: NSEvent) -> Bool {
+        guard Self.isPlainSingleClick(event), let handler = onChangeMarkerClicked else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let line = changeMarkerHit(at: point), let rect = changeMarkerRect(forHit: line) else { return false }
+        handler(line, rect)
+        return true
+    }
+
+    /// The 0-based buffer line whose glyphs are laid out at ruler height `y`.
     ///
     /// The line comes from the layout manager's fragment geometry rather than
     /// from arithmetic over the point: the ruler's y is the fragment's y shifted
     /// by the clip view's scroll and the text container's origin — the very
     /// mapping the draw loop uses in reverse — so asking the layout manager
-    /// which glyph sits at that height answers with the same line the chevron
-    /// was drawn beside, whatever wrapping or folding did to the rows above.
+    /// which glyph sits at that height answers with the same line the gutter
+    /// drew beside, whatever wrapping or folding did to the rows above.
+    private func rulerLine(atY y: CGFloat) -> Int? {
+        guard
+            let textView,
+            let layoutManager = textView.layoutManager,
+            let textContainer = textView.textContainer
+        else { return nil }
+        let content = textView.string as NSString
+        // The extent is the *buffer's*, never `numberOfGlyphs`: reading that
+        // would force glyph generation for the whole document on a gutter click
+        // (see `HoverController.characterIndex(at:in:)`). A non-empty buffer
+        // always has a glyph by the time `glyphIndex(for:in:)` below returns —
+        // that call generates what it needs to answer, and no more.
+        guard content.length > 0 else { return nil }
+        let relativePoint = convert(NSPoint.zero, from: textView)
+        let textOrigin = textView.textContainerOrigin
+        let containerPoint = NSPoint(x: 0, y: y - relativePoint.y - textOrigin.y)
+        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let character = min(layoutManager.characterIndexForGlyph(at: glyph), content.length)
+        let lineRange = content.lineRange(for: NSRange(location: character, length: 0))
+        return lineNumber(forLineStart: lineRange.location) - 1
+    }
+
+    /// Resolve a click in the chevron column to a candidate and report it,
+    /// through `rulerLine(atY:)`'s layout-manager mapping.
     ///
     /// `false` means "not mine": a click outside the column, on a line heading
     /// no candidate, or before anything is laid out.
@@ -1124,40 +1428,14 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         // Either set can answer, for `drawFoldChevron`'s reason: a restored fold
         // is drawn from the folded set before any candidate has arrived, and a
         // chevron that is drawn must be clickable.
-        // The text view's placeholder click's gate, verbatim and for its reason:
-        // a modified click is a selection gesture and a double click is the
-        // stock ruler behavior, so both must fall through to `super` rather than
-        // be swallowed. Without the click-count half, macOS's second `mouseDown`
-        // would fold and immediately unfold — a double click on a chevron would
-        // look like nothing happened at all.
-        guard event.clickCount == 1,
-              event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control])
-        else { return false }
+        guard Self.isPlainSingleClick(event) else { return false }
         guard let handler = onToggleFold,
               !foldCandidateByHeaderLine.isEmpty || !foldedState.isEmpty
         else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let minX = chevronColumnMinX
         guard point.x >= minX, point.x < minX + chevronColumnWidth else { return false }
-        guard
-            let textView,
-            let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer
-        else { return false }
-        let content = textView.string as NSString
-        // The extent is the *buffer's*, never `numberOfGlyphs`: reading that
-        // would force glyph generation for the whole document on a gutter click
-        // (see `HoverController.characterIndex(at:in:)`). A non-empty buffer
-        // always has a glyph by the time `glyphIndex(for:in:)` below returns —
-        // that call generates what it needs to answer, and no more.
-        guard content.length > 0 else { return false }
-        let relativePoint = convert(NSPoint.zero, from: textView)
-        let textOrigin = textView.textContainerOrigin
-        let containerPoint = NSPoint(x: 0, y: point.y - relativePoint.y - textOrigin.y)
-        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
-        let character = min(layoutManager.characterIndexForGlyph(at: glyph), content.length)
-        let lineRange = content.lineRange(for: NSRange(location: character, length: 0))
-        let line = lineNumber(forLineStart: lineRange.location) - 1
+        guard let line = rulerLine(atY: point.y) else { return false }
         // **The very region the chevron was drawn for.** A header line can carry
         // more than one candidate — a server may report a block and a nested one
         // opening on the same line — and the three answers about such a line

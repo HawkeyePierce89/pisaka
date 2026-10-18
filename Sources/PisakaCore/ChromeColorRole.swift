@@ -150,6 +150,19 @@ extension ChromeColorRole {
         }
     }
 
+    /// Gutter change-marker kind → the role its strip or wedge is drawn in. The
+    /// chrome's **one** answer, a mapping like `changedFileRole(for:)` rather than
+    /// a new role: the three kinds land on the same three status roles a
+    /// changed file's letter does, so the gutter and the Local Changes panel say
+    /// "added", "modified" and "deleted" in the same colours.
+    public static func changeMarkerRole(for kind: ChangeMarkerKind) -> ChromeColorRole {
+        switch kind {
+        case .added: return .statusGreen
+        case .modified: return .statusYellow
+        case .deleted: return .statusRed
+        }
+    }
+
     /// A pull request's checks summary → its glyph's role. One answer for the
     /// Pull Requests panel's rows and the bottom-bar indicator.
     public static func checksRole(for summary: GitHubChecksSummary) -> ChromeColorRole {

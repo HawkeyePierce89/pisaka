@@ -60,6 +60,20 @@ struct CodeEditorView: NSViewRepresentable {
     /// so a default-constructed view compiles.
     var projectRoot: URL?
 
+    /// The repository's refresh token (`LocalChangesModel.listRevision`): it moves
+    /// on every Local Changes publish, which is when `HEAD` may have moved, so the
+    /// gutter change column re-reads its base when it differs. Defaults to `0`.
+    var gitRevision: Int = 0
+
+    /// Whether a worktree-mutating git operation holds the writer gate
+    /// (`LocalChangesModel.isReverting`). Read-only: a hunk revert consults it and
+    /// never raises it. Defaults to "never" so a default-constructed view compiles.
+    var gitWriteInFlight: () -> Bool = { false }
+
+    /// The window's gutter change popover (`ChangeHunkPopoverPresenting`), or
+    /// `nil` to show none. Defaults to `nil` so a default-constructed view compiles.
+    var changePopover: ChangeHunkPopoverPresenting?
+
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
 
@@ -505,11 +519,7 @@ struct CodeEditorView: NSViewRepresentable {
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
-        context.coordinator.syncBlame(
-            fileURL: fileURL,
-            diskRevision: diskRevision,
-            contentReplaced: true
-        )
+        context.coordinator.syncBlame(fileURL: fileURL, diskRevision: diskRevision, gitRevision: gitRevision, contentReplaced: true)
         // Index the file being shown from its *buffer* text, at once: the tab the
         // user is looking at must have symbols before they finish reading it, and
         // the disk walk may not have reached this file yet (or may be gone
@@ -593,6 +603,7 @@ struct CodeEditorView: NSViewRepresentable {
         // which the coordinator (through Neon's highlighter) is reachable from, so
         // a strong capture here would keep the whole editor alive past teardown.
         coordinator.attachBlame(ruler: ruler)
+        coordinator.gitChanges.attach(ruler: ruler, textView: textView) { [weak coordinator] in coordinator?.revertChange(atMarker: $0) }
         ruler.onToggleAnnotate = { [weak coordinator] in
             coordinator?.toggleBlame()
         }
@@ -933,10 +944,9 @@ struct CodeEditorView: NSViewRepresentable {
         // file annotate is on for, and only when the shown file changed, its buffer
         // was replaced, or its disk revision moved (a save/autosave/revert/checkout
         // — exactly when a worktree blame goes stale).
+        context.coordinator.gitChanges.configure(writeInFlight: gitWriteInFlight, popover: changePopover)
         context.coordinator.syncBlame(
-            fileURL: fileURL,
-            diskRevision: diskRevision,
-            contentReplaced: contentReplaced
+            fileURL: fileURL, diskRevision: diskRevision, gitRevision: gitRevision, contentReplaced: contentReplaced
         )
 
         // Re-index the shown file's symbols. On a tab switch, a wholesale
@@ -1180,6 +1190,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// The gutter's git-blame column: the per-tab on/off state and the
         /// `git blame --porcelain` loads feeding `LineNumberRulerView`.
         private let blame = BlameController()
+
+        /// The gutter's git change column, which also holds the read-only
+        /// writer-gate probe its revert consults (`GitChangeController`).
+        let gitChanges = GitChangeController()
 
         /// Precomputes the completion popup's candidates from the async code
         /// intelligence seam, so AppKit's synchronous completions delegate has an
@@ -2463,13 +2477,20 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Reconcile the blame column with the displayed file. Also records the
         /// file's URL for the context-menu action.
-        func syncBlame(fileURL: URL?, diskRevision: Int, contentReplaced: Bool) {
+        func syncBlame(fileURL: URL?, diskRevision: Int, gitRevision: Int, contentReplaced: Bool) {
             self.fileURL = fileURL
             guard let fileID else { return }
             blame.sync(
                 fileID: fileID,
                 fileURL: fileURL,
                 diskRevision: diskRevision,
+                contentReplaced: contentReplaced
+            )
+            gitChanges.sync(
+                fileID: fileID,
+                fileURL: fileURL,
+                diskRevision: diskRevision,
+                gitRevision: gitRevision,
                 contentReplaced: contentReplaced
             )
         }
@@ -2484,6 +2505,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// does not shift annotations across a full-document edit.
         func beginBlameBufferSwap() {
             blame.beginBufferSwap()
+            gitChanges.beginBufferSwap()
         }
 
         // MARK: - Diagnostics underlines
@@ -2642,6 +2664,7 @@ struct CodeEditorView: NSViewRepresentable {
             // replacement the store entry is already gone, so there is nothing
             // to do either way.
             guard !isSwappingBuffer else { return }
+            gitChanges.noteEdit()
             // The fold regions and the folded state travel across the edit by the
             // same three-way rule, on the same two line-start tables the ruler
             // maintained anyway — beside the diagnostics shift and under the same
@@ -3634,6 +3657,7 @@ struct CodeEditorView: NSViewRepresentable {
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
             blame.reset()
+            gitChanges.reset()
             // Supersedes an in-flight fold answer and empties both halves of the
             // hiding, so a torn-down tab cannot leave a closed file's text hidden
             // in the view that replaces it. The memory is dropped with the
