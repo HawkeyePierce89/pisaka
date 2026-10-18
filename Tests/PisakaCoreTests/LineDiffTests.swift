@@ -234,6 +234,9 @@ final class LineDiffTests: XCTestCase {
         XCTAssertEqual(LineDiff.rows(old: "x\nb\n", new: "y\nb\n").map(\.kind), [.modified, .unchanged])
         // The last line was appended, so the final op is an insert, not an equal pair.
         XCTAssertEqual(LineDiff.rows(old: "a", new: "a\nb\n").map(\.kind), [.unchanged, .added])
+        // A blank last line appended: the final op is again an insert.
+        XCTAssertEqual(LineDiff.rows(old: "a", new: "a\n\n").map(\.kind), [.unchanged, .added])
+        XCTAssertEqual(LineDiff.rows(old: "a\n\n", new: "a").map(\.kind), [.unchanged, .removed])
     }
 
     // MARK: - Large-file bounds (common prefix/suffix + matrix cap)

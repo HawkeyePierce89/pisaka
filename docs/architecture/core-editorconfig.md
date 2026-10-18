@@ -848,8 +848,9 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     takes the off-screen path too**, and that comparison is not defensive: a
     model-side rewrite (Replace All, a revert, a merge apply, a reload) lands in
     the model first and reaches the view on SwiftUI's next update pass, while
-    every one of those writers replays a deferred autosave *synchronously* from
-    its own `defer { autosave.resume() }` — inside that very window. Reading the
+    a deferred autosave those writers owe is replayed on the next main-actor turn
+    after their own `defer { autosave.resume() }` (`app-shell.md`), which can
+    still land before SwiftUI's update pass — inside that very window. Reading the
     view there would transform text the model had already replaced and push it
     back through `didChangeText`, silently undoing the rewrite in that tab and
     then writing the undone result to disk. The model is authoritative whenever

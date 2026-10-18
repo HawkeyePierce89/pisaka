@@ -14,14 +14,15 @@ import Foundation
 /// every line there is terminated on both sides.
 ///
 /// **The end-of-text rule.** At the end it is not: the diff compares lines with
-/// their separators stripped, so whether the last line carries a final newline
-/// is invisible to the hunk, and a deletion anchored after an unterminated last
+/// their separators stripped, so a hunk's line counts say nothing about whether
+/// the last line carries a final newline, and a deletion anchored after an unterminated last
 /// line would otherwise be glued onto it. So when the hunk reaches the end of
 /// the buffer — a strip covering the last line, or a deletion anchored after it —
 /// and there is a line before it, the replaced range starts at that preceding
 /// line's terminator and the replacement starts with `HEAD`'s terminator for that
 /// line. The presence or absence of a final newline comes back exactly, on
-/// either side. With no line before it (the hunk is the whole buffer) the range
+/// either side — including the `modified` last-line hunk a final-newline-only
+/// change produces. With no line before it (the hunk is the whole buffer) the range
 /// is the whole buffer and the replacement the hunk's whole old side, which
 /// carries `HEAD`'s ending already.
 ///

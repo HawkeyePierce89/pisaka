@@ -53,12 +53,12 @@ final class AutosaveController {
     private var observers: [NSObjectProtocol] = []
 
     /// Suspend gate for **both** the regular triggers and the termination flush.
-    /// Incremented only by an in-flight git revert (`PisakaApp.revertChanges`),
-    /// which is a competing disk writer: an autosave firing mid-revert would race
-    /// `git checkout`, and a quit landing mid-revert must let the revert's
-    /// intentional discard win over the flush — so this gates `flushNow` too. A
-    /// counter (not a boolean) so overlapping/nested reverts each balance their own
-    /// `suspend()`/`resume()`.
+    /// Incremented by every gated operation's bracket (nine today, enumerated in
+    /// `app-shell.md`), each a competing disk writer: an autosave firing
+    /// mid-revert would race `git checkout`, and a quit landing mid-operation must
+    /// let the operation's intentional rewrite win over the flush — so this gates
+    /// `flushNow` too. A counter (not a boolean) so overlapping/nested operations
+    /// each balance their own `suspend()`/`resume()`.
     private var suspendCount = 0
 
     /// Suspend gate for the regular triggers **only** — deliberately *not* the

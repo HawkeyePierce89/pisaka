@@ -8,14 +8,16 @@ import XCTest
 ///
 /// - a conflicted round answered `.proceed`, then the flush, then the
 ///   language-server teardown factory, in that order;
-/// - a Cancel on the first round answers `.terminateCancel` with the teardown
-///   factory never invoked and the flush never run;
+/// - a Cancel on the first question answers `.terminateCancel` with the
+///   teardown factory never invoked and the flush never run;
 /// - a flush that skips a conflict sends the quit back to the question before
 ///   any teardown is requested;
 /// - no live server and no conflict answers `.terminateNow` after exactly one
 ///   flush;
 /// - a conflict introduced during the teardown wait is asked about once the
-///   wait is over, and a Cancel there replies `false`.
+///   wait is over, and a Cancel there replies `false`;
+/// - every round's Local History wait is awaited, even with no server alive,
+///   and a post-wait flush that skips a conflict asks again before replying.
 ///
 /// Every collaborator is a recording closure; the deferred reply is observed
 /// through `shouldTerminate(reply:)`, so the test host is never terminated, and
@@ -130,6 +132,40 @@ final class QuitOrderTests: XCTestCase {
         XCTAssertEqual(questions, 1)
         XCTAssertEqual(flushes, 1)
         XCTAssertEqual(teardownRequests, 1)
+    }
+
+    func testEveryRoundsWaitIsAwaitedAndThePostWaitFlushAsksAgain() async {
+        let delegate = AppDelegate()
+        var events: [String] = []
+        var questions = 0
+        var flushAnswers = [true, false, true, false]
+        delegate.externalChangeQuestion = {
+            questions += 1
+            events.append("question")
+            switch questions {
+            case 1: return .proceed(awaiting: { events.append("history A") })
+            case 2: return .proceed(awaiting: { events.append("history B") })
+            default: return .proceed(awaiting: nil)
+            }
+        }
+        delegate.flushBeforeTermination = {
+            events.append("flush")
+            return flushAnswers.removeFirst()
+        }
+        delegate.languageServerTeardown = { nil }
+        let replied = expectation(description: "the deferred reply arrived")
+        var answer: Bool?
+        let immediate = delegate.shouldTerminate { answer = $0; replied.fulfill() }
+
+        XCTAssertEqual(immediate, .terminateLater, "a Local History wait alone defers the reply")
+        XCTAssertEqual(events, ["question", "flush", "question", "flush"])
+        await fulfillment(of: [replied], timeout: 5)
+        XCTAssertEqual(answer, true)
+        XCTAssertEqual(events, [
+            "question", "flush", "question", "flush",
+            "history A", "history B",
+            "question", "flush", "question", "flush",
+        ])
     }
 
     func testAConflictDuringTheTeardownWaitIsAskedAndACancelRepliesFalse() async {

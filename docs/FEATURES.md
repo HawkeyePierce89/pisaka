@@ -1244,8 +1244,11 @@ user sees it.
   as its own outcome rather than as a failed commit. Files that cannot be split
   line by line — a deleted file, a binary, non-UTF-8, unreadable or very large one
   (over 1 MiB), and a file that differs in something other than its lines (only
-  the line endings, only the mode) — show a "committed as a whole" note instead of
-  a diff and are committed whole or not at all. Immediately before committing, the
+  the line endings in the middle of the file, only the mode) — show a "committed
+  as a whole" note instead of a diff and are committed whole or not at all. A
+  change that only adds or removes the final newline is an ordinary selectable
+  change on the last line, and the diff views show it as a modified last line
+  whose two sides read the same. Immediately before committing, the
   change list is re-read and every included file re-diffed; if anything changed
   under the dialog (`git` in the terminal, another editor) the whole commit is
   abandoned with a message naming the file, and nothing is written; an *amend* is

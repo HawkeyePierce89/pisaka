@@ -1590,9 +1590,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     delegate before the app struct and its workspace exist — answering the
     teardown to wait for (`lspWorkspace.shutdownAll()`), or `nil` when
     `hasLiveServers` is false. `applicationShouldTerminate` answers
-    `.terminateNow` on `nil`; otherwise it returns `.terminateLater`, runs the
-    teardown on the main actor and calls `reply(toApplicationShouldTerminate:
-    true)` when it returns. A second ⌘Q while one is pending answers
+    `.terminateNow` when, after the first question/flush round below, there is
+    neither a teardown nor a Local History write to wait for; otherwise it
+    returns `.terminateLater`, awaits them on the main actor and calls
+    `reply(toApplicationShouldTerminate:)` with the post-wait re-check's answer.
+    A second ⌘Q while one is pending answers
     `.terminateLater` again and starts nothing — the one reply answers both.
     The body lives in an internal method taking the deferred reply as a closure
     (the delegate passes `sender.reply(toApplicationShouldTerminate:)`), the seam
@@ -1604,7 +1606,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     dirty titled tab is checked against the disk, and each one in conflict goes
     through the ⌘S funnel above, which puts the question. The first `false`
     (Cancel, or a failed write) answers `.terminateCancel` with no teardown ever
-    requested and no flush run. `.proceed(awaiting:)` carries the Local History
+    requested, and with no flush run when it answers the first question. `.proceed(awaiting:)` carries the Local History
     chain's `waitForQueuedWrites()` whenever any question was put, so the side an
     answer gave up is on disk before the process goes; the round collects it.
     **The quit's flush is coupled to the question**: `flushBeforeTermination`,

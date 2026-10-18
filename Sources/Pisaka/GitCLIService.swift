@@ -439,9 +439,11 @@ struct GitCLIService: GitServicing {
     /// local changes); on a non-zero exit we throw `GitError.checkoutFailed(reason:)`
     /// carrying git's stderr, which names the conflicting files so the widget can
     /// show exactly what blocked the switch. `run` already throws
-    /// `GitError.gitUnavailable` if git cannot launch.
+    /// `GitError.gitUnavailable` if git cannot launch. Every checkout carries
+    /// `GIT_TERMINAL_PROMPT=0` for `headText`'s reason: it runs smudge filters,
+    /// and an LFS smudge may fetch and prompt on /dev/tty.
     func checkout(branch: String, root: URL) async throws {
-        let result = try await run(["checkout", branch, "--"], in: root)
+        let result = try await run(["checkout", branch, "--"], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -459,7 +461,9 @@ struct GitCLIService: GitServicing {
     /// invalid start point git rejects, or a dirty tree blocking the switch) throws
     /// `GitError.checkoutFailed(reason:)` with git's stderr.
     func createAndCheckout(name: String, startPoint: String, root: URL) async throws {
-        let result = try await run(["checkout", "-b", name, startPoint, "--"], in: root)
+        let result = try await run(
+            ["checkout", "-b", name, startPoint, "--"], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"]
+        )
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -694,7 +698,7 @@ struct GitCLIService: GitServicing {
         // an actual worktree restore from an index-only change that left the
         // worktree already matching `HEAD`.
         let matchedHeadBefore = await worktreeMatchesHead(path, root: root)
-        let result = try await run(["checkout", "HEAD", "--", path], in: root)
+        let result = try await run(["checkout", "HEAD", "--", path], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             let underlying = GitError.notARepository(stderr: result.stderr)
             if !matchedHeadBefore, await worktreeMatchesHead(path, root: root) {

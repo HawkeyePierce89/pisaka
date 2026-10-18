@@ -433,15 +433,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     not ask for by hand; a non-zero exit throws `GitError.pullFailed(reason:)`
     carrying git's trimmed stderr, which is what the tail's step reports. The flag
     is pinned statically by `GitHubSourceGatingTests`, since nothing in
-    `swift test` compiles this file. **`GIT_TERMINAL_PROMPT=0`** is passed by the
-    five
-    calls that can be prompted at — push, because it is the one command that
+    `swift test` compiles this file. **`GIT_TERMINAL_PROMPT=0`** is passed by
+    every
+    call that can be prompted at — push, because it is the one command that
     routinely needs authentication, `fetch` and `pull`, the other two here that
     reach the network, and `commit`, alongside its `GIT_INDEX_FILE`,
     because it executes the repository's own `pre-commit`/`commit-msg` hooks and
     signs when `commit.gpgsign` is on, and the gutter's `headText`, whose
     `--filters` runs smudge filters — an LFS smudge may fetch the object and ask
-    for credentials on /dev/tty. Without it, anything that decides to prompt
+    for credentials on /dev/tty — and the three checkouts (`checkout(branch:)`,
+    `createAndCheckout`, the revert's path restore), which run the same filters. Without it, anything that decides to prompt
     blocks on a question nothing can answer, and since every call shares the serial
     `queue`, the Local Changes refresh, the Log, the branch
     widget and every later git operation queue behind it and silently stop working
@@ -482,7 +483,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     containing `"--pretty` equal to the set containing `"--encoding=UTF-8"`, neither
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
-    commit, headText}` (the one place that count lives); exactly three `checkout` spellings,
+    commit, headText, checkout, createAndCheckout}` (the one place that set lives); exactly three `checkout` spellings,
     every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
     arguments do what is claimed is a fact about git itself, so
     `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a

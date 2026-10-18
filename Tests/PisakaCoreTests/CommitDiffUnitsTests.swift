@@ -153,6 +153,17 @@ final class CommitDiffUnitsTests: XCTestCase {
         XCTAssertEqual(facts.wholeOnlyReason, .noSelectableChanges)
     }
 
+    func testAFileDifferingOnlyInItsFinalNewlineHasOneUnit() {
+        // Unlike a line-ending-only change, a final newline gained or lost is a
+        // `.modified` last row, so the file is an ordinary one-unit change.
+        for (head, worktree) in [("a\nb", "a\nb\n"), ("a\nb\n", "a\nb")] {
+            let facts = facts(status: .modified, head: .text(head), worktree: .text(worktree))
+            XCTAssertEqual(facts.eligibility, .selectable)
+            XCTAssertEqual(facts.units, [1], String(reflecting: (head, worktree)))
+            XCTAssertNil(facts.wholeOnlyReason)
+        }
+    }
+
     func testAFileWithUnitsHasNoWholeOnlyReason() {
         let facts = facts(status: .modified, head: .text("a\n"), worktree: .text("b\n"))
         XCTAssertFalse(facts.units.isEmpty)

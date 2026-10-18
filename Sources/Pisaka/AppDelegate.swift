@@ -19,8 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Installed by `PisakaApp` beside `languageServerTeardown`, and asked
     /// **first**, before any teardown is requested: it puts the external-change
     /// question (Overwrite / Reload / Cancel) for each dirty tab whose file
-    /// changed on disk. `.cancel` cancels the quit with nothing torn down and
-    /// nothing flushed; `.proceed` may carry work to wait for — the Local History
+    /// changed on disk. `.cancel` cancels the quit with nothing torn down —
+    /// and nothing flushed when it answers the first question, while a later
+    /// one leaves what the earlier flush wrote saved; `.proceed` may carry work to wait for — the Local History
     /// captures the answers queued — before the process is let go. The first
     /// round alternates with the flush until a flush skips nothing; after the
     /// teardown's wait it is asked again (`askUntilFlushed()`), for a conflict
@@ -75,8 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// 1. The first round runs synchronously on the main actor: the question, then
     ///    the flush, again until a flush skips nothing. A Cancel there answers
-    ///    `.terminateCancel` with nothing flushed by the quit and no teardown
-    ///    requested — the language servers keep running.
+    ///    `.terminateCancel` with no teardown requested — the language servers
+    ///    keep running. A Cancel on the first question finds nothing flushed by
+    ///    the quit; one on a later question leaves the buffers the earlier flush
+    ///    wrote saved, trimmed in full as an abandoning save trims.
     /// 2. Only then is `languageServerTeardown` read. Nothing to wait for — no
     ///    server and no Local History capture — answers `.terminateNow`.
     /// 3. Otherwise the reply is deferred: the captures and the teardown are

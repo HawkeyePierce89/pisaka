@@ -11,7 +11,9 @@ import PisakaCore
 ///   operation's own resync, which runs in the same synchronous stretch as its
 ///   gate drop, reconciles a tab edited across it before the replay judges it;
 /// - a gate raised again before that turn keeps the pending save, and the
-///   save is replayed after the next drop.
+///   save is replayed after the next drop;
+/// - the close-confirmation modal's gate follows the same turn rule, and a
+///   modal gate raised before the turn keeps a debt the writer gate left.
 ///
 /// Real files in a throwaway directory, through the real `FileService`; the
 /// replay is observed through the autosave's save sink, never through a clock.
@@ -118,6 +120,48 @@ final class AutosaveReplayOrderTests: XCTestCase {
         wait(for: [saved], timeout: 5)
         XCTAssertFalse(autosave.pendingAutosave)
         XCTAssertFalse(model.isDirty(for: editedID))
+        XCTAssertEqual(try diskText(edited), "edited in the app\n")
+    }
+
+    func testTheModalGateReplaysOnTheNextTurnAndKeepsAWriterGatesDebt() throws {
+        let edited = try write("base\n", "edited.txt")
+        let other = try write("other\n", "other.txt")
+        let model = WorkspaceModel(fileService: FileService())
+        let editedID = try model.open(url: edited).id
+        let otherID = try model.open(url: other).id
+        model.select(editedID)
+        model.updateText("edited in the app\n", for: editedID)
+        let autosave = AutosaveController()
+        defer { autosave.stop() }
+        var savedEdited = false
+        let saved = expectation(description: "the replay after the modal closed wrote the edited tab")
+        saved.assertForOverFulfill = false
+        autosave.start(model: model, prepareForSave: { _, _ in }, onSaved: { urls, _, _ in
+            if urls.contains(edited) {
+                savedEdited = true
+                saved.fulfill()
+            }
+        })
+
+        // The writer gate's debt, with the modal raised before the replay's turn.
+        autosave.suspend()
+        model.select(otherID)
+        XCTAssertTrue(autosave.pendingAutosave)
+        autosave.resume()
+        autosave.suspendForModal()
+
+        let turnPassed = expectation(description: "the replay's turn has passed")
+        Task { @MainActor in turnPassed.fulfill() }
+        wait(for: [turnPassed], timeout: 5)
+        XCTAssertTrue(autosave.pendingAutosave)
+        XCTAssertFalse(savedEdited)
+
+        // Closing the modal replays on the next turn, never inside the call.
+        autosave.resumeFromModal()
+        XCTAssertFalse(savedEdited)
+        XCTAssertEqual(try diskText(edited), "base\n")
+        wait(for: [saved], timeout: 5)
+        XCTAssertFalse(autosave.pendingAutosave)
         XCTAssertEqual(try diskText(edited), "edited in the app\n")
     }
 }

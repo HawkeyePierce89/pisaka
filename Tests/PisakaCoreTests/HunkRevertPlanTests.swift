@@ -143,6 +143,16 @@ final class HunkRevertPlanTests: XCTestCase {
         XCTAssertEqual(lost, "a\r\nb\r\n")
     }
 
+    /// A blank last line appended or removed is an insert or a delete, not the
+    /// final-newline row, and its revert still restores HEAD's terminator state
+    /// on the line above.
+    func testBlankLastLineHunkRevertsToHeadsTerminatorState() {
+        guard let (appended, _) = revertOnly(base: "a", buffer: "a\n\n") else { return }
+        XCTAssertEqual(appended, "a")
+        guard let (removed, _) = revertOnly(base: "a\n\n", buffer: "a") else { return }
+        XCTAssertEqual(removed, "a\n\n")
+    }
+
     // MARK: - Fuzz
 
     private struct LCG {
@@ -153,7 +163,9 @@ final class HunkRevertPlanTests: XCTestCase {
         }
     }
 
-    private static let words = ["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta", "iota", "kappa"]
+    /// The blank entry puts empty lines — a trailing blank one included — next
+    /// to the end-of-text rule.
+    private static let words = ["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta", "iota", "kappa", ""]
 
     /// A random small text. Each line's terminator is a function of its content
     /// — so a line the diff calls unchanged is byte-identical on both sides —
