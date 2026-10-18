@@ -42,9 +42,48 @@ public struct ChangeHunk: Equatable, Sendable {
     /// shows. Empty for an added hunk, and for a hunk that does not fit `base`
     /// (an answer computed against another base).
     public func headLines(in base: String) -> [String] {
-        let lines = TerminatedLines.split(base)
-        guard oldLines.lowerBound >= 0, oldLines.upperBound <= lines.count else { return [] }
-        return lines[oldLines].map(\.content)
+        headLines(in: base, limit: .max).lines
+    }
+
+    /// The most `HEAD` lines the popover draws. A hunk inside the 1 MiB cap can
+    /// still hold hundreds of thousands of short lines, each a view; the
+    /// popover's list scrolls within a fraction of a screen, so the first lines
+    /// and a count of the rest say all a reader can take in.
+    public static let popoverLineLimit = 200
+
+    /// `headLines(in:)` cut to its first `limit` lines, with how many were left
+    /// out — only those lines' strings are ever built. An added hunk answers
+    /// empty without reading the base at all. Otherwise the base is walked once,
+    /// from its start and only as far as the hunk's last line (which is what
+    /// proves the hunk fits), recording just the shown span's two ends — no
+    /// per-line index of the base is allocated. Only that span is split,
+    /// through the bounded `TerminatedLines.ranges(in:range:)`, so a hunk deep
+    /// in a newline-dense file never materializes a string, or an offset, for
+    /// every line of it.
+    public func headLines(in base: String, limit: Int) -> (lines: [String], omitted: Int) {
+        let text = base as NSString
+        // An added hunk has no `HEAD` lines, fitting or not — nothing to walk.
+        guard oldLines.lowerBound >= 0, !oldLines.isEmpty else { return ([], 0) }
+        let shown = oldLines.prefix(max(limit, 0))
+        let omitted = oldLines.count - shown.count
+        // `.byLines` visits one line per `TerminatedLines` line — a trailing
+        // separator adds none — so the visit count is the diff's line count.
+        var visited = 0
+        var spanStart = 0
+        var spanEnd = 0
+        text.enumerateSubstrings(
+            in: NSRange(location: 0, length: text.length),
+            options: [.byLines, .substringNotRequired]
+        ) { _, _, enclosingRange, stop in
+            if visited == shown.lowerBound { spanStart = enclosingRange.location }
+            if visited + 1 == shown.upperBound { spanEnd = NSMaxRange(enclosingRange) }
+            visited += 1
+            if visited == oldLines.upperBound { stop.pointee = true }
+        }
+        guard visited >= oldLines.upperBound else { return ([], 0) }
+        guard !shown.isEmpty else { return ([], omitted) }
+        let ranges = TerminatedLines.ranges(in: text, range: NSRange(location: spanStart, length: spanEnd - spanStart))
+        return (ranges.prefix(shown.count).map { text.substring(with: $0.content) }, omitted)
     }
 
     /// The hunks of a diff, in order: each maximal run of non-`unchanged` rows,

@@ -24,14 +24,21 @@ public enum GutterChangeModel {
     /// (`LineStartIndex.offsets(in: buffer)`), so their count always equals the
     /// buffer's ruler line count, even when the answer is empty.
     public static func compute(base: String?, buffer: String) -> GutterChanges {
-        let lineCount = LineStartIndex.offsets(in: buffer as NSString).count
+        let starts = LineStartIndex.offsets(in: buffer as NSString)
+        // The last ruler line holds no text when the buffer ends in a separator:
+        // it starts at the buffer's end, after the last real line.
+        let lastLineIsEmptyTail = starts.count > 1 && starts.last == (buffer as NSString).length
         guard let base,
               base.utf8.count <= maxSideBytes,
               buffer.utf8.count <= maxSideBytes else {
-            return GutterChanges(hunks: [], lineCount: lineCount)
+            return GutterChanges(hunks: [], lineCount: starts.count, lastLineIsEmptyTail: lastLineIsEmptyTail)
         }
         let rows = LineDiff.rows(old: base, new: buffer, wordRanges: false)
-        return GutterChanges(hunks: ChangeHunk.hunks(from: rows), lineCount: lineCount)
+        return GutterChanges(
+            hunks: ChangeHunk.hunks(from: rows),
+            lineCount: starts.count,
+            lastLineIsEmptyTail: lastLineIsEmptyTail
+        )
     }
 }
 
@@ -41,9 +48,15 @@ public struct GutterChanges: Equatable, Sendable {
     public let hunks: [ChangeHunk]
     public let markers: [ChangeLineMarker]
 
-    public init(hunks: [ChangeHunk], lineCount: Int) {
+    /// Whether the last ruler line is the empty one a trailing separator opens —
+    /// a line no hunk's `newLines` can ever contain, sitting exactly where a
+    /// deletion after the last real line is.
+    public let lastLineIsEmptyTail: Bool
+
+    public init(hunks: [ChangeHunk], lineCount: Int, lastLineIsEmptyTail: Bool = false) {
         self.hunks = hunks
         self.markers = ChangeHunk.lineMarkers(for: hunks, lineCount: lineCount)
+        self.lastLineIsEmptyTail = lastLineIsEmptyTail
     }
 
     /// The hunk a click or the caret on ruler line `line` (0-based) means: the
@@ -52,11 +65,19 @@ public struct GutterChanges: Equatable, Sendable {
     /// (`anchor == -1`, asked as line 0). The first in order wins, so line 1
     /// carrying both wedges answers the one above it; a caller that can tell the
     /// two wedges apart (the ruler's hit test) picks by line and half itself.
+    ///
+    /// The empty tail line (`lastLineIsEmptyTail`) also answers the deletion
+    /// anchored on the line above it: the caret at the very end of a file ending
+    /// in a separator sits right where the deleted `HEAD` lines were, and the
+    /// wedge it sees is drawn on that line above.
     public func hunk(atLine line: Int) -> ChangeHunk? {
-        hunks.first { hunk in
+        let isEmptyTail = lastLineIsEmptyTail && line > 0 && line == markers.count - 1
+        return hunks.first { hunk in
             if hunk.newLines.contains(line) { return true }
             guard hunk.kind == .deleted else { return false }
-            return hunk.anchor == line || (hunk.anchor == -1 && line == 0)
+            return hunk.anchor == line
+                || (hunk.anchor == -1 && line == 0)
+                || (isEmptyTail && hunk.anchor == line - 1)
         }
     }
 

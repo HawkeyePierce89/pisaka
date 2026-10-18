@@ -133,7 +133,7 @@ extension CodeEditorView.Coordinator {
     /// buffer as for any edit).
     private func revertChange(_ find: (GutterChanges) -> ChangeHunk?) -> ChangeRevertOutcome {
         guard !gitChanges.writeInFlight() else { return .refused }
-        guard let textView, let base = gitChanges.base else { return .noHunk }
+        guard let textView, let base = gitChanges.commandBase else { return .noHunk }
         let buffer = textView.string
         guard let hunk = find(gitChanges.currentChanges(buffer: buffer)),
               let plan = HunkRevertPlan.plan(hunk: hunk, base: base, buffer: buffer),

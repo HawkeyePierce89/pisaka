@@ -18,6 +18,13 @@ import XCTest
 /// *Previous Change* step through the hunks recomputed from the live buffer,
 /// wrap, answer `false` (a beep) with none, and ignore the gate, being a move.
 ///
+/// While any re-read of the same file runs — a moved `gitRevision` or a moved
+/// `diskRevision` — the drawing keeps the old base and the commands get none
+/// (`commandBase`), the installed answer serves a command only for the buffer it
+/// was computed from, a scroll dismisses
+/// the popover, and a hunk longer than `ChangeHunk.popoverLineLimit` presents
+/// that many lines and the count of the rest.
+///
 /// Every wait is on `onChangesInstalled` — an answer that *must* reach the ruler
 /// — never on a delay, so the 250 ms coalescing window is waited out causally.
 @MainActor
@@ -127,6 +134,66 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
         XCTAssertEqual(controller.base, "two\n")
         XCTAssertEqual(changes.hunks.map(\.kind), [.modified])
         XCTAssertEqual(harness.ruler.changeMarkers.first??.strip, .modified)
+    }
+
+    func testWhileAMovedGitRevisionsReadRunsTheCommandsHaveNoBase() async throws {
+        let (file, committed) = try committedFile(contents: "one\n")
+        let harness = makeHarness(text: "edited\n")
+        let fileID = UUID()
+        controller.attach(ruler: harness.ruler, textView: harness.textView)
+        _ = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 0, gitRevision: 0, contentReplaced: true)
+        }
+        XCTAssertEqual(controller.commandBase, committed)
+        try fixture.commitFile("file.txt", contents: "edited\n", in: file.deletingLastPathComponent())
+
+        _ = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 0, gitRevision: 1, contentReplaced: false)
+            // Before the re-read lands: the drawing keeps the old base, the
+            // commands are handed none — a revert now would restore "one".
+            XCTAssertEqual(self.controller.base, committed)
+            XCTAssertNil(self.controller.commandBase)
+            XCTAssertTrue(self.controller.currentChanges(buffer: "edited\n").hunks.isEmpty)
+        }
+
+        XCTAssertEqual(controller.commandBase, "edited\n")
+    }
+
+    func testWhileAMovedDiskRevisionsReadRunsTheCommandsHaveNoBase() async throws {
+        // A checkout resyncs an edited tab — moving its disk revision, keeping
+        // its buffer — before the refresh that moves `gitRevision` starts.
+        let (file, committed) = try committedFile(contents: "one\n")
+        let harness = makeHarness(text: "edited\n")
+        let fileID = UUID()
+        controller.attach(ruler: harness.ruler, textView: harness.textView)
+        _ = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 0, gitRevision: 0, contentReplaced: true)
+        }
+        XCTAssertEqual(controller.commandBase, committed)
+        try fixture.commitFile("file.txt", contents: "two\n", in: file.deletingLastPathComponent())
+
+        _ = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 1, gitRevision: 0, contentReplaced: false)
+            XCTAssertEqual(self.controller.base, committed)
+            XCTAssertNil(self.controller.commandBase, "a revert now would restore the old HEAD's \"one\"")
+        }
+
+        XCTAssertEqual(controller.commandBase, "two\n")
+    }
+
+    func testTheInstalledAnswerIsHandedBackOnlyForItsOwnBuffer() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\n")
+        let harness = makeHarness(text: "one\nTWO\n")
+        controller.attach(ruler: harness.ruler, textView: harness.textView)
+        let installed = await install {
+            self.controller.sync(fileID: UUID(), fileURL: file, diskRevision: 0, gitRevision: 0, contentReplaced: true)
+        }
+        XCTAssertEqual(controller.currentChanges(buffer: "one\nTWO\n"), installed)
+        XCTAssertEqual(
+            controller.currentChanges(buffer: "ONE\ntwo\n"),
+            GutterChangeModel.compute(base: committed, buffer: "ONE\ntwo\n"),
+            "another buffer is diffed, never answered from the drawing"
+        )
     }
 
     func testASwitchWhileAReadIsInFlightInstallsOnlyTheNewFilesBase() async throws {
@@ -285,6 +352,33 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
         let before = dismissals
         controller.noteEdit()
         XCTAssertEqual(dismissals, before + 1)
+
+        // So does a scroll: the anchor was converted to root space once.
+        let clipView = try XCTUnwrap(editor.textView.enclosingScrollView?.contentView)
+        // One scroll may post more than one bounds change; a dismissal is
+        // idempotent, so "at least one more" is the property.
+        let beforeScroll = dismissals
+        clipView.setBoundsOrigin(NSPoint(x: 0, y: clipView.bounds.origin.y + 10))
+        XCTAssertGreaterThan(dismissals, beforeScroll)
+    }
+
+    func testALongHunksPopoverDrawsTheLimitAndCountsTheRest() async throws {
+        let limit = ChangeHunk.popoverLineLimit
+        let (file, committed) = try committedFile(
+            contents: "top\n" + String(repeating: "x\n", count: limit + 5)
+        )
+        let harness = makeHarness(text: committed)
+        _ = await install { self.sync(file, harness) }
+        _ = await install {
+            self.edit(harness, replacing: NSRange(location: 4, length: (committed as NSString).length - 4), with: "")
+        }
+        var requests: [ChangeHunkPopoverRequest] = []
+        controller.popover = ChangeHunkPopoverPresenting(present: { requests.append($0) }, dismiss: {})
+
+        controller.markerClicked(line: 0, rect: .zero)
+
+        XCTAssertEqual(requests.first?.headLines.count, limit)
+        XCTAssertEqual(requests.first?.omittedLines, 5)
     }
 
     // MARK: - Helpers

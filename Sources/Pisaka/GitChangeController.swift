@@ -27,7 +27,20 @@ import PisakaCore
 /// **Two answers, one function.** The async recompute only feeds *drawing*.
 /// The commands (revert, next/previous change) ask `currentChanges(buffer:)`,
 /// which recomputes synchronously from the held base and the buffer handed in,
-/// so a command never acts on an answer computed for an older buffer.
+/// so a command never acts on an answer computed for an older buffer — unless
+/// the drawn answer was computed from that very base and buffer, in which case
+/// it *is* that answer and is handed back rather than diffed a second time.
+///
+/// **A re-read base is not a held base.** Any re-read of the same file may mean
+/// `HEAD` moved: a moved `gitRevision` obviously, but also a moved
+/// `diskRevision` or a replaced buffer, because a checkout resyncs the open tabs
+/// — publishing both — *before* the Local Changes refresh that moves
+/// `gitRevision` has even started, and an edited tab keeps its buffer through
+/// that resync. So while any re-read runs the old base keeps feeding the
+/// *drawing* (no flicker) but no longer the commands: `commandBase` is `nil`
+/// until the new base lands, so a revert in that window beeps rather than
+/// restoring the previous commit's or branch's lines. A save pays the same
+/// one-`git show` window, which is the price of not telling it apart.
 ///
 /// **Errors are swallowed.** An untracked file, a file outside a repository, a
 /// binary or oversized blob, a missing `git` — each leaves the column empty, with
@@ -58,6 +71,19 @@ final class GitChangeController {
 
     /// The displayed file's `HEAD` text, or `nil` when there is none (yet).
     private(set) var base: String?
+
+    /// Whether `base` was read after the last re-read `sync` asked for.
+    private var baseIsCurrent = true
+
+    /// The base the commands act on: `base`, unless a re-read of the same file
+    /// has not landed yet.
+    var commandBase: String? { baseIsCurrent ? base : nil }
+
+    /// The last answer installed on the ruler, with the two inputs it was
+    /// computed from: `currentChanges(buffer:)` hands it back when both still
+    /// match, so a marker click or a command after a pause costs two string
+    /// comparisons rather than a second diff on the main thread.
+    private var installed: (base: String, buffer: String, changes: GutterChanges)?
 
     /// Monotonic token guarding a base read against a newer one, a file switch
     /// and teardown. A read resuming with a stale token discards its answer.
@@ -92,6 +118,11 @@ final class GitChangeController {
     /// the coordinator's `revertChange(atMarker:)`, installed by `attach`.
     var revert: ((Int) -> Void)?
 
+    /// The editor's clip-view bounds observer: a scroll moves the marker out
+    /// from under the popover's anchor, which was converted to root space once,
+    /// so it dismisses the popover rather than leave it pointing at another line.
+    private var scrollObserver: NSObjectProtocol?
+
     /// Take the editor's two per-update inputs (`updateNSView`): the writer
     /// gate's read-only consult and the window's change popover. One call
     /// rather than two assignments keeps `CodeEditorView.swift` inside its
@@ -115,6 +146,7 @@ final class GitChangeController {
         ruler.onChangeMarkerClicked = { [weak self] line, rect in
             self?.markerClicked(line: line, rect: rect)
         }
+        observeScrolling(of: textView)
     }
 
     /// A marker was clicked: show its hunk's `HEAD` lines beside it. The hunk is
@@ -122,11 +154,13 @@ final class GitChangeController {
     /// *line*, not this hunk, and any buffer change dismisses it, so its
     /// *Revert* recomputes against the same buffer it was shown for.
     func markerClicked(line: Int, rect: NSRect) {
-        guard let ruler, let base, let buffer = textView?.string,
+        guard let ruler, let base = commandBase, let buffer = textView?.string,
               let hunk = currentChanges(buffer: buffer).hunk(atMarkerLine: line)
         else { return }
+        let shown = hunk.headLines(in: base, limit: ChangeHunk.popoverLineLimit)
         popover?.present(ChangeHunkPopoverRequest(
-            headLines: hunk.headLines(in: base),
+            headLines: shown.lines,
+            omittedLines: shown.omitted,
             anchor: rect,
             anchorView: ruler,
             revert: { [weak self] in self?.revert?(line) }
@@ -150,6 +184,10 @@ final class GitChangeController {
         // A switched file must not keep the outgoing file's base or marks while
         // its own base loads; the same file keeps both, so a save never flickers.
         if switched { clearColumn() }
+        if !switched {
+            baseIsCurrent = false
+            popover?.dismiss()
+        }
         guard let fileURL else {
             clearColumn()
             return
@@ -174,7 +212,10 @@ final class GitChangeController {
     /// The hunks of `buffer` against the held base, computed now — the answer
     /// the commands act on. Empty when there is no base.
     func currentChanges(buffer: String) -> GutterChanges {
-        GutterChangeModel.compute(base: base, buffer: buffer)
+        if let base = commandBase, let installed, installed.base == base, installed.buffer == buffer {
+            return installed.changes
+        }
+        return GutterChangeModel.compute(base: commandBase, buffer: buffer)
     }
 
     /// Drop the marks ahead of a wholesale `textView.string = text` assignment,
@@ -201,6 +242,8 @@ final class GitChangeController {
         onChangesInstalled = nil
         popover = nil
         revert = nil
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        scrollObserver = nil
         ruler?.onChangeMarkerClicked = nil
         ruler = nil
         textView = nil
@@ -217,7 +260,27 @@ final class GitChangeController {
         recomputeTask?.cancel()
         recomputeTask = nil
         base = nil
+        baseIsCurrent = true
+        installed = nil
         ruler?.clearChangeMarkers()
+    }
+
+    /// Dismiss the popover on every scroll of `textView`'s clip view (the
+    /// ruler already has it post bounds changes), replacing any earlier observer.
+    private func observeScrolling(of textView: NSTextView) {
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        scrollObserver = nil
+        guard let clipView = textView.enclosingScrollView?.contentView else { return }
+        clipView.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clipView,
+            // Run on the posting thread — AppKit scrolls on the main thread — so
+            // the dismissal lands before the scroll's redraw, not a hop later.
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover?.dismiss() }
+        }
     }
 
     /// Read the base for `fileURL`, or hold the request while another read runs.
@@ -242,6 +305,7 @@ final class GitChangeController {
             self.isLoading = false
             if token == self.generation {
                 self.base = text
+                self.baseIsCurrent = true
                 self.recompute()
             }
             if let next = self.pending {
@@ -268,6 +332,7 @@ final class GitChangeController {
                 GutterChangeModel.compute(base: base, buffer: buffer)
             }.value
             guard let self, token == self.computeToken else { return }
+            self.installed = (base, buffer, changes)
             // Cleared explicitly rather than through `setChangeMarkers`, which
             // refuses an array whose length is not the ruler's line count.
             if changes.hunks.isEmpty {

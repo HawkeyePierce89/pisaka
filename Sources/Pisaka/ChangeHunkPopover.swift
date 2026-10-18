@@ -4,11 +4,13 @@ import PisakaCore
 import SwiftUI
 
 /// What a click on a gutter change marker asks the window to show: the hunk's
-/// `HEAD` lines, the marker's rect in the ruler's coordinates (the anchor), and
+/// `HEAD` lines (at most `ChangeHunk.popoverLineLimit`, with the count of those
+/// left out), the marker's rect in the ruler's coordinates (the anchor), and
 /// what *Revert* does — the editor's own closure, which recomputes the hunk at
 /// the moment of the press rather than trusting the one shown here.
 struct ChangeHunkPopoverRequest {
     let headLines: [String]
+    let omittedLines: Int
     let anchor: NSRect
     let anchorView: NSView
     let revert: () -> Void
@@ -40,6 +42,7 @@ struct ChangeHunkPopoverPresenting {
                 presenter.present(id: popoverID, anchor: anchor, placement: .beside) { [weak presenter] context in
                     AnyView(ChangeHunkPopover(
                         headLines: request.headLines,
+                        omittedLines: request.omittedLines,
                         context: context,
                         settings: settings,
                         onRevert: {
@@ -59,7 +62,9 @@ struct ChangeHunkPopoverPresenting {
 
 /// The change marker's popover: a `ChromePopover` whose Head says "HEAD", whose
 /// List is the hunk's `HEAD` lines at the code font — or "No lines in HEAD" for
-/// an added hunk — and whose Foot is the *Revert* button.
+/// an added hunk — and whose Foot is the *Revert* button. A hunk longer than
+/// `ChangeHunk.popoverLineLimit` draws its first lines and a count of the rest,
+/// so a newline-dense hunk never builds one view per line.
 ///
 /// The chrome — container, Head, message, Foot — is coloured only by popover
 /// roles through the injected theme. The lines are code-zone text, so the List
@@ -70,6 +75,7 @@ struct ChangeHunkPopoverPresenting {
 /// click outside close it.
 struct ChangeHunkPopover: View {
     let headLines: [String]
+    let omittedLines: Int
     let context: ChromePopoverContext
     @ObservedObject var settings: SettingsStore
     let onRevert: () -> Void
@@ -102,6 +108,12 @@ struct ChangeHunkPopover: View {
                 .padding(.vertical, metrics.scaled(ChromeGeometry.popoverMessagePaddingY))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ZoomSurfaceMarker(kind: .code))
+                if omittedLines > 0 {
+                    ChromePopoverMessage(
+                        text: "\(omittedLines) more \(omittedLines == 1 ? "line" : "lines") in HEAD",
+                        role: .textSecondary
+                    )
+                }
             }
         }, foot: ChromePopoverRow(title: "Revert", glyph: .undo2, action: onRevert))
     }

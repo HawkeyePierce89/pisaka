@@ -337,7 +337,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     be what a checkout writes — the stored blob would mark every line of an
     `eol=crlf`/`core.autocrlf` file modified and revert it to LF, and revert an
     LFS file to its pointer text. It runs on the shared queue: one read per file
-    switch or revision move, not per keystroke.
+    switch or revision move, not per keystroke. **The read is bounded** at
+    `GutterChangeModel.maxSideBytes`, *after* the filters — the size only exists
+    once they ran (an LFS pointer smudges into the whole object), so `cat-file
+    -s` could not stand in: `run`'s `stdoutLimit` reads stdout in chunks, and
+    past the limit terminates the process, drains the pipe unkept and marks the
+    result `stdoutOverflowed`, which `headText` answers `nil` — memory stays at
+    the cap plus one chunk and the shared queue is released, for a file the
+    column would draw nothing for anyway. `GitBlobText` accepts UTF-8 alone, so
+    the byte cap is the text's.
     The **commit dialog** adds seven more methods and two amendments to the
     process plumbing itself. (1) `ProcessResult` now stores the raw
     `stdoutData`/`stderrData` and exposes `stdout`/`stderr` as **computed**
@@ -484,8 +492,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `commits` and `headMessage`; `blame` attributes a moved line and a
     re-indented line to the commit that wrote them, which is what `-w`/`-M` buy;
     and `headText` reads a file in a subdirectory, returns CRLF endings under
-    `eol=crlf`, and answers `nil` for a binary blob, an untracked file and a file
-    outside any repository. Its repositories come from the bundle's shared
+    `eol=crlf`, answers `nil` for a binary blob, an untracked file and a file
+    outside any repository, and is bounded at the gutter's cap after the filters
+    (exactly the cap reads back; one byte over, or a blob the CRLF conversion
+    grows past it, is `nil`). Its repositories come from the bundle's shared
     `ThrowawayRepository`, which `GitChangeControllerRepositoryTests` uses too.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the

@@ -34,7 +34,10 @@ import PisakaCore
 ///   to its own directory — the `./` prefix; without it git reads the path from
 ///   the repository root and finds nothing — comes back with a checkout's CRLF
 ///   endings under `eol=crlf` — without `--filters`, the stored LF bytes — and is
-///   `nil` for a binary blob, an untracked file and a file outside any repository.
+///   `nil` for a binary blob, an untracked file and a file outside any repository;
+/// - that base's read is bounded at `GutterChangeModel.maxSideBytes` *after* the
+///   filters: exactly the cap reads back, one byte over is `nil`, and a blob under
+///   the cap that the checkout's CRLF conversion grows past it is `nil` too.
 ///
 /// The repositories come from `ThrowawayRepository`, whose own git runs with
 /// the machine's configuration masked; the service under test inherits the
@@ -217,6 +220,25 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         XCTAssertNil(binary)
         XCTAssertNil(untracked)
         XCTAssertNil(unrepositoried)
+    }
+
+    func testHeadTextIsBoundedAtTheGutterCapAfterTheFilters() async throws {
+        let cap = GutterChangeModel.maxSideBytes
+        let repo = try makeRepository("repo")
+        try commitFile(".gitattributes", contents: "grown.txt eol=crlf\n", in: repo)
+        try commitFile("atCap.txt", contents: String(repeating: "a", count: cap), in: repo)
+        try commitFile("overCap.txt", contents: String(repeating: "a", count: cap + 1), in: repo)
+        // Under the cap as stored, half again as long once LF becomes CRLF.
+        try commitFile("grown.txt", contents: String(repeating: "a\n", count: cap / 2 - 1), in: repo)
+        let service = GitCLIService()
+
+        let atCap = try await service.headText(fileURL: repo.appendingPathComponent("atCap.txt"))
+        let overCap = try await service.headText(fileURL: repo.appendingPathComponent("overCap.txt"))
+        let grown = try await service.headText(fileURL: repo.appendingPathComponent("grown.txt"))
+
+        XCTAssertEqual(atCap?.utf8.count, cap)
+        XCTAssertNil(overCap)
+        XCTAssertNil(grown)
     }
 
     // MARK: - Helpers

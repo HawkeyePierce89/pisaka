@@ -199,10 +199,48 @@ final class ChangeHunkTests: XCTestCase {
     func testHeadLinesOfAnAddedHunkAreEmpty() {
         let hunk = ChangeHunk(kind: .added, newLines: 0..<2, oldLines: 1..<1)
         XCTAssertEqual(hunk.headLines(in: "a\nb\n"), [])
+        // Past the base's end it is still an added hunk: empty, nothing omitted.
+        let pastEnd = ChangeHunk(kind: .added, newLines: 9..<10, oldLines: 9..<9)
+        let cut = pastEnd.headLines(in: "a\nb\n", limit: ChangeHunk.popoverLineLimit)
+        XCTAssertEqual(cut.lines, [])
+        XCTAssertEqual(cut.omitted, 0)
     }
 
     func testHeadLinesOfAHunkThatDoesNotFitTheBaseAreEmpty() {
         let hunk = ChangeHunk(kind: .deleted, newLines: 2..<2, oldLines: 1..<5)
         XCTAssertEqual(hunk.headLines(in: "a\nb\n"), [])
+    }
+
+    func testHeadLinesUnderALimitKeepTheFirstLinesAndCountTheRest() {
+        let base = (0..<10).map { "l\($0)" }.joined(separator: "\n") + "\n"
+        let hunk = ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 2..<9)
+        let cut = hunk.headLines(in: base, limit: 3)
+        XCTAssertEqual(cut.lines, ["l2", "l3", "l4"])
+        XCTAssertEqual(cut.omitted, 4)
+        let whole = hunk.headLines(in: base, limit: 7)
+        XCTAssertEqual(whole.lines, hunk.headLines(in: base))
+        XCTAssertEqual(whole.omitted, 0)
+        XCTAssertEqual(hunk.headLines(in: base, limit: 0).omitted, 7)
+        XCTAssertEqual(hunk.headLines(in: "a\n", limit: 3).omitted, 0, "a hunk off the base omits nothing")
+    }
+
+    func testHeadLinesAgreeWithTheWholeSplitForEverySpanAndSeparator() {
+        let bases = ["", "a", "a\n", "\n\n", "a\r\nb\rc\u{0085}d\u{2028}e\u{2029}f", "x\r\n\r\ny\n", "only\u{2029}"]
+        for base in bases {
+            let lines = TerminatedLines.split(base).map(\.content)
+            for lower in 0...lines.count {
+                for upper in lower...lines.count {
+                    let hunk = ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: lower..<upper)
+                    for limit in [0, 1, 2, 100] {
+                        let shown = min(limit, upper - lower)
+                        let cut = hunk.headLines(in: base, limit: limit)
+                        XCTAssertEqual(cut.lines, Array(lines[lower..<lower + shown]), "\(base.debugDescription) \(lower)..<\(upper) limit \(limit)")
+                        XCTAssertEqual(cut.omitted, upper - lower - shown)
+                    }
+                }
+            }
+            let past = ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<(lines.count + 1))
+            XCTAssertEqual(past.headLines(in: base, limit: 3).lines, [], "a hunk past the base's end fits nothing")
+        }
     }
 }

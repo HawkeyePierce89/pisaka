@@ -669,6 +669,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       a commit (partial included), pull, checkout, merge apply, the pull-request
       checkout and the post-merge tail all re-read it. A `nil` URL (an untitled
       buffer) has no `HEAD` and draws nothing.
+    - **A re-read base is not a held base.** Any re-read of the same file may
+      mean `HEAD` moved — not only a moved `gitRevision`: a checkout resyncs the
+      open tabs (`resyncOpenTabsAfterCheckout`, moving `diskRevision` and, for a
+      clean tab, replacing the buffer) *before* the Local Changes refresh that
+      moves `gitRevision` starts, and an edited tab keeps its buffer through that
+      resync, so its sync looks exactly like a save's. So while any re-read runs
+      the old base keeps feeding the *drawing* (no flicker) but not the
+      commands: `commandBase` — what `currentChanges(buffer:)`, the popover and
+      every command read — is `nil` until the new base lands, and the open
+      popover is dismissed. A revert in that window answers `.noHunk` (a beep)
+      rather than restoring the previous commit's or branch's lines. A save pays
+      the same window, being indistinguishable at `sync`; the cost is a beep for
+      a command pressed within one `cat-file` of a save or a refresh — correct
+      over convenient.
     - **The terminal-commit limit.** A commit made in the embedded terminal moves
       none of those tokens, so the column keeps describing the old `HEAD` — every
       line just committed still marked — until a tab switch, a save or a Local
@@ -690,14 +704,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       base and the buffer handed in, and Revert (popover or menu) and Next /
       Previous Change act on that (`app-editor.md`, `ChangeCommands.swift`). The
       cost is bounded by the size cap and `LineDiff`'s prefix/suffix strip and
-      matrix cap.
+      matrix cap, and is usually not paid at all: the last installed answer is
+      kept with the base and buffer it was computed from, and handed back when
+      both compare equal to the command's — the same inputs, so the same
+      answer, for two string comparisons. Only a command inside the 250 ms after
+      an edit (or before the first install) diffs on the main thread.
     - **The popover.** `markerClicked(line:rect:)` (installed on the ruler's
       `onChangeMarkerClicked` by `attach`) recomputes, finds the hunk through the
-      exact `hunk(atMarkerLine:)`, and presents its `HEAD` lines through the
-      window's presenter (`ChangeHunkPopover.swift`, `app-editor.md`). The
-      popover remembers the clicked **line**, not the hunk, and any buffer change
-      (`noteEdit`), buffer swap or file switch dismisses it, so its *Revert*
-      recomputes against the buffer it was shown for.
+      exact `hunk(atMarkerLine:)`, and presents its first
+      `ChangeHunk.popoverLineLimit` `HEAD` lines, with the count of the rest,
+      through the window's presenter (`ChangeHunkPopover.swift`, `app-editor.md`).
+      The popover remembers the clicked **line**, not the hunk, and any buffer
+      change (`noteEdit`), buffer swap, file switch or moved `gitRevision`
+      dismisses it, so its *Revert* recomputes against the buffer it was shown
+      for. **A scroll dismisses it too**: its anchor is converted to root space
+      once, so `attach` observes the editor's clip-view bounds (on the posting
+      thread, so the dismissal lands before the redraw) rather than leave it
+      pointing at another line — which also keeps a click on the moved marker
+      from closing and reopening it in one press. `reset()` removes the observer.
     - **The gate.** `writeInFlight` is a read-only consult of
       `LocalChangesModel.isReverting`, handed in with the popover by
       `configure(writeInFlight:popover:)` on every editor update; the revert path

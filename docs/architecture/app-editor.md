@@ -2052,7 +2052,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       the next autosave writes and captures the buffer as for any edit, so a
       revert is a buffer edit and nothing more. No base, no hunk, a stale plan or
       a declining funnel (mid-composition, a read-only view) is `.noHunk`, which
-      the menu item turns into a beep, as it does with no focused editor.
+      the menu item turns into a beep, as it does with no focused editor. The
+      base is `gitChanges.commandBase`, `nil` while any re-read of the same
+      file's base runs (a moved `gitRevision` or `diskRevision`, a replaced
+      buffer), so a revert never restores a `HEAD` that has since moved.
+      The caret on a separator-ended file's empty last line answers the deletion
+      wedge drawn on the line above (`hunk(atLine:)`, `core-git-models.md`).
     - **Navigation.** `goToChange(_:)` asks `ChangeNavigationRule` with the
       caret's line (one shared caret-line helper with the caret revert), converts
       the answer to its line start and lands it through `revealRange(_:)`, the
@@ -2068,8 +2073,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     reverts, undo/redo, the raised gate, stepping and wrapping over the live
     hunks, `false` with no hunks, and navigation ignoring the gate.
   - `ChangeHunkPopover.swift` (macOS) — the change marker's popover and the
-    editor's way to it. `ChangeHunkPopoverRequest` carries the hunk's `HEAD`
-    lines, the marker's rect in the ruler's coordinates and the editor's revert
+    editor's way to it. `ChangeHunkPopoverRequest` carries the hunk's first
+    `ChangeHunk.popoverLineLimit` `HEAD` lines and how many were left out (drawn
+    as "N more lines in HEAD", so a newline-dense hunk under the 1 MiB cap never
+    builds one view per line), the marker's rect in the ruler's coordinates and the editor's revert
     closure, which recomputes at the press rather than trusting the hunk shown.
     `ChangeHunkPopoverPresenting` is two closures `ContentView` builds over the
     window's existing `ChromePopoverPresenter` (`.over(_:settings:)`), so

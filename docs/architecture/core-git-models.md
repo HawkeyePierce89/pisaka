@@ -428,12 +428,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       An empty buffer against a non-empty `HEAD` marks index 0 `deletedAbove` —
       the only place left to say "HEAD had lines here". Anything past
       `lineCount` is dropped, not trapped.
-    - **`headLines(in: base)`** — the hunk's `HEAD` lines, separators stripped,
-      for the popover; empty for an added hunk or one that does not fit `base`.
+    - **`headLines(in: base)`** — the hunk's `HEAD` lines, separators stripped;
+      empty for an added hunk or one that does not fit `base`.
+      **`headLines(in:limit:)`** cuts them to the first `limit` and counts the
+      rest, building only the kept strings; the popover asks it with
+      `popoverLineLimit` (200), since a hunk inside the size cap can still hold
+      hundreds of thousands of short lines. An added hunk answers empty without
+      reading the base — fitting or not, it has no `HEAD` lines — so a click on
+      an insertion near the end of a large file walks nothing. Otherwise it never
+      splits or indexes the whole base: one `.byLines` walk (the same separator set, one visit per
+      `TerminatedLines` line) runs from the start only as far as the hunk's
+      last line — which is what proves the hunk fits — recording just the shown
+      span's two ends, with no per-line offset array allocated, so a click on a
+      marker near the top of a newline-dense file pays for the top alone. Only
+      the shown span is split, through the bounded
+      `TerminatedLines.ranges(in:range:)` — so the answer is the whole split's,
+      which a test checks for every span, limit and separator.
     Tested in `ChangeHunkTests`: each kind, adjacent rows merging, deletion before
     line 1, after the last line and mid-file, unequal modified counts, an empty
     buffer, marker length equal to the line-start count (trailing separator
-    included), out-of-range lines dropped, and the role mapping.
+    included), out-of-range lines dropped, the role mapping, and the head lines
+    whole and cut to a limit.
   - `GutterChangeModel.swift` — the column, answered. `static func
     compute(base: String?, buffer: String) -> GutterChanges`, pure and safe off
     the main thread, so the app's controller runs the **same function** on a
@@ -451,15 +466,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     always exactly the buffer's ruler-line count, even when empty. Two lookups:
     - `hunk(atLine:)` — lenient, for the **caret**: the hunk whose new lines
       contain the line, or a deleted hunk anchored at its boundary (after it, or
-      before line 1 asked as line 0); the first in order wins.
+      before line 1 asked as line 0); the first in order wins. The **empty tail
+      line** a trailing separator opens (`lastLineIsEmptyTail`, set by `compute`)
+      also answers the deletion anchored on the line above it — the caret at the
+      very end of the file sits where those `HEAD` lines were, and their wedge is
+      drawn on the line above; an unterminated last line is a real line and
+      never does.
     - `hunk(atMarkerLine:)` — exact, for the **ruler's hit test**: `-1` is the
       wedge above line 1, any other line a strip on it or a wedge after it, so
       line 1 carrying both wedges never answers the same hunk for both halves.
     Tested in `GutterChangeModelTests`: no base, an identical file, the three
     kinds together, CRLF and NEL/LS/PS, a whitespace-only change as modified, the
     cap on each side just under and just over, the cap pinned equal to the
-    panel's, and both lookups on strip lines, anchor lines and line 1 carrying
-    both wedges.
+    panel's, and both lookups on strip lines, anchor lines, the empty tail line
+    (and an unterminated last line that is not one) and line 1 carrying both
+    wedges.
   - `ChangeNavigationRule.swift` — where *Next Change* / *Previous Change* put
     the caret. `static func targetLine(hunks:caretLine:direction:) -> Int?`
     copies `DiagnosticNavigationRule`'s shape and **reuses its

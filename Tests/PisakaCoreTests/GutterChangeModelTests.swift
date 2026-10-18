@@ -134,15 +134,34 @@ final class GutterChangeModelTests: XCTestCase {
         XCTAssertEqual(mid.hunk(atLine: 0), ChangeHunk(kind: .deleted, newLines: 1..<1, oldLines: 1..<2))
         XCTAssertNil(mid.hunk(atLine: 1))
 
-        // Deletion after the last line anchors on the last real line.
+        // Deletion after the last line anchors on the last real line, and the
+        // empty tail line after it — the caret at the file's very end — answers
+        // it too: that is where the deleted lines were.
         let end = GutterChangeModel.compute(base: "a\nb\nc\n", buffer: "a\nb\n")
-        XCTAssertEqual(end.hunk(atLine: 1), ChangeHunk(kind: .deleted, newLines: 2..<2, oldLines: 2..<3))
-        XCTAssertNil(end.hunk(atLine: 2))
+        let endHunk = ChangeHunk(kind: .deleted, newLines: 2..<2, oldLines: 2..<3)
+        XCTAssertTrue(end.lastLineIsEmptyTail)
+        XCTAssertEqual(end.hunk(atLine: 1), endHunk)
+        XCTAssertEqual(end.hunk(atLine: 2), endHunk)
+        XCTAssertNil(end.hunk(atLine: 3))
+        // The tail answers only a deletion anchored right above it.
+        let midTail = GutterChangeModel.compute(base: "a\nb\nc\n", buffer: "a\nc\n")
+        XCTAssertNil(midTail.hunk(atLine: 2))
 
         // Deletion before line 1 answers line 0.
         let top = GutterChangeModel.compute(base: "a\nb\nc\n", buffer: "b\nc\n")
         XCTAssertEqual(top.hunk(atLine: 0), ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<1))
         XCTAssertTrue(top.markers[0].deletedAbove)
+    }
+
+    func testAnUnterminatedLastLineIsRealNotATail() {
+        // "a\nc" ends on a real line: the caret on "c" never answers the
+        // deletion anchored above it, between "a" and "c".
+        let changes = GutterChangeModel.compute(base: "a\nb\nc", buffer: "a\nc")
+        XCTAssertFalse(changes.lastLineIsEmptyTail)
+        XCTAssertEqual(changes.hunks.map(\.kind), [.deleted])
+        XCTAssertNil(changes.hunk(atLine: 1))
+        // An empty buffer's one line is not a tail either: line 0 asks `-1`.
+        XCTAssertFalse(GutterChangeModel.compute(base: nil, buffer: "").lastLineIsEmptyTail)
     }
 
     func testLineOneCarryingBothWedgesAnswersTheUpperOne() {
