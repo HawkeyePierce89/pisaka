@@ -317,8 +317,8 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-four, by set
-  equality) and its forty-nine rules, inventoried in that suite's own header and
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-five, by set
+  equality) and its fifty rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces,

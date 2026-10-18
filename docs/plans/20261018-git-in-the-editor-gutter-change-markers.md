@@ -279,9 +279,9 @@ None new.
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/LintConfigurationTests.swift` (only if a pinned ceiling or count moved)
 
-- [ ] Add `ChangeHunkPopover.swift` (and `ChangeCommands.swift`, if it draws) to the theme suite's obeying set, by set equality. Add a rule that the ruler's change column and the popover colour only through roles. Update the suite's doc-comment inventory.
-- [ ] Add the popover to the zoom suite's `ZoomSurfaceMarker` set. Pin that its code font comes from `EditorFont`.
-- [ ] Run `swift test`; it must pass.
+- [x] Add `ChangeHunkPopover.swift` (and `ChangeCommands.swift`, if it draws) to the theme suite's obeying set, by set equality. Add a rule that the ruler's change column and the popover colour only through roles. Update the suite's doc-comment inventory. (`ChangeCommands.swift` draws nothing, so it stays out; rule fifty — `changeMarkerRole(for:` read by the ruler alone, `drawChangeMarker(` fills only through `ChromePalette.nsColor(`, the popover constructs one `Color(` (the HEAD lines' plain code row) and paints no ground; the suite's cross-file counts made the summaries move now: the gated set sixty-four → sixty-five and the rules forty-nine → fifty in `core-theme.md` (running total, canonical item 50) and `CLAUDE.md`; verified by mutation)
+- [x] Add the popover to the zoom suite's `ZoomSurfaceMarker` set. Pin that its code font comes from `EditorFont`. (already in the set since Task 9; the new `testTheChangeHunkPopoversCodeFontComesFromEditorFont` requires every `.font(` there to be `EditorFont.swiftUIFont(` over `settings.fontSize` and the family, never the metrics)
+- [x] Run `swift test`; it must pass. (6832 green; lint clean)
 
 ### Task 13: Verify acceptance criteria
 

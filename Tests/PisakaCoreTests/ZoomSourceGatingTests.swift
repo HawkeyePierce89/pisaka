@@ -30,6 +30,10 @@ import XCTest
 ///   inside it (a ruler, the minimap) produces no hit-test candidate, so the
 ///   pointer over it resolves to `.interface` and the gesture resizes the whole
 ///   application chrome. Nothing about that fails to compile.
+/// - **The change popover's code font comes from `EditorFont`.** Its HEAD lines
+///   sit beside interface-scaled chrome in one view, so a font built from the
+///   interface metrics there compiles, looks right at 100%, and follows the
+///   wrong zoom.
 /// - **The Preferences terminal stepper reads its grid from `ZoomScaleRule`.**
 ///   Hard-coding `in: 8...40, step: 2` there compiles and drifts silently from the
 ///   grid the gestures and ⌘0 use.
@@ -429,6 +433,41 @@ final class ZoomSourceGatingTests: XCTestCase {
             swiftUISites, [],
             "a SwiftUI code-zone font is EditorFont.swiftUIFont(size:family:), never .system(size:design: .monospaced)"
         )
+    }
+
+    /// The gutter change marker's popover draws HEAD's lines at the code font
+    /// inside a chrome popover, so it is the one surface whose code text sits
+    /// beside interface-scaled chrome in the same view — exactly where a font
+    /// built from `metrics` compiles, looks right at 100%, and then follows the
+    /// wrong zoom. Every `.font(` it spells is built by
+    /// `EditorFont.swiftUIFont(size:family:)` from `settings.fontSize` (the code
+    /// zone, which *is* that setting) and the chosen family, and none names the
+    /// interface metrics.
+    func testTheChangeHunkPopoversCodeFontComesFromEditorFont() throws {
+        let url = try XCTUnwrap(
+            try Self.swiftSources().first { $0.lastPathComponent == "ChangeHunkPopover.swift" },
+            "ChangeHunkPopover.swift is gone — update this test with the feature"
+        )
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+        let fonts = ChromeThemeSourceGatingTests.callRanges(".font(", in: code)
+            .compactMap { Self.parenthesizedArguments(openingAt: code.index(before: $0.upperBound), in: code) }
+        XCTAssertFalse(fonts.isEmpty, "ChangeHunkPopover.swift sets no font — its HEAD lines draw at the default size")
+        for arguments in fonts {
+            XCTAssertTrue(
+                arguments.contains("EditorFont.swiftUIFont("),
+                "a ChangeHunkPopover font is not built through EditorFont.swiftUIFont(size:family:)"
+            )
+            for token in ["settings.fontSize", "settings.editorFontFamily"] {
+                XCTAssertTrue(
+                    LSPSourceGatingTests.containsToken(token, in: arguments),
+                    "a ChangeHunkPopover code font does not read \(token) — it would not follow the code zone"
+                )
+            }
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("metrics", in: arguments),
+                "a ChangeHunkPopover code font names the interface metrics — HEAD's lines follow the code zoom"
+            )
+        }
     }
 
     /// The parenthesis-matched argument list whose `(` sits at `open`.

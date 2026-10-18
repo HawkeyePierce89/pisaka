@@ -3109,7 +3109,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more: **sixty-four** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more: **sixty-five** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -3117,7 +3117,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The forty-nine rules, each invisible to the compiler:
+The fifty rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -4117,6 +4117,21 @@ The forty-nine rules, each invisible to the compiler:
     reading keeps it a token rule; the shared field's `TextField`, which
     disables the effect without being `.focusable(`, sits in a file spelling
     no `.focusable(` and is rule forty-five's.
+50. **The gutter's change marks and their popover colour only through roles.**
+    No app file declares `func changeMarkerRole`, and the app files spelling
+    `changeMarkerRole(for:` equal the pinned `changeMarkerRoleReaders` — the
+    ruler alone. Inside the ruler's `drawChangeMarker(` body every fill goes
+    through `ChromePalette.nsColor(`, as many times as the body reads the
+    mapping, and the body names no `NSColor`, `SyntaxTheme` or
+    `withAlphaComponent`. `ChangeHunkPopover.swift` names no `NSColor`,
+    `.foregroundColor(` or `.tint(`, constructs exactly one `Color(` — the
+    HEAD lines' `SyntaxTheme.shared.color(for: .plain)`, file content at the
+    code font, as `SyntaxBaseForegroundGatingTests` requires of every code-zone
+    surface — and every `.background(` it spells is the `ZoomSurfaceMarker`, so
+    its Head, message and Revert foot are coloured only by the popover
+    components' roles. A mark or a popover in a colour of its own compiles and
+    drifts from the status colours the Local Changes rows draw the same kinds
+    in. Matched against comment- and literal-stripped text.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
@@ -4169,8 +4184,8 @@ document spelling it checked against that. The gated set's size is held the
 same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
 `gatedFiles.count`, spelled from the same `spelled` table, must appear in both
 summaries in the sentence naming it — the running total in the gated-files
-entry above, ending on "**sixty-four** in all today", and `CLAUDE.md`'s "pins
-which files obey the rule (sixty-four, by set equality)". Before it only prose
+entry above, ending on "**sixty-five** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-five, by set equality)". Before it only prose
 stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'
