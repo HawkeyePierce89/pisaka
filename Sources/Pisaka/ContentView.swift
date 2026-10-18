@@ -1212,6 +1212,8 @@ struct ContentView: View {
             fileURL: file.url,
             diskRevision: model.diskRevision(for: file.id),
             projectRoot: model.projectRoot,
+            gitRevision: localChanges.listRevision,
+            gitWriteInFlight: { [localChanges] in localChanges.isReverting },
             text: binding(for: file.id),
             fontSize: settings.fontSize,
             fontFamily: settings.editorFontFamily,

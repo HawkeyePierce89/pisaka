@@ -345,6 +345,33 @@ struct GitCLIService: GitServicing {
         return BlameParser.parse(result.stdout)
     }
 
+    // MARK: - Gutter base
+
+    /// The `HEAD` text of the file at `fileURL`, or `nil` when there is none to
+    /// diff against: the path is absent from `HEAD` (an untracked or new file),
+    /// the file is outside a repository, or the blob is not text.
+    ///
+    /// Runs `git show HEAD:./<name>` with the file's **own parent directory** as
+    /// the working directory, for exactly `blame(fileURL:)`'s reason: the caller is
+    /// the editor gutter, which holds a workspace URL and no repository root. The
+    /// `./` prefix makes git resolve the name relative to that directory rather
+    /// than to the repository root, so no `repositoryRoot(for:)` round-trip is
+    /// needed and a file outside any repository simply exits non-zero.
+    ///
+    /// The bytes are read raw and classified through `GitBlobText`, the one
+    /// standard both sides of every diff are judged by, so a binary blob reads as
+    /// "no markers" rather than as U+FFFD-laden text the gutter would diff
+    /// against. Only a missing `git` throws; `GitChangeController` swallows that
+    /// too.
+    func headText(fileURL: URL) async throws -> String? {
+        let result = try await run(
+            ["show", "HEAD:./\(fileURL.lastPathComponent)"],
+            in: fileURL.deletingLastPathComponent()
+        )
+        guard result.exitCode == 0 else { return nil }
+        return GitBlobText.classify(result.stdoutData).text
+    }
+
     // MARK: - Branch switcher
 
     /// The currently checked-out local branch of the repository at `root`, or

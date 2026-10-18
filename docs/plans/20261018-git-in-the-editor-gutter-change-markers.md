@@ -228,12 +228,12 @@ None new.
 - Modify: `Sources/Pisaka/ContentView.swift` (pass `localChanges.listRevision` and `{ localChanges.isReverting }`)
 - Create: `Tests/PisakaAppTests/GitChangeControllerRepositoryTests.swift`
 
-- [ ] Shape the controller like `BlameController`: a weak ruler, a generation token captured synchronously before every hop, and at most one base read in flight plus one pending. It holds `(fileID, url, base)` for the displayed file. `sync(fileID:fileURL:diskRevision:gitRevision:contentReplaced:)` re-reads the base when the file, path, disk revision or git revision changes, or the content was replaced. Read failure or nil clears the markers silently.
-- [ ] Recompute: an edit notification schedules a coalesced recompute 250 ms after the last edit. It snapshots the buffer string and the token synchronously, runs `GutterChangeModel.compute` on a detached task, and installs the result only if the token is current. A base arrival also recomputes.
-- [ ] Add `currentChanges(buffer:) -> GutterChanges`, the synchronous answer the commands use.
-- [ ] Check `GitCLIArgumentSourceGatingTests` and update its inventory for the new `show` invocation if it pins argument shapes.
-- [ ] Write the app test, using `GitCLIServiceRepositoryTests`' helper — a throwaway repository with one committed file: base loads; after a buffer edit a hunk appears, observed through a completion hook as a rendezvous rather than a delay; the revert plan's output equals the committed bytes exactly; an untracked file yields no markers.
-- [ ] Run `swift test` and `make test-app`; both must pass (apart from the known eight).
+- [x] Shape the controller like `BlameController`: a weak ruler, a generation token captured synchronously before every hop, and at most one base read in flight plus one pending. It holds `(fileID, url, base)` for the displayed file. `sync(fileID:fileURL:diskRevision:gitRevision:contentReplaced:)` re-reads the base when the file, path, disk revision or git revision changes, or the content was replaced. Read failure or nil clears the markers silently.
+- [x] Recompute: an edit notification schedules a coalesced recompute 250 ms after the last edit. It snapshots the buffer string and the token synchronously, runs `GutterChangeModel.compute` on a detached task, and installs the result only if the token is current. A base arrival also recomputes.
+- [x] Add `currentChanges(buffer:) -> GutterChanges`, the synchronous answer the commands use.
+- [x] Check `GitCLIArgumentSourceGatingTests` and update its inventory for the new `show` invocation if it pins argument shapes. (it pins no `show` shape — only the global prefix, `--pretty`, the prompt-suppressing set, checkout and blame — so its inventory is unchanged)
+- [x] Write the app test, using `GitCLIServiceRepositoryTests`' helper — a throwaway repository with one committed file: base loads; after a buffer edit a hunk appears, observed through a completion hook as a rendezvous rather than a delay; the revert plan's output equals the committed bytes exactly; an untracked file yields no markers.
+- [x] Run `swift test` and `make test-app`; both must pass (apart from the known eight). (swift test 6820 green; make test-app 423 run, the same 8 scale-1.8 failures; the throwaway-repository helper moved to `Tests/PisakaAppTests/ThrowawayRepository.swift`, shared by both suites; `writeInFlight` lives on the controller to keep `CodeEditorView.swift` inside its ceilings unchanged)
 
 ### Task 9: Revert Change (popover and menu item)
 
