@@ -86,14 +86,20 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the external-change bar's, `file_length` 1963 →
+The most recent bump is the Local History restore's stamp refresh,
+`file_length` 1966 → **1967** and `type_body_length` 1959 → **1960**: one line
+in `PisakaApp`, refreshing an already-open tab's disk stamp after the restore
+creates the empty file it lands in, so the guarded save does not read the
+app's own create as an external change.
+
+The bump before it is the external-change bar's, `file_length` 1963 →
 **1966** and `type_body_length` 1956 → **1959**: three lines in `PisakaApp`,
 the bar's Reload, Overwrite and Compare closures handed to `ContentView`. The
 bar lives in `ExternalChangeBar.swift`, its Reload and Compare in
 `DiskSyncController.swift`, and its Overwrite is the existing `save(id:)` with
 the answer already given.
 
-The bump before it is external-change detection's, `file_length` 1954 →
+The bump before that is external-change detection's, `file_length` 1954 →
 **1963** and `type_body_length` 1947 → **1956**: nine lines in `PisakaApp` —
 the `diskSync` property, its start beside autosave's, the quit question
 installed on the delegate, the watcher's pass request, the two-line resolution

@@ -612,7 +612,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     watcher event, and a long burst (a package install reports every second)
     would keep re-arming the two-second debounce and hold off autosave of every
     unrelated dirty tab for the whole burst. So the stamp refresh
-    (`refreshDiskStamp(for:)`) writes only when the new stamp differs, and
+    (`refreshDiskStamp(for:)`, public because the Local History restore also
+    calls it after creating the empty file it lands in — that create is the app's
+    own write, and a tab that outlived the delete would otherwise read it as an
+    external change) writes only when the new stamp differs, and
     `setObservedDiskSide` assigns only when an entry is actually added, changed
     or removed. A pass over files that did not move publishes nothing on either
     — pinned in `WorkspaceModelExternalChangeTests`.

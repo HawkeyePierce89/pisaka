@@ -2592,8 +2592,8 @@ struct PisakaApp: App {
         PlatformFeedback.warning()
         PlatformAlert.presentMessage(
             title: "Cannot switch project folders",
-            message: "These files could not be saved, and switching folders would "
-                + "close them and lose those edits:\n\n"
+            message: "These files were not saved (a write failed, or the file changed on disk), "
+                + "and switching folders would close them and lose those edits:\n\n"
                 + names.joined(separator: "\n")
         )
     }
@@ -3014,6 +3014,12 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return
         }
+        // The empty file just created is this app's own write. A tab that outlived
+        // the delete still holds the stamp of the file that was deleted, so without
+        // this the save below (or the next autosave) would read the empty file as
+        // an external change: a clean tab reloads to "" and writes it back, a dirty
+        // one turns into a conflict. A tab opened on the new file already has its stamp.
+        if missing { model.refreshDiskStamp(for: file.id) }
         let displaced = model.text(for: file.id) ?? plan.captureText
         guard !localHistoryRestoreRefused(displacing: displaced, plan, recreating: missing) else {
             PlatformFeedback.warning()
@@ -3975,7 +3981,7 @@ struct PisakaApp: App {
         // Reload ends with the tab clean, which is this method's `true`. The bar's
         // Overwrite arrives here already answered, so it asks nothing.
         let resolution = diskSync.resolveBeforeSave(id, answer: externalChangeAnswer)
-        guard case .write(let policy) = resolution else { return resolution == .reloaded }
+        guard case .write(let policy) = resolution else { return resolution == .reloaded || resolution == .leftAlone }
         // Ask `.editorconfig` what saving this buffer changes and apply it *here*,
         // after the writer-gate refusal above and before the write below — so the
         // close prompt's Save and the `runFile`/`testFile` pre-run saves, which all
@@ -4714,7 +4720,12 @@ struct PisakaApp: App {
             }
             let id = file.id
             if resyncViewerTab(id, mayRemoveFiles: mayRemoveFiles) { continue }
-            guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) else {
+            // A tab that was clean and still is, whatever its text now, was not
+            // edited: the gate's drop releases a deferred disk-sync pass, which runs
+            // inside `endRevert()` and may already have reloaded it from what git
+            // wrote. Edits made during the operation leave a tab dirty, because
+            // every save is refused while the gate is up.
+            guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) || !model.isDirty(for: id) else {
                 model.reconcileSavedBaseline(id: id)
                 didPreserve = true
                 continue

@@ -263,7 +263,9 @@ because nothing else states them.
   is what makes it pre-operation by construction, and the **quit flush is the one place it
   writes on the main thread**. The **project tree's delete is a capture site** too: it reads
   the doomed files synchronously before `removeItem`, leaves only the store writes to the
-  chain, and takes no gate. Its **one worktree create** is a restore into a missing path,
+  chain, and takes no gate. So are the two **external-change answers**: each
+  captures the side it gives up — the disk under `.overwrite`, the buffer under
+  `.discard` — before acting, and takes no gate. Its **one worktree create** is a restore into a missing path,
   which first creates an empty file under `revertInFlight()`. Every capture skip and every
   capture failure is silent; retention is 14 activity days (never sooner than 14 calendar days, the
   calendar rule alone without a readable activity record) / 30 revisions, and the newest always survives.

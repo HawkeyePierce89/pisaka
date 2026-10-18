@@ -1024,7 +1024,9 @@ user sees it.
   away on its own once the conflict is over, including when you edit the buffer
   to match the disk. A file that was deleted is not a conflict: saving recreates
   it, as before. If the commit dialog's pre-commit flush finds a tab in this
-  state, it names the file and commits the disk's version.
+  state, it names the file and commits the disk's version; switching to another
+  project folder is refused while one is open, naming the file, until you
+  answer the bar.
 - While one of the app's own git operations is writing to the working tree — a
   revert, a merge apply, a branch checkout, a project-wide Replace All, or a
   commit — saving (Cmd+S, the close prompt's Save, and the implicit save before

@@ -366,7 +366,14 @@ public struct LocalHistoryLayout: Equatable, Sendable {
             days.insert(day)
         }
         guard !days.isEmpty else { return nil }
-        return Array(days.sorted().suffix(LocalHistoryPolicy.activityDayCount))
+        return normalizedActivityDays(days)
+    }
+
+    /// The record's one shape — distinct days, ascending, the newest
+    /// `LocalHistoryPolicy.activityDayCount` — shared by the parser and the
+    /// store's update, so what is written is exactly what is read back.
+    static func normalizedActivityDays<Days: Sequence>(_ days: Days) -> [String] where Days.Element == String {
+        Array(Set(days).sorted().suffix(LocalHistoryPolicy.activityDayCount))
     }
 
     /// Whether `day` is exactly `yyyy-MM-dd` naming a real Gregorian date.

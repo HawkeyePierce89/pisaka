@@ -609,9 +609,12 @@ changes.)
     one lane is cheaper to reason about than a map of them. `append(_:)` captures
     no `self` — the work already holds the store it needs — so a model released
     mid-flight still finishes what it promised rather than dropping a revision.
-    `waitForQueuedWrites() async` (internal) awaits the chain's current tail —
-    the one way for a reader on another queue to see the writes already queued;
-    units appended later are not waited for.
+    `waitForQueuedWrites() async` (public) awaits the chain's current tail —
+    the way for a reader on another queue to see the writes already queued
+    (`deletedPaths(root:awaiting:)`), and what the quit holds the termination on
+    once an external-change answer queued an `.overwrite`/`.discard` capture, so
+    that capture lands before the process exits; units appended later are not
+    waited for.
     The entry points:
     - `captureSaves(urls:root:texts:)` — fire-and-forget: a save must not wait on
       a safety net. A url with no entry in `texts` is skipped rather than read
@@ -1189,8 +1192,12 @@ changes.)
     refusal the tree's own file operations give, and the action stops, creating nothing
     and opening nothing. Otherwise it `ensureDirectory`s the parent and `createFile`s through the
     file service (beeping and stopping on failure) and bumps the tree either way,
-    since `ensureDirectory` does not roll back the parents it built. Everything
-    after runs unchanged against the empty file: the open, the re-asked refusal, a
+    since `ensureDirectory` does not roll back the parents it built. The tab's
+    disk stamp is then refreshed (`refreshDiskStamp(for:)`): the create is the
+    app's own write, and a tab that outlived the delete still holds the deleted
+    file's stamp, so the save below would otherwise read the empty file as an
+    external change — reloading a clean tab to `""` and writing that back, or
+    putting a dirty one in conflict. Everything after runs unchanged against the empty file: the open, the re-asked refusal, a
     "Before Restore" capture of the empty text it displaces, and `applyRestore`.
     Both refusals are asked with `recreating:` set for a missing path, which
     exempts them from the sameness half only (the policy half still applies) —

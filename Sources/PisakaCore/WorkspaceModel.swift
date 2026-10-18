@@ -698,11 +698,6 @@ public final class WorkspaceModel: ObservableObject {
         setObservedDiskSide(nil, for: openFiles[index].id)
     }
 
-    /// The current stamp of `url`, or `nil` for a url-less buffer.
-    private func currentStamp(of url: URL?) -> FileStamp? {
-        url.flatMap { fileService.fileStamp(at: $0) }
-    }
-
     /// Refresh only the recorded stamp of tab `id` — for the case where the disk's
     /// stamp moved but its content still equals `savedText` (a `touch`, a tool
     /// rewriting identical bytes).
@@ -715,8 +710,12 @@ public final class WorkspaceModel: ObservableObject {
     /// would republish it — re-arming the autosave idle debounce — on every
     /// watcher event of a long burst. Returns whether the stored stamp changed. A
     /// viewer or url-less tab has no stamp to refresh and returns `false`.
+    ///
+    /// The app also calls it after creating the empty file a Local History
+    /// restore lands in: that create is the app's own write, and a tab that
+    /// outlived the file's delete would otherwise read it as an external change.
     @discardableResult
-    func refreshDiskStamp(for id: UUID) -> Bool {
+    public func refreshDiskStamp(for id: UUID) -> Bool {
         guard let index = indexOf(id), openFiles[index].kind == .text,
               let url = openFiles[index].url else { return false }
         let stamp = fileService.fileStamp(at: url)
@@ -732,7 +731,7 @@ public final class WorkspaceModel: ObservableObject {
     public func markSaved(for id: UUID) {
         guard let index = indexOf(id), openFiles[index].kind == .text else { return }
         openFiles[index].savedText = openFiles[index].text
-        adoptBaseline(at: index, stamp: currentStamp(of: openFiles[index].url))
+        adoptBaseline(at: index, stamp: openFiles[index].url.flatMap { fileService.fileStamp(at: $0) })
     }
 
     /// Reload the open file identified by `id` from its on-disk contents,
@@ -1101,8 +1100,8 @@ public final class WorkspaceModel: ObservableObject {
     public func saveAllDirty() -> SaveBatchResult {
         var savedURLs: [URL] = []
         var skipped: [UUID] = []
-        for id in openFiles.map(\.id) {
-            guard let index = indexOf(id) else { continue }
+        for index in openFiles.indices {
+            let id = openFiles[index].id
             // The kind test is redundant — a viewer tab's `isDirty` is `false` by
             // construction — and stated anyway, because this batch writes files and
             // the reason a database is never among them should not have to be

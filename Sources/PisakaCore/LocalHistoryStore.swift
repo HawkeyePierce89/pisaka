@@ -455,7 +455,7 @@ public struct LocalHistoryStore {
         let recorded = activityDays(inProject: project)
         let today = LocalHistoryLayout.activityDay(of: now, calendar: calendar)
         if let recorded, recorded.contains(today) { return recorded }
-        let updated = Array(Set((recorded ?? []) + [today]).sorted().suffix(LocalHistoryPolicy.activityDayCount))
+        let updated = LocalHistoryLayout.normalizedActivityDays((recorded ?? []) + [today])
         let text = LocalHistoryLayout.activityRecordText(days: updated)
         do {
             try fileService.ensureDirectory(at: project)

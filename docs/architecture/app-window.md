@@ -1032,10 +1032,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (the tab's label/value/hidden strip, the close action's help and label),
     eleven, fourteen and sixteen pin it (`core-theme.md`).
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
-    (opened on double-click of a Local Changes row or a commit's file). Independent
+    (opened on double-click of a Local Changes row or a commit's file, or by the
+    external-change bar's Compare). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-
     agnostic `load: () async -> [DiffRow]` closure (the owner binds the model and
-    arguments in — `LocalChangesModel.rows(for:)` or `CommitLogModel.rows(for:in:)`),
+    arguments in — `LocalChangesModel.rows(for:)` or `CommitLogModel.rows(for:in:)`,
+    or, for the external-change Compare, `LineDiff.rows(old: buffer, new: disk)`
+    over two texts snapshotted at the press — `DiskSyncController`, `app-shell.md`),
     and an observed `settings: SettingsStore` so the separate window's font tracks
     the shared editor font size (the Preferences stepper or a zoom over the pane),
     a forced theme reaches it via `.preferredColorScheme`, and — being an

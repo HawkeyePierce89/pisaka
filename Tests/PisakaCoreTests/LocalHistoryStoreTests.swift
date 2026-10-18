@@ -1408,6 +1408,50 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2)
     }
 
+    /// The capture's own prune reads the activity days too: a save after three
+    /// weeks away keeps the revisions from before it.
+    func testACaptureAfterThreeWeeksAwayKeepsTheOldRevision() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+
+        store.capture(text: "back", root: projectRoot, relativePath: path, event: .save,
+                      now: morning.addingTimeInterval(20 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 3)
+    }
+
+    /// Both earlier revisions have fourteen later activity days behind them and
+    /// an expired calendar age, so only the new capture is left.
+    func testACaptureAfterFourteenLaterActivityDaysPrunesTheOlderRevisions() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        captureOnLaterDays(14, store: store)
+
+        store.capture(text: "back", root: projectRoot, relativePath: path, event: .save,
+                      now: morning.addingTimeInterval(20 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 1)
+    }
+
+    /// The rename's merge prunes by the same rule: moving a file after three
+    /// weeks away keeps the history it lands on.
+    func testARenameAfterThreeWeeksAwayKeepsTheMergedRevisions() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let renamed = "Sources/Renamed.swift"
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "target", root: projectRoot, relativePath: renamed, event: .save,
+                      now: morning.addingTimeInterval(day))
+
+        store.migrate(root: projectRoot, from: path, to: renamed, now: morning.addingTimeInterval(20 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: renamed).count, 2)
+    }
+
     func testFourteenLaterActivityDaysPlusAnExpiredCalendarAgeDeletes() {
         let tree = makeTree()
         let store = makeStore(tree)

@@ -36,6 +36,11 @@ final class DiskSyncController {
         case reloaded
         /// The user cancelled, or the reload failed: nothing was written.
         case cancelled
+        /// A clean tab whose file became unreadable (`.leaveAlone`): there are no
+        /// edits to write and the old baseline must not go over the file, so the
+        /// save succeeds without writing — and without the on-save transform, which
+        /// would otherwise dirty the buffer and turn it into a conflict.
+        case leftAlone
     }
 
     private weak var model: WorkspaceModel?
@@ -131,6 +136,7 @@ final class DiskSyncController {
         if verdict == .reload || verdict == .adoptBaseline, let url = url(of: id) {
             onReloaded(id, url)
         }
+        if verdict == .leaveAlone { return .leftAlone }
         guard model.isInExternalConflict(id) else { return .write(.refuse) }
         let name = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         switch answer ?? ask(name) {
@@ -146,8 +152,11 @@ final class DiskSyncController {
 
     /// Capture the disk side of tab `id`'s conflict under `.overwrite` — the half
     /// of Overwrite that runs before the write.
+    /// An unreadable disk side captures nothing: its text is not known, and an
+    /// empty revision under that title would claim content the file never held.
     func captureDiskSide(of id: UUID) {
-        guard let model, let url = url(of: id), let disk = model.diskText(forConflict: id) else { return }
+        guard let model, let url = url(of: id), let disk = model.diskText(forConflict: id),
+              model.observedDiskSides[id]?.text != nil else { return }
         localHistory?.captureBuffers(event: .overwrite, urls: [url], root: model.projectRoot, texts: [url: disk])
     }
 

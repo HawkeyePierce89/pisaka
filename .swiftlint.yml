@@ -211,12 +211,14 @@ line_length:
 # and `WorkspaceModel`. Then 1966 with the external-change bar: three lines,
 # the bar's Reload, Overwrite and Compare closures handed to `ContentView`, the
 # bar itself living in `ExternalChangeBar.swift` and its Reload and Compare in
-# `DiskSyncController.swift`. The number tracks the one file that
+# `DiskSyncController.swift`. Then 1967 with the Local History restore's stamp
+# refresh after its own create of the empty file, one line: without it the
+# guarded save reads that create as an external change. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1966
-  error: 1966
+  warning: 1967
+  error: 1967
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -275,10 +277,11 @@ file_length:
 # `ChangeCommandItems` entry inside the Git menu. Then to 1956 with
 # external-change detection's nine, the same nine `file_length` counts, every
 # one of them inside the struct body. Then to 1959 with the external-change
-# bar's three, the same three `file_length` counts.
+# bar's three, the same three `file_length` counts. Then to 1960 with the
+# restore's stamp refresh, the same one `file_length` counts.
 type_body_length:
-  warning: 1959
-  error: 1959
+  warning: 1960
+  error: 1960
 
 function_body_length:
   warning: 140

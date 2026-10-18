@@ -271,7 +271,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     answers `false`, which is exactly what makes the close prompt's Save, the
     `runFile`/`testFile` pre-run saves and the quit question stop. With no
     conflict the write runs under `.refuse`, so the model checks once more at the
-    write itself — the hard guarantee does not depend on this call. The editor
+    write itself — the hard guarantee does not depend on this call. A clean tab
+    whose file has become unreadable answers `.leftAlone`: the save succeeds
+    without writing and **without the transform**, which would otherwise dirty the
+    buffer and turn the model's second check into a conflict nobody was asked
+    about. The editor
     bar's Overwrite arrives with `externalChangeAnswer: .overwrite` already given
     and asks nothing. The modal has **no default button** — Return answers
     nothing, so a keystroke meant for the editor cannot pick a side — and Escape
@@ -721,7 +725,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     TerminalSessionsModel`; the app-termination path calls
     `terminalSessions.terminateAll()` so no shell processes leak (tab-close
     terminates its own session). It also owns a `private let diffWindows =
-    DiffWindowController()` for the separate diff windows and two open-diff handlers
+    DiffWindowController()` for the separate diff windows (also the target of the
+    external-change bar's Compare, routed `onExternalChangeCompare` →
+    `diskSync.compare(_:settings:in:)`) and two open-diff handlers
     threaded into `ContentView` as `onOpenDiff`/`onOpenCommitDiff`:
     `openLocalChangesDiff(_:)` (title via
     `DiffWindowTitle.localChanges(path:projectPrefix:)` with
@@ -1425,7 +1431,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the **open-tab resync**, through the same `openTabSnapshot()` /
     `resyncOpenTabsAfterCheckout(snapshot:repoRoot:mayRemoveFiles:)` pair as
     `revertChanges` and `switchBranch` (`applyMerge` resyncs its one resolved file
-    inline rather than through the loop). All of them — the loop's two callers and
+    inline rather than through the loop). The loop counts a tab that was clean at
+    the snapshot and is still clean as untouched **whatever its text now**: the
+    gate's drop inside `endRevert()` releases a deferred disk-sync pass that may
+    already have reloaded it from what git wrote, and only a real edit — which
+    stays dirty, every save being refused under the gate — earns the
+    preserved-edit beep. All of them — the loop's two callers and
     `applyMerge`'s single-file path — ask `resyncViewerTab(_:mayRemoveFiles:)`
     before any text-shaped reasoning, because a viewer tab answers a text snapshot
     with "clean and unchanged" and would otherwise be force-closed over a file
@@ -2153,7 +2164,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `save(id:)`'s half (see `PisakaApp.swift` above). Both answers go through
     one capture-then-act helper each, shared by the modal and the bar:
     `captureDiskSide(of:)` stores `diskText(forConflict:)` under `.overwrite`
-    before the write, and `discardEdits(of:)` stores the buffer under `.discard`
+    before the write — nothing when the disk side is unreadable, whose text is
+    not known and would otherwise be stored as an empty revision — and `discardEdits(of:)` stores the buffer under `.discard`
     before `reloadDiscardingEdits` (a failed reload beeps and leaves the tab as it
     was). Neither raises the writer gate — the write is the ordinary save funnel
     and the reload a buffer replacement — which is why these are capture sites of

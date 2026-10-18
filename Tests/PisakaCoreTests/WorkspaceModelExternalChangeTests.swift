@@ -215,6 +215,66 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
         XCTAssertFalse(model.isInExternalConflict(id))
     }
 
+    func testAConflictEndsWhenTheDiskReturnsToTheSavedText() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id))
+        tree.files["a.txt"] = "on disk"
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 7, modificationDate: Date(timeIntervalSince1970: 1))
+
+        XCTAssertEqual(model.checkDisk(id: id), .stampOnly)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.observedDiskSides[id], nil)
+        XCTAssertEqual(try model.save(for: id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+    }
+
+    func testAConflictEndsWhenTheFileIsDeletedAndTheSaveRecreatesIt() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id))
+        tree.files["a.txt"] = nil
+
+        XCTAssertEqual(model.checkDisk(id: id), .missing)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(try model.save(for: id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+    }
+
+    func testACleanTabWhoseFileBecameUnreadableIsNotWritten() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.unreadableFiles.insert("a.txt")
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 1, modificationDate: nil)
+
+        XCTAssertEqual(try model.save(for: id), .saved)
+
+        XCTAssertEqual(tree.writtenPaths, [])
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    /// The Local History restore's recreate, at Core level: the app creates the
+    /// empty file a clean tab outlived, refreshes the stamp, and the save then
+    /// writes the buffer rather than reading its own create as an external change
+    /// and reloading the tab to the empty text.
+    func testRefreshingTheStampAfterTheAppsOwnCreateLetsTheSaveWriteTheBuffer() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.files["a.txt"] = nil
+        model.syncAllWithDisk()
+        tree.files["a.txt"] = ""
+
+        XCTAssertTrue(model.refreshDiskStamp(for: id))
+        XCTAssertEqual(try model.save(for: id), .saved)
+
+        XCTAssertEqual(tree.files["a.txt"], "on disk")
+        XCTAssertEqual(file(model, id).text, "on disk")
+    }
+
     func testAnUnchangedFileSavesAsBefore() throws {
         let tree = makeTree()
         let model = WorkspaceModel(fileService: tree)

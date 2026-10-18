@@ -15,7 +15,11 @@ import PisakaCore
 /// - the editor bar's two actions the controller owns: Reload is refused while
 ///   the writer gate is up and otherwise discards the edits for the disk's text,
 ///   and Compare opens the buffer against the disk side under the
-///   external-change title, as `LineDiff`'s rows.
+///   external-change title, as `LineDiff`'s rows;
+/// - the guarded save's question (`resolveBeforeSave`): each answer's
+///   resolution, the side each answer captures into Local History first, an
+///   unreadable disk side capturing nothing, and a clean tab over an unreadable
+///   file answering `.leftAlone` without asking.
 ///
 /// Real files in a throwaway directory, through the real `FileService`.
 @MainActor
@@ -149,6 +153,134 @@ final class DiskSyncControllerTests: XCTestCase {
         XCTAssertFalse(model.isInExternalConflict(id))
         XCTAssertEqual(model.openFiles.first?.isDirty, false)
         XCTAssertEqual(reloads, [id])
+    }
+
+    /// A controller over `model` whose question always answers `answer`, with a
+    /// real Local History store under the throwaway directory.
+    private func questioned(
+        _ model: WorkspaceModel, answering answer: DiskSyncController.Answer
+    ) -> (DiskSyncController, LocalHistoryModel) {
+        model.openFolder(url: directory)
+        let history = LocalHistoryModel(
+            base: directory.appendingPathComponent(".history", isDirectory: true),
+            fileService: FileService()
+        )
+        let controller = DiskSyncController(ask: { _ in answer })
+        controller.start(model: model, localHistory: history, gate: Just(false).eraseToAnyPublisher()) { _, _ in }
+        return (controller, history)
+    }
+
+    /// The newest revision of `a.txt` and its text.
+    private func newestRevision(in history: LocalHistoryModel) -> (LocalHistorySnapshot, String?)? {
+        guard let newest = history.store.revisions(root: directory, relativePath: "a.txt").first else { return nil }
+        return (newest, history.store.content(of: newest, root: directory, relativePath: "a.txt"))
+    }
+
+    func testOverwriteCapturesTheDiskSideAndAnswersAnOverwritingWrite() async throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let (controller, history) = questioned(model, answering: .overwrite)
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .write(.overwrite))
+
+        await history.waitForQueuedWrites()
+        let (snapshot, text) = try XCTUnwrap(newestRevision(in: history))
+        XCTAssertEqual(snapshot.event, .overwrite)
+        XCTAssertEqual(text, "theirs, longer\n")
+        XCTAssertEqual(model.text(for: id), "mine\n")
+    }
+
+    func testReloadCapturesTheBufferAndReloadsTheDisksText() async throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let (controller, history) = questioned(model, answering: .reload)
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .reloaded)
+
+        await history.waitForQueuedWrites()
+        let (snapshot, text) = try XCTUnwrap(newestRevision(in: history))
+        XCTAssertEqual(snapshot.event, .discard)
+        XCTAssertEqual(text, "mine\n")
+        XCTAssertEqual(model.text(for: id), "theirs, longer\n")
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    func testCancelCapturesNothingAndChangesNothing() async throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let (controller, history) = questioned(model, answering: .cancel)
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .cancelled)
+
+        await history.waitForQueuedWrites()
+        XCTAssertNil(newestRevision(in: history))
+        XCTAssertEqual(model.text(for: id), "mine\n")
+        XCTAssertTrue(model.isInExternalConflict(id))
+    }
+
+    func testAnAnswerGivenByTheCallerIsNotAsked() throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let controller = DiskSyncController(ask: { _ in
+            XCTFail("the bar's Overwrite is already an answer")
+            return .cancel
+        })
+        controller.start(model: model, localHistory: nil, gate: Just(false).eraseToAnyPublisher()) { _, _ in }
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id, answer: .overwrite), .write(.overwrite))
+    }
+
+    func testNoConflictWritesUnderTheRefusingPolicyWithoutAsking() throws {
+        let url = try write("base\n", "a.txt")
+        let model = WorkspaceModel(fileService: FileService())
+        let id = try model.open(url: url).id
+        model.updateText("mine\n", for: id)
+        let controller = DiskSyncController(ask: { _ in
+            XCTFail("a tab out of conflict is never asked about")
+            return .cancel
+        })
+        controller.start(model: model, localHistory: nil, gate: Just(false).eraseToAnyPublisher()) { _, _ in }
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .write(.refuse))
+    }
+
+    /// Overwriting a file the app cannot read stores no revision: the disk's text
+    /// is not known, and an empty one would claim content the file never held.
+    func testOverwritingAnUnreadableFileCapturesNothing() async throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let url = directory.appendingPathComponent("a.txt")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+        let (controller, history) = questioned(model, answering: .overwrite)
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .write(.overwrite))
+        XCTAssertEqual(model.observedDiskSides[id], ObservedDiskSide(text: nil))
+
+        await history.waitForQueuedWrites()
+        XCTAssertNil(newestRevision(in: history))
+    }
+
+    /// A clean tab whose file became unreadable has nothing to write: the save
+    /// succeeds without writing and without asking.
+    func testACleanTabOverAnUnreadableFileIsLeftAlone() throws {
+        let url = try write("base\n", "a.txt")
+        let model = WorkspaceModel(fileService: FileService())
+        let id = try model.open(url: url).id
+        _ = try write("rewritten, longer\n", "a.txt")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+        let controller = DiskSyncController(ask: { _ in
+            XCTFail("a clean tab is never asked about")
+            return .cancel
+        })
+        controller.start(model: model, localHistory: nil, gate: Just(false).eraseToAnyPublisher()) { _, _ in }
+        defer { controller.stop() }
+
+        XCTAssertEqual(controller.resolveBeforeSave(id), .leftAlone)
+        XCTAssertEqual(model.text(for: id), "base\n")
+        XCTAssertFalse(model.isInExternalConflict(id))
     }
 
     func testCompareShowsTheBufferAgainstTheDiskSideUnderTheExternalChangeTitle() async throws {
