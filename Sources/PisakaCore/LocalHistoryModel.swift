@@ -170,8 +170,8 @@ public final class LocalHistoryModel {
     ///   the last save before the quit. The sweep taking it *after* the `move`
     ///   has landed cannot be answered there at all — the retry loop has seen its
     ///   `move` succeed and broken out — so it is answered on the sweep's side:
-    ///   `prune(directory:now:)` re-lists immediately before its recursive
-    ///   removal and reclaims nothing it can still see something in.
+    ///   `prune(directory:now:activityDays:)` re-lists immediately before its
+    ///   recursive removal and reclaims nothing it can still see something in.
     ///
     /// The third — **a queued capture of *older* text landing after this one** —
     /// is answered upstream rather than here, and could not be answered here:

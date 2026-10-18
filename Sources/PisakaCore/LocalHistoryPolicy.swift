@@ -60,7 +60,7 @@ public enum LocalHistoryCaptureDecision: Equatable, Sendable {
 ///   rule, in one precedence order.
 /// - **Label text**: `label(from:)` — what a user's label may say, asked by the
 ///   prompt's button and by the sidecar reader alike.
-/// - **Retention**: `prune(_:now:)` — what a file's directory should still hold,
+/// - **Retention**: `prune(_:now:activityDays:calendar:)` — what a file's directory should still hold,
 ///   decided on snapshot *names* alone (which is what makes retention one
 ///   directory read; see `LocalHistoryLayout`).
 ///
@@ -80,10 +80,12 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     /// revisions have no business sitting in Application Support.
     public static let defaultMaxContentBytes = ProjectSearchModel.defaultMaxFileBytes
 
-    /// How long a revision is kept — 14 days. Long enough to cover "what did this
-    /// look like before last week's refactor" (which is the accident this feature
+    /// How long a revision is kept at the least — 14 days. Long enough to cover
+    /// "what did this look like before last week's refactor" (which is the accident this feature
     /// exists for), short enough that an ordinary project's history stays small
-    /// without the user ever being asked about it.
+    /// without the user ever being asked about it. A floor rather than a
+    /// deadline: retention also waits for `activityDayCount` days of recorded
+    /// activity after the revision (`prune(_:now:activityDays:calendar:)`).
     public static let defaultMaxAge: TimeInterval = 14 * 24 * 60 * 60
 
     /// How many revisions one file keeps — 30. The age bound alone is unbounded
@@ -211,11 +213,25 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
 
     // MARK: - Retention
 
+    /// How many recorded activity days must fall after a revision's own day
+    /// before its age counts against it — 14, the same number `defaultMaxAge`
+    /// states in calendar days.
+    ///
+    /// Static rather than an instance property because it is also the record's
+    /// capacity (`LocalHistoryLayout.activityDays(fromRecord:)` keeps exactly
+    /// this many): a policy asking for more days than the record can hold would
+    /// never expire anything, and two numbers that must agree are one number.
+    public static let activityDayCount = 14
+
     /// What one file's directory should still hold, and what may be deleted.
     ///
     /// Three rules in order:
     ///
-    /// 1. **Age** — anything older than `maxAge` goes.
+    /// 1. **Age** — a revision is expired when it is older than `maxAge` **and**,
+    ///    when `activityDays` is supplied, at least `activityDayCount` recorded
+    ///    days fall strictly after the revision's own local day. The calendar
+    ///    half alone is the rule when `activityDays` is `nil` (no record, or one
+    ///    that did not parse), so a missing record behaves exactly as before.
     /// 2. **Count** — of what is left after age, only the newest
     ///    `revisionsPerFile` stay.
     /// 3. **The newest always survives**, unconditionally, even when the first
@@ -224,6 +240,19 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     ///    alone for a month still has the revision from before that edit. It is
     ///    applied as a reinstatement rather than as an exception inside the other
     ///    two so that the two remain plain and the guarantee is stated once.
+    ///
+    /// **The age rule is an AND, never an OR.** The activity half can only spare
+    /// a revision the calendar half condemned, never condemn one it spared, so
+    /// nothing is ever reclaimed earlier than the calendar rule alone would
+    /// reclaim it: a user active every day gets exactly the calendar behaviour,
+    /// and one away for a month comes back to the last 14 days they actually
+    /// worked rather than to nothing.
+    ///
+    /// `activityDays` are `LocalHistoryLayout.activityDay(of:calendar:)`
+    /// spellings — `yyyy-MM-dd`, which order lexically as they do in time — and
+    /// a revision's own day is spelled through the same function with the same
+    /// `calendar`, whose time zone is what "local day" means. Both are injected,
+    /// so a test pins 23:59 and 00:01 as two days on any machine.
     ///
     /// Both returned arrays are newest-first. An event label buys nothing here —
     /// a `save` and a `commit` snapshot age out on identical terms — because a
@@ -235,7 +264,9 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
     /// its inputs and the boundary cases are testable without waiting.
     public func prune(
         _ snapshots: [LocalHistorySnapshot],
-        now: Date
+        now: Date,
+        activityDays: [String]? = nil,
+        calendar: Calendar = .autoupdatingCurrent
     ) -> (keep: [LocalHistorySnapshot], delete: [LocalHistorySnapshot]) {
         let ordered = LocalHistorySnapshot.sortedNewestFirst(snapshots)
         guard let newest = ordered.first else { return (keep: [], delete: []) }
@@ -244,7 +275,7 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
         var delete: [LocalHistorySnapshot] = []
         var kept = 0
         for snapshot in ordered {
-            let expired = now.timeIntervalSince(snapshot.timestamp) > maxAge
+            let expired = isExpired(snapshot, now: now, activityDays: activityDays, calendar: calendar)
             let overflowing = kept >= revisionsPerFile
             if expired || overflowing {
                 delete.append(snapshot)
@@ -261,5 +292,19 @@ public struct LocalHistoryPolicy: Equatable, Sendable {
             delete.removeAll { $0 == newest }
         }
         return (keep: keep, delete: delete)
+    }
+
+    /// Rule 1 for one revision: the calendar half, then — only when that
+    /// condemns it and a record is in hand — the activity half.
+    private func isExpired(
+        _ snapshot: LocalHistorySnapshot,
+        now: Date,
+        activityDays: [String]?,
+        calendar: Calendar
+    ) -> Bool {
+        guard now.timeIntervalSince(snapshot.timestamp) > maxAge else { return false }
+        guard let activityDays else { return true }
+        let own = LocalHistoryLayout.activityDay(of: snapshot.timestamp, calendar: calendar)
+        return activityDays.filter { $0 > own }.count >= Self.activityDayCount
     }
 }

@@ -443,4 +443,52 @@ final class LocalHistoryLayoutTests: XCTestCase {
         let name = "000000177234567890١-save-0123456789abcdef.snapshot"
         XCTAssertNil(LocalHistoryLayout.snapshot(fromFileName: name))
     }
+
+    // MARK: - The activity record
+
+    func testTheActivityRecordSitsInTheProjectAreaAndNeverParsesAsASnapshot() {
+        let layout = LocalHistoryLayout(base: URL(fileURLWithPath: "/store/LocalHistory"))
+        let root = URL(fileURLWithPath: "/Users/someone/project")
+        XCTAssertEqual(
+            layout.activityRecord(forRoot: root),
+            layout.projectDirectory(forRoot: root).appendingPathComponent("activity")
+        )
+        XCTAssertNil(LocalHistoryLayout.snapshot(fromFileName: LocalHistoryLayout.activityRecordName))
+        // Replaced through the file service's atomic write, so it has no
+        // `.partial` of this feature's own for the sweep to reclaim.
+        XCTAssertFalse(LocalHistoryLayout.isOwnTemporary("activity.partial"))
+    }
+
+    func testTheRecordTextRoundTrips() {
+        let days = ["2026-10-01", "2026-10-03", "2026-10-18"]
+        let text = LocalHistoryLayout.activityRecordText(days: days)
+        XCTAssertEqual(text, "2026-10-01\n2026-10-03\n2026-10-18\n")
+        XCTAssertEqual(LocalHistoryLayout.activityDays(fromRecord: text), days)
+    }
+
+    func testTheParserDeduplicatesSortsAndKeepsTheNewestFourteen() {
+        let text = (1...20).reversed().map { String(format: "2026-01-%02d", $0) }.joined(separator: "\n")
+            + "\n2026-01-20\n\n2026-01-05"
+        let parsed = LocalHistoryLayout.activityDays(fromRecord: text)
+        XCTAssertEqual(parsed, (7...20).map { String(format: "2026-01-%02d", $0) })
+    }
+
+    func testAnythingUnparsableGivesNil() {
+        for text in [
+            "", "\n\n", "garbage", "2026-10-18\nnot a day", "2026-13-01", "2026-02-30", "26-10-18",
+            "2026-10-18 ", "2026/10/18", "２０２６-10-18", "2026-1-18",
+        ] {
+            XCTAssertNil(LocalHistoryLayout.activityDays(fromRecord: text), "accepted \(text.debugDescription)")
+        }
+        XCTAssertEqual(LocalHistoryLayout.activityDays(fromRecord: "2024-02-29"), ["2024-02-29"])
+    }
+
+    /// The spelling is Gregorian whatever calendar is injected; only its time
+    /// zone is used.
+    func testTheDaySpellingIgnoresTheCalendarsEra() {
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = TimeZone(identifier: "UTC")!
+        let moment = Date(timeIntervalSince1970: 1_760_745_600) // 2025-10-18 00:00 UTC
+        XCTAssertEqual(LocalHistoryLayout.activityDay(of: moment, calendar: japanese), "2025-10-18")
+    }
 }

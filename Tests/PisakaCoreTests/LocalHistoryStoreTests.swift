@@ -26,8 +26,32 @@ final class LocalHistoryStoreTests: XCTestCase {
         StubFileTree(root: storeRoot, files: [:])
     }
 
-    private func makeStore(_ tree: StubFileTree, policy: LocalHistoryPolicy = LocalHistoryPolicy()) -> LocalHistoryStore {
-        LocalHistoryStore(layout: layout, fileService: tree, policy: policy)
+    /// Gregorian in UTC, so where midnight falls is the test's decision and not
+    /// the machine's.
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private func makeStore(
+        _ tree: StubFileTree,
+        policy: LocalHistoryPolicy = LocalHistoryPolicy(),
+        calendar: Calendar? = nil
+    ) -> LocalHistoryStore {
+        LocalHistoryStore(layout: layout, fileService: tree, policy: policy, calendar: calendar ?? utc)
+    }
+
+    /// The tree-relative path of the project area's activity record.
+    private func activityRecord(in tree: StubFileTree) -> String {
+        tree.relativePath(of: layout.activityRecord(forRoot: projectRoot))
+    }
+
+    /// Remove the activity record the captures above wrote, so a retention test
+    /// written against the calendar rule exercises exactly that rule — which is
+    /// what a missing record falls back to.
+    private func forgetActivity(in tree: StubFileTree) {
+        tree.files[activityRecord(in: tree)] = nil
     }
 
     /// The tree-relative path of one file's snapshot directory.
@@ -109,13 +133,16 @@ final class LocalHistoryStoreTests: XCTestCase {
             store.capture(text: "after", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
         )
 
-        // Two snapshots and one path record — the record only on the first.
+        // Two snapshots and one path record — the record only on the first — and
+        // the activity record once, both captures falling on one day; it is
+        // written directly rather than moved into place.
         XCTAssertEqual(tree.moves.map(\.to), [
             "\(directory)/\(before.fileName)",
             "\(directory)/\(LocalHistoryLayout.pathRecordName)",
             "\(directory)/\(after.fileName)",
         ])
-        XCTAssertEqual(tree.writtenPaths.count, 3)
+        XCTAssertEqual(tree.writtenPaths.count, 4)
+        XCTAssertEqual(tree.writtenPaths.filter { $0 == activityRecord(in: tree) }.count, 1)
         let listed = store.revisions(root: projectRoot, relativePath: path)
         XCTAssertEqual(listed.count, 2)
         XCTAssertEqual(listed.first, after)
@@ -154,20 +181,23 @@ final class LocalHistoryStoreTests: XCTestCase {
 
     /// The first capture of a file costs one `move` for the snapshot and one for
     /// its path record, each through its own temporary; every later capture
-    /// costs the snapshot's alone and never reads the record.
+    /// costs the snapshot's alone and never reads the record. The project's
+    /// activity record is the one other write, once for the day, and the one
+    /// read a writing capture makes.
     func testCaptureWritesThroughATemporaryNameAndOneMovePlusTheRecordOnTheFirst() throws {
         let tree = makeTree()
         let store = makeStore(tree)
         let directory = fileDirectory(path, in: tree)
         let suffix = LocalHistoryLayout.temporarySuffix
         let record = "\(directory)/\(LocalHistoryLayout.pathRecordName)"
+        let activity = activityRecord(in: tree)
 
         let snapshot = try XCTUnwrap(
             store.capture(text: "hello", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
         )
 
         let written = "\(directory)/\(snapshot.fileName)\(suffix)"
-        XCTAssertEqual(tree.writtenPaths, [written, record + suffix])
+        XCTAssertEqual(tree.writtenPaths, [written, record + suffix, activity])
         XCTAssertNil(LocalHistoryLayout.snapshot(fromFileName: (written as NSString).lastPathComponent))
         XCTAssertEqual(tree.moves, [
             StubFileTree.Move(from: written, to: "\(directory)/\(snapshot.fileName)"),
@@ -180,13 +210,19 @@ final class LocalHistoryStoreTests: XCTestCase {
         let second = try XCTUnwrap(
             store.capture(text: "changed", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
         )
-        XCTAssertEqual(tree.writtenPaths, [written, record + suffix, "\(directory)/\(second.fileName)\(suffix)"])
+        XCTAssertEqual(
+            tree.writtenPaths,
+            [written, record + suffix, activity, "\(directory)/\(second.fileName)\(suffix)"]
+        )
         XCTAssertEqual(tree.moves.count, 3)
         XCTAssertNil(store.capture(text: "changed", root: projectRoot, relativePath: path, event: .save, now: date(3_000)))
-        XCTAssertEqual(tree.writtenPaths.count, 3)
-        // Capture never reads a record's content, on any path through it.
+        XCTAssertEqual(tree.writtenPaths.count, 4)
+        // Capture never reads a path record's content, on any path through it;
+        // the activity record is asked once per writing capture and not otherwise
+        // (the stub logs a read that found a file, so the first capture's miss
+        // leaves no entry).
         XCTAssertFalse(tree.readPaths.contains(record))
-        XCTAssertEqual(tree.readPaths, [])
+        XCTAssertEqual(tree.readPaths, [activity])
     }
 
     /// The path record is the digest's input in its normalised spelling, so a
@@ -1038,6 +1074,7 @@ final class LocalHistoryStoreTests: XCTestCase {
             store.capture(text: "two", root: projectRoot, relativePath: path, event: .save, now: date(1_010))
             XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2)
         }
+        forgetActivity(in: tree)
 
         store.prune(root: projectRoot, now: date(100_000))
 
@@ -1271,6 +1308,7 @@ final class LocalHistoryStoreTests: XCTestCase {
         let store = makeStore(tree, policy: LocalHistoryPolicy(maxAge: 60))
         store.capture(text: "first", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
         store.capture(text: "second", root: projectRoot, relativePath: path, event: .save, now: date(2_000))
+        forgetActivity(in: tree)
 
         store.pruneAll(now: date(10_000_000))
         store.pruneAll(now: date(20_000_000))
@@ -1291,5 +1329,234 @@ final class LocalHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(tree.removedPaths, [])
         XCTAssertEqual(tree.writtenPaths, [])
+    }
+
+    // MARK: - Activity days
+
+    private let day: TimeInterval = 86_400
+    /// 2026-03-01 10:00 UTC — far enough from 1970 that day arithmetic reads
+    /// naturally, and mid-morning so ± a few hours stays on the day.
+    private let morning = Date(timeIntervalSince1970: 1_772_359_200)
+
+    func testTheRecordIsWrittenOncePerDay() throws {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let activity = activityRecord(in: tree)
+
+        store.capture(text: "one", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "two", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(3_600))
+        store.capture(text: "three", root: projectRoot, relativePath: "other.swift", event: .save,
+                      now: morning.addingTimeInterval(7_200))
+        XCTAssertEqual(tree.writtenPaths.filter { $0 == activity }.count, 1)
+        XCTAssertEqual(tree.files[activity], "2026-03-01\n")
+
+        store.capture(text: "four", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        XCTAssertEqual(tree.writtenPaths.filter { $0 == activity }.count, 2)
+        XCTAssertEqual(tree.files[activity], "2026-03-01\n2026-03-02\n")
+    }
+
+    /// A capture that writes nothing notes no day — and so creates no area.
+    func testASkippedCaptureNotesNoDay() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "same", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "same", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        XCTAssertEqual(tree.files[activityRecord(in: tree)], "2026-03-01\n")
+
+        let untouched = makeTree()
+        makeStore(untouched, policy: LocalHistoryPolicy(maxContentBytes: 1))
+            .capture(text: "too big", root: projectRoot, relativePath: path, event: .save, now: morning)
+        XCTAssertEqual(untouched.writtenPaths, [])
+    }
+
+    /// The record keeps only the newest fourteen days, so it stays small forever.
+    func testTheRecordHoldsAtMostFourteenDays() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        for offset in 0..<20 {
+            store.capture(text: "v\(offset)", root: projectRoot, relativePath: path, event: .save,
+                          now: morning.addingTimeInterval(TimeInterval(offset) * day))
+        }
+        let days = tree.files[activityRecord(in: tree)].flatMap(LocalHistoryLayout.activityDays(fromRecord:))
+        XCTAssertEqual(days?.count, 14)
+        XCTAssertEqual(days?.first, "2026-03-07")
+        XCTAssertEqual(days?.last, "2026-03-20")
+    }
+
+    /// Captures `text` on each of `days` later days, one per day, to `relativePath`.
+    private func captureOnLaterDays(
+        _ days: Int,
+        store: LocalHistoryStore,
+        root: URL? = nil,
+        relativePath: String = "busy.swift"
+    ) {
+        for offset in 1...days {
+            store.capture(text: "busy \(offset)", root: root ?? projectRoot, relativePath: relativePath, event: .save,
+                          now: morning.addingTimeInterval(TimeInterval(offset) * day))
+        }
+    }
+
+    func testARevisionTwentyDaysOldWithThreeLaterActivityDaysSurvivesTheSweep() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        captureOnLaterDays(3, store: store)
+
+        store.pruneAll(now: morning.addingTimeInterval(20 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2)
+    }
+
+    func testFourteenLaterActivityDaysPlusAnExpiredCalendarAgeDeletes() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        captureOnLaterDays(14, store: store)
+
+        store.pruneAll(now: morning.addingTimeInterval(20 * day))
+
+        let listed = store.revisions(root: projectRoot, relativePath: path)
+        XCTAssertEqual(listed.compactMap { store.content(of: $0, root: projectRoot, relativePath: path) }, ["newer"])
+    }
+
+    func testFourteenLaterActivityDaysInsideTheCalendarWindowSurvive() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        captureOnLaterDays(14, store: store)
+
+        // Fourteen activity days on record, but the revision is exactly 14 days
+        // old — inside the calendar window, which the AND still honours.
+        store.pruneAll(now: morning.addingTimeInterval(14 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2)
+    }
+
+    func testTheNewestRevisionSurvivesAnyRecord() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "only", root: projectRoot, relativePath: path, event: .save, now: morning)
+        captureOnLaterDays(14, store: store)
+
+        store.pruneAll(now: morning.addingTimeInterval(400 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 1)
+    }
+
+    /// A missing record and a garbled one both mean the calendar rule, exactly.
+    func testAMissingOrGarbledRecordGivesExactlyTheCalendarResult() {
+        for record in [nil, "garbage\n", "2026-03-01\n2026-02-30\n"] as [String?] {
+            let tree = makeTree()
+            let store = makeStore(tree)
+            store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+            store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save,
+                          now: morning.addingTimeInterval(day))
+            tree.files[activityRecord(in: tree)] = record
+
+            store.prune(root: projectRoot, now: morning.addingTimeInterval(20 * day))
+
+            let listed = store.revisions(root: projectRoot, relativePath: path)
+            XCTAssertEqual(
+                listed.compactMap { store.content(of: $0, root: projectRoot, relativePath: path) },
+                ["newer"],
+                "record \(record.debugDescription)"
+            )
+        }
+    }
+
+    /// Activity is per project: a busy neighbour does not age a quiet one.
+    func testAnotherProjectsActivityDoesNotAgeThisOne() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let busyRoot = URL(fileURLWithPath: "/Users/someone/busy")
+        store.capture(text: "old", root: projectRoot, relativePath: path, event: .save, now: morning)
+        store.capture(text: "newer", root: projectRoot, relativePath: path, event: .save, now: morning.addingTimeInterval(day))
+        captureOnLaterDays(14, store: store, root: busyRoot)
+
+        store.pruneAll(now: morning.addingTimeInterval(20 * day))
+
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 2)
+        XCTAssertNotEqual(layout.activityRecord(forRoot: busyRoot), layout.activityRecord(forRoot: projectRoot))
+    }
+
+    /// A capture's own prune reads the record and lists its own file directory —
+    /// never another file directory, never the area.
+    func testACaptureListsOnlyItsOwnFileDirectory() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        store.capture(text: "a", root: projectRoot, relativePath: "a.swift", event: .save, now: morning)
+        store.capture(text: "b", root: projectRoot, relativePath: "b.swift", event: .save, now: morning)
+        let before = tree.listedPaths.count
+
+        store.capture(text: "a2", root: projectRoot, relativePath: "a.swift", event: .save,
+                      now: morning.addingTimeInterval(day))
+
+        XCTAssertEqual(Array(tree.listedPaths.dropFirst(before)), [fileDirectory("a.swift", in: tree)])
+    }
+
+    /// A project prune reads the record once, however many file directories it
+    /// judges against it.
+    func testAProjectPruneReadsTheRecordOnce() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        for name in ["a.swift", "b.swift", "c.swift"] {
+            store.capture(text: name, root: projectRoot, relativePath: name, event: .save, now: morning)
+        }
+        let before = tree.readPaths.count
+
+        store.prune(root: projectRoot, now: morning.addingTimeInterval(day))
+
+        XCTAssertEqual(Array(tree.readPaths.dropFirst(before)), [activityRecord(in: tree)])
+    }
+
+    /// The record is bookkeeping, not history: an area holding only it goes,
+    /// record and all.
+    func testAnAreaHoldingOnlyTheRecordIsRemovedWithIt() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        tree.files[activityRecord(in: tree)] = "2026-03-01\n"
+        tree.directories.insert("\(project)/0123456789abcdef0123456789abcdef")
+
+        store.pruneAll(now: morning)
+
+        XCTAssertFalse(tree.hasDirectory(project))
+        XCTAssertNil(tree.files[activityRecord(in: tree)])
+    }
+
+    func testAForeignEntryBesideTheRecordKeepsTheAreaAndTheRecord() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        tree.files[activityRecord(in: tree)] = "2026-03-01\n"
+        tree.files["\(project)/notes.txt"] = "somebody else's"
+
+        store.pruneAll(now: morning)
+
+        XCTAssertTrue(tree.hasDirectory(project))
+        XCTAssertEqual(tree.files[activityRecord(in: tree)], "2026-03-01\n")
+        XCTAssertEqual(tree.files["\(project)/notes.txt"], "somebody else's")
+    }
+
+    /// The injected calendar decides the day: the same two moments are one day
+    /// in UTC and two in Tokyo.
+    func testTheInjectedTimeZoneDecidesWhichDayACaptureNotes() {
+        var tokyo = utc
+        tokyo.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let evening = morning.addingTimeInterval(13 * 3_600) // 23:00 UTC, 08:00 next day in Tokyo
+        let earlier = morning.addingTimeInterval(4 * 3_600) // 14:00 UTC, 23:00 in Tokyo
+
+        let utcTree = makeTree()
+        makeStore(utcTree).capture(text: "1", root: projectRoot, relativePath: path, event: .save, now: earlier)
+        makeStore(utcTree).capture(text: "2", root: projectRoot, relativePath: path, event: .save, now: evening)
+        XCTAssertEqual(utcTree.files[activityRecord(in: utcTree)], "2026-03-01\n")
+
+        let tokyoTree = makeTree()
+        makeStore(tokyoTree, calendar: tokyo).capture(text: "1", root: projectRoot, relativePath: path, event: .save, now: earlier)
+        makeStore(tokyoTree, calendar: tokyo).capture(text: "2", root: projectRoot, relativePath: path, event: .save, now: evening)
+        XCTAssertEqual(tokyoTree.files[activityRecord(in: tokyoTree)], "2026-03-01\n2026-03-02\n")
     }
 }

@@ -206,16 +206,16 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Sources/PisakaCore/LocalHistoryStore.swift`
 - Modify: LocalHistoryPolicy/Store tests
 
-- [ ] Change the prune to `prune(_:now:activityDays:calendar:)`. When `activityDays` is nil, the age rule is the calendar rule. Otherwise a revision expires only if the calendar rule expires it AND at least 14 recorded days fall strictly after the revision's own local day. The count cap and the reinstatement order are unchanged.
-- [ ] In the layout: the `activity` record's name, its format and its parser. The parser is tolerant: anything unparsable gives nil, lines are deduplicated and sorted, and only the newest 14 days are kept.
-- [ ] In the store:
+- [x] Change the prune to `prune(_:now:activityDays:calendar:)`. When `activityDays` is nil, the age rule is the calendar rule. Otherwise a revision expires only if the calendar rule expires it AND at least 14 recorded days fall strictly after the revision's own local day. The count cap and the reinstatement order are unchanged.
+- [x] In the layout: the `activity` record's name, its format and its parser. The parser is tolerant: anything unparsable gives nil, lines are deduplicated and sorted, and only the newest 14 days are kept.
+- [x] In the store:
   - a capture adds today to the project's record when today is not already the newest entry, so the record is read and written at most once per day
   - a capture and a project prune each read the record once per project
   - a capture-time prune never lists other file directories
   - an area holding only the record is removed together with the record
   - a foreign entry still blocks removal
   - the synchronous quit capture keeps its existing main-thread exception, and nothing new writes from the main thread
-- [ ] Tests:
+- [x] Tests:
   - 23:59 and 00:01 count as two days
   - a revision 20 days old with 3 later activity days survives
   - 14 later activity days plus an expired calendar age deletes
@@ -226,7 +226,7 @@ Part B, retention. Local History retention counts 14 activity days per project i
   - another project's activity does not age this one
   - the area-emptying cleanup removes the record
   - the calendar and time zone are injected, so the tests are deterministic
-- [ ] Run swift test; it must pass before task 6.
+- [x] Run swift test; it must pass before task 6.
 
 ### Task 6: App wiring of the guarded writes (autosave, ⌘S, close, Run/Test, commit, quit)
 
