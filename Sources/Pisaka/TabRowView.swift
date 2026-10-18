@@ -17,11 +17,12 @@ import PisakaCore
 ///
 /// The horizontal strip's cell is `TabStripView`'s own, not a second branch
 /// here; the two things the orientations genuinely share are views living
-/// beside that cell — `TabStatusMark`, so the three-claimant precedence exists
+/// beside that cell — `TabStatusMark`, so the four-claimant precedence exists
 /// once, and `TabFileIcon`, so the untitled-buffer fallback is spelled once.
 struct TabRowView: View {
     let file: OpenFile
     let isActive: Bool
+    let isInConflict: Bool
     let onSelect: () -> Void
     let onClose: (TabCloseCommand) -> Void
 
@@ -46,6 +47,7 @@ struct TabRowView: View {
             TabStatusMark(
                 isHovering: isHovering,
                 isDirty: file.isDirty,
+                isInConflict: isInConflict,
                 isActive: isActive,
                 onClose: onClose
             )

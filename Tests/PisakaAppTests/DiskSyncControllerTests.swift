@@ -11,7 +11,11 @@ import PisakaCore
 ///   when the gate comes down;
 /// - a watcher pass over unchanged files publishes nothing, so a burst of them
 ///   does **not re-arm the autosave idle debounce** — observed through
-///   autosave's save sink, never through a clock.
+///   autosave's save sink, never through a clock;
+/// - the editor bar's two actions the controller owns: Reload is refused while
+///   the writer gate is up and otherwise discards the edits for the disk's text,
+///   and Compare opens the buffer against the disk side under the
+///   external-change title, as `LineDiff`'s rows.
 ///
 /// Real files in a throwaway directory, through the real `FileService`.
 @MainActor
@@ -104,6 +108,76 @@ final class DiskSyncControllerTests: XCTestCase {
         wait(for: [saved], timeout: 15)
         XCTAssertGreaterThan(passes, 0)
         XCTAssertEqual(try String(contentsOf: edited, encoding: .utf8), "edited in the app")
+    }
+
+    /// Stage tab `a.txt` in conflict: opened on `base`, edited to `buffer`, the
+    /// file rewritten to `disk` by another writer, and the disk checked.
+    private func conflictedTab(
+        base: String, buffer: String, disk: String
+    ) throws -> (model: WorkspaceModel, id: UUID) {
+        let url = try write(base, "a.txt")
+        let model = WorkspaceModel(fileService: FileService())
+        let id = try model.open(url: url).id
+        model.updateText(buffer, for: id)
+        _ = try write(disk, "a.txt")
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id), "the staging left the tab out of conflict")
+        return (model, id)
+    }
+
+    func testTheBarsReloadWaitsForTheWriterGateAndThenTakesTheDisksText() throws {
+        let (model, id) = try conflictedTab(base: "base\n", buffer: "mine\n", disk: "theirs, longer\n")
+        let gate = CurrentValueSubject<Bool, Never>(true)
+        let controller = DiskSyncController(ask: { _ in
+            XCTFail("the bar's Reload is already an answer")
+            return .cancel
+        })
+        var reloads: [UUID] = []
+        controller.start(model: model, localHistory: nil, gate: gate.eraseToAnyPublisher()) { reloadedID, _ in
+            reloads.append(reloadedID)
+        }
+        defer { controller.stop() }
+
+        controller.reloadFromBar(id)
+        XCTAssertEqual(model.text(for: id), "mine\n", "a reload under the writer gate read a file git may be writing")
+        XCTAssertTrue(model.isInExternalConflict(id))
+        XCTAssertEqual(reloads, [])
+
+        gate.send(false)
+        controller.reloadFromBar(id)
+        XCTAssertEqual(model.text(for: id), "theirs, longer\n")
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.openFiles.first?.isDirty, false)
+        XCTAssertEqual(reloads, [id])
+    }
+
+    func testCompareShowsTheBufferAgainstTheDiskSideUnderTheExternalChangeTitle() async throws {
+        let (model, id) = try conflictedTab(base: "one\ntwo\n", buffer: "one\nlet value = 1\n", disk: "one\nlet value = 22\n")
+        let controller = DiskSyncController()
+        controller.start(model: model, localHistory: nil, gate: Just(false).eraseToAnyPublisher()) { _, _ in }
+        defer { controller.stop() }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DiskSyncControllerTests-\(UUID().uuidString)"))
+        let settings = SettingsStore(defaults: defaults)
+
+        let compare = try XCTUnwrap(controller.compareContent(of: id, settings: settings))
+        XCTAssertEqual(compare.title, DiffWindowTitle.externalChange(path: "a.txt"))
+        let rows = await compare.content.load()
+        XCTAssertEqual(rows, LineDiff.rows(old: "one\nlet value = 1\n", new: "one\nlet value = 22\n"))
+        let modified = try XCTUnwrap(
+            rows.first { $0.kind == .modified },
+            "the buffer and the disk differ on one line, which Compare must pair as a modification"
+        )
+        XCTAssertNotNil(modified.words, "Compare carries the word emphasis LineDiff computes")
+
+        // The texts were snapshotted when Compare was pressed.
+        model.updateText("one\nchanged after the press\n", for: id)
+        let again = await compare.content.load()
+        XCTAssertEqual(again, rows)
+
+        // A tab out of conflict opens nothing.
+        model.updateText("one\nlet value = 22\n", for: id)
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertNil(controller.compareContent(of: id, settings: settings))
     }
 }
 #endif

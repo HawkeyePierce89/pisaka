@@ -9,7 +9,7 @@ import PisakaCore
 /// orientations state different chrome — the strip a height and a rule *under*
 /// it, this column a width it is given and a boundary its splitter states for
 /// it — so neither can be a branch inside the other. The one thing they genuinely share, the
-/// trailing slot's three-claimant precedence, is shared as `TabStatusMark`.
+/// trailing slot's four-claimant precedence, is shared as `TabStatusMark`.
 /// Which orientation a window shows is still `SettingsStore.tabOrientation`,
 /// read by the host, which also bounds the column's width through
 /// `TabColumnWidthRule` (a third of the window at most), by way of
@@ -39,6 +39,7 @@ struct TabListView: View {
                     TabRowView(
                         file: file,
                         isActive: file.id == model.selectedID,
+                        isInConflict: model.isInExternalConflict(file.id),
                         onSelect: { model.select(file.id) },
                         onClose: { actions.close($0, file.id) }
                     )

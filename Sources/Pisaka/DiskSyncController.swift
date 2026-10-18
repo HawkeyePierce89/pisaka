@@ -166,6 +166,48 @@ final class DiskSyncController {
         return true
     }
 
+    // MARK: - The bar
+
+    /// The bar's Reload: refused with a beep while the writer gate is up — the
+    /// reload reads the file a git operation may be rewriting, and the operation
+    /// resyncs its own tabs when it ends — and otherwise the modal's own
+    /// capture-then-act helper.
+    func reloadFromBar(_ id: UUID) {
+        guard !gateUp else {
+            PlatformFeedback.warning()
+            return
+        }
+        discardEdits(of: id)
+    }
+
+    /// The bar's Compare: open, in `windows`, the buffer (left) against the disk
+    /// side of tab `id`'s conflict (right), as `LineDiff` rows with their word
+    /// emphasis, under `DiffWindowTitle.externalChange`. Both texts are
+    /// snapshotted now, so the window shows the conflict as it stood when Compare
+    /// was pressed; the rows are built off the main actor. Opens nothing when the
+    /// tab is no longer in conflict.
+    func compare(_ id: UUID, settings: SettingsStore, in windows: DiffWindowController) {
+        guard let (title, content) = compareContent(of: id, settings: settings) else { return }
+        windows.open(title: title, content: content)
+    }
+
+    /// What `compare` opens, split out so a test can read the title and the rows
+    /// without a window. `nil` when the tab is not in conflict.
+    func compareContent(of id: UUID, settings: SettingsStore) -> (title: String, content: DiffWindowContent)? {
+        guard let model,
+              let file = model.openFiles.first(where: { $0.id == id }),
+              let disk = model.diskText(forConflict: id) else { return nil }
+        let buffer = file.text
+        let path = DisplayPath.relativePath(fileURL: file.url, projectRoot: model.projectRoot) ?? file.displayName
+        let content = DiffWindowContent(
+            fileID: "external-change:\(id.uuidString)",
+            fileName: file.displayName,
+            load: { await Task.detached { LineDiff.rows(old: buffer, new: disk) }.value },
+            settings: settings
+        )
+        return (DiffWindowTitle.externalChange(path: path), content)
+    }
+
     // MARK: - The quit
 
     /// The quit's question (`AppDelegate.externalChangeQuestion`): every dirty

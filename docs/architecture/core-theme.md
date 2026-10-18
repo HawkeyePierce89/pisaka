@@ -3141,7 +3141,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more: **sixty-five** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more — sixty-five — and the external-change bar, `ExternalChangeBar.swift`, one more: **sixty-six** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -4216,8 +4216,8 @@ document spelling it checked against that. The gated set's size is held the
 same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
 `gatedFiles.count`, spelled from the same `spelled` table, must appear in both
 summaries in the sentence naming it — the running total in the gated-files
-entry above, ending on "**sixty-five** in all today", and `CLAUDE.md`'s "pins
-which files obey the rule (sixty-five, by set equality)". Before it only prose
+entry above, ending on "**sixty-six** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-six, by set equality)". Before it only prose
 stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'

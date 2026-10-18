@@ -274,18 +274,18 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/MenuShortcutUniquenessTests.swift` (only if a shortcut is added; none is planned)
 
-- [ ] The bar above the editor, shown for the selected tab while it is in conflict (including the clean-but-stale case from the derived rule):
+- [x] The bar above the editor, shown for the selected tab while it is in conflict (including the clean-but-stale case from the derived rule):
   - the message plus Reload, Overwrite and Compare, as equally weighted plain buttons
   - colours from chrome roles, sizes from InterfaceMetrics
   - it disappears when the conflict does
-- [ ] A conflict marker in the tab strip and in the tab list row, distinct from the dirty dot.
-- [ ] The bar's Reload and Overwrite use the same capture-then-act helpers as the modal.
-- [ ] Compare opens DiffWindowController with the buffer against `diskText(forConflict:)`, through LineDiff rows (word emphasis included), under the new title.
-- [ ] Tests:
+- [x] A conflict marker in the tab strip and in the tab list row, distinct from the dirty dot.
+- [x] The bar's Reload and Overwrite use the same capture-then-act helpers as the modal.
+- [x] Compare opens DiffWindowController with the buffer against `diskText(forConflict:)`, through LineDiff rows (word emphasis included), under the new title.
+- [x] Tests:
   - update LocalHistorySourceGatingTests' capture-site and write-path inventories for the two new capture sites
   - add ExternalChangeBar to ChromeThemeSourceGatingTests' set, and to the zoom set wherever its rules require
   - an app-layer HostedRender test of the bar's layout: three buttons, none styled as the default
-- [ ] Run swift test and the app-layer bundle; both must pass before task 8.
+- [x] Run swift test and the app-layer bundle; both must pass before task 8. (swift test: 6914 tests, 0 failures. App bundle: every new and touched suite passes; the same 8 scale-1.8 layout failures recorded in task 6 reproduce on the unchanged baseline on this machine)
 
 ### Task 8: Verify acceptance criteria
 

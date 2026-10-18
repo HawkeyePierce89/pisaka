@@ -32,6 +32,7 @@ struct TabStripView: View {
                     TabStripCell(
                         file: file,
                         isActive: file.id == model.selectedID,
+                        isInConflict: model.isInExternalConflict(file.id),
                         onSelect: { model.select(file.id) },
                         onClose: { actions.close($0, file.id) }
                     )
@@ -73,6 +74,7 @@ struct TabStripView: View {
 private struct TabStripCell: View {
     let file: OpenFile
     let isActive: Bool
+    let isInConflict: Bool
     let onSelect: () -> Void
     let onClose: (TabCloseCommand) -> Void
 
@@ -96,6 +98,7 @@ private struct TabStripCell: View {
             TabStatusMark(
                 isHovering: isHovering,
                 isDirty: file.isDirty,
+                isInConflict: isInConflict,
                 isActive: isActive,
                 onClose: onClose
             )
@@ -127,14 +130,22 @@ private struct TabStripCell: View {
 }
 
 /// The one slot both tab orientations draw at the trailing edge of a tab, with
-/// three claimants, in this order: the close mark while the pointer is in the
-/// tab, then the unsaved-changes dot, then the close mark on the active tab.
+/// four claimants, in this order: the close mark while the pointer is in the
+/// tab, then the external-change mark, then the unsaved-changes dot, then the
+/// close mark on the active tab.
 ///
 /// The dot therefore **outranks** the mark on an active tab — unsaved work is a
 /// fact about the file that nothing else states, while the mark is reachable by
 /// pointing at the tab — and the mark still shows on the active tab whenever
 /// there is nothing to report, so the tab most likely to be closed does not have
 /// to be hunted for.
+///
+/// The external-change mark — `fileWarning` in `statusYellow`, a shape and a
+/// colour the dot never takes — outranks the dot: a tab in conflict is usually
+/// dirty too, and the dot alone would claim autosave is going to write it,
+/// which it will not (`WorkspaceModel.isInExternalConflict`). A clean tab that
+/// is stale against the disk carries it as well, because the conflict rule is
+/// derived from the texts and not from the dirty flag.
 ///
 /// It is one view rather than one rule restated in each orientation: the strip
 /// and the column show the same three facts about the same file, and two
@@ -146,6 +157,7 @@ private struct TabStripCell: View {
 struct TabStatusMark: View {
     let isHovering: Bool
     let isDirty: Bool
+    let isInConflict: Bool
     let isActive: Bool
     let onClose: (TabCloseCommand) -> Void
 
@@ -158,6 +170,10 @@ struct TabStatusMark: View {
         ZStack {
             if isHovering {
                 closeMark
+            } else if isInConflict {
+                DesignGlyphImage(.fileWarning, size: 12, slot: 12, role: .statusYellow)
+                    .help("Changed on disk")
+                    .accessibilityLabel("Changed on disk")
             } else if isDirty {
                 Circle()
                     .fill(theme.color(.textSecondary))

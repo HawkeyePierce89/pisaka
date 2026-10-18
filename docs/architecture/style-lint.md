@@ -86,7 +86,14 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is external-change detection's, `file_length` 1954 →
+The most recent bump is the external-change bar's, `file_length` 1963 →
+**1966** and `type_body_length` 1956 → **1959**: three lines in `PisakaApp`,
+the bar's Reload, Overwrite and Compare closures handed to `ContentView`. The
+bar lives in `ExternalChangeBar.swift`, its Reload and Compare in
+`DiskSyncController.swift`, and its Overwrite is the existing `save(id:)` with
+the answer already given.
+
+The bump before it is external-change detection's, `file_length` 1954 →
 **1963** and `type_body_length` 1947 → **1956**: nine lines in `PisakaApp` —
 the `diskSync` property, its start beside autosave's, the quit question
 installed on the delegate, the watcher's pass request, the two-line resolution
@@ -95,7 +102,7 @@ Overwrite / Reload / Cancel question and the capture-then-act helpers live in
 `DiskSyncController.swift`, and every decision in Core's `ExternalChangeRule`
 and `WorkspaceModel` (`core-workspace.md`, `app-shell.md`).
 
-The bump before it is Revert Change's, `file_length` 1953 → **1954** and
+The bump before that is Revert Change's, `file_length` 1953 → **1954** and
 `type_body_length` 1946 → **1947**: one line in `PisakaApp`, the
 `ChangeCommandItems` entry in the Git menu, whose divider, item, action and the
 coordinator's `revertChange` half live in `ChangeCommands.swift`, and every

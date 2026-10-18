@@ -208,12 +208,15 @@ line_length:
 # in `save(id:)` and the commit notice's wrapped message, because the passes,
 # the question and the capture-then-act helpers live in
 # `DiskSyncController.swift` and every decision in Core's `ExternalChangeRule`
-# and `WorkspaceModel`. The number tracks the one file that
+# and `WorkspaceModel`. Then 1966 with the external-change bar: three lines,
+# the bar's Reload, Overwrite and Compare closures handed to `ContentView`, the
+# bar itself living in `ExternalChangeBar.swift` and its Reload and Compare in
+# `DiskSyncController.swift`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1963
-  error: 1963
+  warning: 1966
+  error: 1966
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -271,10 +274,11 @@ file_length:
 # Revert Change's one, the same one `file_length` counts: the
 # `ChangeCommandItems` entry inside the Git menu. Then to 1956 with
 # external-change detection's nine, the same nine `file_length` counts, every
-# one of them inside the struct body.
+# one of them inside the struct body. Then to 1959 with the external-change
+# bar's three, the same three `file_length` counts.
 type_body_length:
-  warning: 1956
-  error: 1956
+  warning: 1959
+  error: 1959
 
 function_body_length:
   warning: 140

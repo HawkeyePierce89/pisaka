@@ -966,6 +966,9 @@ struct PisakaApp: App {
                 onOpenDiff: { openLocalChangesDiff($0) },
                 onOpenCommitDiff: { openCommitDiff($0, in: $1) },
                 onResolveConflict: { resolveConflict($0) },
+                onExternalChangeReload: { diskSync.reloadFromBar($0) },
+                onExternalChangeOverwrite: { save(id: $0, externalChangeAnswer: .overwrite) },
+                onExternalChangeCompare: { diskSync.compare($0, settings: settings, in: diffWindows) },
                 onSwitchBranch: { switchBranch($0) },
                 onCreateBranchFromRemote: { createBranchFromRemote($0) },
                 onCheckoutRemote: { checkoutRemote($0) },
@@ -3940,7 +3943,7 @@ struct PisakaApp: App {
     /// Save the file identified by `id`, prompting for a location when it has
     /// none. Returns `true` only when the file ends up saved (not dirty).
     @discardableResult
-    private func save(id: UUID, abandoningBuffer: Bool = false) -> Bool {
+    private func save(id: UUID, abandoningBuffer: Bool = false, externalChangeAnswer: DiskSyncController.Answer? = nil) -> Bool {
         // A viewer tab holds nothing to save, so ⌘S over one is a no-op that
         // *reports success*: nothing to save is not a failure, and returning
         // `false` would beep at the close prompt and fail the run/test pre-run
@@ -3969,8 +3972,9 @@ struct PisakaApp: App {
         // The external-change check, after the gate and before the transform: a
         // save the question cancels rewrites nothing, and Reload leaves nothing to
         // write. Overwrite has already captured the disk side it is about to replace.
-        // Reload ends with the tab clean, which is this method's `true`.
-        let resolution = diskSync.resolveBeforeSave(id)
+        // Reload ends with the tab clean, which is this method's `true`. The bar's
+        // Overwrite arrives here already answered, so it asks nothing.
+        let resolution = diskSync.resolveBeforeSave(id, answer: externalChangeAnswer)
         guard case .write(let policy) = resolution else { return resolution == .reloaded }
         // Ask `.editorconfig` what saving this buffer changes and apply it *here*,
         // after the writer-gate refusal above and before the write below — so the
