@@ -862,7 +862,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     widget's catch-up, and publishing `current` is what re-triggers the Pull
     Requests coordinator's branch subscription, so its `runCheckout` failure path
     needs no trigger of its own (`core-github.md`). It happens *before* the alert,
-    so the tree the modal is drawn over is the tree found when it is dismissed.
+    so the tree the modal is drawn over is the tree found when it is dismissed,
+    and *before* the gates come down: the re-read awaits, and a disk-sync pass
+    the gate deferred would otherwise run in that gap and judge the checkout's
+    own writes as an outside change (a dirty tab landing in external conflict
+    instead of being reconciled).
     Both
     the switch and checkout-remote handlers run through the shared
     `runBranchOperation(_ event: LocalHistoryEvent = .branch, _ op: () async -> String?)`
@@ -1431,12 +1435,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the **open-tab resync**, through the same `openTabSnapshot()` /
     `resyncOpenTabsAfterCheckout(snapshot:repoRoot:mayRemoveFiles:)` pair as
     `revertChanges` and `switchBranch` (`applyMerge` resyncs its one resolved file
-    inline rather than through the loop). The loop counts a tab that was clean at
-    the snapshot and is still clean as untouched **whatever its text now**: the
-    gate's drop inside `endRevert()` releases a deferred disk-sync pass that may
-    already have reloaded it from what git wrote, and only a real edit — which
-    stays dirty, every save being refused under the gate — earns the
-    preserved-edit beep. All of them — the loop's two callers and
+    inline rather than through the loop). A disk-sync pass the gate deferred runs on the main-actor turn
+    *after* the gate's drop (`DiskSyncController`), never inside `endRevert()`, so
+    it cannot land between the drop and this loop: the loop's verdicts are its
+    own, and the pass then finds every stamp already adopted. All of them — the loop's two callers and
     `applyMerge`'s single-file path — ask `resyncViewerTab(_:mayRemoveFiles:)`
     before any text-shaped reasoning, because a viewer tab answers a text snapshot
     with "clean and unchanged" and would otherwise be force-closed over a file
@@ -2163,8 +2165,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     writer gate is up**: a git operation rewriting the worktree resyncs its own
     tabs from a snapshot (the open-tab resync invariant), and a pass landing
     mid-operation would read files git is still writing — so a request then sets
-    `passPending` and the pass runs once when the gate comes down
-    (`DiskSyncControllerTests`).
+    `passPending` and the pass runs once after the gate comes down
+    (`DiskSyncControllerTests`) — on the **next main-actor turn**, not inside the
+    drop: every gated operation resyncs its own tabs in the synchronous stretch
+    after `endRevert()` (the branch failure path keeps the gate up across its
+    awaiting re-read for the same reason), and a pass run first would judge the
+    operation's own writes as an outside change, putting a tab edited across a
+    checkout into external conflict. The gate and the debt are read again when
+    the turn comes.
     *Why synchronous, with no token.* The pass runs on the main actor: one stat
     per open titled tab, plus a content read only when a stamp differs — the cost
     profile of `open` and `reloadFromDisk`, which already run there. Nothing hops

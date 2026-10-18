@@ -570,8 +570,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`OpenFile.diskStamp`), and `checkDisk(id:)` applies `ExternalChangeRule`
     to it and acts on the verdict: `reload` goes through `reloadFromDisk(id:)`,
     `adoptBaseline` through that method's baseline-only branch (the buffer
-    already equals the disk), `stampOnly` refreshes the stamp alone and ends any
-    recorded conflict, `conflict` records the disk side and **leaves the stamp
+    already equals the disk), `stampOnly` records the stamp taken **before the read** —
+    never a second stat after it, which would let a writer landing between the
+    two have its stamp vouch for the older content — and ends any recorded
+    conflict, `conflict` records the disk side and **leaves the stamp
     untouched** — the baseline has not moved, so the next trigger reads the disk
     again — and `missing`/`leaveAlone` only drop a stale conflict entry. A read
     that throws is told apart by the stamp: none means missing, one means there
@@ -623,11 +625,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     pass that assigned unconditionally would republish on every coalesced
     watcher event, and a long burst (a package install reports every second)
     would keep re-arming the two-second debounce and hold off autosave of every
-    unrelated dirty tab for the whole burst. So the stamp refresh
-    (`refreshDiskStamp(for:)`, public because the Local History restore also
+    unrelated dirty tab for the whole burst. So the stamp refresh — `checkDisk`'s
+    `stampOnly` branch, and `refreshDiskStamp(for:)`, public because the Local History restore also
     calls it after creating the empty file it lands in — that create is the app's
     own write, and a tab that outlived the delete would otherwise read it as an
-    external change) writes only when the new stamp differs, and
+    external change — writes only when the new stamp differs, and
     `setObservedDiskSide` assigns only when an entry is actually added, changed
     or removed. A pass over files that did not move publishes nothing on either
     — pinned in `WorkspaceModelExternalChangeTests`.

@@ -4478,17 +4478,17 @@ struct PisakaApp: App {
             // body, ahead of the operation's own.
             await captureBeforeOperation(event, buffers: branchBuffers, targets: branchTargets)
             let failure = await op()
-            // Git op done: lower the disk-writer gates before any modal so a quit during
-            // an error alert still flushes other dirty files (see `createBranch`).
-            autosave.resume()
-            localChanges.endRevert()
             guard failure == nil else {
+                // The gates stay up across the re-read and its resync: the re-read
+                // awaits, and a disk-sync pass the gate deferred, released by an
+                // earlier drop, would run in that gap and judge the checkout's own
+                // writes as an outside change. Lowered before any modal, so a quit during the
+                // error alert still flushes other dirty files (see `createBranch`).
                 await resyncIfTheBranchMovedAnyway(
-                    from: branchBefore,
-                    requestedRoot: requestedRoot,
-                    snapshot: snapshot,
-                    repoRoot: repoRoot
+                    from: branchBefore, requestedRoot: requestedRoot, snapshot: snapshot, repoRoot: repoRoot
                 )
+                autosave.resume()
+                localChanges.endRevert()
                 // An empty message is a failure whose reason is already on
                 // screen; a second modal saying it again is not a second fact.
                 // Said *after* the re-read above, so the tree the alert is drawn
@@ -4497,6 +4497,10 @@ struct PisakaApp: App {
                 completion?(failure)
                 return
             }
+            // Git op done: lower the disk-writer gates before any modal so a quit during
+            // an error alert still flushes other dirty files (see `createBranch`).
+            autosave.resume()
+            localChanges.endRevert()
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
             completion?(nil)
         }
@@ -4719,12 +4723,10 @@ struct PisakaApp: App {
             }
             let id = file.id
             if resyncViewerTab(id, mayRemoveFiles: mayRemoveFiles) { continue }
-            // A tab that was clean and still is, whatever its text now, was not
-            // edited: the gate's drop releases a deferred disk-sync pass, which runs
-            // inside `endRevert()` and may already have reloaded it from what git
-            // wrote. Edits made during the operation leave a tab dirty, because
-            // every save is refused while the gate is up.
-            guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) || !model.isDirty(for: id) else {
+            // A disk-sync pass deferred by the gate runs on the main-actor turn
+            // after its drop (`DiskSyncController.gateChanged`), so it never lands
+            // between the gate coming down and this loop.
+            guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) else {
                 model.reconcileSavedBaseline(id: id)
                 didPreserve = true
                 continue

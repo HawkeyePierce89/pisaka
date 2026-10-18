@@ -717,9 +717,9 @@ public final class WorkspaceModel: ObservableObject {
         return stamp
     }
 
-    /// Refresh only the recorded stamp of tab `id` — for the case where the disk's
-    /// stamp moved but its content still equals `savedText` (a `touch`, a tool
-    /// rewriting identical bytes).
+    /// Refresh only the recorded stamp of tab `id` from a fresh stat — for the
+    /// app's own create under a Local History restore. `checkDisk`'s `stampOnly`
+    /// branch does not call it: it keeps the stamp it took before its read.
     ///
     /// Moves **neither** token: no buffer was replaced, and the content the buffer
     /// stands for did not change, so neither the undo stack nor any
@@ -941,7 +941,11 @@ public final class WorkspaceModel: ObservableObject {
         case .unchanged:
             break
         case .stampOnly:
-            refreshDiskStamp(for: id)
+            // The stamp taken *before* the read, never a second stat after it:
+            // a writer landing between the read and a fresh stat would have its
+            // stamp vouch for the older content, and every later check would
+            // skip the read (`adoptBaseline(at:stamp:)`'s before-a-read rule).
+            if openFiles[index].diskStamp != current { openFiles[index].diskStamp = current }
             setObservedDiskSide(nil, for: id)
         case .reload, .adoptBaseline:
             reloadFromDisk(id: id)

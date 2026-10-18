@@ -8,7 +8,8 @@ import PisakaCore
 /// because both live in the controller's wiring rather than in Core:
 ///
 /// - a pass requested while the writer gate is up is **deferred**, and runs once
-///   when the gate comes down;
+///   on the main-actor turn after the gate comes down — after the operation's
+///   own resync, so a tab edited across it is reconciled, not put in conflict;
 /// - a watcher pass over unchanged files publishes nothing, so a burst of them
 ///   does **not re-arm the autosave idle debounce** — observed through
 ///   autosave's save sink, never through a clock;
@@ -66,8 +67,11 @@ final class DiskSyncControllerTests: XCTestCase {
         XCTAssertEqual(reloads, [])
 
         gate.send(false)
+        // Not inside the drop: the operation's own resync comes first.
+        XCTAssertTrue(controller.passPending)
+        XCTAssertEqual(model.text(for: id), "before")
+        waitForThePendingPass(controller)
 
-        XCTAssertFalse(controller.passPending)
         XCTAssertEqual(model.text(for: id), "after, from a tool")
         XCTAssertEqual(reloads, [id])
 
@@ -77,6 +81,47 @@ final class DiskSyncControllerTests: XCTestCase {
         gate.send(false)
         XCTAssertEqual(model.text(for: id), "after, from a tool")
         XCTAssertEqual(reloads, [id])
+    }
+
+    /// Wait — by polling the controller's own record, never a clock — for the
+    /// owed pass to run on its main-actor turn.
+    private func waitForThePendingPass(_ controller: DiskSyncController) {
+        let ran = expectation(for: NSPredicate { _, _ in
+            MainActor.assumeIsolated { !controller.passPending }
+        }, evaluatedWith: nil)
+        wait(for: [ran], timeout: 5)
+    }
+
+    /// A gated operation lowers the gate and then resyncs its own tabs in one
+    /// synchronous stretch. The pass the gate deferred must come after that
+    /// resync, or it judges the operation's own write as an outside change: a
+    /// tab edited across a checkout would land in external conflict instead of
+    /// being reconciled.
+    func testTheDeferredPassRunsAfterTheOperationsOwnResync() throws {
+        let url = try write("base\n", "a.txt")
+        let model = WorkspaceModel(fileService: FileService())
+        let id = try model.open(url: url).id
+        model.updateText("edited in the app\n", for: id)
+        let gate = CurrentValueSubject<Bool, Never>(true)
+        let controller = DiskSyncController(ask: { _ in
+            XCTFail("the pass never asks")
+            return .cancel
+        })
+        controller.start(model: model, localHistory: nil, gate: gate.eraseToAnyPublisher()) { _, _ in }
+        defer { controller.stop() }
+        _ = try write("written by the checkout\n", "a.txt")
+        controller.requestPass()
+
+        // The operation's tail: the gate drops, then the resync reconciles the
+        // edited tab against what the operation wrote.
+        gate.send(false)
+        XCTAssertFalse(model.isInExternalConflict(id))
+        model.reconcileSavedBaseline(id: id)
+        waitForThePendingPass(controller)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.text(for: id), "edited in the app\n")
+        XCTAssertTrue(model.isDirty(for: id))
     }
 
     /// A dirty, unrelated tab still autosaves while unchanged-file passes keep

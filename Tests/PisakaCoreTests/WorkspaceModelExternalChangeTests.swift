@@ -276,6 +276,35 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
         XCTAssertEqual(tree.files["a.txt"], "my edit")
     }
 
+    /// A stamp-only refresh records the stamp taken before the read. A second
+    /// stat after it would let a writer landing in between have its stamp vouch
+    /// for the older content, and the next check would skip the read.
+    func testAStampOnlyRefreshKeepsTheStampTakenBeforeTheRead() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 7, modificationDate: Date(timeIntervalSince1970: 1))
+        var stamps = 0
+        tree.onStamp = { path in
+            guard path == "a.txt" else { return }
+            stamps += 1
+            // Another writer, landing after the check's first stat.
+            if stamps == 2 {
+                tree.stampOverrides["a.txt"] = nil
+                tree.files["a.txt"] = "moved after the read"
+            }
+        }
+
+        XCTAssertEqual(model.checkDisk(id: id), .stampOnly)
+        tree.onStamp = nil
+        tree.stampOverrides["a.txt"] = nil
+        tree.files["a.txt"] = "moved after the read"
+
+        XCTAssertEqual(model.checkDisk(id: id), .conflict(diskText: "moved after the read"))
+        XCTAssertTrue(model.isInExternalConflict(id))
+    }
+
     func testAConflictEndsWhenTheFileIsDeletedAndTheSaveRecreatesIt() throws {
         let (tree, model, id) = try makeConflict()
         model.checkDisk(id: id)

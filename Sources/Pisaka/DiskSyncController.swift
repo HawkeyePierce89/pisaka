@@ -108,10 +108,20 @@ final class DiskSyncController {
         runPass()
     }
 
+    /// The owed pass runs on the next main-actor turn, never inside the gate's
+    /// drop: every gated operation lowers the gate and then resyncs its own tabs
+    /// in the same synchronous stretch, and a pass run first would judge that
+    /// operation's writes as an outside change — a tab edited across a checkout
+    /// would land in external conflict instead of being reconciled. The gate and
+    /// the debt are read again when the turn comes, since another operation may
+    /// have raised the gate in between.
     private func gateChanged(_ up: Bool) {
         gateUp = up
         guard !up, passPending else { return }
-        runPass()
+        Task { @MainActor [weak self] in
+            guard let self, !self.gateUp, self.passPending else { return }
+            self.runPass()
+        }
     }
 
     private func runPass() {
