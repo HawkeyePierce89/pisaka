@@ -285,11 +285,11 @@ None new.
 
 ### Task 13: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Run `make test-app` under the pinned Xcode: no new failures beyond the eight scale-1.8 assertions.
-- [ ] Run `make build` (macOS Release) under the pinned Xcode.
-- [ ] Confirm every new Core file has tests that cover its branches: threshold, budget, end-of-text revert cases, wrap rules.
+- [x] Run `swift test`. (6835 green, including the three branch tests added below)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 759 files)
+- [x] Run `make test-app` under the pinned Xcode: no new failures beyond the eight scale-1.8 assertions. (434 run, the same 8 scale-1.8 failures as every earlier task)
+- [x] Run `make build` (macOS Release) under the pinned Xcode. (Xcode 26.3, BUILD SUCCEEDED)
+- [x] Confirm every new Core file has tests that cover its branches: threshold, budget, end-of-text revert cases, wrap rules. (audit found four untested guards, now covered: `testALongerOldSideIsMeasuredOnBothSidesOfSixtyPercent` for the old-side threshold, `testNegativeBoundsAreNil` and `testEndOfBufferHunkWithNoUnchangedLineAboveOnTheHeadSideIsNil` for `HunkRevertPlan`'s two guards, and a deletion-before-line-1 into zero lines in `testOutOfRangeLinesAreDroppedNotTrapped`)
 
 ### Task 14: Update documentation
 

@@ -122,6 +122,20 @@ final class HunkRevertPlanTests: XCTestCase {
         XCTAssertNil(HunkRevertPlan.plan(hunk: oldPast, base: "a\n", buffer: "a\nb\n"))
     }
 
+    func testNegativeBoundsAreNil() {
+        let negativeOld = ChangeHunk(kind: .modified, newLines: 0..<1, oldLines: -1..<1)
+        XCTAssertNil(HunkRevertPlan.plan(hunk: negativeOld, base: "a\n", buffer: "b\n"))
+        let negativeNew = ChangeHunk(kind: .modified, newLines: -1..<1, oldLines: 0..<1)
+        XCTAssertNil(HunkRevertPlan.plan(hunk: negativeNew, base: "a\n", buffer: "b\n"))
+    }
+
+    func testEndOfBufferHunkWithNoUnchangedLineAboveOnTheHeadSideIsNil() {
+        // Reaching the buffer's end below line 1 needs HEAD's preceding line for
+        // its terminator; a hunk whose HEAD side starts at line 1 has none.
+        let hunk = ChangeHunk(kind: .modified, newLines: 1..<2, oldLines: 0..<1)
+        XCTAssertNil(HunkRevertPlan.plan(hunk: hunk, base: "a", buffer: "x\nb"))
+    }
+
     // MARK: - Fuzz
 
     private struct LCG {

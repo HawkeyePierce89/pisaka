@@ -163,6 +163,8 @@ final class ChangeHunkTests: XCTestCase {
             [ChangeLineMarker(), ChangeLineMarker(strip: .added)]
         )
         XCTAssertEqual(ChangeHunk.lineMarkers(for: hunks, lineCount: 0), [])
+        let beforeLineOne = [ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<1)]
+        XCTAssertEqual(ChangeHunk.lineMarkers(for: beforeLineOne, lineCount: 0), [])
     }
 
     func testMarkerIsEmpty() {

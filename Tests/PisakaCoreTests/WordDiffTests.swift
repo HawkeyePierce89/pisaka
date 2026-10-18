@@ -142,6 +142,20 @@ final class WordDiffTests: XCTestCase {
         XCTAssertNil(WordDiff.ranges(old: "x", new: "x and a great deal of new text"))
     }
 
+    func testALongerOldSideIsMeasuredOnBothSidesOfSixtyPercent() {
+        // A doubled first separator makes the old side the longer one without
+        // moving any non-whitespace unit, so the old side decides at the line.
+        for (changed, kept) in [(59, true), (60, true), (61, false)] {
+            let pair = line(replacing: changed)
+            let old = pair.old.replacingOccurrences(of: "a a", with: "a  a", options: .anchored)
+            XCTAssertGreaterThan(old.utf16.count, pair.new.utf16.count)
+            XCTAssertEqual(WordDiff.ranges(old: old, new: pair.new) != nil, kept, "\(changed)")
+        }
+        // Five of the old side's six units changed — a rewrite there, though
+        // the shorter new side would have kept it at one of two.
+        XCTAssertNil(WordDiff.ranges(old: "a bbbbb", new: "a c"))
+    }
+
     // MARK: - Budget
 
     /// A minified line, ~20k UTF-16 units and ~10k tokens, and a near-copy whose
