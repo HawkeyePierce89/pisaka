@@ -166,20 +166,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       when the changed non-whitespace UTF-16 units on the **longer** side (the
       new side on a tie) exceed 60% of that side's non-whitespace units. Both
       sides of 60% are tested, on each side being the longer one.
-    - **Budget.** The LCS is charged in matrix cells against a per-row ceiling
+    - **Budget.** A row's work is charged in steps against a per-row ceiling
       (`maximumRowCells`, 250,000) and a per-build one (`maximumBuildCells`,
       4,000,000) that the caller threads through as a `Work`; over either the
       row gets `nil`, and a spent build answers `nil` for every later row without
-      tokenizing it. The table is allocated **one row at a time, after that row
-      is charged**, so a minified line never allocates past its ceiling.
-      Bookkeeping is double-entry, `OccurrenceScan.Work`'s pattern and
-      reasoning (`core-editor.md`): `spend` charges each DP row its width before
-      filling it, `record` counts each cell from inside the fill loop, and the
+      tokenizing it. Tokenizing costs **one step per UTF-16 unit of both sides,
+      charged before either side is split**, so a multi-megabyte minified line
+      is refused without a single token allocated and a build of many long
+      modified rows stops tokenizing once the shared ceiling is spent — the
+      side-by-side diffs run this pass on the main actor with no size cap of
+      their own, so the tokenizer is the work that ceiling must reach. The LCS
+      costs one step per matrix cell, its table allocated **one row at a time,
+      after that row is charged**, so a minified line never allocates past its
+      ceiling. Bookkeeping is double-entry, `OccurrenceScan.Work`'s pattern and
+      reasoning (`core-editor.md`): `spend` charges both sides' units up front
+      and each DP row its width before filling it, `record` counts each unit
+      from inside the tokenizer and each cell from inside the fill loop, and the
       two are never hoisted into one local. An internal
       `ranges(old:new:rowWork:)` seam takes a caller-owned per-row `Work`, so
-      `WordDiffTests`' budget test — a ~20k-character minified line against a
-      near-copy — asserts no ranges, `0 < performed ≤ charged`, and that a
-      spent per-build ceiling stops later rows: charged, not timed.
+      `WordDiffTests`' budget tests — a ~20k-character minified line against a
+      near-copy, and a line whose units alone exceed the row ceiling — assert
+      no ranges, `0 < performed ≤ charged` (and `performed == 0` for the
+      refused line), and that a spent per-build ceiling stops later rows:
+      charged, not timed.
     Tested in `WordDiffTests`: one changed word on both sides, punctuation as
     single tokens, whitespace runs, non-ASCII letters and surrogate pairs,
     merging, the threshold just below and above 60%, identical and empty sides,

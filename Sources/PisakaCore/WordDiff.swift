@@ -35,24 +35,29 @@ public struct WordDiffRanges: Equatable, Sendable {
 /// when the changed non-whitespace units on the longer side (by UTF-16 length;
 /// the new side on a tie) exceed 60% of that side's non-whitespace units.
 ///
-/// **Budget.** The LCS is charged in matrix cells against two ceilings: one per
+/// **Budget.** A row's work is charged in steps against two ceilings: one per
 /// row (`maximumRowCells`) and one shared by every row of a diff build
 /// (`maximumBuildCells`), which the caller threads through as a `Work`. Over
 /// either, the row gets `nil`, and a build whose ceiling is spent answers `nil`
-/// for every later row. The table is allocated one row at a time *after* that
-/// row is charged, so a minified line never allocates past its ceiling.
+/// for every later row. Tokenizing costs one step per UTF-16 unit of both
+/// sides, charged *before* either side is split, so a line too long for the
+/// ceiling is refused without allocating a single token; the LCS costs one step
+/// per matrix cell, its table allocated one row at a time *after* that row is
+/// charged. A minified line therefore never allocates past its ceiling, and a
+/// build of many long rows stops tokenizing once the shared ceiling is spent.
 /// Bookkeeping is double-entry (`OccurrenceScan.Work`'s pattern and reasoning):
-/// each DP row is `spend`-charged its width before it is filled, and each cell
-/// filled is `record`ed from inside the fill loop, so a test can tell a ceiling
-/// that stopped the LCS from one that was merely never charged.
+/// the units are `spend`-charged up front and `record`ed scalar by scalar from
+/// inside the tokenizer, each DP row is charged its width before it is filled
+/// and each cell filled is recorded from inside the fill loop, so a test can
+/// tell a ceiling that stopped the work from one that was merely never charged.
 ///
 /// Pure, Foundation-only.
 public enum WordDiff {
 
-    /// The per-row ceiling, in LCS matrix cells.
+    /// The per-row ceiling, in steps (UTF-16 units tokenized plus LCS cells).
     public static let maximumRowCells = 250_000
 
-    /// The ceiling one diff build shares across all its rows, in LCS matrix cells.
+    /// The ceiling one diff build shares across all its rows, in the same steps.
     public static let maximumBuildCells = 4_000_000
 
     /// The changed share of the longer side's non-whitespace units, as
@@ -87,7 +92,7 @@ public enum WordDiff {
         let ceiling: Int
         /// What is left of the ceiling; at or below zero once it is spent.
         private(set) var budget: Int
-        /// LCS cells really filled, whatever was charged.
+        /// Units really tokenized plus LCS cells really filled, whatever was charged.
         private(set) var performed = 0
 
         init(budget: Int) {
@@ -117,8 +122,12 @@ public enum WordDiff {
     /// The test seam: one row against a per-row `Work` the caller owns, so a
     /// test reads both what was left of the ceiling and what was performed.
     static func ranges(old: String, new: String, rowWork work: inout Work) -> WordDiffRanges? {
-        let oldTokens = tokens(old)
-        let newTokens = tokens(new)
+        // Charged before either side is split: a line over the ceiling is
+        // refused without a token allocated.
+        work.spend(old.utf16.count + new.utf16.count)
+        if work.budget < 0 { return nil }
+        let oldTokens = tokens(old, work: &work)
+        let newTokens = tokens(new, work: &work)
 
         var prefix = 0
         while prefix < oldTokens.count, prefix < newTokens.count,
@@ -208,6 +217,13 @@ public enum WordDiff {
     /// `text` split into word runs, whitespace runs and single other scalars,
     /// each with its UTF-16 range.
     static func tokens(_ text: String) -> [Token] {
+        var work = Work(budget: Int.max)
+        return tokens(text, work: &work)
+    }
+
+    /// `tokens(_:)`, `record`ing every unit split into `work`; the caller has
+    /// already charged them.
+    private static func tokens(_ text: String, work: inout Work) -> [Token] {
         var result: [Token] = []
         var units: [UInt16] = []
         var kind: TokenKind?
@@ -233,6 +249,7 @@ public enum WordDiff {
             if scalarKind != kind || scalarKind == .other { flush() }
             kind = scalarKind
             units.append(contentsOf: scalar.utf16)
+            work.record(scalar.utf16.count)
             offset += scalar.utf16.count
         }
         flush()

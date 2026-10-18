@@ -172,11 +172,33 @@ final class WordDiffTests: XCTestCase {
         var work = WordDiff.Work(budget: WordDiff.maximumRowCells)
         XCTAssertNil(WordDiff.ranges(old: pair.old, new: pair.new, rowWork: &work))
         XCTAssertLessThanOrEqual(work.budget, 0)
-        // Cells filled are booked apart from the charge: never more than was
-        // charged, and the bulk of the ceiling really was worked through.
+        // Units tokenized and cells filled are booked apart from the charge:
+        // never more than was charged, and the bulk of the ceiling really was
+        // worked through.
         XCTAssertGreaterThan(work.performed, 0)
         XCTAssertLessThanOrEqual(work.performed, work.charged)
         XCTAssertGreaterThanOrEqual(work.performed, WordDiff.maximumRowCells / 2)
+    }
+
+    func testALineLongerThanTheCeilingIsRefusedBeforeTokenizing() {
+        // Two sides whose units alone exceed the per-row ceiling: charged in
+        // full up front, and not one unit split into tokens.
+        let side = String(repeating: "x;", count: WordDiff.maximumRowCells / 2)
+        var work = WordDiff.Work(budget: WordDiff.maximumRowCells)
+        XCTAssertNil(WordDiff.ranges(old: side + "a", new: side + "b", rowWork: &work))
+        XCTAssertLessThan(work.budget, 0)
+        XCTAssertEqual(work.performed, 0)
+    }
+
+    func testTokenizingIsChargedAndRecorded() {
+        let old = "let a = b + c", new = "let a = b - c"
+        var work = WordDiff.Work(budget: WordDiff.maximumRowCells)
+        XCTAssertNotNil(WordDiff.ranges(old: old, new: new, rowWork: &work))
+        let units = old.utf16.count + new.utf16.count
+        // Every unit tokenized is booked apart from the charge that paid for it.
+        XCTAssertGreaterThanOrEqual(work.performed, units)
+        XCTAssertGreaterThanOrEqual(work.charged, units)
+        XCTAssertLessThanOrEqual(work.performed, work.charged)
     }
 
     func testThePerBuildCeilingStopsLaterRows() {
