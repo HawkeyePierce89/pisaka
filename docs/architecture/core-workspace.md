@@ -618,7 +618,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `savedText` — **clean but stale** — stays in conflict on purpose, so the bar
     and the marker stay up, autosave writes nothing (the tab is not dirty), and
     the next check (watcher, activation, any save attempt) sees a clean tab whose
-    content differs and reloads it, which clears the entry.
+    content differs and reloads it, which clears the entry. **The one exception
+    is the bar's Overwrite**: `checkDisk(id:holdingConflict:)` holds a tab
+    already in conflict as dirty, so its check re-records the disk side read now
+    instead of reloading — reloading there would replace the very buffer the
+    answer asked to keep, uncaptured, and write the disk's text back over itself.
+    The flag is ignored for a tab not in conflict.
 
     *Compare-before-assign.* `openFiles` is `@Published` and `OpenFile` is
     `Equatable`, and the autosave idle trigger is a debounce on `$openFiles`. A
@@ -668,8 +673,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.leaveAlone` for a clean one; readable text equal to the buffer is
     `.adoptBaseline`, not a conflict; otherwise a dirty tab is
     `.conflict(diskText:)` and a clean one `.reload`. Dirtiness is
-    `text != savedText`, which is what makes the clean-but-stale case above
-    reload. `ObservedDiskSide` is the value `WorkspaceModel`'s conflict map
+    `text != savedText` — or `true` under `holdingConflict`, the Overwrite case
+    above — which is what makes the clean-but-stale case reload. `ObservedDiskSide` is the value `WorkspaceModel`'s conflict map
     stores. Pinned verdict by verdict in `ExternalChangeRuleTests`; the stamp
     sites in `WorkspaceModelDiskStampTests`.
   - `CanonicalPath.swift` — the single source of truth for the two path

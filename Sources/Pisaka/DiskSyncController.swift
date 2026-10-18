@@ -139,10 +139,12 @@ final class DiskSyncController {
     /// already has one (the editor's bar). A clean tab the check reloaded is
     /// reindexed here. Overwrite captures the disk side under `.overwrite` before
     /// answering `.write(.overwrite)`; Reload captures the buffer under `.discard`
-    /// and reloads.
+    /// and reloads. An Overwrite already given holds a conflicted tab as dirty
+    /// through the check, so a clean-but-stale buffer is written, not reloaded
+    /// over the answer that asked to keep it.
     func resolveBeforeSave(_ id: UUID, answer: Answer? = nil) -> SaveResolution {
         guard let model else { return .write(.refuse) }
-        let verdict = model.checkDisk(id: id)
+        let verdict = model.checkDisk(id: id, holdingConflict: answer == .overwrite)
         if verdict == .reload || verdict == .adoptBaseline, let url = url(of: id) {
             onReloaded(id, url)
         }

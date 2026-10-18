@@ -2195,7 +2195,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     *The bar's actions.* `reloadFromBar(_:)` beeps and does nothing while the
     gate is up, for the passes' reason; otherwise it is `discardEdits`. The bar's
     Overwrite is `save(id:externalChangeAnswer: .overwrite)`, so it inherits the
-    gate refusal and the transform. `compare(_:settings:in:)` opens the
+    gate refusal and the transform; an answer already given as Overwrite runs the
+    check with `holdingConflict`, so a clean-but-stale tab is written rather than
+    reloaded over the very buffer the press asked to keep (`core-workspace.md`). `compare(_:settings:in:)` opens the
     `DiffWindowController` on the buffer (left) against the conflict's disk side
     (right), both snapshotted at the press, as `LineDiff` rows with their word
     emphasis built off the main actor, under `DiffWindowTitle.externalChange`;

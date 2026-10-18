@@ -12,7 +12,8 @@ final class ExternalChangeRuleTests: XCTestCase {
         current: FileStamp?,
         disk: ExternalDiskRead,
         savedText: String,
-        text: String
+        text: String,
+        holdingConflict: Bool = false
     ) -> (verdict: ExternalChangeVerdict, reads: Int) {
         var reads = 0
         let verdict = ExternalChangeRule.verdict(
@@ -23,7 +24,8 @@ final class ExternalChangeRuleTests: XCTestCase {
                 return disk
             },
             savedText: savedText,
-            text: text
+            text: text,
+            holdingConflict: holdingConflict
         )
         return (verdict, reads)
     }
@@ -102,6 +104,38 @@ final class ExternalChangeRuleTests: XCTestCase {
         // Edited back to savedText: clean, so the different disk side reloads it.
         let result = judge(recorded: stampA, current: stampB, disk: .text("disk"), savedText: "base", text: "base")
         XCTAssertEqual(result.verdict, .reload)
+    }
+
+    // MARK: - holdingConflict
+
+    func testAHeldCleanButStaleBufferIsAConflictNotAReload() {
+        // The bar's Overwrite: the buffer is the user's side, clean or not.
+        let result = judge(
+            recorded: stampA, current: stampB, disk: .text("disk"), savedText: "base", text: "base",
+            holdingConflict: true
+        )
+        XCTAssertEqual(result.verdict, .conflict(diskText: "disk"))
+    }
+
+    func testAHeldCleanBufferOverAnUnreadableFileIsAConflictNotLeftAlone() {
+        let result = judge(
+            recorded: stampA, current: stampB, disk: .unreadable, savedText: "base", text: "base",
+            holdingConflict: true
+        )
+        XCTAssertEqual(result.verdict, .conflict(diskText: nil))
+    }
+
+    func testHoldingChangesNothingWhenTheDiskIsBackAtTheBaselineOrEqualsTheBuffer() {
+        let back = judge(
+            recorded: stampA, current: stampB, disk: .text("base"), savedText: "base", text: "base",
+            holdingConflict: true
+        )
+        XCTAssertEqual(back.verdict, .stampOnly)
+        let same = judge(
+            recorded: stampA, current: stampB, disk: .text("edit"), savedText: "base", text: "edit",
+            holdingConflict: true
+        )
+        XCTAssertEqual(same.verdict, .adoptBaseline)
     }
 
     // MARK: - adoptBaseline

@@ -53,15 +53,20 @@ public enum ExternalChangeRule {
     ///   - read: the disk read, evaluated only when the stamps do not settle it.
     ///   - savedText: the buffer's baseline.
     ///   - text: the live buffer.
+    ///   - holdingConflict: the buffer is held as the user's side of a recorded
+    ///     conflict — the bar's Overwrite — and so judged dirty even when it
+    ///     equals `savedText`, so a clean-but-stale buffer answers `conflict`
+    ///     instead of being reloaded over the answer that asked to keep it.
     public static func verdict(
         recorded: FileStamp?,
         current: FileStamp?,
         read: () -> ExternalDiskRead,
         savedText: String,
-        text: String
+        text: String,
+        holdingConflict: Bool = false
     ) -> ExternalChangeVerdict {
         if let current, current == recorded { return .unchanged }
-        let isDirty = text != savedText
+        let isDirty = holdingConflict || text != savedText
         switch read() {
         case .missing:
             return .missing

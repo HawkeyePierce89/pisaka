@@ -917,9 +917,14 @@ public final class WorkspaceModel: ObservableObject {
     ///
     /// A read that throws is told apart by the stamp: no stamp means the file is
     /// missing, a stamp means it is there but unreadable (permission, not text).
+    /// `holdingConflict` — the bar's Overwrite — holds a tab already in conflict
+    /// as dirty, so a clean-but-stale buffer re-records the disk side instead of
+    /// being reloaded over the answer that asked to keep it; it is ignored for a
+    /// tab not in conflict.
+    ///
     /// Returns the verdict, or `nil` for an unknown, url-less or viewer tab.
     @discardableResult
-    public func checkDisk(id: UUID) -> ExternalChangeVerdict? {
+    public func checkDisk(id: UUID, holdingConflict: Bool = false) -> ExternalChangeVerdict? {
         guard let index = indexOf(id), openFiles[index].kind == .text,
               let url = openFiles[index].url else { return nil }
         let file = openFiles[index]
@@ -935,7 +940,8 @@ public final class WorkspaceModel: ObservableObject {
                 }
             },
             savedText: file.savedText,
-            text: file.text
+            text: file.text,
+            holdingConflict: holdingConflict && isInExternalConflict(id)
         )
         switch verdict {
         case .unchanged:

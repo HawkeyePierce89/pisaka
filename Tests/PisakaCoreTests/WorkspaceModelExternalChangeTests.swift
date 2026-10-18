@@ -129,6 +129,34 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
         XCTAssertEqual(file(model, id).text, "changed outside the app")
     }
 
+    /// The bar's Overwrite on a clean-but-stale tab: held through the check, the
+    /// buffer stays and the conflict is re-recorded against the disk read now,
+    /// so the overwrite that follows writes the buffer the user chose to keep.
+    func testHoldingAConflictedCleanButStaleTabKeepsTheBufferForTheOverwrite() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        model.updateText("on disk", for: id)
+        tree.files["a.txt"] = "changed outside again"
+
+        XCTAssertEqual(model.checkDisk(id: id, holdingConflict: true), .conflict(diskText: "changed outside again"))
+        XCTAssertEqual(file(model, id).text, "on disk")
+        XCTAssertEqual(model.diskText(forConflict: id), "changed outside again")
+
+        XCTAssertEqual(try model.overwriteExternalChange(id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "on disk")
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    func testHoldingIsIgnoredForATabNotInConflict() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.files["a.txt"] = "rewritten by a tool"
+
+        XCTAssertEqual(model.checkDisk(id: id, holdingConflict: true), .reload)
+        XCTAssertEqual(file(model, id).text, "rewritten by a tool")
+    }
+
     func testSaveAsToAnotherPathEndsTheConflict() throws {
         let (tree, model, id) = try makeConflict()
         model.checkDisk(id: id)
