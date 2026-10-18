@@ -271,8 +271,9 @@ final class FoldingSourceGatingTests: XCTestCase {
     /// 1. The coordinator's `revealRange(_:)` is called from the coordinator
     ///    itself (the app's reveal request lands there through `applyReveal`),
     ///    from the find bar, whose one jump was routed through it, and from
-    ///    *Next / Previous Problem*'s `goToProblem(_:)` in `ProblemCommands`,
-    ///    the coordinator extension that lands its caret there. `UsageResult
+    ///    *Next / Previous Problem*'s `goToProblem(_:)` in `ProblemCommands`
+    ///    and *Next / Previous Change*'s `goToChange(_:)` in `ChangeCommands`,
+    ///    the coordinator extensions that land their caret there. `UsageResult
     ///    .revealRange(naming:in:)` is a different function on a different type
     ///    and is excluded by its first argument label.
     /// 2. `FoldReveal` is named in the coordinator alone: the rule that decides
@@ -294,8 +295,8 @@ final class FoldingSourceGatingTests: XCTestCase {
     func testTheRevealFunnelIsAFunnel() throws {
         XCTAssertEqual(
             try fileNames(matching: "(?<!func )\\brevealRange\\??\\((?!naming)", under: "Sources"),
-            ["CodeEditorView.swift", "EditorSearchController.swift", "ProblemCommands.swift"],
-            "Exactly three files call the coordinator's reveal. Anything else jumping into a buffer would be a "
+            ["ChangeCommands.swift", "CodeEditorView.swift", "EditorSearchController.swift", "ProblemCommands.swift"],
+            "Exactly four files call the coordinator's reveal. Anything else jumping into a buffer would be a "
                 + "jump that does not unfold first — a caret parked inside hidden text, with the view showing "
                 + "a placeholder where it thinks it is."
         )

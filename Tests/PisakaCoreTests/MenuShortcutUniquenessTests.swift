@@ -20,7 +20,8 @@ import XCTest
 /// commands use, and the `KeyEquivalent` *constant* form —
 /// `.keyboardShortcut(.tab, modifiers: .control)` — which is how the Window
 /// menu's ⌃Tab / ⌃⇧Tab tab commands, `FoldCommands`' four arrow chords and
-/// `SelectionCommands`' ⌃⌘→ / ⌃⌘← are spelled (`LineCommands`' ⌥⌘[ / ⌥⌘]
+/// `SelectionCommands`' ⌃⌘→ / ⌃⌘← and `ChangeCommands`' ⌃⌥⇧↓ / ⌃⌥⇧↑ are
+/// spelled (`LineCommands`' ⌥⌘[ / ⌥⌘]
 /// use the character form); a constant is recorded under its dotted name
 /// (`.tab`), which no
 /// single character can equal. Two spellings stay outside the set, excluded by

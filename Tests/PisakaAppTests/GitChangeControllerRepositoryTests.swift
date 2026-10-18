@@ -13,7 +13,9 @@ import XCTest
 /// The revert also runs end to end through the coordinator (Task 9's path): the
 /// popover's request and the caret's menu item both land as **one undo step** —
 /// undo brings the edit back, redo reverts again — and a raised writer gate
-/// leaves the buffer untouched without raising anything itself.
+/// leaves the buffer untouched without raising anything itself. *Next Change* /
+/// *Previous Change* step through the hunks recomputed from the live buffer,
+/// wrap, answer `false` (a beep) with none, and ignore the gate, being a move.
 ///
 /// Every wait is on `onChangesInstalled` — an answer that *must* reach the ruler
 /// — never on a delay, so the 250 ms coalescing window is waited out causally.
@@ -145,6 +147,49 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
         XCTAssertEqual(editor.coordinator.revertChangeAtCaret(), .refused)
         XCTAssertEqual(editor.text, editor.edited)
         XCTAssertFalse(editor.undoManager.canUndo)
+    }
+
+    // MARK: - Next / Previous Change through the coordinator
+
+    func testNextAndPreviousChangeStepThroughTheLiveHunksAndWrap() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\nfour\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+        // A second hunk, never waited for: the commands recompute from the live
+        // buffer rather than from the drawn answer; "three" stays between the two.
+        editor.textView.textStorage?.replaceCharacters(in: NSRange(location: 19, length: 4), with: "FOUR")
+        XCTAssertEqual(editor.text, "one\nTWO\nmore\nthree\nFOUR\n")
+        editor.textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        XCTAssertTrue(editor.coordinator.goToChange(.next))
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 4, length: 0))
+        XCTAssertTrue(editor.coordinator.goToChange(.next))
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 19, length: 0))
+        XCTAssertTrue(editor.coordinator.goToChange(.next), "next wraps to the first hunk")
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 4, length: 0))
+        XCTAssertTrue(editor.coordinator.goToChange(.previous), "previous wraps to the last hunk")
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 19, length: 0))
+        XCTAssertEqual(editor.text, "one\nTWO\nmore\nthree\nFOUR\n", "navigation edited the buffer")
+    }
+
+    func testChangeNavigationAnswersFalseWithNoHunks() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+        XCTAssertEqual(editor.grouped { editor.coordinator.revertChange(atMarker: 1) }, .reverted)
+        editor.textView.setSelectedRange(NSRange(location: 2, length: 0))
+
+        XCTAssertFalse(editor.coordinator.goToChange(.next))
+        XCTAssertFalse(editor.coordinator.goToChange(.previous))
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 2, length: 0))
+    }
+
+    func testChangeNavigationIgnoresTheWriterGate() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+        editor.coordinator.gitChanges.writeInFlight = { true }
+        editor.textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        XCTAssertTrue(editor.coordinator.goToChange(.next), "a move is not a write")
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 4, length: 0))
     }
 
     func testAMarkerClickPresentsTheHeadLinesAndItsRevertGoesThroughTheCoordinator() async throws {

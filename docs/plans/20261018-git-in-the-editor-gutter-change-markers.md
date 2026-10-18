@@ -255,10 +255,10 @@ None new.
 **Files:**
 - Modify: `Sources/Pisaka/ChangeCommands.swift`
 
-- [ ] Add Next Change (⌃⌥⇧↓) and Previous Change (⌃⌥⇧↑) items in the same Git-menu entry, disabled with no open tab.
-- [ ] Add the coordinator half: recompute synchronously, ask `ChangeNavigationRule`, convert the line to its start offset and land through `revealRange` (so a folded hunk unfolds). No hunks means beep.
-- [ ] Confirm `MenuShortcutUniquenessTests` passes with the new chords and the text view binds neither chord.
-- [ ] Run `swift test`, `make test-app` and `swiftlint --strict`; all must pass.
+- [x] Add Next Change (⌃⌥⇧↓) and Previous Change (⌃⌥⇧↑) items in the same Git-menu entry, disabled with no open tab.
+- [x] Add the coordinator half: recompute synchronously, ask `ChangeNavigationRule`, convert the line to its start offset and land through `revealRange` (so a folded hunk unfolds). No hunks means beep. (`goToChange(_:)` in `ChangeCommands.swift`, sharing one caret-line helper with the caret revert; navigation is a move, so it ignores the writer gate; `FoldingSourceGatingTests`' reveal-funnel caller set grew to four files, mirrored in `core-folding.md`; three app tests: stepping and wrapping over a second hunk never waited for, `false` with no hunks, and the gate ignored)
+- [x] Confirm `MenuShortcutUniquenessTests` passes with the new chords and the text view binds neither chord. (its doc-comment inventory names the new constant-form chords; the text view's `keyDown`/`performKeyEquivalent` overrides handle only ⌃Space and ⌘D, and the stock key bindings bind no arrow with ⌃⌥⇧ held)
+- [x] Run `swift test`, `make test-app` and `swiftlint --strict`; all must pass. (swift test 6830 green; make test-app 430 run, only the known 8 scale-1.8 failures; lint clean)
 
 ### Task 11: Word emphasis in the diff surfaces
 
