@@ -122,7 +122,7 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Create: `Sources/PisakaCore/ExternalChangeRule.swift`
 - Create: `Tests/PisakaCoreTests/ExternalChangeRuleTests.swift`
 
-- [ ] Write a pure rule. Its inputs are the recorded stamp, the current stamp (nil when unknown), a lazily evaluated disk read (text / missing / unreadable), savedText and text. It returns one verdict:
+- [x] Write a pure rule. Its inputs are the recorded stamp, the current stamp (nil when unknown), a lazily evaluated disk read (text / missing / unreadable), savedText and text. It returns one verdict:
   - `unchanged`: stamps equal, no read
   - `stampOnly`: identical content
   - `reload`: clean tab, content differs
@@ -130,14 +130,14 @@ Part B, retention. Local History retention counts 14 activity days per project i
   - `conflict(diskText?)`
   - `missing`
   - `leaveAlone`: clean tab and unreadable disk
-- [ ] A nil current stamp (unknown) means "read and compare", not "unchanged".
-- [ ] Tests for every verdict, plus:
+- [x] A nil current stamp (unknown) means "read and compare", not "unchanged".
+- [x] Tests for every verdict, plus:
   - an equal stamp never evaluates the read
   - touch, an identical checkout and a same-bytes copy each give stampOnly
   - unreadable is a conflict when dirty and leaveAlone when clean
   - missing never yields a conflict
   - a clean-but-stale buffer (text == savedText != disk) gives reload
-- [ ] Run swift test; it must pass before task 3.
+- [x] Run swift test; it must pass before task 3.
 
 ### Task 3: WorkspaceModel conflict state, the guarded save funnels and the pass
 
