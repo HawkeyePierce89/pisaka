@@ -22,7 +22,7 @@ final class LocalHistorySnapshotTests: XCTestCase {
             [
                 "save", "replace", "revert", "merge", "branch",
                 "commit", "restore", "rename", "pullrequest", "pull",
-                "delete", "label",
+                "delete", "label", "overwrite", "discard",
             ]
         )
     }
@@ -73,13 +73,32 @@ final class LocalHistorySnapshotTests: XCTestCase {
         XCTAssertEqual(LocalHistoryEvent.pull.title, "Before Pull")
         XCTAssertEqual(LocalHistoryEvent.delete.title, "Before Delete")
         XCTAssertEqual(LocalHistoryEvent.label.title, "Label")
+        XCTAssertEqual(LocalHistoryEvent.overwrite.title, "Disk Version Before Overwrite")
+        XCTAssertEqual(LocalHistoryEvent.discard.title, "Edits Discarded by Reload")
     }
 
-    /// Only `save` and `label` record a moment; every other event records what a
-    /// file looked like *before* something else ran — and the two that record a
-    /// moment say so by *not* reading "Before".
+    /// The two external-change resolutions: whichever side loses is captured, the
+    /// disk text under `overwrite` and the buffer under `discard`. Their tags are
+    /// the case names, lowercase with no `-`, and a name written under either
+    /// parses back to the same event.
+    func testTheExternalChangeEventsHaveLowercaseTagsAndRoundTripThroughAName() {
+        XCTAssertEqual(LocalHistoryEvent.overwrite.tag, "overwrite")
+        XCTAssertEqual(LocalHistoryEvent.discard.tag, "discard")
+        XCTAssertEqual(LocalHistoryEvent(tag: "overwrite"), .overwrite)
+        XCTAssertEqual(LocalHistoryEvent(tag: "discard"), .discard)
+        XCTAssertNil(LocalHistoryEvent(tag: "Overwrite"))
+
+        for event in [LocalHistoryEvent.overwrite, .discard] {
+            let built = snapshot(milliseconds: 1_772_345_678_901, event: event)
+            XCTAssertEqual(LocalHistoryLayout.snapshot(fromFileName: built.fileName), built, "\(event.tag)")
+        }
+    }
+
+    /// Only `save` and `label` record a moment and only `overwrite` and `discard`
+    /// name the losing side of a resolution; every other event records what a file
+    /// looked like *before* something else ran and says so by reading "Before …".
     func testEveryPreOperationEventSaysBeforeAndOnlyThose() {
-        let moments: Set<LocalHistoryEvent> = [.save, .label]
+        let moments: Set<LocalHistoryEvent> = [.save, .label, .overwrite, .discard]
         for event in LocalHistoryEvent.allCases {
             XCTAssertEqual(
                 event.title.hasPrefix("Before "),

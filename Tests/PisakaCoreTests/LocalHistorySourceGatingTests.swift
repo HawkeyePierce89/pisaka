@@ -28,6 +28,14 @@ import XCTest
 ///    takes as a parameter, so a new operation riding it is captured under its
 ///    own name without a site to count. That is deliberate and is what keeps
 ///    this rule honest: it counts brackets, and every bracket captures.
+///
+///    **The event inventory has two entries no bracket names.** `.overwrite` and
+///    `.discard` are the external-change resolutions' events — whichever side
+///    loses a conflict, the disk text or the buffer — and they are captured at
+///    the resolution site through the ordinary save funnel, under no writer
+///    gate, so they are not brackets and do not move the counts below. That they
+///    never ride `captureBeforeOperation` is pinned here; their own capture sites
+///    are counted once the conflict UI that owns them lands.
 /// 2. The compiler cannot see that `AutosaveController` reports **every** branch
 ///    that writes. The quit branch silently skipped `onSaved` for the whole life
 ///    of that class, which was correct while the only listener was a UI refresh
@@ -213,6 +221,19 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             Array(repeating: [false, true], count: suspends).flatMap { $0 },
             "The two must alternate, gate then capture: an operation holding two captures while another holds "
                 + "none rewrites the worktree with nothing snapshotted, and the counts above cannot see it."
+        )
+    }
+
+    /// An Overwrite or a Reload is a resolution of one tab, not a worktree
+    /// operation: it raises no writer gate, so filing either event through the
+    /// bracket's capture would mean a bracket was built around it — a gate the
+    /// editor waits behind for a single-file save.
+    func testTheExternalChangeEventsNeverRideTheWriterBracket() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "captureBeforeOperation\\((event: *)?\\.(overwrite|discard)\\b", in: app),
+            0,
+            "`.overwrite` and `.discard` are captured at the resolution site, outside any writer bracket."
         )
     }
 

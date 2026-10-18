@@ -138,6 +138,25 @@ final class LocalHistoryPolicyTests: XCTestCase {
         XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil, event: .save), .skip(.untitled))
     }
 
+    /// The two external-change events are ordinary captures: the size ceiling,
+    /// the project boundary, the untitled refusal and dedup all apply to them
+    /// exactly as to a save — neither carries the label's exemption.
+    func testTheExternalChangeEventsObeyTheOrdinarySkipRules() {
+        let oversized = String(repeating: "a", count: policy.maxContentBytes + 1)
+        let text = "let x = 1\n"
+        let hash = LocalHistoryLayout.contentHash(of: text)
+        for event in [LocalHistoryEvent.overwrite, .discard] {
+            XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: nil, event: event), .capture(hash: hash))
+            XCTAssertEqual(policy.capture(of: text, relativePath: nil, latestHash: nil, event: event), .skip(.untitled))
+            XCTAssertEqual(policy.capture(of: text, relativePath: "../A.swift", latestHash: nil, event: event), .skip(.outsideProject))
+            XCTAssertEqual(
+                policy.capture(of: oversized, relativePath: "A.txt", latestHash: nil, event: event),
+                .skip(.tooLarge(bytes: policy.maxContentBytes + 1))
+            )
+            XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: hash, event: event), .skip(.unchanged))
+        }
+    }
+
     // MARK: - Capture: the label's dedup exemption
 
     /// A label marks a moment the user chose, so the same bytes as the newest

@@ -188,14 +188,14 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Sources/Pisaka/LocalHistoryView.swift` (only if it switches over events)
 - Modify: LocalHistoryLayout/Snapshot tests, DiffWindowTitle tests, `Tests/PisakaCoreTests/LocalHistorySourceGatingTests.swift`
 
-- [ ] Add `.overwrite` and `.discard` with their titles and lowercase tags. The name round-trip goes through the existing grammar.
-- [ ] Add a DiffWindowTitle case for the buffer-vs-disk comparison.
-- [ ] Tests:
+- [x] Add `.overwrite` and `.discard` with their titles and lowercase tags. The name round-trip goes through the existing grammar.
+- [x] Add a DiffWindowTitle case for the buffer-vs-disk comparison.
+- [x] Tests:
   - tag and title for each new case
   - the snapshot name round-trip
   - the ordinary skip rules apply (size, outside the project, untitled)
   - update LocalHistorySourceGatingTests' event inventory; its capture-site count is finished in Task 7
-- [ ] Run swift test; it must pass before task 5.
+- [x] Run swift test; it must pass before task 5.
 
 ### Task 5: Activity-day retention
 
