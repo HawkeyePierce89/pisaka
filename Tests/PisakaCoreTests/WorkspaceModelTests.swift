@@ -1765,9 +1765,6 @@ final class WorkspaceModelTests: XCTestCase {
         // Only the file actually written moved: the failed write, the clean file
         // and the url-less buffer all still correspond to the bytes they did.
         assertDiskRevisions(of: model, changedFor: [good.id], from: before)
-        XCTAssertEqual(model.diskRevision(for: bad.id), 0)
-        XCTAssertEqual(model.diskRevision(for: clean.id), 0)
-        XCTAssertEqual(model.diskRevision(for: untitled.id), 0)
     }
 
     func testSaveAllDirtyWithNothingToSaveLeavesEveryDiskRevisionUntouched() throws {
@@ -2682,7 +2679,10 @@ final class WorkspaceModelTests: XCTestCase {
             )
         }
         XCTAssertTrue(model.openFiles.isEmpty)
-        XCTAssertEqual(tree.stampPaths, [], "nothing was probed; the read decided")
+        // The text path stamps the file too (the baseline's `diskStamp`), but a
+        // stamp there never refuses anything: the read is what decided, and it is
+        // the read's own error that surfaced above.
+        XCTAssertEqual(tree.stampPaths, ["app.sqlite"], "one baseline stamp, no viewer probe")
     }
 
     func testOpenWithTheSwitchOffReadsARecognizedFileItCanDecode() throws {
@@ -2715,7 +2715,9 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(again.id, first.id)
         XCTAssertEqual(model.openFiles.count, 2)
         XCTAssertEqual(model.selectedID, first.id)
-        XCTAssertEqual(tree.stampPaths, ["app.sqlite"], "the dedup hit probed nothing")
+        // `notes.txt` is the text tab's baseline stamp; `app.sqlite` the viewer's
+        // one probe. The second open adds nothing.
+        XCTAssertEqual(tree.stampPaths, ["notes.txt", "app.sqlite"], "the dedup hit probed nothing")
     }
 
     func testOpeningADatabaseThroughASymlinkedPathFindsTheExistingViewerTab() throws {

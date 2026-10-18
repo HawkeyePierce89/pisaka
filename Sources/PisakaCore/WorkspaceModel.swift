@@ -59,13 +59,15 @@ public final class WorkspaceModel: ObservableObject {
     /// which reports `0` for an unknown id so a caller never has to distinguish
     /// "absent" from "unchanged".
     ///
-    /// It is bumped at every site that assigns `savedText` — `markSaved`,
+    /// It is bumped at every site that assigns `savedText` — `open`, `markSaved`,
     /// `save(for:)`, `saveAllDirty()` (per successfully written file), `saveAs`,
     /// `reloadFromDisk` and `reconcileSavedBaseline` — which is precisely the set
     /// of moments the file the buffer stands for stopped being the file it was:
-    /// a save, an autosave, a Save As, the post-revert reload, a merge apply, and
-    /// a branch checkout (which resyncs clean tabs through `reloadFromDisk` and
-    /// edited ones through `reconcileSavedBaseline`). It is *not* bumped by
+    /// the first read, a save, an autosave, a Save As, the post-revert reload, a
+    /// merge apply, and a branch checkout (which resyncs clean tabs through
+    /// `reloadFromDisk` and edited ones through `reconcileSavedBaseline`). Each of
+    /// those sites moves the tab's `OpenFile.diskStamp` in the same helper
+    /// (`adoptBaseline(at:stamp:)`), so the token and the stamp never disagree. It is *not* bumped by
     /// `updateText`/`replaceText`, which change the buffer while leaving the file
     /// on disk exactly as it was.
     ///
@@ -154,9 +156,12 @@ public final class WorkspaceModel: ObservableObject {
             selectedID = file.id
             return file
         }
+        // Stamped *before* the read (see `adoptBaseline(at:stamp:)` for why).
+        let stamp = fileService.fileStamp(at: url)
         let contents = try fileService.read(url: url)
-        let file = OpenFile(url: url, text: contents, savedText: contents)
-        openFiles.append(file)
+        openFiles.append(OpenFile(url: url, text: contents, savedText: contents))
+        adoptBaseline(at: openFiles.count - 1, stamp: stamp)
+        let file = openFiles[openFiles.count - 1]
         selectedID = file.id
         return file
     }
@@ -649,10 +654,53 @@ public final class WorkspaceModel: ObservableObject {
         diskRevisions[id] ?? 0
     }
 
-    /// Record that the on-disk content the buffer `id` corresponds to changed.
-    /// Called from every site that assigns `savedText`.
-    private func bumpDiskRevision(_ id: UUID) {
-        diskRevisions[id, default: 0] += 1
+    /// Record that the baseline of the tab at `index` just moved: store the file
+    /// `stamp` it now corresponds to and bump its `diskRevisions` token, **in one
+    /// place**, so the two move together or not at all.
+    ///
+    /// Called from every site that assigns `savedText` — `open`, `markSaved`,
+    /// `save(for:)`, `saveAllDirty()`, `saveAs`, `reloadFromDisk` and
+    /// `reconcileSavedBaseline` — and from nowhere else. The stamp is read from
+    /// the tab's path by the caller, at a moment chosen so that a race can only
+    /// ever cost a *spurious* comparison, never a missed change:
+    ///
+    /// - after a **write**, it is read after the write, so the stamp describes the
+    ///   bytes the editor itself just put there;
+    /// - before a **read**, it is read before the read, so a file that moves
+    ///   between the two leaves a stamp older than the content — the next check
+    ///   sees it differ, reads, and finds the content equal (a stamp-only
+    ///   refresh). Read the other way round, the newer stamp would vouch for the
+    ///   older content and the change would never be seen.
+    private func adoptBaseline(at index: Int, stamp: FileStamp?) {
+        openFiles[index].diskStamp = stamp
+        diskRevisions[openFiles[index].id, default: 0] += 1
+    }
+
+    /// The current stamp of `url`, or `nil` for a url-less buffer.
+    private func currentStamp(of url: URL?) -> FileStamp? {
+        url.flatMap { fileService.fileStamp(at: $0) }
+    }
+
+    /// Refresh only the recorded stamp of tab `id` — for the case where the disk's
+    /// stamp moved but its content still equals `savedText` (a `touch`, a tool
+    /// rewriting identical bytes).
+    ///
+    /// Moves **neither** token: no buffer was replaced, and the content the buffer
+    /// stands for did not change, so neither the undo stack nor any
+    /// worktree-derived annotation has a reason to react. The new stamp is
+    /// compared with the stored one and written into `openFiles` **only when they
+    /// differ**, because `openFiles` is `@Published` and an unconditional write
+    /// would republish it — re-arming the autosave idle debounce — on every
+    /// watcher event of a long burst. Returns whether the stored stamp changed. A
+    /// viewer or url-less tab has no stamp to refresh and returns `false`.
+    @discardableResult
+    func refreshDiskStamp(for id: UUID) -> Bool {
+        guard let index = indexOf(id), openFiles[index].kind == .text,
+              let url = openFiles[index].url else { return false }
+        let stamp = fileService.fileStamp(at: url)
+        guard stamp != openFiles[index].diskStamp else { return false }
+        openFiles[index].diskStamp = stamp
+        return true
     }
 
     /// Mark the file identified by `id` as saved (clears the dirty flag).
@@ -662,7 +710,7 @@ public final class WorkspaceModel: ObservableObject {
     public func markSaved(for id: UUID) {
         guard let index = indexOf(id), openFiles[index].kind == .text else { return }
         openFiles[index].savedText = openFiles[index].text
-        bumpDiskRevision(id)
+        adoptBaseline(at: index, stamp: currentStamp(of: openFiles[index].url))
     }
 
     /// Reload the open file identified by `id` from its on-disk contents,
@@ -709,6 +757,8 @@ public final class WorkspaceModel: ObservableObject {
     public func reloadFromDisk(id: UUID) -> Bool {
         guard let index = indexOf(id), openFiles[index].kind == .text else { return false }
         guard let url = openFiles[index].url else { return false }
+        // Stamped *before* the read (see `adoptBaseline(at:stamp:)` for why).
+        let stamp = fileService.fileStamp(at: url)
         guard let contents = try? fileService.read(url: url) else { return false }
         if openFiles[index].text != contents {
             openFiles[index].text = contents
@@ -724,7 +774,7 @@ public final class WorkspaceModel: ObservableObject {
         // The bytes this buffer stands for may be new ones, and the history behind
         // them certainly may be (a revert, a merge apply, a commit, a branch
         // checkout), so any worktree-derived annotation is stale.
-        bumpDiskRevision(id)
+        adoptBaseline(at: index, stamp: stamp)
         return true
     }
 
@@ -751,8 +801,11 @@ public final class WorkspaceModel: ObservableObject {
     public func reconcileSavedBaseline(id: UUID) -> Bool {
         guard let index = indexOf(id), openFiles[index].kind == .text else { return false }
         guard let url = openFiles[index].url else { return false }
+        // Stamped *before* the read (see `adoptBaseline(at:stamp:)` for why); a
+        // deleted file records no stamp.
+        let stamp = fileService.fileStamp(at: url)
         openFiles[index].savedText = (try? fileService.read(url: url)) ?? ""
-        bumpDiskRevision(id)
+        adoptBaseline(at: index, stamp: stamp)
         return true
     }
 
@@ -784,7 +837,7 @@ public final class WorkspaceModel: ObservableObject {
         guard let url = openFiles[index].url else { return .needsSaveAs }
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].savedText = openFiles[index].text
-        bumpDiskRevision(id)
+        adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
         return .saved
     }
 
@@ -818,7 +871,7 @@ public final class WorkspaceModel: ObservableObject {
             do {
                 try fileService.write(openFiles[index].text, to: url)
                 openFiles[index].savedText = openFiles[index].text
-                bumpDiskRevision(openFiles[index].id)
+                adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
                 savedURLs.append(url)
             } catch {
                 // Leave this file dirty and keep going; never abort the batch.
@@ -868,7 +921,7 @@ public final class WorkspaceModel: ObservableObject {
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].url = url
         openFiles[index].savedText = openFiles[index].text
-        bumpDiskRevision(id)
+        adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
     }
 
     /// Outcome of attempting to close a file.

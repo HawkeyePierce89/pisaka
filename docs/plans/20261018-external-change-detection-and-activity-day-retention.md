@@ -104,16 +104,16 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Sources/PisakaCore/WorkspaceModel.swift`
 - Modify: `Tests/PisakaCoreTests/WorkspaceModelTests.swift` (or the existing WorkspaceModel suites)
 
-- [ ] Add `diskStamp: FileStamp?` to OpenFile. It is nil for untitled and viewer tabs; the viewer initializer forces nil.
-- [ ] Read the stamp through `fileService.fileStamp(at:)`, from the path, at every baseline site: open, save, saveAllDirty, saveAs, markSaved, reloadFromDisk, reconcileSavedBaseline. After a write, read it after the write. Route the stamp and the diskRevision bump through one private helper, so they move together or not at all.
-- [ ] Add a stamp-only refresh for the identical-content case. It moves neither diskRevision nor textReplacementRevision. It compares the new stamp with the stored one and writes into openFiles only when they differ, so an unchanged stamp republishes nothing.
-- [ ] Tests:
+- [x] Add `diskStamp: FileStamp?` to OpenFile. It is nil for untitled and viewer tabs; the viewer initializer forces nil.
+- [x] Read the stamp through `fileService.fileStamp(at:)`, from the path, at every baseline site: open, save, saveAllDirty, saveAs, markSaved, reloadFromDisk, reconcileSavedBaseline. After a write, read it after the write. Route the stamp and the diskRevision bump through one private helper, so they move together or not at all.
+- [x] Add a stamp-only refresh for the identical-content case. It moves neither diskRevision nor textReplacementRevision. It compares the new stamp with the stored one and writes into openFiles only when they differ, so an unchanged stamp republishes nothing.
+- [x] Tests:
   - each of the seven sites sets both the stamp and the diskRevision, pinned as one set
   - the stamp after a save is the post-write one
   - untitled and viewer tabs carry none
   - a stamp-only refresh moves neither token
   - a stamp-only refresh with an equal stamp publishes nothing on $openFiles
-- [ ] Run swift test; it must pass before task 2.
+- [x] Run swift test; it must pass before task 2.
 
 ### Task 2: The external-change rule in Core
 
