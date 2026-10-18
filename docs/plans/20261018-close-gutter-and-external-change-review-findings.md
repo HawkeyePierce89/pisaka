@@ -197,8 +197,8 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 
 ### Task 7: Update documentation
 
-- [ ] README.md needs no change: no user-facing shortcut or feature list changes beyond `FEATURES.md`.
-- [ ] Update CLAUDE.md only if an invariant sentence changed. None is expected, since "the same synchronous stretch" lives in `app-shell.md`.
+- [x] README.md needs no change: no user-facing shortcut or feature list changes beyond `FEATURES.md`. (confirmed: README states no gutter limit, quit order or HEAD-read detail)
+- [x] Update CLAUDE.md only if an invariant sentence changed. None is expected, since "the same synchronous stretch" lives in `app-shell.md`. (confirmed: no invariant sentence changed; CLAUDE.md untouched)
 
 ## Post-Completion
 
