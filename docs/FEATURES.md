@@ -1005,6 +1005,26 @@ user sees it.
   automatically — a short idle delay after you stop typing, when the app loses
   focus, when you switch tabs, and when you quit (Cmd+Q). "Untitled" files (with
   no path yet) are never autosaved, so autosave never pops a Save As panel.
+- Changes made outside the app (macOS): when another program, a `git` command
+  you run yourself or anything else rewrites a file you have open, Pisaka notices
+  — when the project folder reports a change, when you switch back to the app,
+  and always right before it writes the file. Only a real content change counts:
+  a file touched or rewritten with the same bytes is left alone. A tab with no
+  unsaved edits simply **reloads** to the new content, silently. A tab **with**
+  unsaved edits is never overwritten behind your back: autosave, a tab switch,
+  focus loss and the flush on quit all skip it. The tab shows a yellow
+  "changed on disk" mark in place of the unsaved dot, and a bar above the editor
+  offers **Reload** (take the disk's version and drop your edits), **Overwrite**
+  (write your text over it) and **Compare** (a side-by-side diff of the editor's
+  text against the disk's, titled "Editor vs. Disk"). Cmd+S, the close prompt's
+  Save, the saves before Run and Run Test, and Cmd+Q ask the same question as
+  Overwrite / Reload / Cancel; Cancel writes nothing and, for Cmd+Q, cancels the
+  quit. Either way **the side you give up is kept in Local History first** —
+  "Disk Version Before Overwrite" or "Edits Discarded by Reload". The bar goes
+  away on its own once the conflict is over, including when you edit the buffer
+  to match the disk. A file that was deleted is not a conflict: saving recreates
+  it, as before. If the commit dialog's pre-commit flush finds a tab in this
+  state, it names the file and commits the disk's version.
 - While one of the app's own git operations is writing to the working tree — a
   revert, a merge apply, a branch checkout, a project-wide Replace All, or a
   commit — saving (Cmd+S, the close prompt's Save, and the implicit save before
@@ -1098,9 +1118,13 @@ user sees it.
   window, so an edit made in the meantime re-arms it. A
   file the app has never written simply says "No history for this file yet." —
   that is not an error. Nothing about this is configurable and there is nothing to
-  turn on. **Retention**: a revision is kept for **14 days**, each file keeps its
-  **30** most recent, and the newest revision of a file is never deleted no matter
-  how old it is. Identical content is not stored twice, so a save that changed
+  turn on. **Retention**: a revision is kept for at least **14 days**, and beyond
+  that until the project has seen **14 days of activity** after it — days on which
+  Pisaka saved a revision of any of its files — so a project you leave alone for a
+  month still has its last two weeks of work when you come back. Each file keeps
+  its **30** most recent, and the newest revision of a file is never deleted no
+  matter how old it is. (Without a readable activity record the rule is the plain
+  14 calendar days.) Identical content is not stored twice, so a save that changed
   nothing adds no revision. Files larger than **1 MiB** and files that are not
   text are skipped, silently, as are "Untitled" buffers and files outside the
   open project — asking for the history of a file outside the project says "This
@@ -1799,16 +1823,28 @@ and iPhone. The feature scope landed so far:
   rather than from the laid-out lines, so a collapsed block still takes up its
   full height there and the viewport rectangle does not line up with the folded
   editor beside it.
+- Detecting changes made outside the app is **macOS-only**: on iPhone and iPad
+  a save writes the editor's text exactly as before, with no check and no
+  question. On macOS the check compares a file's size and modification date
+  first and reads it only when those moved, so a rewrite that keeps both (a
+  deliberate `touch -t`) goes unnoticed until the next real change. Files outside
+  the project folder are checked only when you switch back to the app or save,
+  since the folder watcher does not see them. While one of the app's own git
+  operations is running the check waits, and runs once it is done. A file that
+  becomes unreadable (permissions, or no longer text) while you have edits counts
+  as changed, and Compare shows its side as empty.
 - Local History is macOS-only, and it only ever sees **the app's own writes**.
   Edits made by another application, a `git` command you run yourself (in the
   embedded terminal or anywhere else), or any other change made outside Pisaka's
   save funnel, its nine worktree operations, the project tree's delete and Put
   Label… are not captured and leave no
   revision — the folder watcher keeps the project tree current, it does not
-  snapshot. The store holds **copies of your file contents on the local disk**,
+  snapshot. (The one exception is an outside change to a file open with unsaved
+  edits: whichever side you give up when you answer it is kept.) The store holds **copies of your file contents on the local disk**,
   unencrypted, under `~/Library/Application Support/Pisaka/LocalHistory`; anything
   a captured file contained — including a secret you removed afterwards — stays
-  there until retention reclaims it (14 days, or 30 revisions of that file) —
+  there until retention reclaims it (14 days *and* 14 days of that project's
+  activity after it, or 30 revisions of that file) —
   **except the newest revision of each file, which is never reclaimed at all**.
   That is the same rule that makes the feature a safety net rather than a tidy
   cache, and its price is that the last content Pisaka ever wrote for a given path

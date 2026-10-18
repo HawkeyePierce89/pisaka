@@ -297,31 +297,31 @@ Part B, retention. Local History retention counts 14 activity days per project i
 
 ### Task 9: Update documentation
 
-- [ ] docs/architecture/core-workspace.md:
+- [x] docs/architecture/core-workspace.md:
   - OpenFile's stamp
   - the ExternalChangeRule entry
   - WorkspaceModel's conflict map, with the derived rule and the clean-but-stale case
   - compare-before-assign and why it matters to the autosave debounce
   - the save policy, the batch result and the pass
-- [ ] docs/architecture/app-shell.md:
+- [x] docs/architecture/app-shell.md:
   - the autosave skip
   - the watcher and activation passes, and their gate deferral
   - the save funnel's prompt and the quit prompt
   - the DiskSyncController entry
   - why the pass runs synchronously with no token
-- [ ] docs/architecture/app-editor.md (or app-window.md): the ExternalChangeBar entry and the tab marker.
-- [ ] docs/architecture/core-local-history.md:
+- [x] docs/architecture/app-editor.md (or app-window.md): the ExternalChangeBar entry and the tab marker. (in app-window.md, beside ContentView and the tab views; core-theme.md's TabStatusMark precedence updated too)
+- [x] docs/architecture/core-local-history.md:
   - the two new events
   - the activity record
   - the activity-day rule, with the calendar AND and its fallback
   - the newest-survives sentence beside it
-- [ ] README.md and docs/FEATURES.md: the feature entry and the limitations entry. No unqualified "14 days" survives.
-- [ ] CLAUDE.md:
+- [x] README.md and docs/FEATURES.md: the feature entry and the limitations entry. No unqualified "14 days" survives.
+- [x] CLAUDE.md:
   - index names for ExternalChangeRule.swift, DiskSyncController.swift and ExternalChangeBar.swift
   - the "Open-tab resync" bullet gains the external-change claim
   - the Local History bullet's retention sentence becomes 14 activity days / 30 revisions, newest survives
   - stay under 60,000 characters (LintConfigurationTests)
-- [ ] Run swift test again for the doc-pinning suites.
+- [x] Run swift test again for the doc-pinning suites. (6914 tests, 0 failures)
 
 ## Post-Completion
 

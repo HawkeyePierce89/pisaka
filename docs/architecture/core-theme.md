@@ -746,8 +746,9 @@ disagree.
     `VStack` that draws nothing between its children, versus a width it is given
     and a boundary its splitter states for it), so neither can be a branch inside
     the other. The one thing they
-    genuinely share — the trailing slot's three-claimant precedence (hover → close
-    mark, else dirty → dot, else active → close mark) — is shared as **one view**,
+    genuinely share — the trailing slot's four-claimant precedence (hover → close
+    mark, else external conflict → `fileWarning` mark, else dirty → dot, else
+    active → close mark) — is shared as **one view**,
     `TabStatusMark` in `TabStripView.swift`, so the two cannot drift into two
     rules. The strip's own rendering is unchanged by that extraction. Full entry
     in `app-window.md`.

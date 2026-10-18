@@ -259,6 +259,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is no caret left to protect and no next save to defer a spared run to, which is
     the answer iOS's one save already gives for the same button. The commit
     dialog's flush keeps protecting: editing continues after it.
+    **`save(id:)` is also the external-change funnel.** After the writer-gate
+    refusal and **before** the transform it asks
+    `diskSync.resolveBeforeSave(id, answer:)`, which checks the tab against the
+    disk (`WorkspaceModel.checkDisk(id:)`) and, when it is in external conflict,
+    puts the Overwrite / Reload / Cancel question. The order is the point: a save
+    the question cancels has rewritten nothing, and Reload leaves nothing to
+    write. Overwrite captures the disk side under `.overwrite` and the write then
+    runs under `onExternalChange: .overwrite`; Reload captures the buffer under
+    `.discard`, reloads, and answers `true` because the tab is clean; Cancel
+    answers `false`, which is exactly what makes the close prompt's Save, the
+    `runFile`/`testFile` pre-run saves and the quit question stop. With no
+    conflict the write runs under `.refuse`, so the model checks once more at the
+    write itself — the hard guarantee does not depend on this call. The editor
+    bar's Overwrite arrives with `externalChangeAnswer: .overwrite` already given
+    and asks nothing. The modal has **no default button** — Return answers
+    nothing, so a keystroke meant for the editor cannot pick a side — and Escape
+    is Cancel.
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -1077,6 +1094,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `PisakaApp` also owns `private let projectWatcher = ProjectWatcher()` (next to
     `diffWindows`/`mergeWindows`) and wires it at two call sites: `openFolder()`
     calls `projectWatcher.start(root: url, onChange: { model.bumpTreeRevision() })`
+    (whose callback also requests the external-change pass, `diskSync.requestPass()`,
+    deferred while the writer gate is up — `DiskSyncController.swift` below)
     right after `model.openFolder(url:)` — `start` is idempotent, so this doubles as
     the folder switch (events from the old root stop arriving) — and the
     `willTerminateNotification` observer calls `projectWatcher.stop()` alongside
@@ -1332,7 +1351,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     per-file write failure by design, leaving that buffer dirty), it measures what
     is still dirty and *titled* afterwards and names those files in an alert, so a
     file whose write failed is not committed with its stale disk contents
-    unannounced; the dialog still opens, because one unwritable path must not
+    unannounced — and a tab in **external conflict** is the second way to stay
+    dirty there, since the flush never writes over a change made outside the app,
+    so the same alert names it ("a write failed, or the file changed on disk")
+    and the commit takes the disk's version; the dialog still opens, because one unwritable path must not
     strand a feature the other files are perfectly committable through, and the
     alert is raised **last** — after the re-entry guard is closed and the
     suspension is balanced by `onDismiss` — since it runs a nested run loop a
@@ -1559,6 +1581,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     teardown on the main actor and calls `reply(toApplicationShouldTerminate:
     true)` when it returns. A second ⌘Q while one is pending answers
     `.terminateLater` again and starts nothing — the one reply answers both.
+    **Before any teardown it asks `externalChangeQuestion`**, installed beside
+    `languageServerTeardown` as
+    `diskSync.questionBeforeQuit { save(id: $0, abandoningBuffer: true) }`: every
+    dirty titled tab is checked against the disk, and each one in conflict goes
+    through the ⌘S funnel above, which puts the question. The first `false`
+    (Cancel, or a failed write) answers `.terminateCancel` with nothing torn
+    down. `.proceed(awaiting:)` carries the Local History chain's
+    `waitForQueuedWrites()` whenever any question was put, so the side an answer
+    gave up is on disk before the process goes; the delegate awaits it and the
+    teardown in turn before its one reply. It asks nothing while the writer gate
+    is up — the termination flush is gated too, so nothing would be written
+    either way — and whatever the user left in conflict is skipped by the quit
+    flush and stays on disk as the other writer left it.
     The `willTerminate` observer's `lspWorkspace.terminateNow()` is unchanged and
     stays the fallback for a quit that never asked the delegate; after a polite
     teardown it finds nothing to kill. Moved out of `PisakaApp.swift` when it
@@ -1981,9 +2016,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     can't stack observers). `prepareForSave` is the **on-save transform**, injected
     rather than reached for so this controller keeps holding no policy: it knows
     when a save happens and which buffers it is about to write, and nothing about
-    `.editorconfig`. It is handed `dirtyTitledIDs(in:)` — the ids `saveAllDirty()`
-    will actually write, dirty *and* titled — because transforming a clean
-    background tab would rewrite a file nobody edited into the next commit; and it
+    `.editorconfig`. It is handed
+    `model.partitionDirtyTabsForSave().writable` — the ids `saveAllDirty()` will
+    actually write: dirty, titled, and **not in external conflict** after a disk
+    check — because transforming a clean background tab would rewrite a file
+    nobody edited into the next commit, and transforming a conflicted one would
+    be an edit nobody made to text no batch is going to write; and it
     runs **before** `missingDirtyPaths(in:)`, because it rewrites buffers and the
     probe reads which of them exist. The transform may *add* buffers of its own —
     the trims a spared caret line deferred, which were edited and whose rewrite was
@@ -2030,8 +2068,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`isRegularSuspended`); `flushNow` checks `suspendCount` alone. A trigger
     dropped while suspended is recorded (`pendingAutosave`) and replayed once *both*
     counters return to zero. `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
-    non-empty list, and beeps at most once (non-modal, latched via
+    non-empty `saved` list, and beeps at most once (non-modal, latched via
     `didBeepForFailure`) if a dirty titled file remained after a write failure.
+    **The autosave skip**: `saveAllDirty()` leaves every tab in external conflict
+    unwritten and names it in `skippedConflicts` — on every trigger and on both
+    flush paths, the quit's included — and those skips never count towards the
+    beep: they are dirty by design, and the tab's marker and the editor's bar are
+    their signal.
     `onSaved` is
     `(_ saved: [URL], _ createdFile: Bool, _ isTerminating: Bool) -> Void`, and it
     is invoked on **every** write path — the three of them: `performAutosave`, the
@@ -2077,6 +2120,53 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on the same quit writes nothing the second time. That observer passes
     `abandoningBuffers: true`, matching `PisakaApp`'s call: the second flush writes
     nothing only when the first one already wrote what the quit rule asks for.
+  - `DiskSyncController.swift` — the external-change wiring, every decision of
+    which is `WorkspaceModel`'s (`checkDisk(id:)`, `syncAllWithDisk()`, the
+    conflict map, `core-workspace.md`): it decides only *when* to ask and what to
+    capture into Local History before the losing side is gone. Owned by
+    `PisakaApp` beside `autosave` and started beside it with the model, Local
+    History, the writer gate's publisher (`localChanges.$isReverting`, its value
+    taken from the emission because `@Published` emits before it assigns) and
+    the reindex for a tab whose baseline moved (`reindexReloadedBuffer`; blame and
+    the gutter follow the `diskRevision` bump on their own). `start` is
+    idempotent.
+    *The two passes.* `requestPass()` is called by the `ProjectWatcher`'s
+    coalesced `onChange` (beside the tree bump and the index refresh) and by
+    `NSApplication.didBecomeActiveNotification` — the second exists for a file
+    outside the project root, which no watcher sees. Each runs
+    `syncAllWithDisk()` and reindexes whatever it reloaded. **Deferred while the
+    writer gate is up**: a git operation rewriting the worktree resyncs its own
+    tabs from a snapshot (the open-tab resync invariant), and a pass landing
+    mid-operation would read files git is still writing — so a request then sets
+    `passPending` and the pass runs once when the gate comes down
+    (`DiskSyncControllerTests`).
+    *Why synchronous, with no token.* The pass runs on the main actor: one stat
+    per open titled tab, plus a content read only when a stamp differs — the cost
+    profile of `open` and `reloadFromDisk`, which already run there. Nothing hops
+    off the main actor, so there is no overlapping work for a generation token to
+    order; an asynchronous version would owe one. It **publishes nothing when
+    nothing moved** (Core's compare-before-assign), which is what keeps a
+    watcher burst from re-arming the autosave idle debounce and starving an
+    unrelated dirty tab — pinned by
+    `testWatcherPassesOverUnchangedFilesDoNotHoldOffTheIdleAutosave`.
+    *The question and its helpers.* `resolveBeforeSave(_:answer:)` is
+    `save(id:)`'s half (see `PisakaApp.swift` above). Both answers go through
+    one capture-then-act helper each, shared by the modal and the bar:
+    `captureDiskSide(of:)` stores `diskText(forConflict:)` under `.overwrite`
+    before the write, and `discardEdits(of:)` stores the buffer under `.discard`
+    before `reloadDiscardingEdits` (a failed reload beeps and leaves the tab as it
+    was). Neither raises the writer gate — the write is the ordinary save funnel
+    and the reload a buffer replacement — which is why these are capture sites of
+    their own (`core-local-history.md`).
+    *The bar's actions.* `reloadFromBar(_:)` beeps and does nothing while the
+    gate is up, for the passes' reason; otherwise it is `discardEdits`. The bar's
+    Overwrite is `save(id:externalChangeAnswer: .overwrite)`, so it inherits the
+    gate refusal and the transform. `compare(_:settings:in:)` opens the
+    `DiffWindowController` on the buffer (left) against the conflict's disk side
+    (right), both snapshotted at the press, as `LineDiff` rows with their word
+    emphasis built off the main actor, under `DiffWindowTitle.externalChange`;
+    `compareContent(of:settings:)` is the same answer without a window, for the
+    test. `questionBeforeQuit(save:)` is `AppDelegate`'s question (see there).
   - `SessionController.swift` — the thin view-layer wiring that writes the editor
     session (the opened folder, the tabs, the selection, the text of Untitled
     buffers) to Core's `SessionStore`, so a launch can bring the last session back

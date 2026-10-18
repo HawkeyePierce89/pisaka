@@ -34,6 +34,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     other file), then either `DatabaseViewerHost(file:)` or
     `markdownSplit(for:)`, whose editor side is
     `textEditorZone(for:onScrolled:)` — `LSPConsentBanner(provisioning:gopls:rust:language:hasProjectRoot:)`,
+    `<ExternalChangeBar while model.isInExternalConflict(file.id)>`,
     `<SearchBarView while search.isVisible>`, `CodeEditorView(…)`. So the find bar
     sits between the breadcrumb and the editor and, living inside `editorZone`,
     covers **both** tab layouts at once (in `.horizontal` it simply lands under the
@@ -1746,6 +1747,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ChromePalette.nsColor(.statusRed)` while the input is invalid and
     `ChromePalette.nsColor(.textPrimary)` otherwise — dynamic colours, so the
     field follows the window's appearance while observing nothing itself.
+  - `ExternalChangeBar.swift` (macOS) — the external-change bar: a full-width
+    row between the consent banner and the find bar in the editor zone, drawn for
+    the selected tab exactly while `WorkspaceModel.isInExternalConflict` holds and
+    gone the moment it does not — after an answer, an edit to the disk's text, or
+    a pass that reloaded the tab. **When it shows is the model's rule, not this
+    view's**, and the view holds no state, so the clean-but-stale case keeps it up
+    exactly as it keeps the tab's marker. It quotes the file's display name, says
+    that autosave will not write it and that the version given up is kept in
+    Local History, and offers **Reload, Overwrite and Compare, equally
+    weighted**: all three `.chromeSecondary`, because two of them give up one side
+    and neither is the safer one to recommend. **No `.keyboardShortcut(.defaultAction)`**,
+    for the consent bar's reason — a default button in the editor window would take
+    every Return typed in the file below — and no dismiss: the conflict is a fact
+    about the file and ends only through an answer or an edit. The three actions
+    are `ContentView`'s `onExternalChangeReload` / `Overwrite` / `Compare`,
+    wired in `PisakaApp` to `DiskSyncController.reloadFromBar`, to
+    `save(id:externalChangeAnswer: .overwrite)` and to
+    `DiskSyncController.compare` (`app-shell.md`), so Reload and Overwrite run
+    the very capture-then-act helpers the modal question does. The geometry is
+    the consent bar's — `bgPanel` ground padded 14 by 18, the 16-point
+    `fileWarning` glyph in `statusYellow` (the tab's own mark, so bar and tab say
+    the same thing) with the text 10 beyond it, the actions at least 16 away and 8
+    apart, one scaled `hairline` rule along the bottom — every number through
+    `metrics.scaled(_:)` and every colour a role, so it is in
+    `ChromeThemeSourceGatingTests`' gated set. It is chrome, not a code-font
+    surface, so it declares no zoom zone. `ExternalChangeBarLayoutTests` (app
+    bundle, `HostedRender`) pins three buttons, none drawn as the default, at
+    scale 1.0 and 1.8.
   - `TabListView.swift` / `TabRowView.swift` — the open-tabs **vertical column**
     and nothing else: the scrolling `LazyVStack` of `TabRowView`s, each stretched
     to `maxWidth: .infinity`. The `orientation: TabOrientation` parameter is
@@ -1810,7 +1839,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     untitled buffer asked about under its display name so the fallback is still
     `FileGlyph`'s own plain-text answer. The trailing slot is the first,
     **`TabStatusMark`**: the
-    three-claimant precedence exists once, so the two orientations cannot drift
+    four-claimant precedence exists once, so the two orientations cannot drift
     into two rules. Both are one view rather than one rule restated twice, for
     the same reason and pinned by the same suite — `ChromeThemeSourceGatingTests`
     holds the icon rule to one spelling by set equality, having found it pasted
@@ -1849,9 +1878,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
     trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, the
-    other shared view, so the precedence below exists once rather than twice — holding either
-    the close mark or the unsaved-changes dot, claimed in that order: the mark under the
-    pointer, then the dot, then the mark on the active tab. The dot therefore
+    other shared view, so the precedence below exists once rather than twice — holding
+    the close mark, the external-change mark or the unsaved-changes dot, claimed in
+    that order: the mark under the pointer, then the external-change mark, then the
+    dot, then the close mark on the active tab. **The external-change mark** is the
+    `fileWarning` design glyph at 12 in `statusYellow` — a shape and a colour the
+    dot never takes — helped and labelled "Changed on disk", drawn while
+    `model.isInExternalConflict(file.id)` (each orientation passes `isInConflict`
+    to the cell or row). It outranks the dot because a tab in conflict is usually
+    dirty too, and the dot alone would claim autosave is going to write it, which
+    it will not; a clean tab stale against the disk carries it as well, since the
+    conflict rule is derived from the texts and not from the dirty flag
+    (`core-workspace.md`). The dot therefore
     **outranks** the mark on an active tab — unsaved work is a fact about the
     file that nothing else on the strip states, while the mark is one hover away
     — and the mark still shows on an active tab with nothing to report, so the
