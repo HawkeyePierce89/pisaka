@@ -197,7 +197,7 @@ struct CommitUnifiedDiffView: View {
             checkbox(for: line)
             number(line.oldNumber)
             number(line.newNumber)
-            Text(sign(line.kind) + line.text)
+            Text(emphasized(line))
                 .font(codeFont(size: fontSize))
                 .foregroundStyle(textColor(line.kind))
                 .lineLimit(1)
@@ -274,6 +274,35 @@ struct CommitUnifiedDiffView: View {
     private func textColor(_ kind: UnifiedDiffLine.Kind) -> Color {
         ChromeColorRole.diffTextRole(for: kind).map { theme.color($0) }
             ?? Color(SyntaxTheme.shared.color(for: .plain))
+    }
+
+    /// The line's sign and text, with its word emphasis (`line.emphasis`, Core's
+    /// `DiffRow.words` copied onto a modified pair's `-`/`+` lines) filled once
+    /// more in the line's own wash role over the row's wash. The ranges are
+    /// UTF-16 offsets into `line.text`, cut on token boundaries, so slicing the
+    /// text at them never splits a character.
+    private func emphasized(_ line: UnifiedDiffLine) -> AttributedString {
+        var result = AttributedString(sign(line.kind))
+        let text = line.text as NSString
+        guard
+            !line.emphasis.isEmpty,
+            let role = ChromeColorRole.diffWashRole(for: line.kind)
+        else {
+            result.append(AttributedString(line.text))
+            return result
+        }
+        var cursor = 0
+        for range in line.emphasis where range.location >= cursor && NSMaxRange(range) <= text.length {
+            let before = NSRange(location: cursor, length: range.location - cursor)
+            result.append(AttributedString(text.substring(with: before)))
+            // A text run's attribute, not a view's ground, so it is no second
+            // `CodePaneGround` site.
+            let emphasis = AttributeContainer().backgroundColor(theme.color(role))
+            result.append(AttributedString(text.substring(with: range), attributes: emphasis))
+            cursor = NSMaxRange(range)
+        }
+        result.append(AttributedString(text.substring(from: cursor)))
+        return result
     }
 
     /// The row's wash: Core's one answer, `nil` (a context line) drawing none.

@@ -267,10 +267,10 @@ None new.
 - Modify: `Sources/Pisaka/CommitUnifiedDiffView.swift` (`AttributedString` background on `line.emphasis` ranges in the line's wash role)
 - Create: `Tests/PisakaAppTests/DiffWordEmphasisTests.swift`
 
-- [ ] Draw the emphasis in both `DiffView` panes, which covers Local Changes inline, the Log and Local History. Leave the iOS diff view untouched.
-- [ ] Draw the emphasis on the unified diff's `-` and `+` lines.
-- [ ] Write headless app tests through `HostedRender` / bitmap: a one-word change shows a stronger wash only inside the word's rect on both panes; a rewritten line shows a uniform wash.
-- [ ] Run `make test-app`: no new failures.
+- [x] Draw the emphasis in both `DiffView` panes, which covers Local Changes inline, the Log and Local History. Leave the iOS diff view untouched. (`DiffTextView.fillWordEmphasis`, once per row on its first fragment, in the fill colour the row's wash already set)
+- [x] Draw the emphasis on the unified diff's `-` and `+` lines. (an `AttributedString` built through an `AttributeContainer`, so `ChromeThemeSourceGatingTests`' one-pane-ground rule, which counts every `backgroundColor =`, sees no second site)
+- [x] Write headless app tests through `HostedRender` / bitmap: a one-word change shows a stronger wash only inside the word's rect on both panes; a rewritten line shows a uniform wash. (four tests, both panes in both appearances plus the unified `-`/`+` lines; verified by mutation — with the drawing removed both emphasis cases fail)
+- [x] Run `make test-app`: no new failures. (434 run, only the known 8 scale-1.8 failures; swift test 6830 green; lint clean)
 
 ### Task 12: Source-gating suites
 
