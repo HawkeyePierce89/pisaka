@@ -176,7 +176,8 @@ user sees it.
   as with blame: the just-committed lines stay marked until you switch tabs away
   and back, save, or Local Changes refreshes. A file outside a repository, an
   untracked or binary file, a file over 1 MiB and an "Untitled" buffer simply show
-  no markers, with no error.
+  no markers, with no error. A change that only adds or removes the final newline
+  is marked on the last line, as a modified line.
 - Revert a change (macOS): click a marker to see the lines `HEAD` has there
   ("No lines in HEAD" for added lines) in a popover beside it, with a **Revert**
   button; **Git ▸ Revert Change** does the same for the change holding the caret
@@ -1938,7 +1939,9 @@ and iPhone. The feature scope landed so far:
 - The gutter change markers are macOS-only and always compare against `HEAD`:
   there is no staged-versus-unstaged distinction and no other base. A commit made
   in the embedded terminal is not noticed until a tab switch, a save or a Local
-  Changes refresh. Files over 1 MiB on either side show no markers.
+  Changes refresh. Files over 1 MiB on either side show no markers. A change that
+  only adds or removes the final newline is marked on the last line; a line whose
+  ending alone switched in the middle of the file (CRLF to LF) is not marked.
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
   Go to Definition, completion, hover types, diagnostics, Find Usages and Rename
   only — there is still no signature help, and nothing about the

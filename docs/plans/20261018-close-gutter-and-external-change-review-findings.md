@@ -170,18 +170,18 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 - Modify: `docs/FEATURES.md` (the gutter feature entry at about line 179, and the known-limitations entry at about line 1941)
 - Modify: `CLAUDE.md` (only if a claim changes)
 
-- [ ] `app-shell.md`:
+- [x] `app-shell.md`:
   - The replay runs on the next main-actor turn and is named as covered by the "same synchronous stretch" rule beside the deferred pass. The quit flush is the synchronous exception.
   - Rewrite the quit sequence: question, flush, then teardown. The post-wait re-check exists only for conflicts that arise during the wait, and that is the one reachable Cancel-after-teardown case.
-- [ ] `app-git-views.md`: the HEAD read sets `GIT_TERMINAL_PROMPT=0`, with the smudge reason.
-- [ ] `core-diff-merge.md`: the final-newline row rule, and the one place the projection sees a terminator.
-- [ ] `core-git-models.md`: the gutter marks it, and the revert restores HEAD's terminator state. Drop any stated limit to the contrary.
-- [ ] `core-commit.md`: the same correction as `PartialCommitBuilder`'s doc comment in Task 1. A last line that only gained or lost its terminator is now a unit, while a mid-file separator switch still is not, so the repo-level doc and the code comment agree.
-- [ ] `FEATURES.md`, in both places a reader looks for the gutter's limits, state that a final-newline-only change is marked on the last line. Drop nothing.
+- [x] `app-git-views.md`: the HEAD read sets `GIT_TERMINAL_PROMPT=0`, with the smudge reason.
+- [x] `core-diff-merge.md`: the final-newline row rule, and the one place the projection sees a terminator.
+- [x] `core-git-models.md`: the gutter marks it, and the revert restores HEAD's terminator state. Drop any stated limit to the contrary.
+- [x] `core-commit.md`: the same correction as `PartialCommitBuilder`'s doc comment in Task 1. A last line that only gained or lost its terminator is now a unit, while a mid-file separator switch still is not, so the repo-level doc and the code comment agree.
+- [x] `FEATURES.md`, in both places a reader looks for the gutter's limits, state that a final-newline-only change is marked on the last line. Drop nothing.
   - the feature entry at about line 179, beside "untracked or binary file, a file over 1 MiB and an Untitled buffer simply show no markers";
   - the known-limitations entry at about line 1941, beside "Files over 1 MiB on either side show no markers".
-- [ ] Grep the inventory suites (`LocalHistorySourceGatingTests`, `GitHubSourceGatingTests`, `LintConfigurationTests`, others) for counts or sets these changes touch, and update them. Keep `CLAUDE.md` under its measured size.
-- [ ] Run `swift test`; it must pass.
+- [x] Grep the inventory suites (`LocalHistorySourceGatingTests`, `GitHubSourceGatingTests`, `LintConfigurationTests`, others) for counts or sets these changes touch, and update them. Keep `CLAUDE.md` under its measured size. (none restate a touched count: the prompt set lives only in GitCLIArgumentSourceGatingTests, updated in Task 2; CLAUDE.md unchanged at 56105)
+- [x] Run `swift test`; it must pass.
 
 ### Task 6: Verify acceptance criteria
 

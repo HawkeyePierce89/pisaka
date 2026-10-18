@@ -344,7 +344,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     past the limit terminates the process, drains the pipe unkept and marks the
     result `stdoutOverflowed`, which `headText` answers `nil` — memory stays at
     the cap plus one chunk and the shared queue is released, for a file the
-    column would draw nothing for anyway. `GitBlobText` accepts UTF-8 alone, so
+    column would draw nothing for anyway. **It runs under
+    `GIT_TERMINAL_PROMPT=0`**: `--filters` runs the smudge filters, and an LFS
+    smudge may fetch the object and prompt for credentials on /dev/tty, which
+    would wedge the shared serial queue behind a question nothing can answer —
+    fetch, push and pull set it for the same reason (the set is pinned below). `GitBlobText` accepts UTF-8 alone, so
     the byte cap is the text's.
     The **commit dialog** adds seven more methods and two amendments to the
     process plumbing itself. (1) `ProcessResult` now stores the raw
@@ -430,12 +434,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     carrying git's trimmed stderr, which is what the tail's step reports. The flag
     is pinned statically by `GitHubSourceGatingTests`, since nothing in
     `swift test` compiles this file. **`GIT_TERMINAL_PROMPT=0`** is passed by the
-    four
+    five
     calls that can be prompted at — push, because it is the one command that
     routinely needs authentication, `fetch` and `pull`, the other two here that
     reach the network, and `commit`, alongside its `GIT_INDEX_FILE`,
     because it executes the repository's own `pre-commit`/`commit-msg` hooks and
-    signs when `commit.gpgsign` is on. Without it, anything that decides to prompt
+    signs when `commit.gpgsign` is on, and the gutter's `headText`, whose
+    `--filters` runs smudge filters — an LFS smudge may fetch the object and ask
+    for credentials on /dev/tty. Without it, anything that decides to prompt
     blocks on a question nothing can answer, and since every call shares the serial
     `queue`, the Local Changes refresh, the Log, the branch
     widget and every later git operation queue behind it and silently stop working
@@ -476,7 +482,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     containing `"--pretty` equal to the set containing `"--encoding=UTF-8"`, neither
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
-    commit}` (the one place that count lives); exactly three `checkout` spellings,
+    commit, headText}` (the one place that count lives); exactly three `checkout` spellings,
     every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
     arguments do what is claimed is a fact about git itself, so
     `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a

@@ -108,6 +108,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     splitter: it is a one-line *projection* of `TerminatedLines.split` (see the
     next entry), because the commit dialog indexes one splitter's output with the
     other's indices.
+    **The final-newline row is the one place the projection sees a terminator.**
+    `rows` splits through `TerminatedLines.split` itself and compares the
+    stripped contents as before, but when the last op is `.equal` pairing the two
+    sides' *last* lines and exactly one of them is terminated, that row is emitted
+    as `.modified` with `words: nil` — the texts are equal, only the terminator
+    differs. Without it `"a\nb"` against `"a\nb\n"` would produce no change row
+    at all: the gutter would mark nothing, the partial commit would have no unit
+    to select, and reverting every hunk would not restore the base. Every other
+    row is decided on stripped content alone, a mid-file separator switch
+    (CRLF→LF) included; empty against `"\n"` is unaffected, its last op being an
+    insert; both the public and the gutter (`wordRanges: false`) path apply the
+    rule; and `matchedPairs`, `ThreeWayMerge`'s alignment, never sees it
+    (`LineDiffTests`).
     **`DiffSide`** (`old`, `new`) lives here too: which pane of a side-by-side
     diff a line is drawn in, `old` the left (`HEAD` or the earlier revision) and
     `new` the right. It is **the one diff-side type** — since part four (b) of the

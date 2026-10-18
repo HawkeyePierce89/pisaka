@@ -428,6 +428,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       An empty buffer against a non-empty `HEAD` marks index 0 `deletedAbove` —
       the only place left to say "HEAD had lines here". Anything past
       `lineCount` is dropped, not trapped.
+    - **A final-newline-only change is marked.** `LineDiff` emits the last row
+      as `.modified` when the two sides' last lines are equal in text and only
+      one is terminated (`core-diff-merge.md`), so a buffer that only gained or
+      lost its final newline is one `modified` hunk on its last line — the strip
+      is drawn there and the hunk at a caret on that line exists
+      (`GutterChangeModelTests`).
     - **`headLines(in: base)`** — the hunk's `HEAD` lines, separators stripped;
       empty for an added hunk or one that does not fit `base`.
       **`headLines(in:limit:)`** cuts them to the first `limit` and counts the
@@ -507,15 +513,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
       line 1). In the middle of a file every line is terminated on both sides, so
       that is enough.
     - **The end-of-text rule.** At the end it is not: `LineDiff` compares
-      separator-stripped lines, so whether the last line carries a final newline
-      is invisible to the hunk, and a deletion anchored after an unterminated last
-      line would otherwise be glued onto it. When the hunk reaches the end of the
+      separator-stripped lines, so a hunk's line counts say nothing about whether
+      the last line carries a final newline, and a deletion anchored after an
+      unterminated last line would otherwise be glued onto it. When the hunk reaches the end of the
       buffer (a strip covering the last line, or a deletion anchored after it) and
       a line precedes it, the range starts at **that line's terminator** and the
       replacement starts with **`HEAD`'s terminator for that line** — the
       preceding line is unchanged (hunks are maximal runs), so it is old line
       `oldLines.lowerBound - 1`. The presence or absence of a final newline comes
-      back exactly on either side. A hunk that is the whole buffer replaces the
+      back exactly on either side — including the hunk a final-newline-only
+      change produces (a `modified` last line, above), whose revert restores
+      `HEAD`'s terminator state. A hunk that is the whole buffer replaces the
       whole buffer with the whole old side, which carries `HEAD`'s ending already.
     - **The caret** goes to the start of the hunk's first line in the result:
       the first restored line, or for an added hunk the line now following.
@@ -529,8 +537,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     of the file, a modified hunk ending at an unterminated last line, an added
     line at an unterminated end, a CRLF file, deletion after the last line with
     `HEAD` terminated and unterminated, unequal modified counts, both `nil`
-    guards, and a fuzz — reverting every hunk of random small texts back to front
-    yields `HEAD` byte for byte, and reverting one hunk leaves the others intact.
+    guards, a newline-only hunk reverting to `HEAD`'s terminator state, and a
+    fuzz with no exception — reverting every hunk of random small texts back to
+    front yields `HEAD` byte for byte, a final newline differing on an otherwise
+    unchanged last line included, and reverting one hunk leaves the others intact.
   - `ChangedFileGroups.swift` — the macOS Local Changes list's one level of
     grouping. `group(_:rootName:projectPrefix:repositoryName:)` returns one
     `ChangedFileGroup` (`path`, `label`, `files`; identity `path`, always the

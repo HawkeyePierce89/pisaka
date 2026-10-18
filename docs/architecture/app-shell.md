@@ -1594,30 +1594,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     teardown on the main actor and calls `reply(toApplicationShouldTerminate:
     true)` when it returns. A second ⌘Q while one is pending answers
     `.terminateLater` again and starts nothing — the one reply answers both.
-    **Before any teardown it asks `externalChangeQuestion`**, installed beside
-    `languageServerTeardown` as
+    The body lives in an internal method taking the deferred reply as a closure
+    (the delegate passes `sender.reply(toApplicationShouldTerminate:)`), the seam
+    `QuitOrderTests` drives headlessly without terminating the test host.
+    **The order is question, flush, then teardown.** The first round is
+    synchronous on the main actor: it asks `externalChangeQuestion`, installed
+    beside `languageServerTeardown` as
     `diskSync.questionBeforeQuit { save(id: $0, abandoningBuffer: true) }`: every
     dirty titled tab is checked against the disk, and each one in conflict goes
     through the ⌘S funnel above, which puts the question. The first `false`
-    (Cancel, or a failed write) answers `.terminateCancel` with nothing torn
-    down. `.proceed(awaiting:)` carries the Local History chain's
-    `waitForQueuedWrites()` whenever any question was put, so the side an answer
-    gave up is on disk before the process goes; the delegate awaits it and the
-    teardown in turn, then **asks the question again** until a round finds no
-    conflict or is cancelled, and only then replies — the window stays live
-    through the wait, so a dirty tab can fall into conflict after the first round,
-    and the termination flush would skip it without asking. **The quit's flush is
-    coupled to the question**: `flushBeforeTermination`, installed as
-    `!autosave.flushNow(abandoningBuffers: true).isEmpty`, runs right after a round
-    that found nothing to ask and in the same synchronous stretch as the approval
-    (on both the immediate `.terminateNow` path and the deferred one). Another
-    process is not serialized by the main actor and can change a file between a
-    round and the write; the flush skips that tab and answers `true`, and the quit
-    goes back to the question instead of being approved — so the `willTerminate`
+    (Cancel, or a failed write) answers `.terminateCancel` with no teardown ever
+    requested and no flush run. `.proceed(awaiting:)` carries the Local History
+    chain's `waitForQueuedWrites()` whenever any question was put, so the side an
+    answer gave up is on disk before the process goes; the round collects it.
+    **The quit's flush is coupled to the question**: `flushBeforeTermination`,
+    installed as `!autosave.flushNow(abandoningBuffers: true).isEmpty`, runs right
+    after the question, in the same synchronous stretch. Another process is not
+    serialized by the main actor and can change a file between the question and
+    the write; the flush skips that tab and answers `true`, and the round goes
+    back to the question — still before any teardown — so the `willTerminate`
     flush that follows finds nothing dirty and can drop no edit. A cancel after
-    such a flush leaves what it wrote saved, trimmed in full. A cancel there
-    replies `false` and clears the in-flight flag; the language servers already
-    stopped start again on the next request that needs one. It asks nothing while the writer gate
+    such a flush leaves what it wrote saved, trimmed in full. **Only after that
+    round** is `languageServerTeardown?()` read: with neither a teardown nor a
+    collected Local History write to wait for it answers `.terminateNow`;
+    otherwise the delegate awaits the collected writes and the teardown, then runs `askUntilFlushed()` — the window stays live through the
+    wait, so the post-wait re-check exists only for a conflict that arose during
+    it, and that is the one reachable case of a Cancel after the teardown. Such a
+    cancel replies `false` and clears the in-flight flag; the language servers
+    already stopped start again on the next request that needs one. It asks nothing while the writer gate
     is up — the termination flush is gated too, so nothing would be written
     either way — and whatever the user left in conflict is skipped by the quit
     flush and stays on disk as the other writer left it.
@@ -2094,7 +2098,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     loss). `performAutosave` bails while *either* counter is raised
     (`isRegularSuspended`); `flushNow` checks `suspendCount` alone. A trigger
     dropped while suspended is recorded (`pendingAutosave`) and replayed once *both*
-    counters return to zero. `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
+    counters return to zero — on the **next main-actor turn**, never inside
+    `resume()`/`resumeFromModal()`, the "same synchronous stretch" rule the
+    deferred disk-sync pass already follows (`DiskSyncController.swift` below):
+    every gated operation lowers its gates and then resyncs its tabs in one
+    synchronous stretch, and a replay run first would judge the operation's own
+    write as an outside change and put a tab edited across it in external
+    conflict before the resync reconciled it. The flag stays set until the turn
+    comes, and both counters and the flag are read again then, so a gate raised
+    in between keeps the debt for its own drop (`AutosaveReplayOrderTests`). The
+    quit's `flushNow` is not a replay and is the synchronous exception.
+    `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
     non-empty `saved` list, and beeps at most once (non-modal, latched via
     `didBeepForFailure`) if a dirty titled file remained after a write failure.
     **The autosave skip**: `saveAllDirty()` leaves every tab in external conflict
