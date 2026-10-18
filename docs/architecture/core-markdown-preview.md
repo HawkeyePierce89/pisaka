@@ -300,15 +300,16 @@ error in the document rather than as a guess by the viewer.
 
 App-wide chords act "at the caret" — Go to Definition, Find Usages, Rename,
 Toggle Comment, Complete, `FoldCommands`' four items, `SelectionCommands`'
-two, `LineCommands`' two, Toggle Block Comment and Next / Previous Problem's
-two — and each used to spell
-`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **ten
+two, `LineCommands`' two, Toggle Block Comment, Next / Previous Problem's
+two and the Git menu's change items — and each used to spell
+`NSApp.keyWindow?.firstResponder as? EditorTextView` itself. They ask from **eleven
 call sites**: five in `PisakaApp.swift`, one in `FoldCommands.swift`, which asks
 once for all four fold items, one in `SelectionCommands.swift`, which asks once
 for Expand and Shrink Selection, one in `LineCommands.swift`, which asks once
 for Move Line Up and Down, one in `CommentCommands.swift`, Toggle Block
 Comment's one action, and one in `ProblemCommands.swift`, which asks once for
-both problem-navigation items. (Every count of call sites in this feature is a
+both problem-navigation items, and one in `ChangeCommands.swift`, which asks
+once for every Git-menu change item. (Every count of call sites in this feature is a
 count of those sites, not of chords.) The preview is a **focusable** web view (selection
 and links must work), so clicking into it made all of them beep.
 
@@ -1489,7 +1490,7 @@ honest answer for a link to a section the document does not have.
   because writing on every changed frame would put a `UserDefaults` write on the
   drag's per-frame path and republish the window sixty times a second.
 - `PisakaApp.swift` (`app-shell.md`) — the View-menu toggle (M8) and five of the
-  ten caret-command call sites now routed through `EditorCommandTarget` (M11).
+  eleven caret-command call sites now routed through `EditorCommandTarget` (M11).
 - `FoldCommands.swift` (`core-folding.md`) — the sixth site, same routing, asking
   once for all four fold items.
 - `SelectionCommands.swift` (`app-editor.md`) — the seventh site, same routing,
@@ -1500,6 +1501,8 @@ honest answer for a link to a section the document does not have.
   asking once in Toggle Block Comment's action.
 - `ProblemCommands.swift` (`app-editor.md`) — the tenth site, same routing,
   asking once for Next and Previous Problem.
+- `ChangeCommands.swift` (`app-editor.md`) — the eleventh site, same routing,
+  asking once (`focusedCoordinator()`) for every Git-menu change item.
 - `CodeEditorView.swift` (`app-editor.md`) — `onScrolled`, an **optional**
   callback carrying the top visible character offset. `nil` for every editor
   nobody is watching, and the guard is on the closure rather than on the

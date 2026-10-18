@@ -38,6 +38,15 @@ public struct ChangeHunk: Equatable, Sendable {
         self.oldLines = oldLines
     }
 
+    /// The hunk's `HEAD` lines, separators stripped — what the gutter's popover
+    /// shows. Empty for an added hunk, and for a hunk that does not fit `base`
+    /// (an answer computed against another base).
+    public func headLines(in base: String) -> [String] {
+        let lines = TerminatedLines.split(base)
+        guard oldLines.lowerBound >= 0, oldLines.upperBound <= lines.count else { return [] }
+        return lines[oldLines].map(\.content)
+    }
+
     /// The hunks of a diff, in order: each maximal run of non-`unchanged` rows,
     /// its kind decided by which sides the run carries. Pure; it does not re-diff.
     ///

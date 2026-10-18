@@ -51,6 +51,7 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
         "SourceViewerContent.swift:SourceViewerTextView",
         "CommitUnifiedDiffView.swift:CommitUnifiedDiffView",
         "ProjectSearchView.swift:ProjectSearchView",
+        "ChangeHunkPopover.swift:ChangeHunkPopover",
         // Exempt — see `exemptSurfaces` for the reason each one carries.
         "DiffView.swift:DiffGutterView",
         "LineNumberRulerView.swift:LineNumberRulerView",
@@ -95,6 +96,7 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
         "SourceViewerContent.swift:SourceViewerTextView": "SourceViewerContent.swift",
         "CommitUnifiedDiffView.swift:CommitUnifiedDiffView": "CommitUnifiedDiffView.swift",
         "ProjectSearchView.swift:ProjectSearchView": "ProjectSearchView.swift",
+        "ChangeHunkPopover.swift:ChangeHunkPopover": "ChangeHunkPopover.swift",
     ]
 
     /// Every base-foreground statement in `Sources/Pisaka`, by file and **count**.
@@ -110,6 +112,7 @@ final class SyntaxBaseForegroundGatingTests: XCTestCase {
         "SourceViewerContent.swift": 1,
         "CommitUnifiedDiffView.swift": 1,
         "ProjectSearchView.swift": 1,
+        "ChangeHunkPopover.swift": 1,
         "CodeEditorView_iOS.swift": 1,
         "DiffView_iOS.swift": 1,
         "MergeView_iOS.swift": 1,

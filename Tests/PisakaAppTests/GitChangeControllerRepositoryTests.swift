@@ -10,12 +10,21 @@ import XCTest
 /// that hunk restores the committed bytes exactly, and an untracked file draws
 /// nothing.
 ///
+/// The revert also runs end to end through the coordinator (Task 9's path): the
+/// popover's request and the caret's menu item both land as **one undo step** —
+/// undo brings the edit back, redo reverts again — and a raised writer gate
+/// leaves the buffer untouched without raising anything itself.
+///
 /// Every wait is on `onChangesInstalled` — an answer that *must* reach the ruler
 /// — never on a delay, so the 250 ms coalescing window is waited out causally.
 @MainActor
 final class GitChangeControllerRepositoryTests: XCTestCase {
     private var scratch: URL!
     private var controller: GitChangeController!
+    /// Kept alive for the test's duration: the coordinator holds its text view
+    /// weakly, and the controller its ruler.
+    private var coordinators: [CodeEditorView.Coordinator] = []
+    private var harnesses: [Harness] = []
 
     override func setUpWithError() throws {
         scratch = FileManager.default.temporaryDirectory
@@ -27,6 +36,8 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
     override func tearDownWithError() throws {
         controller?.reset()
         controller = nil
+        coordinators = []
+        harnesses = []
         if let scratch {
             try? FileManager.default.removeItem(at: scratch)
         }
@@ -95,7 +106,126 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
         XCTAssertTrue(controller.currentChanges(buffer: "anything\n").hunks.isEmpty)
     }
 
+    // MARK: - Revert through the coordinator
+
+    func testAMarkerRevertIsOneUndoStepAndRedoRevertsAgain() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+
+        XCTAssertEqual(editor.grouped { editor.coordinator.revertChange(atMarker: 1) }, .reverted)
+        XCTAssertEqual(editor.text, committed)
+        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 4, length: 0))
+
+        editor.undoManager.undo()
+        XCTAssertEqual(editor.text, editor.edited)
+        editor.undoManager.redo()
+        XCTAssertEqual(editor.text, committed)
+    }
+
+    func testTheCaretsRevertChangeRevertsItsHunk() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+
+        editor.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertEqual(editor.coordinator.revertChangeAtCaret(), .noHunk)
+        XCTAssertEqual(editor.text, editor.edited)
+
+        editor.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        XCTAssertEqual(editor.grouped { editor.coordinator.revertChangeAtCaret() }, .reverted)
+        XCTAssertEqual(editor.text, committed)
+    }
+
+    func testARaisedWriterGateLeavesTheBufferUntouched() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+        editor.coordinator.gitChanges.writeInFlight = { true }
+
+        XCTAssertEqual(editor.coordinator.revertChange(atMarker: 1), .refused)
+        editor.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        XCTAssertEqual(editor.coordinator.revertChangeAtCaret(), .refused)
+        XCTAssertEqual(editor.text, editor.edited)
+        XCTAssertFalse(editor.undoManager.canUndo)
+    }
+
+    func testAMarkerClickPresentsTheHeadLinesAndItsRevertGoesThroughTheCoordinator() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let editor = try await editedEditor(file: file, committed: committed)
+        var requests: [ChangeHunkPopoverRequest] = []
+        var dismissals = 0
+        let controller = editor.coordinator.gitChanges
+        controller.popover = ChangeHunkPopoverPresenting(
+            present: { requests.append($0) },
+            dismiss: { dismissals += 1 }
+        )
+        controller.revert = { [weak coordinator = editor.coordinator] in
+            coordinator?.revertChange(atMarker: $0)
+        }
+
+        controller.markerClicked(line: 0, rect: .zero)
+        XCTAssertTrue(requests.isEmpty, "an unmarked line opened a popover")
+        controller.markerClicked(line: 2, rect: NSRect(x: 1, y: 2, width: 3, height: 4))
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.headLines, ["two"])
+        XCTAssertEqual(requests.first?.anchor, NSRect(x: 1, y: 2, width: 3, height: 4))
+        XCTAssertTrue(requests.first?.anchorView === editor.ruler)
+
+        editor.undoManager.beginUndoGrouping()
+        requests.first?.revert()
+        editor.undoManager.endUndoGrouping()
+        XCTAssertEqual(editor.text, committed)
+
+        // Any buffer change dismisses the popover.
+        let before = dismissals
+        controller.noteEdit()
+        XCTAssertEqual(dismissals, before + 1)
+    }
+
     // MARK: - Helpers
+
+    /// A coordinator-driven editor over the committed `file`, whose line 2 has
+    /// been rewritten as two lines (`"TWO\nmore"`) once the base loaded, the
+    /// way `EditingCommandRoutingTests` wires one: the coordinator as delegate,
+    /// undo on, grouping by hand since no event loop runs.
+    private struct Editor {
+        let coordinator: CodeEditorView.Coordinator
+        let textView: NSTextView
+        let ruler: LineNumberRulerView
+        let undoManager: UndoManager
+        let edited: String
+        var text: String { textView.string }
+
+        func grouped<T>(_ body: () -> T) -> T {
+            undoManager.beginUndoGrouping()
+            defer { undoManager.endUndoGrouping() }
+            return body()
+        }
+    }
+
+    private func editedEditor(file: URL, committed: String) async throws -> Editor {
+        let harness = makeHarness(text: committed)
+        harnesses.append(harness)
+        let coordinator = CodeEditorView.Coordinator(text: .constant(committed))
+        coordinator.textView = harness.textView
+        coordinator.fileID = UUID()
+        harness.textView.delegate = coordinator
+        harness.textView.allowsUndo = true
+        let undoManager = try XCTUnwrap(coordinator.undoManager(for: harness.textView))
+        undoManager.groupsByEvent = false
+        controller = coordinator.gitChanges
+        coordinators.append(coordinator)
+        _ = await install { self.sync(file, harness) }
+        let changes = await install {
+            self.edit(harness, replacing: NSRange(location: 4, length: 3), with: "TWO\nmore")
+        }
+        XCTAssertEqual(changes.hunks.map(\.kind), [.modified])
+        return Editor(
+            coordinator: coordinator,
+            textView: harness.textView,
+            ruler: harness.ruler,
+            undoManager: undoManager,
+            edited: harness.textView.string
+        )
+    }
 
     private var fixture: ThrowawayRepository { ThrowawayRepository(scratch: scratch) }
 

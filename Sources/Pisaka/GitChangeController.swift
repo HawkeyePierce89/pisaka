@@ -84,14 +84,51 @@ final class GitChangeController {
     /// raised; nothing here ever raises it.
     var writeInFlight: () -> Bool = { false }
 
+    /// The window's change popover, handed in by the editor on every update.
+    /// `nil` (a default-constructed editor, the app tests) shows nothing.
+    var popover: ChangeHunkPopoverPresenting?
+
+    /// What the popover's *Revert* does with the marker line it was opened for:
+    /// the coordinator's `revertChange(atMarker:)`, installed by `attach`.
+    var revert: ((Int) -> Void)?
+
+    /// Take the editor's two per-update inputs (`updateNSView`): the writer
+    /// gate's read-only consult and the window's change popover.
+    func configure(writeInFlight: @escaping () -> Bool, popover: ChangeHunkPopoverPresenting?) {
+        self.writeInFlight = writeInFlight
+        self.popover = popover
+    }
+
     /// Called on the main actor after every answer reaches the ruler, an empty
     /// one included — the causal rendezvous the app tests wait on.
     var onChangesInstalled: ((GutterChanges) -> Void)?
 
-    /// Bind the controller to the editor's gutter and text view (`makeNSView`).
-    func attach(ruler: LineNumberRulerView, textView: NSTextView) {
+    /// Bind the controller to the editor's gutter and text view (`makeNSView`),
+    /// with what the popover's *Revert* does (`revert`). The owner captures
+    /// itself **weakly** in `revert`, for `onToggleAnnotate`'s retain-cycle reason.
+    func attach(ruler: LineNumberRulerView, textView: NSTextView, revert: ((Int) -> Void)? = nil) {
         self.ruler = ruler
         self.textView = textView
+        if let revert { self.revert = revert }
+        ruler.onChangeMarkerClicked = { [weak self] line, rect in
+            self?.markerClicked(line: line, rect: rect)
+        }
+    }
+
+    /// A marker was clicked: show its hunk's `HEAD` lines beside it. The hunk is
+    /// recomputed now, as every command's is; the popover remembers the clicked
+    /// *line*, not this hunk, and any buffer change dismisses it, so its
+    /// *Revert* recomputes against the same buffer it was shown for.
+    func markerClicked(line: Int, rect: NSRect) {
+        guard let ruler, let base, let buffer = textView?.string,
+              let hunk = currentChanges(buffer: buffer).hunk(atMarkerLine: line)
+        else { return }
+        popover?.present(ChangeHunkPopoverRequest(
+            headLines: hunk.headLines(in: base),
+            anchor: rect,
+            anchorView: ruler,
+            revert: { [weak self] in self?.revert?(line) }
+        ))
     }
 
     /// Reconcile the column with the file the editor is showing (`updateNSView`,
@@ -122,6 +159,7 @@ final class GitChangeController {
     /// now and then the ruler shifts the installed marks with `LineShift`.
     func noteEdit() {
         computeToken += 1
+        popover?.dismiss()
         guard base != nil else { return }
         recomputeTask?.cancel()
         recomputeTask = Task { [weak self] in
@@ -142,6 +180,7 @@ final class GitChangeController {
     /// The base is kept: the `sync` that follows (`contentReplaced: true`)
     /// re-reads it.
     func beginBufferSwap() {
+        popover?.dismiss()
         recomputeTask?.cancel()
         computeToken += 1
         ruler?.clearChangeMarkers()
@@ -158,6 +197,9 @@ final class GitChangeController {
         diskRevision = nil
         gitRevision = nil
         onChangesInstalled = nil
+        popover = nil
+        revert = nil
+        ruler?.onChangeMarkerClicked = nil
         ruler = nil
         textView = nil
     }
@@ -166,6 +208,7 @@ final class GitChangeController {
 
     /// Empty the column and supersede whatever read or recompute fed it.
     private func clearColumn() {
+        popover?.dismiss()
         generation += 1
         computeToken += 1
         pending = nil

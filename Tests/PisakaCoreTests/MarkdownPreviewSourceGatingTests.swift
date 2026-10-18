@@ -31,8 +31,9 @@ import XCTest
 ///   theme derivation), `FoldCommands.swift` (the sixth caret command),
 ///   `SelectionCommands.swift` (the seventh, Expand / Shrink Selection),
 ///   `LineCommands.swift` (the eighth, Move Line Up / Down),
-///   `CommentCommands.swift` (the ninth, Toggle Block Comment) and
-///   `ProblemCommands.swift` (the tenth, Next / Previous Problem).
+///   `CommentCommands.swift` (the ninth, Toggle Block Comment),
+///   `ProblemCommands.swift` (the tenth, Next / Previous Problem) and
+///   `ChangeCommands.swift` (the eleventh, the Git menu's change items).
 ///   Rules that must hold for the *whole* app layer say so by scanning
 ///   `Sources/Pisaka` rather than by listing these.
 ///
@@ -553,8 +554,8 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
     // MARK: - The focus helper
 
-    /// One definition of "which editor is this keystroke for", and ten callers.
-    func testTheFocusHelperHasOneDefinitionAndTenCallSites() throws {
+    /// One definition of "which editor is this keystroke for", and eleven callers.
+    func testTheFocusHelperHasOneDefinitionAndElevenCallSites() throws {
         XCTAssertEqual(
             try fileNames(matching: "\\benum EditorCommandTarget\\b", under: "Sources"),
             ["EditorCommandTarget.swift"],
@@ -574,7 +575,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
         XCTAssertEqual(
             try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: app),
             5,
-            "Five of the ten caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
+            "Five of the eleven caret-command sites are in the scene: Go to Definition, Find Usages, Rename, Toggle "
                 + "Comment and Complete. A sixth site here would be a command that never asked."
         )
         let folds = try code(ofFileNamed: "FoldCommands.swift", under: "Sources/Pisaka")
@@ -607,13 +608,19 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
             1,
             "And the tenth is Next / Previous Problem's, asked once for both items."
         )
+        let changes = try code(ofFileNamed: "ChangeCommands.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "EditorCommandTarget\\.focusedEditor\\(", in: changes),
+            1,
+            "And the eleventh is the Git menu's change items' own focusedCoordinator(), asked once for all of them."
+        )
         XCTAssertEqual(
             try fileNames(matching: "EditorCommandTarget\\.focusedEditor\\(", under: "Sources"),
             [
                 "PisakaApp.swift", "FoldCommands.swift", "SelectionCommands.swift", "LineCommands.swift",
-                "CommentCommands.swift", "ProblemCommands.swift",
+                "CommentCommands.swift", "ProblemCommands.swift", "ChangeCommands.swift",
             ],
-            "Six files ask, and they are the six that own app-wide caret chords. A seventh asker is a "
+            "Seven files ask, and they are the seven that own app-wide caret commands. An eighth asker is a "
                 + "command surface that grew somewhere no doc comment describes."
         )
 

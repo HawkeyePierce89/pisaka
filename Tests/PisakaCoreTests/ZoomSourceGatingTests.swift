@@ -206,6 +206,8 @@ final class ZoomSourceGatingTests: XCTestCase {
         "MarkdownPreviewPane.swift",
         // Interactive popups.
         "CompletionPanel.swift",
+        // The gutter change marker's popover: its HEAD lines are code text.
+        "ChangeHunkPopover.swift",
     ]
 
     func testTheZoomSurfacesAreExactlyTheDocumentedSet() throws {

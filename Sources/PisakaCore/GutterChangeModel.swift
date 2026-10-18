@@ -59,4 +59,16 @@ public struct GutterChanges: Equatable, Sendable {
             return hunk.anchor == line || (hunk.anchor == -1 && line == 0)
         }
     }
+
+    /// The hunk behind the marker the ruler's hit test answered `line` for —
+    /// exact where `hunk(atLine:)` is lenient: `-1` is the deletion wedge above
+    /// line 1 (`anchor == -1`), and any other line is a strip on it or a
+    /// deletion wedge anchored after it. So line 1 carrying both wedges answers
+    /// the upper one for `-1` and the lower one for `0`, never the same hunk
+    /// for both halves.
+    public func hunk(atMarkerLine line: Int) -> ChangeHunk? {
+        hunks.first { hunk in
+            hunk.kind == .deleted ? hunk.anchor == line : hunk.newLines.contains(line)
+        }
+    }
 }

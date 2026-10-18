@@ -185,4 +185,22 @@ final class ChangeHunkTests: XCTestCase {
             XCTAssertEqual(ChromeColorRole.changeMarkerRole(for: kind), expected[kind], "\(kind)")
         }
     }
+
+    // MARK: - headLines(in:)
+
+    func testHeadLinesAreTheOldSideWithSeparatorsStripped() {
+        let base = "a\r\nb\u{2028}c\nd"
+        let hunk = ChangeHunk(kind: .modified, newLines: 0..<1, oldLines: 1..<4)
+        XCTAssertEqual(hunk.headLines(in: base), ["b", "c", "d"])
+    }
+
+    func testHeadLinesOfAnAddedHunkAreEmpty() {
+        let hunk = ChangeHunk(kind: .added, newLines: 0..<2, oldLines: 1..<1)
+        XCTAssertEqual(hunk.headLines(in: "a\nb\n"), [])
+    }
+
+    func testHeadLinesOfAHunkThatDoesNotFitTheBaseAreEmpty() {
+        let hunk = ChangeHunk(kind: .deleted, newLines: 2..<2, oldLines: 1..<5)
+        XCTAssertEqual(hunk.headLines(in: "a\nb\n"), [])
+    }
 }

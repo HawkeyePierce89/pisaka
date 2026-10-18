@@ -1214,6 +1214,7 @@ struct ContentView: View {
             projectRoot: model.projectRoot,
             gitRevision: localChanges.listRevision,
             gitWriteInFlight: { [localChanges] in localChanges.isReverting },
+            changePopover: .over(popoverPresenter, settings: settings),
             text: binding(for: file.id),
             fontSize: settings.fontSize,
             fontFamily: settings.editorFontFamily,

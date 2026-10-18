@@ -160,4 +160,26 @@ final class GutterChangeModelTests: XCTestCase {
         XCTAssertEqual(changes.markers, [ChangeLineMarker(deletedAbove: true)])
         XCTAssertEqual(changes.hunk(atLine: 0), ChangeHunk(kind: .deleted, newLines: 0..<0, oldLines: 0..<2))
     }
+
+    // MARK: - hunk(atMarkerLine:)
+
+    func testHunkAtMarkerLineTellsLineOnesTwoWedgesApart() {
+        // HEAD "x\na\ny\nb\n" → buffer "a\nb\n": a deletion before line 1 and one
+        // anchored after it, both drawn on line 1.
+        let changes = GutterChangeModel.compute(base: "x\na\ny\nb\n", buffer: "a\nb\n")
+        XCTAssertEqual(changes.hunks.map(\.anchor), [-1, 0])
+        XCTAssertEqual(changes.hunk(atMarkerLine: -1)?.oldLines, 0..<1)
+        XCTAssertEqual(changes.hunk(atMarkerLine: 0)?.oldLines, 2..<3)
+        // The lenient lookup answers the upper one for line 0.
+        XCTAssertEqual(changes.hunk(atLine: 0)?.oldLines, 0..<1)
+    }
+
+    func testHunkAtMarkerLineForStripsAndUnmarkedLines() {
+        let changes = GutterChangeModel.compute(base: "a\nb\nc\n", buffer: "a\nB\nc\nd\n")
+        XCTAssertEqual(changes.hunk(atMarkerLine: 1)?.kind, .modified)
+        XCTAssertEqual(changes.hunk(atMarkerLine: 3)?.kind, .added)
+        XCTAssertNil(changes.hunk(atMarkerLine: 0))
+        XCTAssertNil(changes.hunk(atMarkerLine: 2))
+        XCTAssertNil(changes.hunk(atMarkerLine: -1))
+    }
 }

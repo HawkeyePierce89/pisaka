@@ -195,12 +195,19 @@ line_length:
 # Problem: one line, the `ProblemNavigationItems` entry at the foot of the Find
 # menu, because its divider, both items and their action live in
 # `ProblemCommands.swift`, every decision in Core's `DiagnosticNavigationRule`.
-# The number tracks the one file that
+# Then 1954 with Revert Change: one line, the `ChangeCommandItems` entry in the
+# Git menu, because its divider, the item and its action live in
+# `ChangeCommands.swift`, every decision in Core's `GutterChangeModel` and
+# `HunkRevertPlan`. The same change brings `CodeEditorView.swift` to the same
+# 1954 with exactly one line, the `changePopover` input: its marker-click hook
+# rides the existing `attach` call and its popover the existing per-update
+# assignment it replaced (`configure`), and the popover itself lives in
+# `ChangeHunkPopover.swift`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1953
-  error: 1953
+  warning: 1954
+  error: 1954
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -254,10 +261,12 @@ file_length:
 # inside that `Group`. Then to 1945 with Toggle Block Comment's three, the same
 # three `file_length` counts: the item inside the `.commands` builder. Then to
 # 1946 with Next / Previous Problem's one, the same one `file_length` counts:
-# the `ProblemNavigationItems` entry inside the Find menu.
+# the `ProblemNavigationItems` entry inside the Find menu. Then to 1947 with
+# Revert Change's one, the same one `file_length` counts: the
+# `ChangeCommandItems` entry inside the Git menu.
 type_body_length:
-  warning: 1946
-  error: 1946
+  warning: 1947
+  error: 1947
 
 function_body_length:
   warning: 140

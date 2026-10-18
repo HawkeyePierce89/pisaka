@@ -1187,8 +1187,8 @@ final class LintConfigurationTests: XCTestCase {
         "identifier_name": ["min_length": "1", "max_length": "60"],
         "type_name": ["min_length": "2", "max_length": "60"],
         "line_length": ["warning": "140", "error": "140"],
-        "file_length": ["warning": "1953", "error": "1953"],
-        "type_body_length": ["warning": "1946", "error": "1946"],
+        "file_length": ["warning": "1954", "error": "1954"],
+        "type_body_length": ["warning": "1947", "error": "1947"],
         "function_body_length": ["warning": "140", "error": "140"],
         "cyclomatic_complexity": ["warning": "22", "error": "22"],
     ]

@@ -18,6 +18,27 @@ public struct PopoverAnchoring: Equatable {
     }
 }
 
+/// Where a popover opened from inside the window goes — the editor gutter's
+/// change marker: its leading edge, the edge it grows from, which way it grows,
+/// and the height left for it in that direction.
+public struct PopoverBesideAnchoring: Equatable {
+    /// The popover's leading x.
+    public let x: CGFloat
+    /// The edge it grows from: its top when `growsDown`, its bottom otherwise.
+    public let edge: CGFloat
+    /// Whether the popover hangs down from `edge` rather than rising from it.
+    public let growsDown: Bool
+    /// The tallest the popover may be in that direction. Never negative.
+    public let availableHeight: CGFloat
+
+    public init(x: CGFloat, edge: CGFloat, growsDown: Bool, availableHeight: CGFloat) {
+        self.x = x
+        self.edge = edge
+        self.growsDown = growsDown
+        self.availableHeight = availableHeight
+    }
+}
+
 /// The arithmetic that places the bottom-bar popover and its submenu inside
 /// the window.
 ///
@@ -82,5 +103,40 @@ public enum PopoverPlacement {
         }
         y = max(y, window.minY)
         return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    /// A popover opened **beside** an anchor inside the window (a gutter
+    /// marker), not from the bar.
+    ///
+    /// - The leading x is `gap` past the anchor's `maxX`, shifted left so the
+    ///   right edge stays inside the window and never past its left edge — the
+    ///   bar popover's horizontal rule, from the anchor's trailing side.
+    /// - It hangs **down** from the anchor's top, beside the lines the anchor
+    ///   marks, when the room below that top holds `maxHeight` or at least as
+    ///   much as the room above the anchor's bottom; otherwise it **rises** from
+    ///   the anchor's bottom. A marker near the window's foot so opens upward,
+    ///   and either way the popover never draws outside the window.
+    public static func beside(
+        anchor: CGRect,
+        window: CGRect,
+        width: CGFloat,
+        maxHeight: CGFloat,
+        gap: CGFloat
+    ) -> PopoverBesideAnchoring {
+        var x = anchor.maxX + gap
+        if x + width > window.maxX {
+            x = window.maxX - width
+        }
+        x = max(x, window.minX)
+        let below = max(0, window.maxY - anchor.minY)
+        let above = max(0, anchor.maxY - window.minY)
+        if below >= maxHeight || below >= above {
+            return PopoverBesideAnchoring(
+                x: x, edge: anchor.minY, growsDown: true, availableHeight: min(maxHeight, below)
+            )
+        }
+        return PopoverBesideAnchoring(
+            x: x, edge: anchor.maxY, growsDown: false, availableHeight: min(maxHeight, above)
+        )
     }
 }

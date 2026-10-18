@@ -70,6 +70,10 @@ struct CodeEditorView: NSViewRepresentable {
     /// never raises it. Defaults to "never" so a default-constructed view compiles.
     var gitWriteInFlight: () -> Bool = { false }
 
+    /// The window's gutter change popover (`ChangeHunkPopoverPresenting`), or
+    /// `nil` to show none. Defaults to `nil` so a default-constructed view compiles.
+    var changePopover: ChangeHunkPopoverPresenting?
+
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
 
@@ -599,7 +603,7 @@ struct CodeEditorView: NSViewRepresentable {
         // which the coordinator (through Neon's highlighter) is reachable from, so
         // a strong capture here would keep the whole editor alive past teardown.
         coordinator.attachBlame(ruler: ruler)
-        coordinator.gitChanges.attach(ruler: ruler, textView: textView)
+        coordinator.gitChanges.attach(ruler: ruler, textView: textView) { [weak coordinator] in coordinator?.revertChange(atMarker: $0) }
         ruler.onToggleAnnotate = { [weak coordinator] in
             coordinator?.toggleBlame()
         }
@@ -940,7 +944,7 @@ struct CodeEditorView: NSViewRepresentable {
         // file annotate is on for, and only when the shown file changed, its buffer
         // was replaced, or its disk revision moved (a save/autosave/revert/checkout
         // — exactly when a worktree blame goes stale).
-        context.coordinator.gitChanges.writeInFlight = gitWriteInFlight
+        context.coordinator.gitChanges.configure(writeInFlight: gitWriteInFlight, popover: changePopover)
         context.coordinator.syncBlame(
             fileURL: fileURL, diskRevision: diskRevision, gitRevision: gitRevision, contentReplaced: contentReplaced
         )

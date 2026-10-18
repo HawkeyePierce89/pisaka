@@ -100,4 +100,50 @@ final class PopoverPlacementTests: XCTestCase {
         )
         XCTAssertEqual(frame.minX, 0)
     }
+
+    // MARK: - Beside an anchor (the gutter's change marker)
+
+    func testBesideHangsDownFromTheAnchorsTopGapPastItsTrailingEdge() {
+        let marker = CGRect(x: 40, y: 100, width: 2, height: 18)
+        let placed = PopoverPlacement.beside(anchor: marker, window: window, width: 300, maxHeight: 360, gap: 4)
+        XCTAssertEqual(placed, PopoverBesideAnchoring(x: 46, edge: 100, growsDown: true, availableHeight: 360))
+    }
+
+    func testBesideNearTheFootRisesFromTheAnchorsBottom() {
+        let marker = CGRect(x: 40, y: 600, width: 2, height: 18)
+        let placed = PopoverPlacement.beside(anchor: marker, window: window, width: 300, maxHeight: 360, gap: 4)
+        XCTAssertEqual(placed, PopoverBesideAnchoring(x: 46, edge: 618, growsDown: false, availableHeight: 360))
+    }
+
+    func testBesideInAShortWindowTakesTheRoomierSideCappedByIt() {
+        let short = CGRect(x: 0, y: 0, width: 1000, height: 300)
+        let lower = PopoverPlacement.beside(
+            anchor: CGRect(x: 40, y: 100, width: 2, height: 18), window: short, width: 300, maxHeight: 360, gap: 4
+        )
+        XCTAssertEqual(lower, PopoverBesideAnchoring(x: 46, edge: 100, growsDown: true, availableHeight: 200))
+        let upper = PopoverPlacement.beside(
+            anchor: CGRect(x: 40, y: 200, width: 2, height: 18), window: short, width: 300, maxHeight: 360, gap: 4
+        )
+        XCTAssertEqual(upper, PopoverBesideAnchoring(x: 46, edge: 218, growsDown: false, availableHeight: 218))
+    }
+
+    func testBesideEqualRoomHangsDown() {
+        let short = CGRect(x: 0, y: 0, width: 1000, height: 200)
+        let placed = PopoverPlacement.beside(
+            anchor: CGRect(x: 40, y: 90, width: 2, height: 20), window: short, width: 300, maxHeight: 360, gap: 4
+        )
+        XCTAssertEqual(placed, PopoverBesideAnchoring(x: 46, edge: 90, growsDown: true, availableHeight: 110))
+    }
+
+    func testBesideKeepsInsideTheWindowHorizontally() {
+        let nearRight = PopoverPlacement.beside(
+            anchor: CGRect(x: 900, y: 100, width: 2, height: 18), window: window, width: 300, maxHeight: 360, gap: 4
+        )
+        XCTAssertEqual(nearRight.x, 700)
+        let narrow = CGRect(x: 0, y: 0, width: 250, height: 700)
+        let pinned = PopoverPlacement.beside(
+            anchor: CGRect(x: 40, y: 100, width: 2, height: 18), window: narrow, width: 300, maxHeight: 360, gap: 4
+        )
+        XCTAssertEqual(pinned.x, 0)
+    }
 }

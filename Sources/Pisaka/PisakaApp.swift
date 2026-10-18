@@ -1625,6 +1625,7 @@ struct PisakaApp: App {
                 Button("Commit…") { openCommitDialog() }
                     .keyboardShortcut("k", modifiers: .command)
                     .disabled(model.projectRoot == nil)
+                ChangeCommandItems(isDisabled: model.selectedID == nil)
             }
 
             CommandMenu("Run") {
