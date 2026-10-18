@@ -37,6 +37,19 @@ public struct OpenFile: Identifiable, Equatable {
     /// The tab kind. Immutable: a tab never changes what it shows.
     public let kind: Kind
 
+    /// The file's stamp as of the moment `savedText` was last set from — or
+    /// written to — the disk, or `nil` when there is none to record.
+    ///
+    /// Only `WorkspaceModel` moves it, at the same baseline sites that move
+    /// `savedText` and through the same helper that bumps `diskRevisions`, so the
+    /// two never disagree about when the baseline last moved. It is what the
+    /// external-change check compares the disk against: a stamp that still
+    /// matches means nothing outside the editor touched the file. It is `nil` for
+    /// an untitled buffer (no file), for a viewer tab (forced by its initializer),
+    /// and for a file whose stamp the volume could not report — which the check
+    /// reads as "unknown, compare the content", never as "unchanged".
+    public var diskStamp: FileStamp?
+
     /// Create an ordinary text tab.
     ///
     /// There is deliberately no `kind:` parameter here — the only way to build
@@ -62,6 +75,7 @@ public struct OpenFile: Identifiable, Equatable {
         self.text = ""
         self.savedText = ""
         self.kind = .viewer
+        self.diskStamp = nil
     }
 
     /// Name shown in the tab list: the file name, or "Untitled" when unsaved.

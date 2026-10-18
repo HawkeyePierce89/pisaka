@@ -437,6 +437,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The gutter change marker's popover: its Head, message and Revert
         // foot through the popover components' roles (rule fifty).
         "ChangeHunkPopover.swift",
+        // The external-change bar above the editor: its ground, rule, glyph,
+        // message and three equally weighted secondary buttons.
+        "ExternalChangeBar.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -3586,7 +3589,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "NewPullRequestSheet.swift", "PullRequestMergeSheet.swift",
             "DatabaseConsoleView.swift", "LeetCodeBrowserView.swift",
             "LeetCodeJudgeView.swift", "LeetCodeOpenProblemSheet.swift", "LeetCodeLoginView.swift",
-            "LSPConsentBanner.swift",
+            "LSPConsentBanner.swift", "ExternalChangeBar.swift",
         ]),
         ("ChromeCheckbox", [
             "ChromeControls.swift", "CommitDialogView.swift", "LogFilterBar.swift", "LocalChangesView.swift",
@@ -6179,7 +6182,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
-        49: "forty-nine", 50: "fifty", 65: "sixty-five",
+        49: "forty-nine", 50: "fifty", 65: "sixty-five", 66: "sixty-six",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

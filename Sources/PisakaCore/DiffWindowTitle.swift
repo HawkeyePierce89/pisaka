@@ -1,7 +1,8 @@
 import Foundation
 
 /// Pure, testable window-title builder for the separate (non-modal) diff windows
-/// opened on double-click — both the Local Changes diff and a commit's file diff.
+/// opened on double-click — the Local Changes diff and a commit's file diff — and
+/// for the external-change Compare window, which reuses the same window.
 ///
 /// The title pairs the file path with its context so several open diff windows
 /// stay distinguishable: a Local Changes diff carries the path the panel's
@@ -31,5 +32,14 @@ public enum DiffWindowTitle {
     public static func commit(path: String, hash: String, subject: String) -> String {
         let shortHash = String(hash.prefix(shortHashLength))
         return "\(path) — \(shortHash) \(subject)"
+    }
+
+    /// Title for the external-change Compare window: the open buffer (left)
+    /// against the file as it now is on disk (right). `path` is whatever the
+    /// caller shows for the tab — project-relative when the file lies under the
+    /// project — and the suffix names both sides so the window cannot be mistaken
+    /// for a Local Changes diff, whose right side is the worktree against `HEAD`.
+    public static func externalChange(path: String) -> String {
+        "\(path) — Editor vs. Disk"
     }
 }

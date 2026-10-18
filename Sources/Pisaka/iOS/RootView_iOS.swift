@@ -1315,7 +1315,7 @@ struct RootView_iOS: View {
                     // transform can ride: asked before the write, so what reaches the
                     // disk is what `.editorconfig` asked for.
                     applySaveTransform(to: id)
-                    _ = try model.save(for: id)
+                    _ = try model.save(for: id, onExternalChange: .overwrite)
                     noteEditorConfigWrite(file.url)
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(file.url)

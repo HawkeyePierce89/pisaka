@@ -81,7 +81,7 @@ entry when you change behavior.**
 All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
-  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`
+  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `ExternalChangeRule.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
   `ColumnSelectionEngine.swift`, `RangeEditPlan.swift`, `BlockIndentEngine.swift`, `MoveLineEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `BlockCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
@@ -154,7 +154,7 @@ headlessly in `Tests/PisakaAppTests`.
   `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift`, `Platform/LicenseCatalogLoader.swift`, `Platform/LicenseTextView.swift`, `Platform/SymbolQueryCatalog.swift`, `Platform/SymbolExtractor.swift`, `Platform/SymbolIndexController.swift`, `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift`, `iOS/BranchSwitcherView_iOS.swift`, `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift`, `iOS/CompletionBar_iOS.swift`, `iOS/DefinitionRoute_iOS.swift`, `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift`, `iOS/LibGit2Service.swift`, `iOS/KeychainCredentialStore.swift`, `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift`, `iOS/AcknowledgementsView_iOS.swift`, `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift`, `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift`, `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift`
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
-  `PisakaApp.swift`, `TabNavigationCommands.swift`, `AppDelegate.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
+  `PisakaApp.swift`, `TabNavigationCommands.swift`, `AppDelegate.swift`, `MainWindowFrameAutosave.swift`, `MainWindowChrome.swift`, `SoftwareUpdater.swift`, `ProjectWatcher.swift`, `AutosaveController.swift`, `DiskSyncController.swift`, `SessionController.swift`, `SettingsView.swift`, `AcknowledgementsView.swift`
 
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half):
   `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift`, `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift`
@@ -178,7 +178,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ExecutableLocator.swift`, `GitHubCLIProcessTransport.swift`, `PullRequestCoordinator.swift`, `PullRequestsPanelView.swift`, `NewPullRequestSheet.swift`, `PullRequestMergeSheet.swift`, `PullRequestIndicatorView.swift`
 
 `docs/architecture/app-window.md` — window chrome (macOS):
-  `ContentView.swift`, `BottomDockColumn.swift`, `WelcomeView.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
+  `ContentView.swift`, `BottomDockColumn.swift`, `WelcomeView.swift`, `ProjectSwitcherView.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift`, `DockTabRow.swift`, `DiffWindowContent.swift` / `DiffWindowController.swift`, `SourceViewerWindowController.swift` / `SourceViewerContent.swift`, `ProjectTreeView.swift`, `ProjectTreeDraftField.swift`, `ExternalChangeBar.swift`, `TabListView.swift` / `TabRowView.swift`, `BreadcrumbBarView.swift`
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
@@ -263,9 +263,12 @@ because nothing else states them.
   is what makes it pre-operation by construction, and the **quit flush is the one place it
   writes on the main thread**. The **project tree's delete is a capture site** too: it reads
   the doomed files synchronously before `removeItem`, leaves only the store writes to the
-  chain, and takes no gate. Its **one worktree create** is a restore into a missing path,
+  chain, and takes no gate. So are the two **external-change answers**: each
+  captures the side it gives up — the disk under `.overwrite`, the buffer under
+  `.discard` — before acting, and takes no gate. Its **one worktree create** is a restore into a missing path,
   which first creates an empty file under `revertInFlight()`. Every capture skip and every
-  capture failure is silent; retention is 14 days / 30 revisions with the newest always surviving.
+  capture failure is silent; retention is 14 activity days (never sooner than 14 calendar days, the
+  calendar rule alone without a readable activity record) / 30 revisions, and the newest always survives.
 - **The database viewer is a reader with two writes, whose tab kind can never be dirty**
   (macOS only, `core-database-viewer.md`): a recognized database file opens as the **second
   kind of `OpenFile`** — `.viewer`, carrying no text, with `isDirty` `false` *by
@@ -317,7 +320,7 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-five, by set
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-six, by set
   equality) and its fifty rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
@@ -402,7 +405,13 @@ because nothing else states them.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are snapshotted
   before the hop; a clean, unchanged tab gets `reloadFromDisk`, an edited one
   `reconcileSavedBaseline` + beep, a deleted file force-closes (except after a commit,
-  which never deletes worktree files).
+  which never deletes worktree files). **Outside those operations, a change made outside
+  the app** (`core-workspace.md`, `app-shell.md`) is judged by one Core rule against each
+  tab's baseline stamp — a stamp move alone is never a change — before every write, on the
+  watcher's event and on activation (both deferred while the writer gate is up): a clean
+  tab reloads silently, an edited one is in conflict and is **never written by autosave or
+  the quit flush**; every explicit save asks Overwrite / Reload / Cancel, and the losing
+  side is captured into Local History first.
 - **Pure engine + thin glue**: every decision lives in Core and is unit-tested; SwiftUI
   glue only wires triggers to engines and is untested.
 - **Paths**: store as the user spelled them, match canonically (`CanonicalPath`); the

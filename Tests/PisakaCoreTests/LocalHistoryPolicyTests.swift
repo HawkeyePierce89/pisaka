@@ -138,6 +138,25 @@ final class LocalHistoryPolicyTests: XCTestCase {
         XCTAssertEqual(policy.capture(of: "x", relativePath: nil, latestHash: nil, event: .save), .skip(.untitled))
     }
 
+    /// The two external-change events are ordinary captures: the size ceiling,
+    /// the project boundary, the untitled refusal and dedup all apply to them
+    /// exactly as to a save — neither carries the label's exemption.
+    func testTheExternalChangeEventsObeyTheOrdinarySkipRules() {
+        let oversized = String(repeating: "a", count: policy.maxContentBytes + 1)
+        let text = "let x = 1\n"
+        let hash = LocalHistoryLayout.contentHash(of: text)
+        for event in [LocalHistoryEvent.overwrite, .discard] {
+            XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: nil, event: event), .capture(hash: hash))
+            XCTAssertEqual(policy.capture(of: text, relativePath: nil, latestHash: nil, event: event), .skip(.untitled))
+            XCTAssertEqual(policy.capture(of: text, relativePath: "../A.swift", latestHash: nil, event: event), .skip(.outsideProject))
+            XCTAssertEqual(
+                policy.capture(of: oversized, relativePath: "A.txt", latestHash: nil, event: event),
+                .skip(.tooLarge(bytes: policy.maxContentBytes + 1))
+            )
+            XCTAssertEqual(policy.capture(of: text, relativePath: "A.swift", latestHash: hash, event: event), .skip(.unchanged))
+        }
+    }
+
     // MARK: - Capture: the label's dedup exemption
 
     /// A label marks a moment the user chose, so the same bytes as the newest
@@ -302,7 +321,132 @@ final class LocalHistoryPolicyTests: XCTestCase {
         XCTAssertEqual(result.delete, Array(all.dropFirst(2)))
     }
 
+    // MARK: - Retention in activity days
+
+    /// Gregorian in UTC, injected so where midnight falls is the test's choice.
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    /// The `count` consecutive days starting the day after `start`, in the
+    /// record's spelling.
+    private func days(after start: Date, count: Int) -> [String] {
+        (1...count).map { offset in
+            LocalHistoryLayout.activityDay(of: start.addingTimeInterval(TimeInterval(offset) * 86_400), calendar: utc)
+        }
+    }
+
+    func testTheActivityDayCountIsTheCalendarBoundInDays() {
+        XCTAssertEqual(LocalHistoryPolicy.activityDayCount, 14)
+        XCTAssertEqual(TimeInterval(LocalHistoryPolicy.activityDayCount) * 86_400, LocalHistoryPolicy.defaultMaxAge)
+    }
+
+    func testARevisionTwentyDaysOldWithThreeLaterActivityDaysSurvives() {
+        let newest = snapshot(secondsAgo: 0)
+        let old = snapshot(secondsAgo: 20 * 86_400)
+        let result = policy.prune([newest, old], now: now, activityDays: days(after: old.timestamp, count: 3), calendar: utc)
+        XCTAssertEqual(result.keep, [newest, old])
+        XCTAssertTrue(result.delete.isEmpty)
+    }
+
+    func testFourteenLaterActivityDaysAndAnExpiredCalendarAgeDelete() {
+        let newest = snapshot(secondsAgo: 0)
+        let old = snapshot(secondsAgo: 20 * 86_400)
+        let result = policy.prune([newest, old], now: now, activityDays: days(after: old.timestamp, count: 14), calendar: utc)
+        XCTAssertEqual(result.keep, [newest])
+        XCTAssertEqual(result.delete, [old])
+    }
+
+    func testThirteenLaterActivityDaysAreOneShort() {
+        let newest = snapshot(secondsAgo: 0)
+        let old = snapshot(secondsAgo: 20 * 86_400)
+        let result = policy.prune([newest, old], now: now, activityDays: days(after: old.timestamp, count: 13), calendar: utc)
+        XCTAssertEqual(result.delete, [])
+    }
+
+    /// The AND: activity alone never condemns what the calendar still keeps.
+    func testFourteenLaterActivityDaysInsideTheCalendarWindowSurvive() {
+        let newest = snapshot(secondsAgo: 0)
+        let recent = snapshot(secondsAgo: 10 * 86_400)
+        // Fourteen recorded days after it — more than the calendar has had.
+        let recorded = days(after: recent.timestamp.addingTimeInterval(-30 * 86_400), count: 44)
+            .filter { $0 > LocalHistoryLayout.activityDay(of: recent.timestamp, calendar: utc) }
+        let result = policy.prune([newest, recent], now: now, activityDays: Array(recorded.prefix(14)), calendar: utc)
+        XCTAssertEqual(result.keep, [newest, recent])
+    }
+
+    /// Only days *strictly after* the revision's own day count, so the day it was
+    /// taken on is not one of them.
+    func testTheRevisionsOwnDayDoesNotCount() {
+        let newest = snapshot(secondsAgo: 0)
+        let old = snapshot(secondsAgo: 20 * 86_400)
+        let own = LocalHistoryLayout.activityDay(of: old.timestamp, calendar: utc)
+        let recorded = [own] + days(after: old.timestamp, count: 13)
+        let result = policy.prune([newest, old], now: now, activityDays: recorded, calendar: utc)
+        XCTAssertEqual(result.delete, [])
+    }
+
+    /// 23:59 and 00:01 are two local days — and which two depends on the
+    /// injected time zone, not on the machine's.
+    func testTwoMinutesAcrossMidnightAreTwoDays() throws {
+        let lateEvening = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 3, day: 1, hour: 23, minute: 59)))
+        let pastMidnight = lateEvening.addingTimeInterval(120)
+        XCTAssertEqual(LocalHistoryLayout.activityDay(of: lateEvening, calendar: utc), "2026-03-01")
+        XCTAssertEqual(LocalHistoryLayout.activityDay(of: pastMidnight, calendar: utc), "2026-03-02")
+
+        // A revision taken at 23:59 with 00:01 the next day as the first of
+        // fourteen recorded days is condemned; the same days less that one are not.
+        let farFuture = lateEvening.addingTimeInterval(60 * 86_400)
+        let newest = try snapshot(at: farFuture)
+        let old = try snapshot(at: lateEvening)
+        let later = days(after: lateEvening, count: 14)
+        XCTAssertEqual(later.first, "2026-03-02")
+        XCTAssertEqual(policy.prune([newest, old], now: farFuture, activityDays: later, calendar: utc).delete, [old])
+        XCTAssertEqual(
+            policy.prune([newest, old], now: farFuture, activityDays: Array(later.dropFirst()), calendar: utc).delete,
+            []
+        )
+
+        var tokyo = utc
+        tokyo.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        XCTAssertEqual(LocalHistoryLayout.activityDay(of: lateEvening, calendar: tokyo), "2026-03-02")
+    }
+
+    func testTheNewestSurvivesEveryActivityRecord() {
+        let newest = snapshot(secondsAgo: 60 * 86_400)
+        let older = snapshot(secondsAgo: 90 * 86_400)
+        let result = policy.prune([newest, older], now: now, activityDays: days(after: older.timestamp, count: 14), calendar: utc)
+        XCTAssertEqual(result.keep, [newest])
+        XCTAssertEqual(result.delete, [older])
+    }
+
+    /// No record is the calendar rule, bit for bit, whatever the inputs.
+    func testNoRecordGivesExactlyTheCalendarResult() {
+        let all = (0..<40).map { snapshot(secondsAgo: TimeInterval($0) * 86_400 / 2) }
+        let calendarOnly = policy.prune(all, now: now)
+        XCTAssertEqual(policy.prune(all, now: now, activityDays: nil, calendar: utc).keep, calendarOnly.keep)
+        XCTAssertEqual(policy.prune(all, now: now, activityDays: nil, calendar: utc).delete, calendarOnly.delete)
+    }
+
+    /// The count cap and the newest-survives rule are untouched by a record that
+    /// spares every revision from age.
+    func testTheCountCapStillAppliesUnderAnActivityRecord() {
+        let all = (0..<31).map { snapshot(secondsAgo: TimeInterval($0) * 86_400) }
+        let result = policy.prune(all, now: now, activityDays: ["2000-01-01"], calendar: utc)
+        XCTAssertEqual(result.keep, Array(all.prefix(30)))
+        XCTAssertEqual(result.delete, [all[30]])
+    }
+
     // MARK: - Support
+
+    /// A snapshot at an absolute moment, through the layout's own name grammar.
+    private func snapshot(at timestamp: Date) throws -> LocalHistorySnapshot {
+        let hash = LocalHistoryLayout.contentHash(of: "\(timestamp.timeIntervalSince1970)")
+        let name = LocalHistoryLayout.snapshotFileName(timestamp: timestamp, event: .save, contentHash: hash)
+        return try XCTUnwrap(LocalHistoryLayout.snapshot(fromFileName: name))
+    }
 
     /// A snapshot built the way the layout builds one, so `prune`'s ordering is
     /// exercised against real names rather than hand-spelled ones.

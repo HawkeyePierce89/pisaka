@@ -15,6 +15,7 @@ import Foundation
 /// ```text
 /// <base>/                                   ~/Library/Application Support/Pisaka/LocalHistory
 ///   <rootName>-<16 hex of sha256(root path)>/          one per project root
+///     activity                                         the project's activity days
 ///     <32 hex of sha256(project-relative path)>/       one per file
 ///       path                                           the readable path record
 ///       0000001772345678901-save-3f8a1c04b7e29d16.snapshot
@@ -301,13 +302,91 @@ public struct LocalHistoryLayout: Equatable, Sendable {
     /// Whether `name` is one of this feature's own temporaries, and so safe for
     /// the sweep to reclaim: a parseable snapshot name, the path record's name, or
     /// a valid sidecar name — each followed by `temporarySuffix`. A foreign file
-    /// that merely ends in `.partial` is not ours and is left where it is.
+    /// that merely ends in `.partial` is not ours and is left where it is. The
+    /// activity record has no temporary of this kind: it is replaced through the
+    /// file service's own atomic write.
     public static func isOwnTemporary(_ name: String) -> Bool {
         guard name.hasSuffix(temporarySuffix) else { return false }
         let stem = String(name.dropLast(temporarySuffix.count))
         return stem == pathRecordName
             || snapshot(fromFileName: stem) != nil
             || snapshotFileName(fromLabelFileName: stem) != nil
+    }
+
+    // MARK: - The activity record
+
+    /// The activity record's file name inside a project area: the newest
+    /// `LocalHistoryPolicy.activityDayCount` local days on which this project
+    /// captured a revision, one `yyyy-MM-dd` per line, oldest first. No
+    /// extension, and it sits beside the file directories rather than in one, so
+    /// it never parses as a snapshot and a file directory listing never sees it.
+    public static let activityRecordName = "activity"
+
+    /// Where `root`'s activity record lives.
+    public func activityRecord(forRoot root: URL) -> URL {
+        projectDirectory(forRoot: root).appendingPathComponent(Self.activityRecordName)
+    }
+
+    /// The day `date` falls on in `calendar`'s time zone, spelled `yyyy-MM-dd`.
+    ///
+    /// Always spelled in the Gregorian calendar, whatever `calendar` is: day
+    /// boundaries are local midnight in every calendar, so only the time zone
+    /// decides which day a moment belongs to, while the spelling must be one
+    /// whose lexical order is chronological order — which an era-based year is
+    /// not. Built from components rather than through a `DateFormatter`, so no
+    /// locale can change a digit.
+    public static func activityDay(of date: Date, calendar: Calendar) -> String {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// The record's text for `days`: one per line, each line terminated.
+    public static func activityRecordText(days: [String]) -> String {
+        days.map { $0 + "\n" }.joined()
+    }
+
+    /// The tolerant decode: the days `text` records — deduplicated, sorted
+    /// oldest first, and only the newest `LocalHistoryPolicy.activityDayCount`
+    /// of them — or `nil` when any non-empty line is not a valid `yyyy-MM-dd`
+    /// date, or there is no day at all.
+    ///
+    /// **`nil` means "no record"**, and retention then falls back to the plain
+    /// calendar rule; a garbled record must not be half-believed, because a
+    /// short list of days is exactly what spares revisions. Duplicates, disorder
+    /// and surplus lines are what a hand edit or an older write could leave, and
+    /// say nothing wrong about the days themselves, so they are repaired rather
+    /// than refused. Blank lines and a missing final newline are accepted.
+    public static func activityDays(fromRecord text: String) -> [String]? {
+        var days = Set<String>()
+        for line in text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
+            let day = String(line)
+            guard isActivityDay(day) else { return nil }
+            days.insert(day)
+        }
+        guard !days.isEmpty else { return nil }
+        return normalizedActivityDays(days)
+    }
+
+    /// The record's one shape — distinct days, ascending, the newest
+    /// `LocalHistoryPolicy.activityDayCount` — shared by the parser and the
+    /// store's update, so what is written is exactly what is read back.
+    static func normalizedActivityDays<Days: Sequence>(_ days: Days) -> [String] where Days.Element == String {
+        Array(Set(days).sorted().suffix(LocalHistoryPolicy.activityDayCount))
+    }
+
+    /// Whether `day` is exactly `yyyy-MM-dd` naming a real Gregorian date.
+    private static func isActivityDay(_ day: String) -> Bool {
+        let fields = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard fields.count == 3, fields.map(\.count) == [4, 2, 2] else { return false }
+        guard fields.allSatisfy({ $0.allSatisfy { $0.isASCII && $0.isNumber } }) else { return false }
+        guard let year = Int(fields[0]), let month = Int(fields[1]), let dayOfMonth = Int(fields[2]) else {
+            return false
+        }
+        let gregorian = Calendar(identifier: .gregorian)
+        let components = DateComponents(calendar: gregorian, year: year, month: month, day: dayOfMonth)
+        return components.isValidDate(in: gregorian)
     }
 
     // MARK: - Private

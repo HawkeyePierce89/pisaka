@@ -9,13 +9,16 @@ import Foundation
 /// refuses it, the listing drops it, and retention never reclaims it. Add cases
 /// freely; change a `tag` only with that consequence in hand.
 ///
-/// The titles are the window's row labels. Every one but `save` and `label` reads
+/// The titles are the window's row labels. Every pre-operation one reads
 /// "Before …" because a pre-operation snapshot holds what the file looked like
 /// *before* the operation ran — that is the whole promise of the title, and
 /// phrasing it in the enum keeps the window from inventing a second wording. The
-/// two exceptions record a moment rather than pre-empt an operation: `save` is the
-/// buffer the app just wrote, and `label` is the buffer at the instant the user
-/// named it.
+/// exceptions record a moment rather than pre-empt an operation: `save` is the
+/// buffer the app just wrote, `label` is the buffer at the instant the user
+/// named it, and the two external-change resolutions (`overwrite`, `discard`)
+/// name *which side lost* — the disk version an Overwrite replaced, or the edits
+/// a Reload threw away — because "before" alone would not say whose text the
+/// revision holds.
 ///
 /// Both branch operations (switch and checkout-remote) share `branch`: they are
 /// two call sites with two writer brackets, but from a file's point of view they
@@ -97,6 +100,23 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
     /// a label put on an unchanged buffer still marks a moment the user chose.
     case label
 
+    /// The user answered an external change with **Overwrite**: the snapshot is
+    /// the *disk* text the save is about to replace — the version another program
+    /// wrote, which no other copy of may exist.
+    ///
+    /// Not a pre-operation event in the bracket sense: no writer gate is raised,
+    /// because the write is the ordinary save funnel. It is captured before that
+    /// save, at the resolution site, and only for a tab the external-change rule
+    /// found in conflict.
+    case overwrite
+
+    /// The user answered an external change with **Reload**: the snapshot is the
+    /// *buffer* — the edits the reload is about to discard in favour of the disk.
+    ///
+    /// The mirror of `overwrite`: whichever side loses a conflict is captured, so
+    /// either answer is reversible from the history.
+    case discard
+
     /// The on-disk token. Lowercase ASCII with no `-`, because `-` is the file
     /// name's field separator.
     public var tag: String { rawValue }
@@ -123,6 +143,8 @@ public enum LocalHistoryEvent: String, CaseIterable, Equatable, Sendable {
         case .pull: return "Before Pull"
         case .delete: return "Before Delete"
         case .label: return "Label"
+        case .overwrite: return "Disk Version Before Overwrite"
+        case .discard: return "Edits Discarded by Reload"
         }
     }
 }

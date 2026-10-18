@@ -170,8 +170,11 @@ public final class LocalHistoryModel {
     ///   the last save before the quit. The sweep taking it *after* the `move`
     ///   has landed cannot be answered there at all — the retry loop has seen its
     ///   `move` succeed and broken out — so it is answered on the sweep's side:
-    ///   `prune(directory:now:)` re-lists immediately before its recursive
-    ///   removal and reclaims nothing it can still see something in.
+    ///   `prune(directory:now:activityDays:)` re-lists and removes under the
+    ///   store's `exclusion`, which every capture holds for its whole length, so
+    ///   nothing lands between that listing and its recursive removal, and it
+    ///   reclaims nothing it can still see something in. The project area's
+    ///   removal and a migration's emptied source take the same lock.
     ///
     /// The third — **a queued capture of *older* text landing after this one** —
     /// is answered upstream rather than here, and could not be answered here:
@@ -400,10 +403,13 @@ public final class LocalHistoryModel {
 
     /// Wait until every unit already on the chain has landed — for a reader of
     /// the store on another queue whose answer must include the writes the user
-    /// just caused (`LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`).
+    /// just caused (`LocalHistoryBrowserModel.deletedPaths(root:awaiting:)`) —
+    /// and for the quit, which holds the termination on it once an external-change
+    /// answer queued a capture, because a capture still on the chain when the
+    /// process exits is a capture that never lands.
     /// Units appended afterwards are not waited for; a folder-open sweep already
     /// queued is, the price of an answer that agrees with the store.
-    func waitForQueuedWrites() async {
+    public func waitForQueuedWrites() async {
         await chain?.value
     }
 

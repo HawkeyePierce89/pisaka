@@ -210,19 +210,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     same shape: Foundation-only, `Double`, no `CGFloat`, no `NSCursor`, no view
     state.
   - `DiffWindowTitle.swift` — pure, testable window-title builder for the separate
-    (non-modal) diff windows opened on double-click (Foundation-only, color/UI-free
+    (non-modal) diff windows opened on double-click, and the external-change
+    Compare window (Foundation-only, color/UI-free
     — the `FileIcon`/`LogFilter` move-logic-into-Core precedent, so the
     off-by-one-prone short-hash truncation is unit-tested rather than living in the
     view layer). A `public enum DiffWindowTitle` with `shortHashLength = 7` (git's
-    conventional short hash) and two static builders pairing the file path with its
+    conventional short hash) and three static builders pairing the file path with its
     context so several open diff windows stay distinguishable: `localChanges(path:projectPrefix:)
     -> String` (the path as the Local Changes detail header shows it —
     `ChangedFileGroups.displayPath(_:projectPrefix:)`, so relative to the project
     folder when the file lies under it and repository-relative otherwise;
     `projectPrefix` defaults to `""`, the repository root — + " — Local Changes") and `commit(path:hash:subject:) ->
     String` (path + " — " + the hash truncated to `shortHashLength` + subject; a
-    full-length or already-short hash both yield a sensible prefix). Unit-tested in
-    `DiffWindowTitleTests`.
+    full-length or already-short hash both yield a sensible prefix), and
+    `externalChange(path:) -> String` (path + " — Editor vs. Disk"), the title of
+    the external-change Compare window (`DiskSyncController.compare`, `app-shell.md`),
+    naming both sides so it cannot be mistaken for a Local Changes diff.
+    Unit-tested in `DiffWindowTitleTests`.
   - `TabOrientation.swift` / `ThemePreference.swift` — pure, color/SwiftUI-free
     semantic enums (`String`/`CaseIterable`/`Equatable`, the
     `FileIconColor`/`BottomPanel` precedent) for the two non-numeric preferences,

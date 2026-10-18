@@ -15,6 +15,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// through a closure. Answers the teardown to wait for, or `nil` when no
     /// server is alive or launching and the quit may go at once.
     var languageServerTeardown: (@MainActor () -> (@MainActor () async -> Void)?)?
+
+    /// Installed by `PisakaApp` beside `languageServerTeardown`, and asked
+    /// **first**, before any teardown: it puts the external-change question
+    /// (Overwrite / Reload / Cancel) for each dirty tab whose file changed on
+    /// disk. `.cancel` cancels the quit with nothing torn down; `.proceed` may
+    /// carry work to wait for — the Local History captures the answers queued —
+    /// before the process is let go. Asked again after any wait, until a round
+    /// finds nothing to ask (`askAgainAfterTeardown()`).
+    var externalChangeQuestion: (@MainActor () -> ExternalChangeQuitAnswer)?
+
+    /// Installed beside `externalChangeQuestion`: the quit's own flush
+    /// (`AutosaveController.flushNow(abandoningBuffers: true)`), answering `true`
+    /// when it skipped a tab in conflict. Run in the same synchronous stretch as
+    /// the approval, right after a round of the question that found nothing to
+    /// ask, so the question and the write are one step: a file another process
+    /// changed after that round is skipped here and sends the quit back to the
+    /// question, instead of being skipped silently by the `willTerminate` flush
+    /// with the edits lost. That later flush then finds nothing dirty.
+    var flushBeforeTermination: (@MainActor () -> Bool)?
     private var isAwaitingTeardown = false
 
     /// Native window tabbing is off before any window exists. The app has one
@@ -46,13 +65,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A second ⌘Q while the first is still waiting changes nothing: the one
         // reply below answers it.
         guard !isAwaitingTeardown else { return .terminateLater }
-        guard let teardown = languageServerTeardown?() else { return .terminateNow }
+        var pending: [@MainActor () async -> Void] = []
+        switch externalChangeQuestion?() {
+        case .cancel:
+            return .terminateCancel
+        case .proceed(let awaiting):
+            if let awaiting { pending.append(awaiting) }
+        case nil:
+            break
+        }
+        if let teardown = languageServerTeardown?() { pending.append(teardown) }
+        if pending.isEmpty, flushLeftNoConflict() { return .terminateNow }
         isAwaitingTeardown = true
         Task { @MainActor in
-            await teardown()
-            sender.reply(toApplicationShouldTerminate: true)
+            for work in pending { await work() }
+            let proceed = await askUntilFlushed()
+            isAwaitingTeardown = false
+            sender.reply(toApplicationShouldTerminate: proceed)
         }
         return .terminateLater
     }
+
+    /// The question again, once the wait is over — or once the flush skipped a
+    /// conflict. The window stays live while the quit waits — buffers still take
+    /// edits and the disk still moves — and another process can change a file even
+    /// between a round and the flush, so a dirty tab can fall into conflict after
+    /// any round. Asked until a round finds nothing left to ask *and* the flush
+    /// right after it skips nothing (each answer leaves its tab out of conflict, so
+    /// this ends), or the user cancels. That last round, the flush and the reply run
+    /// in one synchronous stretch on the main actor, so no edit or disk sync slips
+    /// in between them. A cancel after a flush leaves the buffers it wrote saved,
+    /// trimmed in full as an abandoning save trims. Cancelling here keeps the app
+    /// running with its language servers already gone; they start again on the
+    /// next request that needs one.
+    @MainActor
+    private func askUntilFlushed() async -> Bool {
+        while true {
+            switch externalChangeQuestion?() {
+            case .cancel:
+                return false
+            case .proceed(let awaiting?):
+                await awaiting()
+            case .proceed(nil), nil:
+                if flushLeftNoConflict() { return true }
+            }
+        }
+    }
+
+    /// Runs `flushBeforeTermination`; `true` when nothing was left in conflict.
+    @MainActor
+    private func flushLeftNoConflict() -> Bool {
+        !(flushBeforeTermination?() ?? false)
+    }
+}
+
+/// The quit's answer to the external-change question
+/// (`AppDelegate.externalChangeQuestion`).
+enum ExternalChangeQuitAnswer {
+    /// The user cancelled one of the questions: the quit does not happen.
+    case cancel
+    /// Quit, after `awaiting` (when present) has finished.
+    case proceed(awaiting: (@MainActor () async -> Void)?)
 }
 #endif

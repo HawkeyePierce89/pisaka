@@ -28,6 +28,20 @@ import XCTest
 ///    takes as a parameter, so a new operation riding it is captured under its
 ///    own name without a site to count. That is deliberate and is what keeps
 ///    this rule honest: it counts brackets, and every bracket captures.
+///
+///    **The event inventory has two entries no bracket names.** `.overwrite` and
+///    `.discard` are the external-change resolutions' events — whichever side
+///    loses a conflict, the disk text or the buffer — and they are captured at
+///    the resolution site through the ordinary save funnel, under no writer
+///    gate, so they are not brackets and do not move the counts below. That they
+///    never ride `captureBeforeOperation` is pinned here, and so are their own
+///    capture sites: exactly one each, both in `DiskSyncController`, each ahead
+///    of the act it guards — the disk side before Overwrite's write, the buffer
+///    before Reload's `reloadDiscardingEdits` — and shared by the modal question
+///    and the editor's bar, which reach them through `save(id:)`'s answer and
+///    `reloadFromBar` rather than through a capture of their own. No new write
+///    path comes with them: the bar's Overwrite is `save(id:)`, already one of
+///    the three save sites counted below.
 /// 2. The compiler cannot see that `AutosaveController` reports **every** branch
 ///    that writes. The quit branch silently skipped `onSaved` for the whole life
 ///    of that class, which was correct while the only listener was a UI refresh
@@ -214,6 +228,68 @@ final class LocalHistorySourceGatingTests: XCTestCase {
             "The two must alternate, gate then capture: an operation holding two captures while another holds "
                 + "none rewrites the worktree with nothing snapshotted, and the counts above cannot see it."
         )
+    }
+
+    /// An Overwrite or a Reload is a resolution of one tab, not a worktree
+    /// operation: it raises no writer gate, so filing either event through the
+    /// bracket's capture would mean a bracket was built around it — a gate the
+    /// editor waits behind for a single-file save.
+    func testTheExternalChangeEventsNeverRideTheWriterBracket() throws {
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(
+            try occurrences(of: "captureBeforeOperation\\((event: *)?\\.(overwrite|discard)\\b", in: app),
+            0,
+            "`.overwrite` and `.discard` are captured at the resolution site, outside any writer bracket."
+        )
+    }
+
+    /// The two external-change capture sites are one each, in the controller that
+    /// owns the question, and each runs before the act that gives its side up: a
+    /// capture after the reload would read the disk's text where the edits were,
+    /// and one after the write would read the buffer where the disk text was. The
+    /// bar must not grow a third: its Reload goes through `discardEdits`, its
+    /// Overwrite through `save(id:)`'s answer, so it is pinned to name neither
+    /// event nor the reload itself.
+    func testTheExternalChangeCapturesAreOneEachAndRunBeforeTheirAct() throws {
+        let sync = try code(ofFileNamed: "DiskSyncController.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(try occurrences(of: "captureBuffers\\(event: *\\.overwrite\\b", in: sync), 1)
+        XCTAssertEqual(try occurrences(of: "captureBuffers\\(event: *\\.discard\\b", in: sync), 1)
+        XCTAssertEqual(
+            try occurrences(of: "captureBuffers\\(", in: sync),
+            2,
+            "The controller captures exactly the two sides a resolution gives up, and nothing else."
+        )
+        XCTAssertEqual(try occurrences(of: "reloadDiscardingEdits\\(", in: sync), 1)
+        let discard = try XCTUnwrap(sync.range(of: "captureBuffers(event: .discard"))
+        let reload = try XCTUnwrap(sync.range(of: "reloadDiscardingEdits("))
+        XCTAssertLessThan(
+            discard.lowerBound,
+            reload.lowerBound,
+            "Reload captures the buffer before it discards it."
+        )
+        let overwrite = try XCTUnwrap(sync.range(of: "captureDiskSide(of: id)"))
+        let answer = try XCTUnwrap(sync.range(of: "return .write(.overwrite)"))
+        XCTAssertLessThan(
+            overwrite.lowerBound,
+            answer.lowerBound,
+            "Overwrite captures the disk side before it answers the write."
+        )
+        for forbidden in ["suspend()", "beginRevert()"] {
+            XCTAssertFalse(
+                sync.contains(forbidden),
+                "A resolution is one tab's buffer edit or save; it raises no writer gate (\(forbidden))."
+            )
+        }
+        let app = try code(ofFileNamed: "PisakaApp.swift", under: "Sources/Pisaka")
+        XCTAssertEqual(try occurrences(of: "externalChangeAnswer: \\.overwrite", in: app), 1)
+        XCTAssertEqual(try occurrences(of: "diskSync\\.reloadFromBar\\(", in: app), 1)
+        let bar = try code(ofFileNamed: "ExternalChangeBar.swift", under: "Sources/Pisaka")
+        for forbidden in ["captureBuffers", "reloadDiscardingEdits", "LocalHistoryModel", ".overwrite", ".discard"] {
+            XCTAssertFalse(
+                bar.contains(forbidden),
+                "The bar draws three actions and performs none of them itself (\(forbidden))."
+            )
+        }
     }
 
     func testTheSaveCaptureIsNamedAtExactlyTheThreeSaveSites() throws {

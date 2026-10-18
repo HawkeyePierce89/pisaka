@@ -70,6 +70,11 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Autosave & sessions** — automatic saving (idle, tab switch, focus loss,
   quit) and per-project session restore, including hot exit for "Untitled"
   buffers.
+- **Changes made outside the app (macOS)** — a file rewritten by another
+  program reloads silently when you have no edits in it; when you do, autosave
+  leaves it alone, the tab is marked, and a bar offers **Reload**, **Overwrite**
+  or **Compare** (Cmd+S, close, Run/Test and Cmd+Q ask the same). The side you
+  give up is kept in Local History.
 - **Local History** — every save, and every file one of the app's nine
   worktree-rewriting operations (including Rename, a pull request checkout and a
   post-merge pull)
@@ -78,8 +83,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   its file through a rename or move in the project tree; deleting from the tree
   takes a "Before Delete" copy first, **Deleted Files…** reaches the history of a
   file that is gone, and restoring it recreates the file. **Put Label…** snapshots
-  every open project file under a label of your own. 14 days or 30 revisions per
-  file, independent of git.
+  every open project file under a label of your own. Kept for at least 14 days
+  and until the project has seen 14 days of activity since, up to 30 revisions
+  per file, independent of git.
 - **Database viewer (macOS)** — open a `.sqlite`, `.sqlite3` or `.db` file from
   the project tree and get a tab that lists its tables and views, shows the
   selected one's schema, and pages through its rows with click-to-sort headers.

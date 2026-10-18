@@ -1,0 +1,492 @@
+import Combine
+import XCTest
+@testable import PisakaCore
+
+/// `WorkspaceModel`'s external-change state: the observed-disk-side map, the
+/// `checkDisk(id:)` / `syncAllWithDisk()` pass that fills it, and the guarded
+/// write funnels — `save(for:onExternalChange:)` and `saveAllDirty()` — that
+/// refuse to write over a change made outside the app.
+///
+/// `StubFileTree`'s stamps are size-derived, so "changed outside" is staged with
+/// text of a different length, or with an explicit stamp override where the
+/// length must stay.
+final class WorkspaceModelExternalChangeTests: XCTestCase {
+    private let root = URL(fileURLWithPath: "/tmp/pisaka-external-change-tests")
+
+    private func makeTree() -> StubFileTree {
+        StubFileTree(root: root, files: ["a.txt": "on disk", "b.txt": "other"])
+    }
+
+    private func file(_ model: WorkspaceModel, _ id: UUID) -> OpenFile {
+        model.openFiles.first { $0.id == id }!
+    }
+
+    /// A model with `a.txt` open and edited, and the file changed outside since.
+    private func makeConflict() throws -> (StubFileTree, WorkspaceModel, UUID) {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+        tree.files["a.txt"] = "changed outside the app"
+        return (tree, model, id)
+    }
+
+    // MARK: - checkDisk
+
+    func testADirtyTabWhoseFileChangedIsRecordedAsAConflictWithTheStampUntouched() throws {
+        let (_, model, id) = try makeConflict()
+        let stamp = file(model, id).diskStamp
+
+        XCTAssertEqual(model.checkDisk(id: id), .conflict(diskText: "changed outside the app"))
+
+        XCTAssertTrue(model.isInExternalConflict(id))
+        XCTAssertEqual(model.externalConflictIDs, [id])
+        XCTAssertEqual(model.diskText(forConflict: id), "changed outside the app")
+        XCTAssertEqual(file(model, id).diskStamp, stamp)
+        XCTAssertEqual(file(model, id).text, "my edit")
+    }
+
+    func testAnUnreadableDiskSideIsAConflictThatComparesAsEmpty() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+        tree.unreadableFiles.insert("a.txt")
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 1, modificationDate: nil)
+
+        XCTAssertEqual(model.checkDisk(id: id), .conflict(diskText: nil))
+        XCTAssertTrue(model.isInExternalConflict(id))
+        XCTAssertEqual(model.diskText(forConflict: id), "")
+    }
+
+    func testACleanTabReloadsWithTheTokensPerReloadFromDisk() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        let disk = model.diskRevision(for: id)
+        let replacement = model.textReplacementRevision(for: id)
+        tree.files["a.txt"] = "rewritten by a tool"
+
+        let result = model.syncAllWithDisk()
+
+        XCTAssertEqual(result, WorkspaceModel.DiskSyncResult(reloaded: [id], conflicts: []))
+        XCTAssertEqual(file(model, id).text, "rewritten by a tool")
+        XCTAssertEqual(file(model, id).savedText, "rewritten by a tool")
+        XCTAssertNotEqual(model.diskRevision(for: id), disk)
+        XCTAssertNotEqual(model.textReplacementRevision(for: id), replacement)
+        XCTAssertEqual(file(model, id).diskStamp, tree.fileStamp(at: tree.url("a.txt")))
+    }
+
+    func testABufferAlreadyEqualToTheDiskAdoptsTheBaselineWithoutReplacingTheBuffer() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("typed the same thing", for: id)
+        tree.files["a.txt"] = "typed the same thing"
+        let replacement = model.textReplacementRevision(for: id)
+
+        XCTAssertEqual(model.checkDisk(id: id), .adoptBaseline)
+
+        XCTAssertFalse(model.isDirty(for: id))
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.textReplacementRevision(for: id), replacement)
+    }
+
+    // MARK: - The derived conflict state
+
+    func testEditingTheBufferByHandToTheDiskTextEndsTheConflict() throws {
+        let (_, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id))
+
+        model.updateText("changed outside the app", for: id)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.externalConflictIDs, [])
+        XCTAssertNil(model.diskText(forConflict: id))
+    }
+
+    /// The clean-but-stale case, pinned end to end: back at `savedText` the tab
+    /// is clean but stays in conflict, autosave has nothing to write, and the next
+    /// check reloads it as a clean tab and clears the entry.
+    func testAConflictedTabEditedBackToSavedTextStaysInConflictUntilTheNextCheckReloadsIt() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+
+        model.updateText("on disk", for: id)
+        XCTAssertFalse(model.isDirty(for: id))
+        XCTAssertTrue(model.isInExternalConflict(id))
+
+        let batch = model.saveAllDirty()
+        XCTAssertEqual(batch, WorkspaceModel.SaveBatchResult(saved: [], skippedConflicts: []))
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertTrue(model.isInExternalConflict(id))
+
+        XCTAssertEqual(model.checkDisk(id: id), .reload)
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertNil(model.observedDiskSides[id])
+        XCTAssertEqual(file(model, id).text, "changed outside the app")
+    }
+
+    /// The bar's Overwrite on a clean-but-stale tab: held through the check, the
+    /// buffer stays and the conflict is re-recorded against the disk read now,
+    /// so the overwrite that follows writes the buffer the user chose to keep.
+    func testHoldingAConflictedCleanButStaleTabKeepsTheBufferForTheOverwrite() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        model.updateText("on disk", for: id)
+        tree.files["a.txt"] = "changed outside again"
+
+        XCTAssertEqual(model.checkDisk(id: id, holdingConflict: true), .conflict(diskText: "changed outside again"))
+        XCTAssertEqual(file(model, id).text, "on disk")
+        XCTAssertEqual(model.diskText(forConflict: id), "changed outside again")
+
+        XCTAssertEqual(try model.overwriteExternalChange(id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "on disk")
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    func testHoldingIsIgnoredForATabNotInConflict() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.files["a.txt"] = "rewritten by a tool"
+
+        XCTAssertEqual(model.checkDisk(id: id, holdingConflict: true), .reload)
+        XCTAssertEqual(file(model, id).text, "rewritten by a tool")
+    }
+
+    func testSaveAsToAnotherPathEndsTheConflict() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+
+        try model.saveAs(url: tree.url("elsewhere.txt"), for: id)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertNil(model.observedDiskSides[id])
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertEqual(tree.files["elsewhere.txt"], "my edit")
+    }
+
+    func testCloseEndsTheConflict() throws {
+        let (_, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+
+        model.close(id: id, force: true)
+
+        XCTAssertTrue(model.observedDiskSides.isEmpty)
+        XCTAssertEqual(model.externalConflictIDs, [])
+    }
+
+    func testEveryBaselineSiteClearsTheEntry() throws {
+        typealias Site = (WorkspaceModel, StubFileTree, UUID) throws -> Void
+        let sites: [String: Site] = [
+            "markSaved": { model, _, id in model.markSaved(for: id) },
+            "overwrite": { model, _, id in try model.overwriteExternalChange(id) },
+            "reloadFromDisk": { model, _, id in model.reloadDiscardingEdits(id) },
+            "reconcileSavedBaseline (buffer now equals the disk)": { model, tree, id in
+                tree.files["a.txt"] = "my edit"
+                model.reconcileSavedBaseline(id: id)
+            },
+            "reconcileSavedBaseline (file gone)": { model, tree, id in
+                tree.files["a.txt"] = nil
+                model.reconcileSavedBaseline(id: id)
+            },
+        ]
+        var cleared: Set<String> = []
+        for (name, site) in sites {
+            let (tree, model, id) = try makeConflict()
+            model.checkDisk(id: id)
+            XCTAssertNotNil(model.observedDiskSides[id], name)
+            try site(model, tree, id)
+            if model.observedDiskSides[id] == nil { cleared.insert(name) }
+        }
+        XCTAssertEqual(cleared, Set(sites.keys))
+    }
+
+    /// A git operation's resync preserves an edited tab through
+    /// `reconcileSavedBaseline`; that must not resolve the conflict, or the next
+    /// autosave writes the buffer over the outside change unasked.
+    func testAReconcileKeepsTheConflictWhileTheBufferStillDiffersFromTheDisk() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+
+        XCTAssertTrue(model.reconcileSavedBaseline(id: id))
+
+        XCTAssertTrue(model.isInExternalConflict(id))
+        XCTAssertEqual(model.diskText(forConflict: id), "changed outside the app")
+        XCTAssertEqual(file(model, id).savedText, "changed outside the app")
+        let batch = model.saveAllDirty()
+        XCTAssertEqual(batch.saved, [])
+        XCTAssertEqual(batch.skippedConflicts, [id])
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+    }
+
+    func testAReconcileRecordsTheConflictAgainstWhatIsOnDiskNow() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        tree.files["a.txt"] = "written by the operation"
+
+        model.reconcileSavedBaseline(id: id)
+
+        XCTAssertEqual(model.diskText(forConflict: id), "written by the operation")
+        XCTAssertThrowsError(try model.save(for: id))
+    }
+
+    func testAReconcileOfATabNotInConflictRecordsNoConflict() throws {
+        let (_, model, id) = try makeConflict()
+
+        model.reconcileSavedBaseline(id: id)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertTrue(model.observedDiskSides.isEmpty)
+    }
+
+    // MARK: - The guarded save
+
+    func testARefusedSaveWritesNothingAndLeavesTheBaselineTheStampAndTheTokensAlone() throws {
+        let (tree, model, id) = try makeConflict()
+        let before = file(model, id)
+        let disk = model.diskRevision(for: id)
+        let replacement = model.textReplacementRevision(for: id)
+
+        XCTAssertThrowsError(try model.save(for: id)) { error in
+            XCTAssertEqual(error as? WorkspaceModel.SaveError, .externalChange)
+        }
+
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertEqual(file(model, id).savedText, before.savedText)
+        XCTAssertEqual(file(model, id).text, "my edit")
+        XCTAssertEqual(file(model, id).diskStamp, before.diskStamp)
+        XCTAssertEqual(model.diskRevision(for: id), disk)
+        XCTAssertEqual(model.textReplacementRevision(for: id), replacement)
+        XCTAssertTrue(model.isInExternalConflict(id))
+    }
+
+    func testTheOverwritePolicyWritesOverAChangedFile() throws {
+        let (tree, model, id) = try makeConflict()
+
+        XCTAssertEqual(try model.save(for: id, onExternalChange: .overwrite), .saved)
+
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+        XCTAssertFalse(model.isDirty(for: id))
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    func testAMissingFileIsStillRecreatedOnSave() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+        tree.files["a.txt"] = nil
+
+        XCTAssertEqual(try model.save(for: id), .saved)
+
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    func testAConflictEndsWhenTheDiskReturnsToTheSavedText() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id))
+        tree.files["a.txt"] = "on disk"
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 7, modificationDate: Date(timeIntervalSince1970: 1))
+
+        XCTAssertEqual(model.checkDisk(id: id), .stampOnly)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(model.observedDiskSides[id], nil)
+        XCTAssertEqual(try model.save(for: id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+    }
+
+    /// A stamp-only refresh records the stamp taken before the read. A second
+    /// stat after it would let a writer landing in between have its stamp vouch
+    /// for the older content, and the next check would skip the read.
+    func testAStampOnlyRefreshKeepsTheStampTakenBeforeTheRead() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 7, modificationDate: Date(timeIntervalSince1970: 1))
+        var stamps = 0
+        tree.onStamp = { path in
+            guard path == "a.txt" else { return }
+            stamps += 1
+            // Another writer, landing after the check's first stat.
+            if stamps == 2 {
+                tree.stampOverrides["a.txt"] = nil
+                tree.files["a.txt"] = "moved after the read"
+            }
+        }
+
+        XCTAssertEqual(model.checkDisk(id: id), .stampOnly)
+        tree.onStamp = nil
+        tree.stampOverrides["a.txt"] = nil
+        tree.files["a.txt"] = "moved after the read"
+
+        XCTAssertEqual(model.checkDisk(id: id), .conflict(diskText: "moved after the read"))
+        XCTAssertTrue(model.isInExternalConflict(id))
+    }
+
+    func testAConflictEndsWhenTheFileIsDeletedAndTheSaveRecreatesIt() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        XCTAssertTrue(model.isInExternalConflict(id))
+        tree.files["a.txt"] = nil
+
+        XCTAssertEqual(model.checkDisk(id: id), .missing)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertEqual(try model.save(for: id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+    }
+
+    func testACleanTabWhoseFileBecameUnreadableIsNotWritten() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.unreadableFiles.insert("a.txt")
+        tree.stampOverrides["a.txt"] = FileStamp(byteCount: 1, modificationDate: nil)
+
+        XCTAssertEqual(try model.save(for: id), .saved)
+
+        XCTAssertEqual(tree.writtenPaths, [])
+        XCTAssertFalse(model.isInExternalConflict(id))
+    }
+
+    /// The Local History restore's recreate, at Core level: the app creates the
+    /// empty file a clean tab outlived, refreshes the stamp, and the save then
+    /// writes the buffer rather than reading its own create as an external change
+    /// and reloading the tab to the empty text.
+    func testRefreshingTheStampAfterTheAppsOwnCreateLetsTheSaveWriteTheBuffer() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        tree.files["a.txt"] = nil
+        model.syncAllWithDisk()
+        tree.files["a.txt"] = ""
+
+        XCTAssertTrue(model.refreshDiskStamp(for: id))
+        XCTAssertEqual(try model.save(for: id), .saved)
+
+        XCTAssertEqual(tree.files["a.txt"], "on disk")
+        XCTAssertEqual(file(model, id).text, "on disk")
+    }
+
+    func testAnUnchangedFileSavesAsBefore() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let id = try model.open(url: tree.url("a.txt")).id
+        model.updateText("my edit", for: id)
+
+        XCTAssertEqual(try model.save(for: id), .saved)
+        XCTAssertEqual(tree.files["a.txt"], "my edit")
+    }
+
+    // MARK: - The autosave batch
+
+    func testTheAutosaveBatchSkipsAndReportsAConflictWhileWritingTheOthers() throws {
+        let (tree, model, conflicted) = try makeConflict()
+        let other = try model.open(url: tree.url("b.txt")).id
+        model.updateText("other, edited", for: other)
+
+        let batch = model.saveAllDirty()
+
+        XCTAssertEqual(batch.saved, [tree.url("b.txt")])
+        XCTAssertEqual(batch.skippedConflicts, [conflicted])
+        XCTAssertEqual(tree.files["b.txt"], "other, edited")
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertTrue(model.isDirty(for: conflicted))
+        XCTAssertTrue(model.isInExternalConflict(conflicted))
+        XCTAssertEqual(tree.writtenPaths, ["b.txt"])
+    }
+
+    /// The ids the on-save transform is offered: dirty titled tabs that are not
+    /// in conflict after the check, and nothing the check made clean.
+    func testThePartitionOffersTheTransformOnlyTheWritableTabsAfterTheCheck() throws {
+        let (tree, model, conflicted) = try makeConflict()
+        let writable = try model.open(url: tree.url("b.txt")).id
+        model.updateText("other, edited", for: writable)
+        tree.files["c.txt"] = "same"
+        let adopted = try model.open(url: tree.url("c.txt")).id
+        model.updateText("same, typed", for: adopted)
+        tree.files["c.txt"] = "same, typed"
+        model.newFile()
+        model.updateText("untitled", for: try XCTUnwrap(model.selectedID))
+
+        let partition = model.partitionDirtyTabsForSave()
+
+        XCTAssertEqual(partition, WorkspaceModel.DirtyTabPartition(writable: [writable], conflicted: [conflicted]))
+        XCTAssertFalse(model.isDirty(for: adopted))
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The termination batch is the partition followed by `saveAllDirty()`, with
+    /// no question asked in between: a conflicted tab is never written by it.
+    func testTheTerminationBatchNeverWritesAConflict() throws {
+        let (tree, model, conflicted) = try makeConflict()
+        let other = try model.open(url: tree.url("b.txt")).id
+        model.updateText("other, edited", for: other)
+
+        XCTAssertEqual(model.partitionDirtyTabsForSave().conflicted, [conflicted])
+        let batch = model.saveAllDirty()
+
+        XCTAssertEqual(batch.skippedConflicts, [conflicted])
+        XCTAssertEqual(tree.writtenPaths, ["b.txt"])
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertEqual(model.text(for: conflicted), "my edit")
+    }
+
+    // MARK: - Publishing nothing when nothing changed
+
+    func testAPassOverUnchangedFilesPublishesNothing() throws {
+        let tree = makeTree()
+        let model = WorkspaceModel(fileService: tree)
+        let a = try model.open(url: tree.url("a.txt")).id
+        try model.open(url: tree.url("b.txt"))
+        model.updateText("edited", for: a)
+        var files = 0
+        var sides = 0
+        let filesSink = model.$openFiles.dropFirst().sink { _ in files += 1 }
+        let sidesSink = model.$observedDiskSides.dropFirst().sink { _ in sides += 1 }
+        defer {
+            filesSink.cancel()
+            sidesSink.cancel()
+        }
+
+        XCTAssertEqual(model.syncAllWithDisk(), WorkspaceModel.DiskSyncResult(reloaded: [], conflicts: []))
+        model.syncAllWithDisk()
+
+        XCTAssertEqual(files, 0)
+        XCTAssertEqual(sides, 0)
+    }
+
+    func testASecondPassOverAnAlreadyRecordedConflictPublishesNothing() throws {
+        let (tree, model, id) = try makeConflict()
+        try model.open(url: tree.url("b.txt"))
+        XCTAssertEqual(model.syncAllWithDisk().conflicts, [id])
+        var files = 0
+        var sides = 0
+        let filesSink = model.$openFiles.dropFirst().sink { _ in files += 1 }
+        let sidesSink = model.$observedDiskSides.dropFirst().sink { _ in sides += 1 }
+        defer {
+            filesSink.cancel()
+            sidesSink.cancel()
+        }
+
+        XCTAssertEqual(model.syncAllWithDisk(), WorkspaceModel.DiskSyncResult(reloaded: [], conflicts: [id]))
+
+        XCTAssertEqual(files, 0)
+        XCTAssertEqual(sides, 0)
+        // The control: a conflict that genuinely changes does publish.
+        tree.files["a.txt"] = "changed outside again, longer"
+        model.syncAllWithDisk()
+        XCTAssertEqual(sides, 1)
+        XCTAssertEqual(files, 0)
+    }
+}

@@ -1479,7 +1479,7 @@ final class WorkspaceModelTests: XCTestCase {
         model.updateText("a edited", for: fileA.id)
         model.updateText("b edited", for: fileB.id)
 
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
 
         XCTAssertEqual(Set(saved), [urlA, urlB])
         XCTAssertTrue(model.openFiles.allSatisfy { !$0.isDirty })
@@ -1500,7 +1500,7 @@ final class WorkspaceModelTests: XCTestCase {
         let dirty = try model.open(url: urlDirty)
         model.updateText("dirty edited", for: dirty.id)
 
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
 
         XCTAssertEqual(saved, [urlDirty])
         // The clean file was never rewritten.
@@ -1517,7 +1517,7 @@ final class WorkspaceModelTests: XCTestCase {
         let untitled = model.newFile()
         model.updateText("draft", for: untitled.id)
 
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
 
         XCTAssertEqual(saved, [url])
         // The url-less buffer is never written and stays dirty.
@@ -1534,14 +1534,14 @@ final class WorkspaceModelTests: XCTestCase {
         let file = try model.open(url: url)
         model.updateText("edited", for: file.id)
 
-        XCTAssertEqual(model.saveAllDirty(), [url])
+        XCTAssertEqual(model.saveAllDirty().saved, [url])
         // Nothing is dirty now, so a second call writes nothing.
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
     }
 
     func testSaveAllDirtyWithNoOpenFilesReturnsEmpty() {
         let model = WorkspaceModel()
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
     }
 
     func testSaveAllDirtyWithOnlyDirtyUntitledReturnsEmpty() {
@@ -1551,7 +1551,7 @@ final class WorkspaceModelTests: XCTestCase {
 
         // The only dirty buffer is url-less, so nothing is written and the
         // method returns [] without prompting — and the buffer stays dirty.
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
         let untitledNow = model.openFiles.first { $0.id == untitled.id }
         XCTAssertNil(untitledNow?.url)
         XCTAssertTrue(untitledNow?.isDirty == true)
@@ -1566,13 +1566,13 @@ final class WorkspaceModelTests: XCTestCase {
         model.updateText("edited", for: file.id)
 
         // First attempt fails: the file stays dirty and is not returned.
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
         XCTAssertTrue(model.openFiles.first { $0.id == file.id }?.isDirty == true)
 
         // The write becomes possible (e.g. permissions restored). A later
         // autosave must not have cached the failure — it writes and clears.
         service.failURLs = []
-        XCTAssertEqual(model.saveAllDirty(), [url])
+        XCTAssertEqual(model.saveAllDirty().saved, [url])
         XCTAssertFalse(model.openFiles.first { $0.id == file.id }?.isDirty == true)
         XCTAssertEqual(service.written[url], "edited")
     }
@@ -1589,7 +1589,7 @@ final class WorkspaceModelTests: XCTestCase {
         model.updateText("good edited", for: good.id)
         model.updateText("bad edited", for: bad.id)
 
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
 
         XCTAssertEqual(saved, [urlGood])
         // The bad file stays dirty; the good one is clean.
@@ -1760,14 +1760,11 @@ final class WorkspaceModelTests: XCTestCase {
         model.updateText("untitled edited", for: untitled.id)
         let before = diskTokens(of: model)
 
-        XCTAssertEqual(model.saveAllDirty(), [urlGood])
+        XCTAssertEqual(model.saveAllDirty().saved, [urlGood])
 
         // Only the file actually written moved: the failed write, the clean file
         // and the url-less buffer all still correspond to the bytes they did.
         assertDiskRevisions(of: model, changedFor: [good.id], from: before)
-        XCTAssertEqual(model.diskRevision(for: bad.id), 0)
-        XCTAssertEqual(model.diskRevision(for: clean.id), 0)
-        XCTAssertEqual(model.diskRevision(for: untitled.id), 0)
     }
 
     func testSaveAllDirtyWithNothingToSaveLeavesEveryDiskRevisionUntouched() throws {
@@ -1777,11 +1774,11 @@ final class WorkspaceModelTests: XCTestCase {
         let model = WorkspaceModel()
         let file = try model.open(url: url)
         model.updateText("edited", for: file.id)
-        XCTAssertEqual(model.saveAllDirty(), [url])
+        XCTAssertEqual(model.saveAllDirty().saved, [url])
         let before = diskTokens(of: model)
 
         // Idempotent: the second call finds nothing dirty and writes nothing.
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
 
         assertDiskRevisions(of: model, changedFor: [], from: before)
     }
@@ -2682,7 +2679,10 @@ final class WorkspaceModelTests: XCTestCase {
             )
         }
         XCTAssertTrue(model.openFiles.isEmpty)
-        XCTAssertEqual(tree.stampPaths, [], "nothing was probed; the read decided")
+        // The text path stamps the file too (the baseline's `diskStamp`), but a
+        // stamp there never refuses anything: the read is what decided, and it is
+        // the read's own error that surfaced above.
+        XCTAssertEqual(tree.stampPaths, ["app.sqlite"], "one baseline stamp, no viewer probe")
     }
 
     func testOpenWithTheSwitchOffReadsARecognizedFileItCanDecode() throws {
@@ -2715,7 +2715,9 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(again.id, first.id)
         XCTAssertEqual(model.openFiles.count, 2)
         XCTAssertEqual(model.selectedID, first.id)
-        XCTAssertEqual(tree.stampPaths, ["app.sqlite"], "the dedup hit probed nothing")
+        // `notes.txt` is the text tab's baseline stamp; `app.sqlite` the viewer's
+        // one probe. The second open adds nothing.
+        XCTAssertEqual(tree.stampPaths, ["notes.txt", "app.sqlite"], "the dedup hit probed nothing")
     }
 
     func testOpeningADatabaseThroughASymlinkedPathFindsTheExistingViewerTab() throws {
@@ -2778,7 +2780,7 @@ final class WorkspaceModelTests: XCTestCase {
         // Saving a viewer tab is a no-op that *reports success*: there was nothing
         // to save, which is not a failure.
         XCTAssertEqual(try model.save(for: viewer.id), .saved)
-        XCTAssertEqual(model.saveAllDirty(), [])
+        XCTAssertEqual(model.saveAllDirty().saved, [])
         try model.saveAs(url: tree.url("copy.sqlite"), for: viewer.id)
 
         let after = model.openFiles.first { $0.id == viewer.id }
@@ -2802,7 +2804,7 @@ final class WorkspaceModelTests: XCTestCase {
         try model.open(url: tree.url("app.sqlite"))
         model.updateText("edited", for: text.id)
 
-        XCTAssertEqual(model.saveAllDirty(), [tree.url("notes.txt")])
+        XCTAssertEqual(model.saveAllDirty().saved, [tree.url("notes.txt")])
         XCTAssertEqual(tree.writtenPaths, ["notes.txt"])
     }
 

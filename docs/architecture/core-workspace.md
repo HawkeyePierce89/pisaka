@@ -11,7 +11,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     tab is the database viewer's; it is constructible only through
     `init(id:viewerFor:)`, carries no text, and its `isDirty` is `false` *by
     construction* rather than by comparison. Full entry in
-    `core-database-viewer.md`.
+    `core-database-viewer.md`. A text tab also carries `diskStamp: FileStamp?` —
+    the file's stamp as of the moment `savedText` was last set from, or written
+    to, the disk — which is what the external-change check compares against (see
+    `ExternalChangeRule.swift` below). Only `WorkspaceModel` moves it, at the
+    same baseline sites that move `savedText` and through the same helper that
+    bumps `diskRevisions`, so the two never disagree about when the baseline last
+    moved. It is `nil` for an untitled buffer, for a viewer tab (forced by its
+    initializer) and for a file whose volume reports no stamp — which the check
+    reads as "unknown, compare the content", never as "unchanged".
   - `FileService.swift` — disk read/write (`read(url:)`, `write(_:to:)`),
     directory listing (`contentsOfDirectory(at:)`), and symlink resolution
     (`symbolicLinkDestination(at:)` — the link's target string without
@@ -101,7 +109,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     byte-level version that never decodes a file it is going to reject and also
     rejects non-UTF-8 bytes (an encoding the editor cannot round-trip is skipped
     rather than lossily decoded).
-    A third defaulted method backs the **symbol index**: `fileStamp(at:) ->
+    A third defaulted method backs the **symbol index** — and, since, the
+    open tabs' external-change check (`OpenFile.diskStamp`): `fileStamp(at:) ->
     FileStamp?`, where `FileStamp` is `(byteCount, modificationDate)` — a cheap
     "has this file changed?" fingerprint the index compares against what it
     recorded when it last extracted a file, so an FSEvents burst re-parses only
@@ -288,14 +297,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.viewer` tab that is *probed* with `fileStamp(at:)` rather than read, a `nil`
     stamp throwing `.missingFile`. The flag is `false` by default and set by the
     macOS app alone — `core-database-viewer.md`), `updateText`,
-    `markSaved`, `select`, `save(for:)` (returns `.needsSaveAs` when there is no
-    url), `saveAllDirty()` (the autosave action: write every dirty file that
-    *has* a url and advance its `savedText`, returning the urls actually written;
-    unlike `save(for:)` it never returns `.needsSaveAs`/prompts — a url-less
-    "Untitled" or clean file is skipped — and a per-file write failure is
-    swallowed so the file stays dirty and the batch continues; idempotent, so an
-    immediate second call writes nothing and returns `[]`, and the returned urls
-    let the caller refresh Local Changes only when something changed),
+    `markSaved`, `select`, `save(for:onExternalChange:)` (returns `.needsSaveAs`
+    when there is no url; **guarded** — see "External changes" below), `saveAllDirty()`
+    (the autosave action: write every dirty file that *has* a url and advance its
+    `savedText`, returning a `SaveBatchResult` — `saved`, the urls actually
+    written, and `skippedConflicts`, the dirty tabs left unwritten because the
+    disk changed under their edits; unlike `save(for:)` it never returns
+    `.needsSaveAs`/prompts — a url-less "Untitled" or clean file is skipped — and
+    a per-file write failure is swallowed so the file stays dirty and the batch
+    continues; idempotent, so an immediate second call writes nothing, and the
+    returned urls let the caller refresh Local Changes only when something
+    changed),
     `saveAs(url:for:)`, `isDestinationOpenElsewhere(_:for:)` (the same canonical
     "a *different* open tab already targets this url" test `saveAs` refuses on —
     `SaveAsError.destinationAlreadyOpen` — exposed separately so a caller can ask
@@ -454,13 +466,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `CodeEditorView`'s `externalTextRevision`. A *second* per-file token,
     `@Published public private(set) var diskRevisions: [UUID: Int]` (read through
     `diskRevision(for:)`, which reports `0` for an unknown id so a caller never has
-    to tell "absent" from "unchanged"; bumped by a private `bumpDiskRevision(_:)`
+    to tell "absent" from "unchanged"; bumped by the private
+    `adoptBaseline(at:stamp:)` — which also stores the tab's `diskStamp` and
+    clears its external-conflict entry, so the three move together or not at all —
     and dropped in `removeFile`), means exactly one thing: **the on-disk content
     this buffer corresponds to changed**. It is bumped at every site that assigns
-    `savedText` — `markSaved`, `save(for:)`, `saveAllDirty()` (per successfully
-    written file), `saveAs`, `reloadFromDisk` and `reconcileSavedBaseline` — which
-    is precisely the set of moments the file the buffer stands for stopped being the
-    file it was: a save, an autosave, a Save As, the post-revert reload, a merge
+    `savedText` — `open`, `markSaved`, `save(for:)`, `saveAllDirty()` (per
+    successfully written file), `saveAs`, `reloadFromDisk` and
+    `reconcileSavedBaseline` — which is precisely the set of moments the file the
+    buffer stands for stopped being the file it was: the first read, a save, an
+    autosave, a Save As, the post-revert reload, a merge
     apply, and a branch checkout (which resyncs clean tabs through `reloadFromDisk`
     and edited ones through `reconcileSavedBaseline`). It is *not* bumped by
     `updateText`/`replaceText`, which change the buffer while leaving the file on
@@ -489,7 +504,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     FSEvents `ProjectWatcher` (so an *external* change reaches the tree on its own)
     and the tree header's manual Refresh button. Core stays unaware of all three —
     it only publishes the token. Nothing *else* watches the filesystem: Local
-    Changes, the Git Log, and open tabs still refresh on demand only (so
+    Changes and the Git Log still refresh on demand only, and open tabs are
+    checked against the disk only by the external-change pass the app runs on the
+    watcher's coalesced event and on activation, plus the guard before every
+    write — never by a watcher of their own (so
     `LocalChangesModel.revert`'s per-file re-query remains mandatory), and on iOS the
     tree too refreshes only on the app's own operations. Reconciliation of open
     tabs against a tree mutation is split into a *capture* phase and an *apply*
@@ -547,6 +565,118 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     canonical-form and strictly-under path-component checks all of the above
     reuse — are now one-line delegations to `CanonicalPath`, which owns both
     rules; see below.)
+
+    **External changes.** Every titled text tab's baseline carries a stamp
+    (`OpenFile.diskStamp`), and `checkDisk(id:)` applies `ExternalChangeRule`
+    to it and acts on the verdict: `reload` goes through `reloadFromDisk(id:)`,
+    `adoptBaseline` through that method's baseline-only branch (the buffer
+    already equals the disk), `stampOnly` records the stamp taken **before the read** —
+    never a second stat after it, which would let a writer landing between the
+    two have its stamp vouch for the older content — and ends any recorded
+    conflict, `conflict` records the disk side and **leaves the stamp
+    untouched** — the baseline has not moved, so the next trigger reads the disk
+    again — and `missing`/`leaveAlone` only drop a stale conflict entry. A read
+    that throws is told apart by the stamp: none means missing, one means there
+    but unreadable. `syncAllWithDisk()` runs it over every titled text tab and
+    returns a `DiskSyncResult` (`reloaded`, for the app's reindex, and
+    `conflicts`); `partitionDirtyTabsForSave()` runs it over the dirty titled
+    tabs and splits them into `writable` and `conflicted`, which is exactly the
+    set the on-save transform may be offered — transforming a conflicted buffer
+    would rewrite text no batch is going to write.
+
+    *The stamp's timing* is chosen so a race can only ever cost a spurious
+    comparison, never a missed change: after a **write** (`save`,
+    `saveAllDirty`, `saveAs`) it is read after the write and then vouched for by
+    a read-back (`stampAfterWriting`), adopted only when the read-back still
+    equals the written text and `nil` otherwise — so another writer landing
+    between the write and the stamp leaves no stamp to match, and the next check
+    reads the disk instead of recording that writer's stamp beside the editor's
+    `savedText` and skipping every later read; before a
+    **read** (`open`, `reloadFromDisk`, `reconcileSavedBaseline`) it is read
+    first, so a file that moves between the two leaves a stamp older than the
+    content and the next check finds the content equal. Read the other way
+    round, the newer stamp would vouch for the older content and the change
+    would never be seen.
+
+    *The conflict map is derived, not sticky.* `observedDiskSides: [UUID:
+    ObservedDiskSide]` holds, per tab, the disk side last observed to differ
+    while the tab held edits (`nil` text when it could not be read), and only
+    `checkDisk` fills it — plus `reconcileSavedBaseline`, which keeps an
+    existing entry alive (see below). A tab is in conflict (`isInExternalConflict(_:)`,
+    `externalConflictIDs`) while its entry exists **and** the buffer differs from
+    the entry's text — dirtiness is not part of the test. `diskText(forConflict:)`
+    is what Compare shows and what an Overwrite captures first; an unreadable
+    side reads as empty. The entry is cleared at every baseline site (through
+    `adoptBaseline`) and on close, **with one exception**:
+    `reconcileSavedBaseline` — the git-operation resyncs' way of *preserving* an
+    edited tab — re-records the entry against the disk it just read while the
+    buffer still differs from it (a missing file ends it, as `.missing` does).
+    Preserving an edit is not answering the conflict; clearing it there let the
+    next autosave write the buffer over the outside change after any commit,
+    checkout, pull, revert or merge apply, unasked and uncaptured. Two cases follow: a buffer edited by hand to
+    exactly the disk text ends the conflict on its own; a buffer edited back to
+    `savedText` — **clean but stale** — stays in conflict on purpose, so the bar
+    and the marker stay up, autosave writes nothing (the tab is not dirty), and
+    the next check (watcher, activation, any save attempt) sees a clean tab whose
+    content differs and reloads it, which clears the entry. **The one exception
+    is the bar's Overwrite**: `checkDisk(id:holdingConflict:)` holds a tab
+    already in conflict as dirty, so its check re-records the disk side read now
+    instead of reloading — reloading there would replace the very buffer the
+    answer asked to keep, uncaptured, and write the disk's text back over itself.
+    The flag is ignored for a tab not in conflict.
+
+    *Compare-before-assign.* `openFiles` is `@Published` and `OpenFile` is
+    `Equatable`, and the autosave idle trigger is a debounce on `$openFiles`. A
+    pass that assigned unconditionally would republish on every coalesced
+    watcher event, and a long burst (a package install reports every second)
+    would keep re-arming the two-second debounce and hold off autosave of every
+    unrelated dirty tab for the whole burst. So the stamp refresh — `checkDisk`'s
+    `stampOnly` branch, and `refreshDiskStamp(for:)`, public because the Local History restore also
+    calls it after creating the empty file it lands in — that create is the app's
+    own write, and a tab that outlived the delete would otherwise read it as an
+    external change — writes only when the new stamp differs, and
+    `setObservedDiskSide` assigns only when an entry is actually added, changed
+    or removed. A pass over files that did not move publishes nothing on either
+    — pinned in `WorkspaceModelExternalChangeTests`.
+
+    *The save policy.* `save(for:onExternalChange:)` takes an
+    `ExternalChangePolicy`. Under `.refuse`, the default, it checks first; a tab
+    in conflict afterwards throws `SaveError.externalChange` and nothing is
+    written — `savedText`, the stamp and both tokens stay as they were — and a
+    clean tab whose file became unreadable answers `.saved` without writing,
+    because writing the old baseline over it would be the very clobber the guard
+    exists to prevent. A missing file is no change and is recreated exactly as
+    before. `.overwrite` skips the check: the macOS Overwrite answer
+    (`overwriteExternalChange(_:)`), and iOS's one save, which has no conflict UI
+    and so keeps today's behaviour by passing it explicitly. The disk-favouring
+    answer is `reloadDiscardingEdits(_:)`, `reloadFromDisk`'s answer under a name
+    that says what it gives up. `saveAllDirty()` checks each dirty tab the same
+    way and **skips** a conflicted one — it stays dirty and is reported in
+    `skippedConflicts` — so autosave and every flush never write over a change
+    made outside the app.
+
+    *Synchronous, no token.* The check runs on the caller's main actor: one stat
+    per tab, plus a content read only when the stamp moved — the cost profile of
+    `open` and `reloadFromDisk`, which already run there. Nothing hops, so no
+    generation token is needed; a later asynchronous version owes one, under the
+    generation-token invariant.
+  - `ExternalChangeRule.swift` — the pure verdict behind the external-change
+    check: `ExternalChangeRule.verdict(recorded:current:read:savedText:text:)`
+    over the recorded stamp, the current one (`nil` = unknown, which means "read
+    and compare", never "unchanged"), a lazily evaluated `ExternalDiskRead`
+    (`.text`, `.missing`, `.unreadable`), the baseline and the buffer. Matching
+    stamps answer `.unchanged` without reading. Otherwise a **stamp mismatch alone
+    is never a change** — the content must differ from `savedText` too, so a
+    `touch` or an identical checkout costs one read and a `.stampOnly` refresh. A
+    missing file is `.missing` (not a change: today's recreate-on-save stands);
+    an unreadable one is `.conflict(diskText: nil)` for a dirty tab and
+    `.leaveAlone` for a clean one; readable text equal to the buffer is
+    `.adoptBaseline`, not a conflict; otherwise a dirty tab is
+    `.conflict(diskText:)` and a clean one `.reload`. Dirtiness is
+    `text != savedText` — or `true` under `holdingConflict`, the Overwrite case
+    above — which is what makes the clean-but-stale case reload. `ObservedDiskSide` is the value `WorkspaceModel`'s conflict map
+    stores. Pinned verdict by verdict in `ExternalChangeRuleTests`; the stamp
+    sites in `WorkspaceModelDiskStampTests`.
   - `CanonicalPath.swift` — the single source of truth for the two path
     questions the app keeps asking: *"do these two urls name the same file?"* and
     *"does this file live inside this directory?"*. `enum CanonicalPath`

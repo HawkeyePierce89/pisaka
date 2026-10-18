@@ -11,6 +11,12 @@ import PisakaCore
 /// (pure, unit-tested), so this controller is just the thin trigger→action
 /// wiring (and the suspend gate), consistent with keeping `Pisaka` views thin.
 ///
+/// External changes: every batch checks each dirty titled tab against the disk
+/// first (`WorkspaceModel.partitionDirtyTabsForSave()`), offers the on-save
+/// transform only the writable ones, and lets `saveAllDirty()` skip the tabs in
+/// external conflict — so autosave and the flushes never write over a file that
+/// changed outside the app, and those skips never beep.
+///
 /// Suspendable: an in-flight git revert (`PisakaApp.revertChanges`) is a second,
 /// uncoordinated disk writer. Without gating, an autosave firing mid-revert could
 /// write a buffer back to disk that the revert is concurrently discarding (racing
@@ -250,8 +256,10 @@ final class AutosaveController {
         pendingAutosave = false
         // The on-save transform runs first, on the buffers this tick will write —
         // it rewrites *buffers*, so it has to happen before the probe below reads
-        // which of them exist and before `saveAllDirty()` takes their bytes.
-        prepareForSave?(dirtyTitledIDs(in: model), false)
+        // which of them exist and before `saveAllDirty()` takes their bytes. Only
+        // the tabs the disk check leaves writable are offered: a conflicted one is
+        // never written by this batch, so rewriting it would be an edit nobody made.
+        prepareForSave?(model.partitionDirtyTabsForSave().writable, false)
         // Probe *before* the write: `write(_:to:)` creates a missing file, so a tab
         // whose file was deleted out of band is put back on disk by this autosave —
         // a change of tree membership the watcher will not report (it drops our own
@@ -259,14 +267,18 @@ final class AutosaveController {
         // leaves every listing identical and stays silent, which is exactly the
         // frequent self-noise `kFSEventStreamCreateFlagIgnoreSelf` exists to drop.
         let missingBeforeWrite = missingDirtyPaths(in: model)
-        let saved = model.saveAllDirty()
+        let batch = model.saveAllDirty()
+        let saved = batch.saved
         if !saved.isEmpty {
             onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
         }
         // A file that is still dirty *and* has a url means its write failed
         // (`saveAllDirty()` swallows per-file write errors). Beep once, non-modally
-        // — autosave fires unattended and must never surface an alert.
-        let writeFailed = model.openFiles.contains { $0.isDirty && $0.url != nil }
+        // — autosave fires unattended and must never surface an alert. The batch's
+        // conflicted skips are dirty by design, not failed: the tab's marker and the
+        // editor's bar are their signal, so they never count towards the beep.
+        let skipped = Set(batch.skippedConflicts)
+        let writeFailed = model.openFiles.contains { $0.isDirty && $0.url != nil && !skipped.contains($0.id) }
         if writeFailed {
             if !didBeepForFailure {
                 didBeepForFailure = true
@@ -275,12 +287,6 @@ final class AutosaveController {
         } else {
             didBeepForFailure = false
         }
-    }
-
-    /// The ids `saveAllDirty()` is about to write: dirty, and with a url. The set
-    /// the on-save transform is offered, for the reason stated on `prepareForSave`.
-    private func dirtyTitledIDs(in model: WorkspaceModel) -> [UUID] {
-        model.openFiles.filter { $0.isDirty && $0.url != nil }.map(\.id)
     }
 
     /// Paths of the dirty *titled* buffers that do not exist on disk right now — the
@@ -342,12 +348,24 @@ final class AutosaveController {
     /// resting on the relative registration order of two independent observers.
     /// Calling it twice on the same quit is harmless — `saveAllDirty()` is
     /// idempotent, so the second run writes nothing.
-    func flushNow(reportingSaves: Bool = false, abandoningBuffers: Bool = false) {
-        guard suspendCount == 0, let model else { return }
+    ///
+    /// Answers the conflicted tabs the write skipped (`saveAllDirty()`'s
+    /// `skippedConflicts`), empty when gated. `AppDelegate`'s
+    /// `flushBeforeTermination` reads it: a quit is approved only by a flush that
+    /// skipped nothing, so a file changed on disk after the last question goes back
+    /// to the question instead of being dropped on the way out.
+    @discardableResult
+    func flushNow(reportingSaves: Bool = false, abandoningBuffers: Bool = false) -> [UUID] {
+        guard suspendCount == 0, let model else { return [] }
         // Both flush paths transform first, exactly as the regular triggers do:
         // the quit flush is the last chance a buffer has to be written correctly,
         // and the commit dialog's flush is what the dialog then reads off disk.
-        prepareForSave?(dirtyTitledIDs(in: model), abandoningBuffers)
+        // The conflicted tabs are left out here as well, and `saveAllDirty()`
+        // skips them: no flush — the quit's included — ever writes over a change
+        // made outside the app. The quit put its question for them already
+        // (`AppDelegate.externalChangeQuestion`); whatever the user left in
+        // conflict stays on disk as the other writer left it.
+        prepareForSave?(model.partitionDirtyTabsForSave().writable, abandoningBuffers)
         guard reportingSaves else {
             // The quit branch. No probe — `missingDirtyPaths` costs one `stat` per
             // dirty titled buffer to answer a question ("bump the tree") that has
@@ -356,18 +374,20 @@ final class AutosaveController {
             // so. The report is still made: the caller's Local History capture is
             // the one thing on this path that still has work to do, and it is the
             // last chance these bytes get.
-            let saved = model.saveAllDirty()
-            guard !saved.isEmpty else { return }
-            onSaved?(saved, false, true)
-            return
+            let batch = model.saveAllDirty()
+            if !batch.saved.isEmpty { onSaved?(batch.saved, false, true) }
+            return batch.skippedConflicts
         }
         // The `performAutosave` sequence: probe before the write (a creating write
         // is a change of tree membership the watcher will not report), then report
         // only when something was actually written.
         let missingBeforeWrite = missingDirtyPaths(in: model)
-        let saved = model.saveAllDirty()
-        guard !saved.isEmpty else { return }
-        onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
+        let batch = model.saveAllDirty()
+        let saved = batch.saved
+        if !saved.isEmpty {
+            onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
+        }
+        return batch.skippedConflicts
     }
 }
 

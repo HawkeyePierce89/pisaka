@@ -65,4 +65,20 @@ final class DiffWindowTitleTests: XCTestCase {
         let title = DiffWindowTitle.commit(path: "f.txt", hash: "0123456", subject: "s")
         XCTAssertEqual(title, "f.txt — 0123456 s")
     }
+
+    func testExternalChangeTitleNamesBothSides() {
+        XCTAssertEqual(
+            DiffWindowTitle.externalChange(path: "Sources/A.swift"),
+            "Sources/A.swift — Editor vs. Disk"
+        )
+    }
+
+    /// The Compare window reuses the diff window, so its title must not read as a
+    /// Local Changes diff of the same file.
+    func testExternalChangeTitleIsDistinctFromTheLocalChangesTitle() {
+        XCTAssertNotEqual(
+            DiffWindowTitle.externalChange(path: "A.swift"),
+            DiffWindowTitle.localChanges(path: "A.swift")
+        )
+    }
 }

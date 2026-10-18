@@ -20,7 +20,8 @@ four macOS app files (the support directory, the window controller, the view and
 the two File-menu prompts) and capture calls at three save sites, seven
 gated-operation brackets (which carry nine operations — `gh pr checkout` and the
 post-merge tail's two steps all ride the branch operations' bracket), the project
-tree's delete and the user's own **Put Label…**; the tree's rename and
+tree's delete, the two external-change resolutions (Overwrite and Reload, which
+capture whichever side loses) and the user's own **Put Label…**; the tree's rename and
 drag-and-drop move carry a file's history to its new path. **Nothing
 new compiles on iOS**: there is no iOS window to browse a history in and no iOS
 caller of the capture model, so building the store on that destination would
@@ -84,6 +85,7 @@ changes.)
 ```text
 ~/Library/Application Support/Pisaka/LocalHistory/     the base (the app's half)
   pisaka-4f2c9a1b3d7e0865/                             one per project root
+    activity                                           the project's activity days
     3f8a1c04b7e29d165b0e7a2c94d1f680/                  one per file
       path                                             the readable path record
       0000001772345678901-save-3f8a1c04b7e29d16.snapshot
@@ -153,15 +155,25 @@ changes.)
   is lowercase ASCII without one.
 - A **snapshot's bytes are the revision's text**, verbatim UTF-8, nothing
   prepended and nothing wrapped.
+- The **activity record** is a file named `activity` (no extension) at the top of
+  a project area, beside the file directories rather than in one — so it never
+  parses as a snapshot and no file directory listing sees it. It holds up to
+  `LocalHistoryPolicy.activityDayCount` (14) local days on which the project
+  captured a revision, one `yyyy-MM-dd` per line, oldest first. It is what
+  retention counts instead of calendar days (see the policy), written on the
+  capture chain at most once per day and read once per project prune. It is the
+  area's own bookkeeping rather than a history, so it does not keep an otherwise
+  empty area alive: a sweep finding nothing else there removes it and then the
+  area.
 
 ## Files
 
 ### `PisakaCore`
 
   - `LocalHistorySnapshot.swift` — the vocabulary. `LocalHistoryEvent` is a
-    **closed** enum of twelve cases (`save`, `replace`, `revert`, `merge`,
+    **closed** enum of fourteen cases (`save`, `replace`, `revert`, `merge`,
     `branch`, `commit`, `restore`, `rename`, `pullRequest`, `pull`, `delete`,
-    `label`) with a stable lowercase
+    `label`, `overwrite`, `discard`) with a stable lowercase
     `tag`, an `init?(tag:)`
     inverse and a display `title`. The tag is not a display detail: it is one of
     the three fields encoded into a snapshot's file name, so it is **on-disk
@@ -169,13 +181,24 @@ changes.)
     under the old one (the parse refuses it, the listing drops it, retention never
     reclaims it). Add cases freely; change a tag only with that consequence in
     hand. `init?(tag:)` answering `nil` for an unknown tag is also how a snapshot
-    written by a *future* version is ignored rather than mis-read. Every title but
-    `save`'s and `label`'s reads "Before …", because a pre-operation snapshot holds
+    written by a *future* version is ignored rather than mis-read. Every
+    pre-operation title reads "Before …", because a pre-operation snapshot holds
     what the file looked like *before* the operation ran — that is the whole
     promise of the title, and phrasing it in the enum keeps the window from
-    inventing a second wording. The two exceptions record a moment rather than
+    inventing a second wording. The exceptions record a moment rather than
     pre-empt an operation: `save` is the buffer the app just wrote, `label` the
-    buffer at the instant the user named it. Both branch operations (switch and checkout-remote) share `branch`:
+    buffer at the instant the user named it, and the two external-change
+    resolutions name **which side lost**, because "before" alone would not say
+    whose text the revision holds — `overwrite` ("Disk Version Before Overwrite")
+    is the *disk* text an Overwrite is about to replace, the version another
+    program wrote and of which no other copy may exist, and `discard` ("Edits
+    Discarded by Reload") is the *buffer* a Reload is about to throw away. Both
+    tags are lowercase with no `-`. Neither is a pre-operation event in the
+    bracket sense: no writer gate is raised, the write being the ordinary save
+    funnel and the reload a buffer replacement, so both are captured at the
+    resolution site (`DiskSyncController`, `app-shell.md`) through
+    `captureBuffers`, ahead of the act, and only for a tab the external-change
+    rule found in conflict (`core-workspace.md`). Both branch operations (switch and checkout-remote) share `branch`:
     two call sites and two writer brackets, but from a file's point of view one
     event, and a user restoring a revision does not care which menu item moved the
     worktree. `rename` is the newest case and the one whose snapshots are the
@@ -280,7 +303,8 @@ changes.)
     the store, the capture model nor the window can grow a second opinion:
     `capture(of:relativePath:latestHash:event:)` (the whole skip rule),
     `label(from:)` (what a user's label may say) and
-    `prune(_:now:)` (retention, decided on snapshot *names* alone). The ceilings
+    `prune(_:now:activityDays:calendar:)` (retention, decided on snapshot *names*
+    alone, plus the project's activity record). The ceilings
     are instance properties with stated defaults rather than bare constants,
     because the store holds a policy *value*: the app builds the default one and
     the tests build a small one, and neither has to restate the rules to exercise
@@ -290,10 +314,16 @@ changes.)
       deliberately *the same* ceiling Find in Files already refuses to read: one
       ceiling for "a text file this editor works on", asked in two places rather
       than guessed twice.
-    - `defaultMaxAge` = **14 days**. Long enough to cover "what did this look like
+    - `defaultMaxAge` = **14 days**, a **floor rather than a deadline** (see
+      `activityDayCount`). Long enough to cover "what did this look like
       before last week's refactor" — the accident this feature exists for — short
       enough that an ordinary project's history stays small without the user ever
       being asked.
+    - `activityDayCount` = **14**, static because it is also the activity
+      record's capacity (`LocalHistoryLayout.activityDays(fromRecord:)` keeps
+      exactly this many): a policy asking for more days than the record can hold
+      would never expire anything, and two numbers that must agree are one
+      number.
     - `defaultRevisionsPerFile` = **30**. The age bound alone is unbounded in
       *volume*: an aggressive autosave can produce hundreds of revisions of one
       file in an afternoon, and the oldest of those is worth far less than the
@@ -346,6 +376,23 @@ changes.)
 
     **Retention is three rules in order**: age, then the count cap over what
     survived it, then the **unconditional reinstatement of the newest revision**.
+    **The age rule counts activity days, under an AND with the calendar.** A
+    revision is expired only when it is older than `maxAge` **and** at least
+    `activityDayCount` recorded activity days fall strictly after its own local
+    day. The activity half can only *spare* a revision the calendar half
+    condemned, never condemn one it spared, so nothing is ever reclaimed earlier
+    than the calendar rule alone would reclaim it: a user active every day gets
+    exactly the calendar behaviour, and one away for a month comes back to the
+    last 14 days they actually worked rather than to nothing. **Without a
+    readable record** (`activityDays: nil` — none written yet, or one that did
+    not parse) the age rule is the calendar half alone, exactly today's rule. A
+    revision's own day is spelled through `LocalHistoryLayout.activityDay(of:calendar:)`
+    with the same injected `calendar` whose time zone is what "local day" means,
+    so a test pins 23:59 and 00:01 as two days on any machine. The count cap and
+    the newest-survives reinstatement keep their order and their meaning: the cap
+    still bounds what the age rule spares, and **the newest revision of each path
+    still survives everything**, which is what the activity rule's leniency can
+    never undo.
     The third rule is what makes the feature trustworthy rather than merely tidy —
     a file edited once and then left alone for a month still has the revision from
     before that edit — and it is applied as a reinstatement rather than as an
@@ -356,8 +403,9 @@ changes.)
     ones would quietly make a busy repository's history mostly pre-operation
     snapshots of files nobody edited. A **`.label` revision is no exception**: a
     user's label names a moment, it does not pin one, and the store deletes its
-    sidecar together with it. `now` is a parameter, so retention is a pure
-    function of its inputs and every boundary case is testable without waiting.
+    sidecar together with it. `now`, the days and the calendar are parameters, so
+    retention is a pure function of its inputs and every boundary case is
+    testable without waiting.
   - `LocalHistoryStore.swift` — the disk half: the one type that lists, reads,
     writes and prunes, expressed entirely in terms of `FileServicing`, the layout
     (where things go) and the policy (whether they go there at all). **A value
@@ -375,7 +423,7 @@ changes.)
     revision that is no longer there, which is genuinely reachable: retention can
     delete one between the listing the window is showing and the row the user
     clicks. `capture(text:root:relativePath:event:label:now:)` is a fixed sequence —
-    **list, ask, write, rename, record, prune** — where the listing is what supplies the
+    **list, ask, write, rename, record, note the day, prune** — where the listing is what supplies the
     newest revision's hash, so dedup (by far the most common outcome on an
     aggressive autosave) costs one directory read and no content read at all; the
     name it is about to write is **parsed back** before use, so what it returns is
@@ -427,17 +475,57 @@ changes.)
     directory *after* the `move` has landed — is out of the retry's reach, since
     by then the loop has seen its `move` succeed and broken out, so it is answered
     on the sweep's side instead: the empty-directory removal re-lists immediately
-    before it removes and reclaims nothing it can still see something in. Deciding
+    before it removes and reclaims nothing it can still see something in, and that
+    listing and the recursive removal run under the store's one `exclusion` lock,
+    which every `capture` holds for its whole length — a re-list alone narrows the
+    window and cannot close it, since a capture could still land after the listing
+    and before `removeItem` traverses the directory. The project area's removal and
+    a migration's emptied source take the same lock; it is held for one capture or
+    one removal, never across a sweep, so the quit path waits at most that long.
+    Deciding
     on the stale listing would take a just-written snapshot with the directory,
     silently, and that snapshot is the last save before a quit.
+    **Noting the day** (`noteActivity`) reads the project's activity record once
+    and rewrites it only when today's local day is not already in it, so the
+    record is written at most once per day per project; only a *written*
+    revision notes the day, since a skipped capture changes nothing in the store
+    and must neither create an area for the record nor count as a day this
+    project's history moved. The record is **replaced** rather than created, so it
+    goes through `FileServicing.write` — atomic on the real service — rather than
+    `writeInPlace`, whose `move` refuses an existing destination; a reader sees
+    the old days or the new ones, never a missing record a concurrent sweep would
+    read as "calendar rule". "Already there" rather than "already the newest"
+    keeps a clock set backwards from rewriting it on every capture; a garbled
+    record is replaced by one holding today alone, which only ever makes
+    retention more lenient; a failed write is silent and answers what was read,
+    so the prune that follows judges by what is on disk. The decode
+    (`LocalHistoryLayout.activityDays(fromRecord:)`) repairs duplicates, disorder
+    and surplus lines but answers `nil` for any line that is not a real
+    `yyyy-MM-dd` date, because a garbled record must not be half-believed — a short
+    list of days is exactly what spares revisions. The spelling is always
+    Gregorian, built from components rather than a `DateFormatter`, so lexical
+    order is chronological order and no locale can change a digit; only the time
+    zone decides which day a moment belongs to. The `calendar` is the store's
+    injected one. The record is written only from inside `capture`, so the quit
+    path's synchronous capture writing it on the main thread is that path's
+    existing exception and not a new main-thread writer.
     Pruning runs here on the one file just captured, because that is the file
     whose count just changed, and it prunes the list already in hand rather than
-    re-reading the directory it just wrote to. `pruneAll(now:)` is the store-wide
+    re-reading the directory it just wrote to, against the days the noting step
+    just read. A project prune reads the record **once**, before its loop, and
+    judges every file directory against that one answer; a migration's merge
+    reads it once for its own prune. It is read through `fileService.read` alone,
+    never by listing, so a capture-time prune still lists nothing but its own
+    file directory. `pruneAll(now:)` is the store-wide
     sweep that reclaims everything *else*, including the history of files nobody
     has touched since their revisions aged out; `prune(root:now:)` is the one
     project area it is made of, kept public because it is the smallest thing the
     rule can be stated and tested against. A file directory left with no entries
-    at all is removed, then a project area left with no file directories, while
+    at all is removed, then a project area left with no file directories — its
+    activity record never removed on its own but only with the area, which is
+    re-listed before its recursive removal for the quit-capture reason (removed
+    first, a capture landing in between would keep the area alive without its
+    record, and the next prune would fall back to the calendar rule) — while
     one still holding something foreign is left exactly as it is, because this
     feature deletes only what it wrote. Retention alone never empties a directory
     holding a real snapshot, so those two branches in practice reclaim a directory
@@ -530,9 +618,12 @@ changes.)
     one lane is cheaper to reason about than a map of them. `append(_:)` captures
     no `self` — the work already holds the store it needs — so a model released
     mid-flight still finishes what it promised rather than dropping a revision.
-    `waitForQueuedWrites() async` (internal) awaits the chain's current tail —
-    the one way for a reader on another queue to see the writes already queued;
-    units appended later are not waited for.
+    `waitForQueuedWrites() async` (public) awaits the chain's current tail —
+    the way for a reader on another queue to see the writes already queued
+    (`deletedPaths(root:awaiting:)`), and what the quit holds the termination on
+    once an external-change answer queued an `.overwrite`/`.discard` capture, so
+    that capture lands before the process exits; units appended later are not
+    waited for.
     The entry points:
     - `captureSaves(urls:root:texts:)` — fire-and-forget: a save must not wait on
       a safety net. A url with no entry in `texts` is skipped rather than read
@@ -564,8 +655,8 @@ changes.)
       other, and the same one makes the loser's `move` refuse an existing
       destination, so it stores nothing and answers a `nil` nobody reads — and
       the sweep reclaiming the directory this is writing into, which the store's
-      one retry answers before the `move` and the sweep's own re-list answers
-      after it. A third — **a queued capture of older text landing after
+      one retry answers before the `move` and the sweep's own re-list, taken
+      with its removal under the store's `exclusion`, answers after it. A third — **a queued capture of older text landing after
       this one** — is answered upstream by the enqueue-time timestamp (below)
       rather than here: this path cannot wait for the chain (that is its whole
       point) and cannot cancel it (the write may already be in the kernel).
@@ -1110,8 +1201,12 @@ changes.)
     refusal the tree's own file operations give, and the action stops, creating nothing
     and opening nothing. Otherwise it `ensureDirectory`s the parent and `createFile`s through the
     file service (beeping and stopping on failure) and bumps the tree either way,
-    since `ensureDirectory` does not roll back the parents it built. Everything
-    after runs unchanged against the empty file: the open, the re-asked refusal, a
+    since `ensureDirectory` does not roll back the parents it built. The tab's
+    disk stamp is then refreshed (`refreshDiskStamp(for:)`): the create is the
+    app's own write, and a tab that outlived the delete still holds the deleted
+    file's stamp, so the save below would otherwise read the empty file as an
+    external change — reloading a clean tab to `""` and writing that back, or
+    putting a dirty one in conflict. Everything after runs unchanged against the empty file: the open, the re-asked refusal, a
     "Before Restore" capture of the empty text it displaces, and `applyRestore`.
     Both refusals are asked with `recreating:` set for a missing path, which
     exempts them from the sameness half only (the policy half still applies) —
@@ -1298,13 +1393,14 @@ history, just not the newest one.
 
 ## Tests
 
-220 tests across seven suites in `Tests/PisakaCoreTests/`, all against
+268 tests across seven suites in `Tests/PisakaCoreTests/`, all against
 `StubFileTree` or pure values — no temporary directories and no real clock:
 
   - `LocalHistorySnapshotTests` — the tag vocabulary by set equality, every event
     round-tripping through its tag (`delete` and `label` included), the "Before"
-    title rule restated as every event except `.save` and `.label`, newest-first
-    ordering including the same-millisecond tie-break.
+    title rule restated as every pre-operation event, newest-first
+    ordering including the same-millisecond tie-break; `.overwrite` and
+    `.discard` carrying lowercase, dash-free tags that round-trip through a name.
   - `LocalHistoryLayoutTests` — name round-trips for every event; lexical name
     order equal to chronological order across millisecond, second and day
     boundaries; every malformed-name shape parsing to `nil`; two roots and two
@@ -1318,7 +1414,11 @@ history, just not the newest one.
     round-tripping and accepting only a parseable snapshot name plus `.label`;
     neither `path`, `path.partial`, a sidecar nor a sidecar temporary parsing as
     a snapshot; the temporaries predicate accepting exactly the three own shapes
-    and refusing a foreign `.partial` and the finished names.
+    and refusing a foreign `.partial` and the finished names. The activity
+    record: named `activity` in the project area and never parsing as a
+    snapshot; its text round-tripping; the decode deduplicating, sorting and
+    keeping the newest fourteen, and answering `nil` for anything unparsable; the
+    day spelling ignoring the calendar's era.
   - `LocalHistoryPolicyTests` — each skip reason in isolation and every
     precedence pair between them; exactly 1 MiB captured and one byte more
     refused, counted in UTF-8 bytes (a multi-byte case included); the retention
@@ -1329,7 +1429,14 @@ history, just not the newest one.
     `.unchanged`, and a label still refused on every other ground; the label
     rule — trimming, empty and whitespace-only refused, exactly 100 characters
     accepted and 101 refused, an interior line break refused — and its ceiling
-    as the documented number.
+    as the documented number. Activity-day retention: a revision twenty days old
+    with three later activity days surviving; fourteen later days plus an
+    expired calendar age deleting, thirteen being one short, and fourteen inside
+    the calendar window still surviving (the AND); the revision's own day not
+    counting; two minutes across midnight being two days under the injected
+    calendar; no record giving exactly the calendar result; the newest surviving
+    every record and the count cap still applying under one; the two
+    external-change events obeying the ordinary skip rules.
   - `LocalHistoryStoreTests` — capture/list/read round-trip; a second identical
     capture writing nothing (asserted on `writtenPaths`); one changed byte being a
     new revision; the write going through a temporary name and exactly one `move`;
@@ -1338,6 +1445,13 @@ history, just not the newest one.
     reclaimed mid-write succeeding on its retry — the sweep-versus-quit-capture
     window, staged with `StubFileTree.onWrite`; capture
     pruning the same file's excess; `prune(root:)` bounding a whole project area;
+    the activity record written once per day, never by a skipped capture, held to
+    fourteen days, keyed per project (another project's activity ages nothing
+    here), read once per project prune and never listed by a capture; the sweep
+    sparing and reclaiming by activity days as the policy does, a missing or
+    garbled record giving exactly the calendar result; an area holding only the
+    record removed with it and one with a foreign entry beside it kept; the
+    injected time zone deciding which day a capture notes;
     `pruneAll()` bounding a project area **no root was handed for**, removing an
     area left empty and leaving one holding a foreign entry alone; a never-captured
     file listing `[]`; a foreign file ignored by listing and left alone by pruning;
@@ -1472,7 +1586,10 @@ history, just not the newest one.
   the nine worktree operations, the project tree's delete and Put Label… are the
   whole capture surface: an edit made in another editor, a `git checkout` run in
   the embedded terminal or in another window, or any other out-of-band write is
-  not seen and leaves no revision. Likewise only the project tree's own rename
+  not seen and leaves no revision. (An external change *to an open tab* is
+  seen by the external-change check, and the one revision it can cause is the
+  side an Overwrite or a Reload gives up — never a mirror of the other writer's
+  edits as they happen.) Likewise only the project tree's own rename
   and drag-and-drop move carry a history; a file moved or deleted anywhere else
   (Finder, `git mv`, the terminal) leaves its history under the old path, where
   Deleted Files… still finds it if its record is there. The
@@ -1480,8 +1597,10 @@ history, just not the newest one.
   wired to this — snapshotting every external write would turn a safety net for
   the user's own edits into a mirror of the filesystem.
 - **The store holds copies of file contents on the local disk**, unencrypted, in
-  `~/Library/Application Support/Pisaka/LocalHistory`, for up to 14 days or 30
-  revisions per file. Anything a captured file contained — including a secret
+  `~/Library/Application Support/Pisaka/LocalHistory`, for at least 14 days and
+  until 14 *activity days* of that project have followed (14 calendar days when
+  no activity record is readable), and at most 30 revisions per file — so a
+  project left alone keeps its history until it is worked on again. Anything a captured file contained — including a secret
   committed by accident and then removed — is in there until retention reclaims
   it, **except the newest revision of each path, which retention never reclaims**
   (policy rule 3): the store settles at one revision per path ever captured, not

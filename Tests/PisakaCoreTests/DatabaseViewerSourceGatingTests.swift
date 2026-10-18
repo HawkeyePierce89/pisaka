@@ -395,9 +395,17 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
         )
         XCTAssertEqual(
             try occurrences(of: "\\$0\\.isDirty && \\$0\\.url != nil", in: autosave),
+            1,
+            "The failed-write probe is the one dirty-and-titled scan left in autosave, and it is what makes the "
+                + "invariant load-bearing there; a scan that dropped isDirty would beep for viewer tabs."
+        )
+        // The ids about to be written moved into Core with the external-change
+        // check (`WorkspaceModel.partitionDirtyTabsForSave()`), which states the
+        // text kind beside isDirty, as `saveAllDirty()` does.
+        XCTAssertEqual(
+            try occurrences(of: "model\\.partitionDirtyTabsForSave\\(\\)\\.writable", in: autosave),
             2,
-            "The two dirty-and-titled scans (the ids about to be written, and the failed-write probe) are what "
-                + "make the invariant load-bearing; a scan that dropped isDirty would start writing viewer tabs."
+            "Both transform offers — the regular tick and the flush — take their ids from the Core partition."
         )
 
         let transform = try code(ofFileNamed: "SaveTransformController.swift", under: "Sources/Pisaka")

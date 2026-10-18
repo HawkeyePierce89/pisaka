@@ -228,6 +228,13 @@ struct ContentView: View {
     /// to a no-op so previews/tests can construct the view without the app wiring.
     /// (The Local Changes trigger that calls this is wired in Task 6.)
     var onResolveConflict: (ChangedFile) -> Void = { _ in }
+    /// The external-change bar's three actions for the tab with this id
+    /// (`ExternalChangeBar`): Reload and Overwrite run the app's capture-then-act
+    /// helpers, Compare opens the buffer against the disk. Default no-ops so
+    /// previews/tests can construct the view without the app wiring.
+    var onExternalChangeReload: (UUID) -> Void = { _ in }
+    var onExternalChangeOverwrite: (UUID) -> Void = { _ in }
+    var onExternalChangeCompare: (UUID) -> Void = { _ in }
     /// Branch-switcher callbacks (bottom-bar widget), wired to `PisakaApp`'s gated
     /// orchestration. Default no-ops so previews/tests can construct the view.
     var onSwitchBranch: (BranchRef) -> Void = { _ in }
@@ -1195,6 +1202,17 @@ struct ContentView: View {
             language: SyntaxLanguage(forFileName: file.displayName),
             hasProjectRoot: model.projectRoot != nil
         )
+        // The external-change bar, under the consent banner and above the find
+        // bar: present exactly while the model says this tab is in conflict, so
+        // it goes away on its own when an answer, an edit or a pass ends it.
+        if model.isInExternalConflict(file.id) {
+            ExternalChangeBar(
+                fileName: file.displayName,
+                onReload: { onExternalChangeReload(file.id) },
+                onOverwrite: { onExternalChangeOverwrite(file.id) },
+                onCompare: { onExternalChangeCompare(file.id) }
+            )
+        }
         // The find/replace bar sits between the breadcrumb and the editor,
         // so it covers both tab orientations at once (in `.horizontal` it
         // simply lands under the tab strip). Rendered only while open —
