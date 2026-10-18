@@ -890,6 +890,10 @@ struct PisakaApp: App {
     /// content's `.onAppear` below.
     private let autosave = AutosaveController()
 
+    /// External changes: the watcher and activation disk-check passes, and the
+    /// question a guarded save puts (`DiskSyncController`). Started beside autosave.
+    private let diskSync = DiskSyncController()
+
     /// Where the last session (the opened folder, the tabs, the selection, the text
     /// of Untitled buffers) is read from on launch and written back to. A plain
     /// stored reference like the controllers above — the `@main` App is created
@@ -1094,6 +1098,9 @@ struct PisakaApp: App {
                 saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: { id, url in
                     reindexReloadedBuffer(id: id, url: url)
                 })
+                diskSync.start(model: model, localHistory: localHistory, gate: localChanges.$isReverting.eraseToAnyPublisher()) {
+                    reindexReloadedBuffer(id: $0, url: $1)
+                }
                 autosave.start(
                     model: model,
                     prepareForSave: saveTransform.prepareForAutosave(ids:abandoningBuffers:),
@@ -1220,6 +1227,7 @@ struct PisakaApp: App {
                 // and given the time to, rather than signalled from the observer
                 // below — which stays as the fallback for whatever this missed.
                 appDelegate.languageServerTeardown = { lspWorkspace.hasLiveServers ? lspWorkspace.shutdownAll : nil }
+                appDelegate.externalChangeQuestion = { diskSync.questionBeforeQuit { save(id: $0, abandoningBuffer: true) } }
                 NotificationCenter.default.addObserver(
                     forName: NSApplication.willTerminateNotification,
                     object: nil,
@@ -2272,6 +2280,7 @@ struct PisakaApp: App {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)
             editorConfig.noteProjectFilesChanged()
+            diskSync.requestPass()
         })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a
@@ -2525,7 +2534,9 @@ struct PisakaApp: App {
         // prevent. So the remainder is measured here and named to the user. The
         // dialog still opens: the other files are perfectly committable and one
         // unwritable path must not strand the whole feature (a file whose write
-        // fails cannot be saved on a retry either).
+        // fails cannot be saved on a retry either). A tab in external conflict is
+        // the second way to stay dirty here — the flush never writes over a change
+        // made outside the app — and is named by the same list.
         let unsaved = unsavedTitledFileNames()
         autosave.suspendForModal()
         // Pin the load to the token captured synchronously here, before the `Task`
@@ -2557,7 +2568,8 @@ struct PisakaApp: App {
         PlatformFeedback.warning()
         PlatformAlert.presentMessage(
             title: "Unsaved changes are not included",
-            message: "These files could not be saved, so the commit uses the contents "
+            message: "These files were not saved (a write failed, or the file changed on disk), "
+                + "so the commit uses the contents "
                 + "already on disk rather than what the editor shows:\n\n"
                 + names.joined(separator: "\n")
         )
@@ -3954,6 +3966,12 @@ struct PisakaApp: App {
         // own save for this reason; checking here covers ⌘S and the close prompt's
         // "Save" too, and their earlier guard simply returns first.
         guard !revertInFlight() else { return false }
+        // The external-change check, after the gate and before the transform: a
+        // save the question cancels rewrites nothing, and Reload leaves nothing to
+        // write. Overwrite has already captured the disk side it is about to replace.
+        // Reload ends with the tab clean, which is this method's `true`.
+        let resolution = diskSync.resolveBeforeSave(id)
+        guard case .write(let policy) = resolution else { return resolution == .reloaded }
         // Ask `.editorconfig` what saving this buffer changes and apply it *here*,
         // after the writer-gate refusal above and before the write below — so the
         // close prompt's Save and the `runFile`/`testFile` pre-run saves, which all
@@ -3974,7 +3992,7 @@ struct PisakaApp: App {
         let recreatesFile = model.openFiles.first { $0.id == id }?.url
             .map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
         do {
-            if try model.save(for: id) == .needsSaveAs {
+            if try model.save(for: id, onExternalChange: policy) == .needsSaveAs {
                 // The untitled case, and it carries `abandoningBuffer` with it:
                 // the close prompt's Save reaches `saveAs` whenever the buffer has
                 // no path yet, and the transform decision is the same one this

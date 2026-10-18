@@ -237,28 +237,28 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Sources/Pisaka/AppDelegate.swift`
 - Create: `Sources/Pisaka/DiskSyncController.swift`
 
-- [ ] Autosave tick and flushNow:
+- [x] Autosave tick and flushNow:
   - offer the on-save transform only the dirty titled ids that are not in conflict after checkDisk
   - write through the batch result
   - report the conflicted skips, but do not count them as a write-failure beep, because the bar is their signal
   - the termination flush skips conflicted tabs and never writes over them
-- [ ] save(id:): after the writer-gate refusal and before the transform, run checkDisk. On a conflict:
+- [x] save(id:): after the writer-gate refusal and before the transform, run checkDisk. On a conflict:
   - show a modal saying the file "changed on disk since it was opened or last saved", with Overwrite / Reload / Cancel and no destructive choice styled as the default
   - Overwrite: capture the disk text under `.overwrite`, then save with `.overwrite`
   - Reload: capture the buffer under `.discard`, then call reloadDiscardingEdits
   - Cancel returns false, which already cancels the close prompt and the Run/Test pre-run save
-- [ ] openCommitDialog: conflicted tabs stay dirty after the flush, so the existing unsaved-files message names them. Make sure its name list includes them.
-- [ ] Quit: AppDelegate.applicationShouldTerminate first asks a closure from PisakaApp, which puts the same question for each conflicted dirty tab. Cancel answers `.terminateCancel` before any teardown; otherwise the existing teardown runs.
-- [ ] DiskSyncController:
+- [x] openCommitDialog: conflicted tabs stay dirty after the flush, so the existing unsaved-files message names them. Make sure its name list includes them.
+- [x] Quit: AppDelegate.applicationShouldTerminate first asks a closure from PisakaApp, which puts the same question for each conflicted dirty tab. Cancel answers `.terminateCancel` before any teardown; otherwise the existing teardown runs.
+- [x] DiskSyncController:
   - holds the watcher pass and the activation pass (NSApplication.didBecomeActiveNotification)
   - while `localChanges.isReverting` is up, records that a pass is pending and runs it once when the gate comes down
   - after a pass, gives reloaded tabs the same reindex and blame/gutter refresh the resync uses
   - is called from projectWatcher's onChange; the watcher itself stays directory-level and IgnoreSelf
-- [ ] Tests:
+- [x] Tests:
   - Core tests for any rule extracted here: the ids offered to the transform exclude conflicts, and the termination batch never writes a conflict
   - an app-layer test in Tests/PisakaAppTests for the gate deferral and its replay when the gate comes down, staged with a causal rendezvous
   - an app-layer test that a watcher pass over unchanged files does not re-arm the autosave idle debounce: a dirty unrelated tab still autosaves while passes keep arriving, observed through the save sink rather than a clock
-- [ ] Run swift test and the app-layer bundle; both must pass before task 7.
+- [x] Run swift test and the app-layer bundle; both must pass before task 7. (swift test: 0 failures. App bundle: every suite this task touches passes; the 8 scale-1.8 layout failures in BottomBarLayout/BottomBarToolTip/ChromePopoverLayout/CommitDialogLayout reproduce identically on the unchanged baseline on this machine, so they are not from this change)
 
 ### Task 7: Conflict UI and Local History capture sites
 

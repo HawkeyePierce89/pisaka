@@ -202,12 +202,18 @@ line_length:
 # 1954 with exactly one line, the `changePopover` input: its marker-click hook
 # rides the existing `attach` call and its popover the existing per-update
 # assignment it replaced (`configure`), and the popover itself lives in
-# `ChangeHunkPopover.swift`. The number tracks the one file that
+# `ChangeHunkPopover.swift`. Then 1963 with external-change detection: nine
+# lines, the `diskSync` property, its start, the quit question installed on the
+# delegate, the watcher's pass request, the guarded save's two-line resolution
+# in `save(id:)` and the commit notice's wrapped message, because the passes,
+# the question and the capture-then-act helpers live in
+# `DiskSyncController.swift` and every decision in Core's `ExternalChangeRule`
+# and `WorkspaceModel`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1954
-  error: 1954
+  warning: 1963
+  error: 1963
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -263,10 +269,12 @@ file_length:
 # 1946 with Next / Previous Problem's one, the same one `file_length` counts:
 # the `ProblemNavigationItems` entry inside the Find menu. Then to 1947 with
 # Revert Change's one, the same one `file_length` counts: the
-# `ChangeCommandItems` entry inside the Git menu.
+# `ChangeCommandItems` entry inside the Git menu. Then to 1956 with
+# external-change detection's nine, the same nine `file_length` counts, every
+# one of them inside the struct body.
 type_body_length:
-  warning: 1947
-  error: 1947
+  warning: 1956
+  error: 1956
 
 function_body_length:
   warning: 140

@@ -243,6 +243,42 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
         XCTAssertEqual(tree.writtenPaths, ["b.txt"])
     }
 
+    /// The ids the on-save transform is offered: dirty titled tabs that are not
+    /// in conflict after the check, and nothing the check made clean.
+    func testThePartitionOffersTheTransformOnlyTheWritableTabsAfterTheCheck() throws {
+        let (tree, model, conflicted) = try makeConflict()
+        let writable = try model.open(url: tree.url("b.txt")).id
+        model.updateText("other, edited", for: writable)
+        tree.files["c.txt"] = "same"
+        let adopted = try model.open(url: tree.url("c.txt")).id
+        model.updateText("same, typed", for: adopted)
+        tree.files["c.txt"] = "same, typed"
+        model.newFile()
+        model.updateText("untitled", for: try XCTUnwrap(model.selectedID))
+
+        let partition = model.partitionDirtyTabsForSave()
+
+        XCTAssertEqual(partition, WorkspaceModel.DirtyTabPartition(writable: [writable], conflicted: [conflicted]))
+        XCTAssertFalse(model.isDirty(for: adopted))
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The termination batch is the partition followed by `saveAllDirty()`, with
+    /// no question asked in between: a conflicted tab is never written by it.
+    func testTheTerminationBatchNeverWritesAConflict() throws {
+        let (tree, model, conflicted) = try makeConflict()
+        let other = try model.open(url: tree.url("b.txt")).id
+        model.updateText("other, edited", for: other)
+
+        XCTAssertEqual(model.partitionDirtyTabsForSave().conflicted, [conflicted])
+        let batch = model.saveAllDirty()
+
+        XCTAssertEqual(batch.skippedConflicts, [conflicted])
+        XCTAssertEqual(tree.writtenPaths, ["b.txt"])
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+        XCTAssertEqual(model.text(for: conflicted), "my edit")
+    }
+
     // MARK: - Publishing nothing when nothing changed
 
     func testAPassOverUnchangedFilesPublishesNothing() throws {

@@ -15,6 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// through a closure. Answers the teardown to wait for, or `nil` when no
     /// server is alive or launching and the quit may go at once.
     var languageServerTeardown: (@MainActor () -> (@MainActor () async -> Void)?)?
+
+    /// Installed by `PisakaApp` beside `languageServerTeardown`, and asked
+    /// **first**, before any teardown: it puts the external-change question
+    /// (Overwrite / Reload / Cancel) for each dirty tab whose file changed on
+    /// disk. `.cancel` cancels the quit with nothing torn down; `.proceed` may
+    /// carry work to wait for — the Local History captures the answers queued —
+    /// before the process is let go.
+    var externalChangeQuestion: (@MainActor () -> ExternalChangeQuitAnswer)?
     private var isAwaitingTeardown = false
 
     /// Native window tabbing is off before any window exists. The app has one
@@ -46,13 +54,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A second ⌘Q while the first is still waiting changes nothing: the one
         // reply below answers it.
         guard !isAwaitingTeardown else { return .terminateLater }
-        guard let teardown = languageServerTeardown?() else { return .terminateNow }
+        var pending: [@MainActor () async -> Void] = []
+        switch externalChangeQuestion?() {
+        case .cancel:
+            return .terminateCancel
+        case .proceed(let awaiting):
+            if let awaiting { pending.append(awaiting) }
+        case nil:
+            break
+        }
+        if let teardown = languageServerTeardown?() { pending.append(teardown) }
+        guard !pending.isEmpty else { return .terminateNow }
         isAwaitingTeardown = true
         Task { @MainActor in
-            await teardown()
+            for work in pending { await work() }
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
+}
+
+/// The quit's answer to the external-change question
+/// (`AppDelegate.externalChangeQuestion`).
+enum ExternalChangeQuitAnswer {
+    /// The user cancelled one of the questions: the quit does not happen.
+    case cancel
+    /// Quit, after `awaiting` (when present) has finished.
+    case proceed(awaiting: (@MainActor () async -> Void)?)
 }
 #endif

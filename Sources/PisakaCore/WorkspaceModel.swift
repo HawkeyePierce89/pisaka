@@ -949,6 +949,41 @@ public final class WorkspaceModel: ObservableObject {
         return DiskSyncResult(reloaded: reloaded, conflicts: externalConflictIDs)
     }
 
+    /// The dirty titled text tabs a batch save is about to consider, each checked
+    /// against the disk first and split by what the check left behind.
+    public struct DirtyTabPartition: Equatable {
+        /// Still dirty and not in conflict — what `saveAllDirty()` will write,
+        /// and so exactly what the on-save transform may be offered.
+        public let writable: [UUID]
+        /// In external conflict — skipped by every batch write, and the tabs the
+        /// quit question is put for.
+        public let conflicted: [UUID]
+
+        public init(writable: [UUID], conflicted: [UUID]) {
+            self.writable = writable
+            self.conflicted = conflicted
+        }
+    }
+
+    /// Run `checkDisk(id:)` over every dirty titled text tab, in tab order, and
+    /// partition them. A tab the check made clean (its buffer already equals the
+    /// disk, or it was reloaded) is in neither list: there is nothing to write.
+    /// Transforming a conflicted buffer would rewrite text no batch is going to
+    /// write, which is why the transform is offered `writable` alone.
+    public func partitionDirtyTabsForSave() -> DirtyTabPartition {
+        var writable: [UUID] = []
+        var conflicted: [UUID] = []
+        for file in openFiles where file.kind == .text && file.url != nil && file.isDirty {
+            checkDisk(id: file.id)
+            if isInExternalConflict(file.id) {
+                conflicted.append(file.id)
+            } else if isDirty(for: file.id) {
+                writable.append(file.id)
+            }
+        }
+        return DirtyTabPartition(writable: writable, conflicted: conflicted)
+    }
+
     /// Resolve tab `id`'s conflict in the buffer's favour: write it over the
     /// changed file (`save(for:onExternalChange: .overwrite)`).
     @discardableResult
