@@ -185,11 +185,11 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run the app-layer bundle under the pinned Xcode: `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. It must show the same eight known scale-1.8 failures and no others.
-- [ ] Run the macOS build under the pinned Xcode.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Confirm each new test pins its requirement:
+- [x] Run `swift test`. (6942 tests, 0 failures)
+- [x] Run the app-layer bundle under the pinned Xcode: `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. It must show the same eight known scale-1.8 failures and no others. (468 tests, the eight known scale-1.8 failures in BottomBarLayout, BottomBarToolTip, ChromePopoverLayout and CommitDialogLayout, nothing else)
+- [x] Run the macOS build under the pinned Xcode. (BUILD SUCCEEDED)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 769 files)
+- [x] Confirm each new test pins its requirement: (each confirmed by reverting only the behaviour, keeping the test seams, then restoring)
   - the R1 replay test fails without the hop;
   - the R2 gating suite fails without the variable;
   - the R3 row tests fail without the rule;
