@@ -147,6 +147,17 @@ final class UnifiedDiffDisplayRowsTests: XCTestCase {
         if case .hunkHeader = result[2] {} else { XCTFail("the third row is not the hunk header") }
     }
 
+    func testAFinalNewlineOnlyChangeIsOneUnitListedRemovedThenAdded() {
+        let diffRows = LineDiff.rows(old: "a\nb", new: "a\nb\n")
+        XCTAssertEqual(CommitDiffUnits.selectableUnits(rows: diffRows), [1])
+        let result = rows("a\nb", "a\nb\n")
+        XCTAssertEqual(hunkHeaders(result), ["@@ -1,2 +1,2 @@"])
+        let lines = result.compactMap(\.line)
+        XCTAssertEqual(lines.map(\.kind), [.context, .removed, .added])
+        XCTAssertEqual(lines.map(\.text), ["a", "b", "b"])
+        XCTAssertEqual(lines.map(\.unitIndex), [nil, 1, 1])
+    }
+
     func testNoChangedLineMeansNoRows() {
         XCTAssertEqual(rows("same\n", "same\n"), [])
         XCTAssertEqual(UnifiedDiffDisplayRows.rows(for: ChangedFile(path: "a", status: .modified), lines: []), [])

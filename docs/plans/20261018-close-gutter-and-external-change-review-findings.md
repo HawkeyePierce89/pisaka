@@ -70,30 +70,30 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 - Modify: `Tests/PisakaCoreTests/GutterChangeModelTests.swift`
 - Modify: the `CommitDiffUnits` / `UnifiedDiffDisplayRows` test file(s)
 
-- [ ] In `rows(old:new:wordRanges:)`, read whether each side's last line is terminated: `TerminatedLines.split(text).last?.terminator.isEmpty == false`.
+- [x] In `rows(old:new:wordRanges:)`, read whether each side's last line is terminated: `TerminatedLines.split(text).last?.terminator.isEmpty == false`.
   - When the final op is `.equal(o, n)`, `o` is the old side's last index and `n` is the new side's, and exactly one of the two is terminated, emit that row as `.modified` with `words: nil`.
   - Every other path is unchanged.
   - `splitLines` stays the pure projection of `TerminatedLines.split`.
   - `matchedPairs` (used by `ThreeWayMerge`) is not touched.
   - The doc comment states that this is the one place the projection sees a terminator, and why.
-- [ ] Update the "the converse is not an invariant" paragraph in `PartialCommitBuilder`'s doc comment: a last line that only gained or lost its terminator is now a unit, while a mid-file separator switch (CRLF→LF) still is not. No code change is expected, because the builder's rule already carries the side's terminator.
-- [ ] LineDiffTests, the new row:
+- [x] Update the "the converse is not an invariant" paragraph in `PartialCommitBuilder`'s doc comment: a last line that only gained or lost its terminator is now a unit, while a mid-file separator switch (CRLF→LF) still is not. No code change is expected, because the builder's rule already carries the side's terminator.
+- [x] LineDiffTests, the new row:
   - `"a\nb"` vs `"a\nb\n"`, and the reverse, give one `.modified` row for line 2 with `words == nil`.
   - CRLF, CR and NEL terminators behave the same.
   - Both sides terminated, or both unterminated, give no change rows.
   - A last line whose text also differs is still `.modified`, as today, with word ranges on the public path.
   - Empty versus `"\n"` behaves as today, because the last op there is an insert.
   - The gutter path (`wordRanges: false`) gives the same kinds.
-- [ ] PartialCommitBuilderTests, both directions for the newline-only unit:
+- [x] PartialCommitBuilderTests, both directions for the newline-only unit:
   - selected: the result is the worktree bytes (the terminator gained or lost);
   - not selected: the result is the HEAD bytes, byte-identical.
-- [ ] HunkRevertPlanTests:
+- [x] HunkRevertPlanTests:
   - Remove the fuzz's "final newline differing on an unchanged last line" exception, so reverting every hunk always yields `base` byte for byte.
   - Add a directed test that the newline-only hunk reverts to HEAD's terminator state.
-- [ ] GutterChangeModelTests: a newline-only difference marks the last line as modified, and the hunk at the caret on that line exists.
-- [ ] CommitDiffUnits / UnifiedDiffDisplayRows tests: the newline-only file has one unit, and the unified rows list the last line as removed, then added.
-- [ ] Confirm the `TerminatedLinesTests` splitLines fuzz stays green.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] GutterChangeModelTests: a newline-only difference marks the last line as modified, and the hunk at the caret on that line exists.
+- [x] CommitDiffUnits / UnifiedDiffDisplayRows tests: the newline-only file has one unit, and the unified rows list the last line as removed, then added.
+- [x] Confirm the `TerminatedLinesTests` splitLines fuzz stays green.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: R2, the HEAD read suppresses the terminal prompt
 

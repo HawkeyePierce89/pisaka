@@ -42,15 +42,19 @@ import Foundation
 /// **The converse is *not* an invariant, deliberately.** "Selecting every unit
 /// yields the worktree bytes" holds only when every *unchanged* line is terminated
 /// the same way on both sides. `LineDiff` compares terminator-stripped lines, so a
-/// line whose separator alone switched (CRLF→LF, say) produces no changed row —
-/// there is no unit for it, nothing to check — and the rule above emits it from
-/// the old side with the old terminator. Under mixed endings the fully-selected
-/// result therefore differs from the worktree, and that is correct: the builder
-/// rewrites what was selected and nothing else. Where the stronger guarantee is
-/// actually needed it is obtained *structurally* instead of from this function: a
-/// fully checked file bypasses the builder entirely and is placed into the index
-/// from the working file by git itself, which also resolves the exec bit, clean
-/// filters and `core.autocrlf` (see `CommitPlan`).
+/// mid-file line whose separator alone switched (CRLF→LF, say) produces no changed
+/// row — there is no unit for it, nothing to check — and the rule above emits it
+/// from the old side with the old terminator. The one terminator `LineDiff` does
+/// see is the *final* one: a last line that only gained or lost its terminator is
+/// a `.modified` row, so it is a unit like any other, and the side rule carries
+/// the selected side's terminator with no code here knowing why. Under mixed
+/// endings mid-file the fully-selected result therefore still differs from the
+/// worktree, and that is correct: the builder rewrites what was selected and
+/// nothing else. Where the stronger guarantee is actually needed it is obtained
+/// *structurally* instead of from this function: a fully checked file bypasses the
+/// builder entirely and is placed into the index from the working file by git
+/// itself, which also resolves the exec bit, clean filters and `core.autocrlf`
+/// (see `CommitPlan`).
 public enum PartialCommitBuilder {
     /// Build the content to commit for one file.
     ///

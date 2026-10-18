@@ -82,10 +82,26 @@ public enum LineDiff {
     /// words and recomputes on every typing pause. The line algorithm, matrix cap
     /// and pairing are identical on both paths — this switch only ever skips work
     /// layered on top of finished rows.
+    ///
+    /// **The one place the projection sees a terminator.** `splitLines` strips
+    /// separators, so `"a\nb"` and `"a\nb\n"` compare equal line for line and a
+    /// change that only gained or lost the final newline would produce no row at
+    /// all — the gutter would mark nothing, the partial commit would have no unit
+    /// to select, and reverting every hunk would not restore the base. So when the
+    /// last op pairs the two sides' last lines and exactly one of them is
+    /// terminated, that row is emitted as `.modified` with no word ranges (the
+    /// texts are equal; only the terminator differs). Every other row is decided
+    /// on stripped content alone, a mid-file separator switch included, and
+    /// `matchedPairs` (the merge's alignment) never sees this rule.
     static func rows(old: String, new: String, wordRanges: Bool) -> [DiffRow] {
-        let oldLines = splitLines(old)
-        let newLines = splitLines(new)
+        let oldSplit = TerminatedLines.split(old)
+        let newSplit = TerminatedLines.split(new)
+        let oldLines = oldSplit.map(\.content)
+        let newLines = newSplit.map(\.content)
         let ops = diffOps(oldLines, newLines)
+        let oldLastTerminated = oldSplit.last?.terminator.isEmpty == false
+        let newLastTerminated = newSplit.last?.terminator.isEmpty == false
+        let finalNewlineDiffers = oldLastTerminated != newLastTerminated
 
         var rows: [DiffRow] = []
         // Deletes/inserts inside one contiguous hunk are paired into `.modified`
@@ -138,8 +154,9 @@ public enum LineDiff {
             switch op {
             case let .equal(o, n):
                 flushHunk()
+                let isLastPair = o == oldLines.count - 1 && n == newLines.count - 1
                 rows.append(DiffRow(
-                    kind: .unchanged,
+                    kind: finalNewlineDiffers && isLastPair ? .modified : .unchanged,
                     left: DiffLine(number: o + 1, text: oldLines[o]),
                     right: DiffLine(number: n + 1, text: newLines[n])
                 ))

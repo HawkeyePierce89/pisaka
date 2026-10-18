@@ -136,6 +136,13 @@ final class HunkRevertPlanTests: XCTestCase {
         XCTAssertNil(HunkRevertPlan.plan(hunk: hunk, base: "a", buffer: "x\nb"))
     }
 
+    func testFinalNewlineOnlyHunkRevertsToHeadsTerminatorState() {
+        guard let (gained, _) = revertOnly(base: "a\nb", buffer: "a\nb\n") else { return }
+        XCTAssertEqual(gained, "a\nb")
+        guard let (lost, _) = revertOnly(base: "a\r\nb\r\n", buffer: "a\r\nb") else { return }
+        XCTAssertEqual(lost, "a\r\nb\r\n")
+    }
+
     // MARK: - Fuzz
 
     private struct LCG {
@@ -165,10 +172,8 @@ final class HunkRevertPlanTests: XCTestCase {
     func testRevertingEveryHunkBackToFrontYieldsHead() {
         var rng = LCG(state: 0x5eed_cafe_f00d_beef)
         for iteration in 0..<3000 {
-            let baseFinal = rng.next(2) == 0
-            let bufferFinal = rng.next(2) == 0
-            let base = randomText(&rng, finalNewline: baseFinal)
-            let buffer = randomText(&rng, finalNewline: bufferFinal)
+            let base = randomText(&rng, finalNewline: rng.next(2) == 0)
+            let buffer = randomText(&rng, finalNewline: rng.next(2) == 0)
             let all = hunks(base: base, buffer: buffer)
             let context = "#\(iteration) base=\(String(reflecting: base)) buffer=\(String(reflecting: buffer))"
 
@@ -181,16 +186,9 @@ final class HunkRevertPlanTests: XCTestCase {
                 result = apply(plan, to: result)
             }
 
-            // A final newline differing on an unchanged last line is invisible to
-            // the diff, so no hunk can bring it back; everywhere else the answer
-            // is HEAD byte for byte.
-            let bufferLineCount = TerminatedLines.ranges(buffer).count
-            let reachesEnd = all.last.map { $0.newLines.upperBound == bufferLineCount } ?? false
-            if baseFinal == bufferFinal || reachesEnd || base.isEmpty || buffer.isEmpty {
-                XCTAssertEqual(result, base, context)
-            } else {
-                XCTAssertEqual(hunks(base: base, buffer: result), [], context)
-            }
+            // A final newline differing on an unchanged last line is a hunk of
+            // its own, so the answer is HEAD byte for byte without exception.
+            XCTAssertEqual(result, base, context)
         }
     }
 
