@@ -55,6 +55,22 @@ public struct LocalHistoryStore {
     public let policy: LocalHistoryPolicy
     public let calendar: Calendar
     private let fileService: FileServicing
+    /// Mutual exclusion between a capture and the sweep's removal of a whole
+    /// directory. A reference, so every copy of this value — the model's, and
+    /// whatever its chain closures captured — shares the one lock.
+    ///
+    /// The quit path calls `capture` on the main thread while the chain may be
+    /// mid-sweep, and a re-listing alone cannot close that: a capture landing
+    /// after the sweep's last listing but before its recursive `removeItem`
+    /// traverses the directory would go down with it, past the reach of
+    /// `capture`'s retry, which has already seen its `move` succeed. So each
+    /// capture runs under this lock as a whole, and each "re-list, then remove
+    /// the directory" runs under it too: the sweep either sees the capture's
+    /// entries or removes the directory before the capture re-creates it. Held
+    /// only for one capture or one removal, never across a sweep, so the quit
+    /// path waits at most for one of those. Internal so the tests can pin that
+    /// both sides really hold it.
+    let exclusion = NSLock()
 
     public init(
         layout: LocalHistoryLayout,
@@ -197,6 +213,8 @@ public struct LocalHistoryStore {
         label: String? = nil,
         now: Date = Date()
     ) -> LocalHistorySnapshot? {
+        exclusion.lock()
+        defer { exclusion.unlock() }
         let directory = layout.fileDirectory(forRoot: root, relativePath: relativePath)
         let entries = listing(of: directory)
         let existing = LocalHistorySnapshot.sortedNewestFirst(Self.snapshots(in: entries))
@@ -345,15 +363,19 @@ public struct LocalHistoryStore {
         // subset of `entries` that pruned empty, and re-deriving that here would be
         // a second copy of the emptiness rule.
         guard let remaining = try? fileService.contentsOfDirectory(at: project) else { return }
-        guard remaining.allSatisfy({ !$0.isDirectory && $0.name == LocalHistoryLayout.activityRecordName })
-        else { return }
-        if !remaining.isEmpty {
-            discard(project.appendingPathComponent(LocalHistoryLayout.activityRecordName))
-        }
+        guard remaining.allSatisfy(Self.isActivityRecord) else { return }
         // Re-listed once more before the recursive removal, for the reason
         // `prune(directory:now:activityDays:)` gives: the quit capture bypasses the
-        // chain and can land a whole file directory here meanwhile.
-        if let relisted = try? fileService.contentsOfDirectory(at: project), relisted.isEmpty {
+        // chain and can land a whole file directory here meanwhile. The record is
+        // never removed on its own, only with the area: removed first, a capture
+        // landing between that and this listing would keep the area alive without
+        // its record, and the next prune would fall back to the calendar rule.
+        // The listing and the removal share one hold of `exclusion`, so no
+        // capture can land between them.
+        exclusion.lock()
+        defer { exclusion.unlock() }
+        if let relisted = try? fileService.contentsOfDirectory(at: project),
+           relisted.allSatisfy(Self.isActivityRecord) {
             discard(project)
         }
     }
@@ -402,12 +424,12 @@ public struct LocalHistoryStore {
             // edit at stake is the last save before a quit, which is the one the
             // synchronous path exists to guarantee. Such a capture may find the
             // record still listed and not write one; the next capture's listing
-            // shows it gone and writes it then. What is left is the ordinary
-            // window between this listing and the removal below, which is the
-            // same residual every other reclamation here accepts.
-            if let relisted = try? fileService.contentsOfDirectory(at: directory), relisted.isEmpty {
-                discard(directory)
-            }
+            // shows it gone and writes it then. The listing and the removal
+            // share one hold of `exclusion`, so no capture lands between them.
+            exclusion.lock()
+            let relisted = try? fileService.contentsOfDirectory(at: directory)
+            if relisted?.isEmpty == true { discard(directory) }
+            exclusion.unlock()
             return
         }
         delete(prunable(Self.snapshots(in: entries), now: now, activityDays: activityDays), in: directory)
@@ -472,6 +494,12 @@ public struct LocalHistoryStore {
         (try? fileService.contentsOfDirectory(at: directory)) ?? []
     }
 
+    /// Whether a project area's top-level `entry` is its activity record — the
+    /// area's own bookkeeping, which does not keep an otherwise empty area alive.
+    private static func isActivityRecord(_ entry: DirectoryEntry) -> Bool {
+        !entry.isDirectory && entry.name == LocalHistoryLayout.activityRecordName
+    }
+
     private static func snapshots(in entries: [DirectoryEntry]) -> [LocalHistorySnapshot] {
         entries.compactMap { entry -> LocalHistorySnapshot? in
             entry.isDirectory ? nil : LocalHistoryLayout.snapshot(fromFileName: entry.name)
@@ -491,8 +519,10 @@ public struct LocalHistoryStore {
     /// once, which re-creates the directory the sweep took. The mirror ordering —
     /// the sweep reclaiming the directory *after* the `move` has landed — is out
     /// of reach from here, since by then this loop has already returned;
-    /// `prune(directory:now:activityDays:)` answers that one by re-listing immediately before
-    /// it removes. Snapshots, sidecars and records all go through here, so they
+    /// `prune(directory:now:activityDays:)` answers that one by re-listing and
+    /// removing under the store's `exclusion`, which every capture holds for its
+    /// whole length, so no capture lands between that listing and that removal.
+    /// Snapshots, sidecars and records all go through here, so they
     /// share the one discipline.
     private nonisolated func writeInPlace(_ text: String, named name: String, in directory: URL) -> Bool {
         let destination = directory.appendingPathComponent(name)
@@ -653,10 +683,12 @@ public struct LocalHistoryStore {
         if !stranded {
             discard(source.appendingPathComponent(LocalHistoryLayout.pathRecordName))
             // Re-listed rather than decided on the listing above, as in
-            // `prune(directory:now:activityDays:)`: a quit-time capture bypasses the chain.
-            if let relisted = try? fileService.contentsOfDirectory(at: source), relisted.isEmpty {
-                discard(source)
-            }
+            // `prune(directory:now:activityDays:)`: a quit-time capture bypasses the
+            // chain, and the listing and the removal share one hold of `exclusion`.
+            exclusion.lock()
+            let relisted = try? fileService.contentsOfDirectory(at: source)
+            if relisted?.isEmpty == true { discard(source) }
+            exclusion.unlock()
         }
 
         replaceRecord(with: relativePath, in: destination)

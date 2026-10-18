@@ -681,8 +681,11 @@ public final class WorkspaceModel: ObservableObject {
     /// the tab's path by the caller, at a moment chosen so that a race can only
     /// ever cost a *spurious* comparison, never a missed change:
     ///
-    /// - after a **write**, it is read after the write, so the stamp describes the
-    ///   bytes the editor itself just put there;
+    /// - after a **write**, it is read after the write and then vouched for by a
+    ///   read-back (`stampAfterWriting(_:to:)`), so it describes the bytes the
+    ///   editor itself just put there — another writer landing between the write
+    ///   and the stamp would otherwise have its stamp recorded beside the
+    ///   editor's `savedText`, and every later check would skip the read;
     /// - before a **read**, it is read before the read, so a file that moves
     ///   between the two leaves a stamp older than the content — the next check
     ///   sees it differ, reads, and finds the content equal (a stamp-only
@@ -696,6 +699,20 @@ public final class WorkspaceModel: ObservableObject {
         openFiles[index].diskStamp = stamp
         diskRevisions[openFiles[index].id, default: 0] += 1
         setObservedDiskSide(nil, for: openFiles[index].id)
+    }
+
+    /// The stamp to adopt after writing `text` to `url`: read **before** a
+    /// read-back, and kept only when the read-back still equals `text`.
+    ///
+    /// The order is the before-a-read rule applied to the write's own bytes. A
+    /// writer landing before the stamp is caught by the read-back; one landing
+    /// after it leaves a stamp older than the disk, which the next check sees
+    /// differ. A read-back that differs or fails answers `nil`, which no current
+    /// stamp equals, so the next check reads the disk and judges what it finds.
+    private func stampAfterWriting(_ text: String, to url: URL) -> FileStamp? {
+        let stamp = fileService.fileStamp(at: url)
+        guard (try? fileService.read(url: url)) == text else { return nil }
+        return stamp
     }
 
     /// Refresh only the recorded stamp of tab `id` — for the case where the disk's
@@ -1058,7 +1075,7 @@ public final class WorkspaceModel: ObservableObject {
         }
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].savedText = openFiles[index].text
-        adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
+        adoptBaseline(at: index, stamp: stampAfterWriting(openFiles[index].text, to: url))
         return .saved
     }
 
@@ -1117,7 +1134,7 @@ public final class WorkspaceModel: ObservableObject {
             do {
                 try fileService.write(openFiles[index].text, to: url)
                 openFiles[index].savedText = openFiles[index].text
-                adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
+                adoptBaseline(at: index, stamp: stampAfterWriting(openFiles[index].text, to: url))
                 savedURLs.append(url)
             } catch {
                 // Leave this file dirty and keep going; never abort the batch.
@@ -1167,7 +1184,7 @@ public final class WorkspaceModel: ObservableObject {
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].url = url
         openFiles[index].savedText = openFiles[index].text
-        adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
+        adoptBaseline(at: index, stamp: stampAfterWriting(openFiles[index].text, to: url))
     }
 
     /// Outcome of attempting to close a file.

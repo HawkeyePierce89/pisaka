@@ -475,7 +475,14 @@ changes.)
     directory *after* the `move` has landed — is out of the retry's reach, since
     by then the loop has seen its `move` succeed and broken out, so it is answered
     on the sweep's side instead: the empty-directory removal re-lists immediately
-    before it removes and reclaims nothing it can still see something in. Deciding
+    before it removes and reclaims nothing it can still see something in, and that
+    listing and the recursive removal run under the store's one `exclusion` lock,
+    which every `capture` holds for its whole length — a re-list alone narrows the
+    window and cannot close it, since a capture could still land after the listing
+    and before `removeItem` traverses the directory. The project area's removal and
+    a migration's emptied source take the same lock; it is held for one capture or
+    one removal, never across a sweep, so the quit path waits at most that long.
+    Deciding
     on the stale listing would take a just-written snapshot with the directory,
     silently, and that snapshot is the last save before a quit.
     **Noting the day** (`noteActivity`) reads the project's activity record once
@@ -515,8 +522,10 @@ changes.)
     project area it is made of, kept public because it is the smallest thing the
     rule can be stated and tested against. A file directory left with no entries
     at all is removed, then a project area left with no file directories — its
-    activity record removed first when it is the only thing left, the area
-    re-listed before its removal for the quit-capture reason — while
+    activity record never removed on its own but only with the area, which is
+    re-listed before its recursive removal for the quit-capture reason (removed
+    first, a capture landing in between would keep the area alive without its
+    record, and the next prune would fall back to the calendar rule) — while
     one still holding something foreign is left exactly as it is, because this
     feature deletes only what it wrote. Retention alone never empties a directory
     holding a real snapshot, so those two branches in practice reclaim a directory
@@ -646,8 +655,8 @@ changes.)
       other, and the same one makes the loser's `move` refuse an existing
       destination, so it stores nothing and answers a `nil` nobody reads — and
       the sweep reclaiming the directory this is writing into, which the store's
-      one retry answers before the `move` and the sweep's own re-list answers
-      after it. A third — **a queued capture of older text landing after
+      one retry answers before the `move` and the sweep's own re-list, taken
+      with its removal under the store's `exclusion`, answers after it. A third — **a queued capture of older text landing after
       this one** — is answered upstream by the enqueue-time timestamp (below)
       rather than here: this path cannot wait for the chain (that is its whole
       point) and cannot cancel it (the write may already be in the kernel).

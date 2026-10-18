@@ -1601,7 +1601,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     down. `.proceed(awaiting:)` carries the Local History chain's
     `waitForQueuedWrites()` whenever any question was put, so the side an answer
     gave up is on disk before the process goes; the delegate awaits it and the
-    teardown in turn before its one reply. It asks nothing while the writer gate
+    teardown in turn, then **asks the question again** until a round finds no
+    conflict or is cancelled, and only then replies — the window stays live
+    through the wait, so a dirty tab can fall into conflict after the first round,
+    and the termination flush would skip it without asking. **The quit's flush is
+    coupled to the question**: `flushBeforeTermination`, installed as
+    `!autosave.flushNow(abandoningBuffers: true).isEmpty`, runs right after a round
+    that found nothing to ask and in the same synchronous stretch as the approval
+    (on both the immediate `.terminateNow` path and the deferred one). Another
+    process is not serialized by the main actor and can change a file between a
+    round and the write; the flush skips that tab and answers `true`, and the quit
+    goes back to the question instead of being approved — so the `willTerminate`
+    flush that follows finds nothing dirty and can drop no edit. A cancel after
+    such a flush leaves what it wrote saved, trimmed in full. A cancel there
+    replies `false` and clears the in-flight flag; the language servers already
+    stopped start again on the next request that needs one. It asks nothing while the writer gate
     is up — the termination flush is gated too, so nothing would be written
     either way — and whatever the user left in conflict is skipped by the quit
     flush and stays on disk as the other writer left it.

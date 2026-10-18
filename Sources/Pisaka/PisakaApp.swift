@@ -1098,9 +1098,7 @@ struct PisakaApp: App {
                 // safety net is for — synchronously there, since the process exits
                 // when this observer returns and a `Task` hop is not guaranteed to
                 // run at all.
-                saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: { id, url in
-                    reindexReloadedBuffer(id: id, url: url)
-                })
+                saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: reindexReloadedBuffer(id:url:))
                 diskSync.start(model: model, localHistory: localHistory, gate: localChanges.$isReverting.eraseToAnyPublisher()) {
                     reindexReloadedBuffer(id: $0, url: $1)
                 }
@@ -1231,6 +1229,7 @@ struct PisakaApp: App {
                 // below — which stays as the fallback for whatever this missed.
                 appDelegate.languageServerTeardown = { lspWorkspace.hasLiveServers ? lspWorkspace.shutdownAll : nil }
                 appDelegate.externalChangeQuestion = { diskSync.questionBeforeQuit { save(id: $0, abandoningBuffer: true) } }
+                appDelegate.flushBeforeTermination = { !autosave.flushNow(abandoningBuffers: true).isEmpty }
                 NotificationCenter.default.addObserver(
                     forName: NSApplication.willTerminateNotification,
                     object: nil,

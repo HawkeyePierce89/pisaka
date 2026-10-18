@@ -583,8 +583,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     would rewrite text no batch is going to write.
 
     *The stamp's timing* is chosen so a race can only ever cost a spurious
-    comparison, never a missed change: after a **write** it is read after the
-    write, so it describes the bytes the editor just put there; before a
+    comparison, never a missed change: after a **write** (`save`,
+    `saveAllDirty`, `saveAs`) it is read after the write and then vouched for by
+    a read-back (`stampAfterWriting`), adopted only when the read-back still
+    equals the written text and `nil` otherwise — so another writer landing
+    between the write and the stamp leaves no stamp to match, and the next check
+    reads the disk instead of recording that writer's stamp beside the editor's
+    `savedText` and skipping every later read; before a
     **read** (`open`, `reloadFromDisk`, `reconcileSavedBaseline`) it is read
     first, so a file that moves between the two leaves a stamp older than the
     content and the next check finds the content equal. Read the other way

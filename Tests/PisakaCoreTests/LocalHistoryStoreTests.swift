@@ -1571,6 +1571,71 @@ final class LocalHistoryStoreTests: XCTestCase {
         XCTAssertNil(tree.files[activityRecord(in: tree)])
     }
 
+    /// The record goes only with the area. A quit-time capture bypasses the
+    /// chain, so one landing after the prune decided the area held nothing but
+    /// the record — here, as the final re-listing starts — keeps the area *and*
+    /// its record: removed on its own first, the record would be gone while the
+    /// area lived on, and the next prune would fall back to the calendar rule.
+    func testACaptureLandingAfterTheAreaWasJudgedEmptyKeepsTheRecord() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        tree.files[activityRecord(in: tree)] = "2026-03-01\n"
+        let landed = "\(project)/0123456789abcdef0123456789abcdef/snapshot"
+        var projectListings = 0
+        tree.onListing = { path in
+            guard path == project else { return }
+            projectListings += 1
+            if projectListings == 3 { tree.files[landed] = "captured at quit" }
+        }
+
+        store.pruneAll(now: morning)
+
+        XCTAssertEqual(projectListings, 3)
+        XCTAssertEqual(tree.files[activityRecord(in: tree)], "2026-03-01\n")
+        XCTAssertEqual(tree.files[landed], "captured at quit")
+    }
+
+    /// Re-listing narrows the race and cannot close it: a quit-time capture
+    /// landing after the last listing but before the recursive removal has
+    /// traversed the directory would go down with it, past `capture`'s retry.
+    /// So the removal of a whole area or file directory, and every capture,
+    /// run under the store's one `exclusion` — pinned from inside each, where
+    /// the lock must already be taken.
+    func testDirectoryRemovalsAndCapturesHoldTheStoreExclusion() {
+        let tree = makeTree()
+        let store = makeStore(tree)
+        let project = projectDirectory(in: tree)
+        let directory = fileDirectory(path, in: tree)
+        tree.files[activityRecord(in: tree)] = "2026-03-01\n"
+        tree.directories.insert(directory)
+        var removalsUnderExclusion: [String: Bool] = [:]
+        tree.onRemove = { removed in
+            guard removed == project || removed == directory else { return }
+            let free = store.exclusion.try()
+            if free { store.exclusion.unlock() }
+            removalsUnderExclusion[removed] = !free
+        }
+
+        store.pruneAll(now: morning)
+
+        XCTAssertEqual(removalsUnderExclusion, [project: true, directory: true])
+        XCTAssertFalse(tree.hasDirectory(project))
+
+        tree.onRemove = nil
+        var captureUnderExclusion: Bool?
+        tree.onListing = { listed in
+            guard listed == directory else { return }
+            let free = store.exclusion.try()
+            if free { store.exclusion.unlock() }
+            captureUnderExclusion = !free
+        }
+        store.capture(text: "the last save", root: projectRoot, relativePath: path, event: .save, now: date(1_000))
+
+        XCTAssertEqual(captureUnderExclusion, true)
+        XCTAssertEqual(store.revisions(root: projectRoot, relativePath: path).count, 1)
+    }
+
     func testAForeignEntryBesideTheRecordKeepsTheAreaAndTheRecord() {
         let tree = makeTree()
         let store = makeStore(tree)

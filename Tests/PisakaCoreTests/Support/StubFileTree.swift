@@ -127,6 +127,14 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// clearing that directory's `.partial` debris, which the sweep answers by re-listing
     /// before it removes the directory itself.
     var onRemove: ((String) -> Void)?
+    /// Called with the root-relative path at the *start* of every directory
+    /// listing, after `listingGate`.
+    ///
+    /// The hook for a capture that lands *between* two listings of one sequence:
+    /// the quit-time capture arriving while `LocalHistoryStore`'s area prune is
+    /// deciding, from its listings, whether the area holds nothing but its
+    /// activity record.
+    var onListing: ((String) -> Void)?
 
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
@@ -134,6 +142,12 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// answer is computed, so the held call returns what the tree held when it
     /// was asked, whatever the test changes while it waits.
     var stampGate: (path: String, gate: Gate)?
+    /// Called with the root-relative path at the *start* of every `fileStamp`,
+    /// before the answer is computed.
+    ///
+    /// The hook for another writer landing between a write and the stamp read
+    /// after it — the race `WorkspaceModel`'s post-write read-back exists for.
+    var onStamp: ((String) -> Void)?
 
     /// One completed rename, as root-relative paths.
     struct Move: Equatable {
@@ -261,6 +275,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
             listingGate.wait()
         }
         let relativePath = relative(url)
+        onListing?(relativePath)
         lock.lock()
         listedPathsStorage.append(relativePath)
         lock.unlock()
@@ -432,6 +447,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// mean the same thing in a test without a real clock.
     func fileStamp(at url: URL) -> FileStamp? {
         let path = relative(url)
+        onStamp?(path)
         lock.lock()
         stampPathsStorage.append(path)
         lock.unlock()

@@ -117,6 +117,39 @@ final class WorkspaceModelDiskStampTests: XCTestCase {
         XCTAssertNotEqual(file(model, id).diskStamp, preWrite)
     }
 
+    /// Another writer landing between the save's write and its stamp must not
+    /// have its stamp recorded beside the editor's `savedText`: the read-back
+    /// disagrees, no stamp is adopted, and the next check reads the disk — here
+    /// reloading the clean tab — instead of skipping the read for good. Each of
+    /// the three writing sites goes through the same post-write helper.
+    func testAWriterLandingBetweenTheWriteAndTheStampIsNotHidden() throws {
+        let sites: [String: (WorkspaceModel, StubFileTree, UUID) throws -> Void] = [
+            "save": { model, _, id in try model.save(for: id) },
+            "saveAllDirty": { model, _, _ in model.saveAllDirty() },
+            "saveAs": { model, tree, id in try model.saveAs(url: tree.url("a.txt"), for: id) },
+        ]
+        for (name, site) in sites {
+            let tree = makeTree()
+            let model = WorkspaceModel(fileService: tree)
+            let id = try model.open(url: tree.url(name == "saveAs" ? "b.txt" : "a.txt")).id
+            model.updateText("the editor's text", for: id)
+            var written = false
+            tree.onWrite = { written = $0 == "a.txt" || written }
+            tree.onStamp = { path in
+                guard written, path == "a.txt" else { return }
+                written = false
+                tree.files["a.txt"] = "another writer"
+            }
+
+            try site(model, tree, id)
+            tree.onStamp = nil
+            XCTAssertNil(file(model, id).diskStamp, name)
+
+            XCTAssertEqual(model.checkDisk(id: id), .reload, name)
+            XCTAssertEqual(file(model, id).text, "another writer", name)
+        }
+    }
+
     func testAFailedReloadMovesNeitherTheStampNorTheToken() throws {
         let tree = makeTree()
         let model = WorkspaceModel(fileService: tree)

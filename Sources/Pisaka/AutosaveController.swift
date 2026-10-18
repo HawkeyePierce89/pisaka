@@ -348,8 +348,15 @@ final class AutosaveController {
     /// resting on the relative registration order of two independent observers.
     /// Calling it twice on the same quit is harmless — `saveAllDirty()` is
     /// idempotent, so the second run writes nothing.
-    func flushNow(reportingSaves: Bool = false, abandoningBuffers: Bool = false) {
-        guard suspendCount == 0, let model else { return }
+    ///
+    /// Answers the conflicted tabs the write skipped (`saveAllDirty()`'s
+    /// `skippedConflicts`), empty when gated. `AppDelegate`'s
+    /// `flushBeforeTermination` reads it: a quit is approved only by a flush that
+    /// skipped nothing, so a file changed on disk after the last question goes back
+    /// to the question instead of being dropped on the way out.
+    @discardableResult
+    func flushNow(reportingSaves: Bool = false, abandoningBuffers: Bool = false) -> [UUID] {
+        guard suspendCount == 0, let model else { return [] }
         // Both flush paths transform first, exactly as the regular triggers do:
         // the quit flush is the last chance a buffer has to be written correctly,
         // and the commit dialog's flush is what the dialog then reads off disk.
@@ -367,18 +374,20 @@ final class AutosaveController {
             // so. The report is still made: the caller's Local History capture is
             // the one thing on this path that still has work to do, and it is the
             // last chance these bytes get.
-            let saved = model.saveAllDirty().saved
-            guard !saved.isEmpty else { return }
-            onSaved?(saved, false, true)
-            return
+            let batch = model.saveAllDirty()
+            if !batch.saved.isEmpty { onSaved?(batch.saved, false, true) }
+            return batch.skippedConflicts
         }
         // The `performAutosave` sequence: probe before the write (a creating write
         // is a change of tree membership the watcher will not report), then report
         // only when something was actually written.
         let missingBeforeWrite = missingDirtyPaths(in: model)
-        let saved = model.saveAllDirty().saved
-        guard !saved.isEmpty else { return }
-        onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
+        let batch = model.saveAllDirty()
+        let saved = batch.saved
+        if !saved.isEmpty {
+            onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
+        }
+        return batch.skippedConflicts
     }
 }
 
