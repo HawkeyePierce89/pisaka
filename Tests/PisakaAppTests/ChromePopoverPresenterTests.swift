@@ -54,6 +54,36 @@ final class ChromePopoverPresenterTests: XCTestCase {
         XCTAssertNil(presenter.content)
     }
 
+    /// The editor's dismiss closes the change popover alone: an edit or a tab
+    /// switch must never close a bar popover the user opened meanwhile. A change
+    /// popover is `.beside`, and a bar popover replacing it is `.bar` again.
+    func testTheChangePopoversDismissLeavesABarPopoverOpen() throws {
+        let suite = "ChromePopoverPresenterTests.change"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let presenter = ChromePopoverPresenter()
+        let change = ChangeHunkPopoverPresenting.over(presenter, settings: SettingsStore(defaults: defaults))
+
+        presenter.present(id: "branch", anchor: .zero, content: emptyContent)
+        change.dismiss()
+        XCTAssertEqual(presenter.openID, "branch")
+        XCTAssertEqual(presenter.placement, .bar)
+
+        presenter.present(
+            id: ChangeHunkPopoverPresenting.popoverID, anchor: .zero, placement: .beside, content: emptyContent
+        )
+        XCTAssertEqual(presenter.placement, .beside)
+        change.dismiss()
+        XCTAssertNil(presenter.openID)
+
+        presenter.present(
+            id: ChangeHunkPopoverPresenting.popoverID, anchor: .zero, placement: .beside, content: emptyContent
+        )
+        presenter.present(id: "project", anchor: .zero, content: emptyContent)
+        XCTAssertEqual(presenter.placement, .bar)
+    }
+
     /// Replacing one popover with another leaves none of the first one's rows,
     /// selection or submenu behind for a Return to act on.
     func testReplacingAPopoverClearsTheOldRowsSelectionAndSubmenu() {

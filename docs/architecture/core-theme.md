@@ -2671,7 +2671,9 @@ tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
 
 The project switcher and the branch switcher are **one design component**, so
 they are one view: both popovers, and the remote row's submenu, are a
-`ChromePopover`. It opens **upward** from its widget, left-aligned to it,
+`ChromePopover` — as is the gutter's change-hunk popover, the component's third
+user, which opens **beside** its marker instead (below). A bar popover opens
+**upward** from its widget, left-aligned to it,
 `popoverBarGap` (4) above the bar, clamped inside the window, with **no arrow
 and no material** — a flat `bgPopover` fill at `cornerRadiusMax`, a `hairline`
 stroke at `hairlineWidth` (both reused, neither a token of its own) and a
@@ -2755,10 +2757,14 @@ and moves with it, re-places itself on a resize through the root's
 status from the main window, so the field inside it keeps the text focus and
 "closes when the window resigns key" stays one notification. The root declares
 a named coordinate space; the widgets, the bar's top edge and the rows report
-their frames in it, and the host asks `PopoverPlacement.popover(...)` with
-`popoverWidth`, `popoverMaxHeight` and `popoverBarGap` scaled, drawing the
-content bottom-leading at the answer with the available height as its
-`maxHeight`. An open submenu is a Head-less `ChromePopover` of two rows, its
+their frames in it, and for a `.bar` placement the host asks
+`PopoverPlacement.popover(...)` with `popoverWidth`, `popoverMaxHeight` and
+`popoverBarGap` scaled, drawing the content bottom-leading at the answer with
+the available height as its `maxHeight`. A `.beside` placement — the gutter's
+change marker — asks `PopoverPlacement.beside(...)` with the same three tokens
+and either hangs the content down from the anchor's top or raises it from the
+anchor's bottom, as that answer's `growsDown` says; the direction is decided in
+Core, not in the host. An open submenu is a Head-less `ChromePopover` of two rows, its
 height known from the row tokens and the List padding, placed by
 `PopoverPlacement.submenu(...)` with `popoverSubmenuGap` scaled. Its anchor
 row's top is **live**: a row-top report for the row the open submenu hangs from
@@ -2773,7 +2779,11 @@ widget's button then presents nothing) holds the open id, the anchor frame, the
 content, the bar's top, the rows the content registers in display order (an
 action row is an ordinary entry; a remote row carries its submenu's rows), the
 main `PopoverSelection`, the optional submenu with its own selection, and the
-drawn frames. `present(id:anchor:content:)` toggles when the same id is open;
+drawn frames. `present(id:anchor:placement:content:)` toggles when the same id
+is open; `placement` (`.bar` by default, or `.beside`) changes only together
+with `openID`. An AppKit anchor reaches it through `rootRect(_:from:)`, which
+converts a view's rect into the root's space and answers `nil` while no root is
+attached or the view is in another window;
 `setRows(_:)` resets the selection to the first row and closes a submenu, and
 each content re-registers on appear and on every filter change. **Every
 activation dismisses everything before its closure runs**; the current

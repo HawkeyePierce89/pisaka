@@ -423,8 +423,8 @@ test` runs `Tests/PisakaAppTests/`, headless XCTest (not UI automation) covering
 `swift test` is blind to: the AppKit overlays with behaviour of their own, the app-layer
 rules the Core gate structurally cannot see, the two suites that drive a real `WKWebView`,
 the one that executes the bundled diagram renderer, the four that execute a shipped
-tree-sitter query, the one that drives `GitCLIService` against a real `git` in throwaway
-repositories, the code zone's one cross-file rule, and the SwiftUI chrome whose
+tree-sitter query, the two that drive a real `git` in throwaway
+repositories (`GitCLIService`, `GitChangeController`), the code zone's one cross-file rule, and the SwiftUI chrome whose
 drawn layout is its contract, measured off a bitmap through the shared `HostedRender`. It exists because the folding
 launch-time trap passed **every gate the pipeline had** — the Core suites *and* the smoke
 launch — so it is the only net for that class. `Package.swift` ignores that directory

@@ -653,8 +653,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     from blame is what it describes**: blame describes the file *on disk*, this
     column describes the **buffer**. So the only thing read from git is the
     *base* — the file's `HEAD` text, `GitCLIService.headText(fileURL:)`, which runs
-    `git show HEAD:./<name>` in the file's directory as blame does (no
-    repository-root resolution) and classifies the bytes through `GitBlobText`.
+    `git cat-file --filters HEAD:./<name>` in the file's directory as blame does
+    (no repository-root resolution) and classifies the bytes through
+    `GitBlobText`. `--filters` applies the checkout's end-of-line conversion and
+    smudge filters, so the base is what a checkout would write: the stored blob
+    would mark every line of an `eol=crlf` file modified and revert it to LF, and
+    revert an LFS file to its pointer.
     Not text, an absent path, a thrown error or a side over the cap all mean "no
     markers", with no alert and no beep: markers are an inspection affordance.
     - **When the base is re-read.** A different file or path (a switched file
@@ -1048,8 +1052,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on line 1 carrying both wedges the top half answers `-1` (the boundary before
     line 1, a deleted hunk's `anchor`) and the bottom half `0`, and a wedge's lower
     half overhanging the next line answers the line above. `onChangeMarkerClicked`
-    (weakly captured, like the other closures) receives the line and the marker's
-    rect — the strip's band or the wedge — as the popover's anchor.
+    (weakly captured, like the other closures) receives the line and, as the
+    popover's anchor, the marker's **click target** rather than its drawn mark —
+    the column's full width over the region the hit test answers that line for,
+    the wedge's overhang included. The presenter counts a press inside its anchor
+    as the widget's own and leaves the toggle to the ruler, so an anchor as narrow
+    as the 2-point strip would let a second click elsewhere in the column dismiss
+    the popover and reopen it at once.
     `LineNumberRulerChangeMarkerTests` (headless) pins the identical thickness,
     the hit line for a strip, the wedges after the last line and before line 1, a
     click outside the column, and the marks shifting across an Enter and blanking

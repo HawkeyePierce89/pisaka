@@ -30,6 +30,11 @@ import PisakaCore
 ///   both `--pretty` sites — without the flag git emits the Latin-1 bytes;
 /// - a re-indented line and a line moved within the file both stay attributed
 ///   to the commit that wrote them — without `-w -M` both go to the later one.
+/// - the gutter's base (`headText`) resolves a file in a subdirectory relative
+///   to its own directory — the `./` prefix; without it git reads the path from
+///   the repository root and finds nothing — comes back with a checkout's CRLF
+///   endings under `eol=crlf` — without `--filters`, the stored LF bytes — and is
+///   `nil` for a binary blob, an untracked file and a file outside any repository.
 ///
 /// The repositories come from `ThrowawayRepository`, whose own git runs with
 /// the machine's configuration masked; the service under test inherits the
@@ -171,6 +176,47 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         let lines = try await GitCLIService().blame(fileURL: repo.appendingPathComponent("f.swift"))
 
         XCTAssertEqual(lines.map { $0?.hash }, [original, original, original])
+    }
+
+    // MARK: - Gutter base
+
+    func testHeadTextResolvesAFileInASubdirectory() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("src/deep/file.txt", contents: "deep\n", in: repo)
+        try commitFile("file.txt", contents: "root\n", in: repo)
+
+        let text = try await GitCLIService().headText(fileURL: repo.appendingPathComponent("src/deep/file.txt"))
+
+        XCTAssertEqual(text, "deep\n")
+    }
+
+    func testHeadTextAppliesTheCheckoutsLineEndingConversion() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile(".gitattributes", contents: "*.txt eol=crlf\n", in: repo)
+        try commitFile("file.txt", contents: "one\ntwo\n", in: repo)
+        XCTAssertEqual(try git(["cat-file", "blob", "HEAD:file.txt"], in: repo), "one\ntwo\n")
+
+        let text = try await GitCLIService().headText(fileURL: repo.appendingPathComponent("file.txt"))
+
+        XCTAssertEqual(text, "one\r\ntwo\r\n")
+    }
+
+    func testHeadTextIsNilForABinaryBlobAnUntrackedFileAndAFileOutsideARepository() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("binary.bin", contents: "a\u{0}b", in: repo)
+        try Data("new\n".utf8).write(to: repo.appendingPathComponent("untracked.txt"))
+        let outside = scratch.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("x\n".utf8).write(to: outside.appendingPathComponent("file.txt"))
+        let service = GitCLIService()
+
+        let binary = try await service.headText(fileURL: repo.appendingPathComponent("binary.bin"))
+        let untracked = try await service.headText(fileURL: repo.appendingPathComponent("untracked.txt"))
+        let unrepositoried = try await service.headText(fileURL: outside.appendingPathComponent("file.txt"))
+
+        XCTAssertNil(binary)
+        XCTAssertNil(untracked)
+        XCTAssertNil(unrepositoried)
     }
 
     // MARK: - Helpers

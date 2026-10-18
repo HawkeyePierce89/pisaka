@@ -326,6 +326,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     more expensive on large histories, and it changes what a line's commit means
     for the file on screen — the column would name a commit that touched some other
     file.
+    The gutter's **change column** adds `headText(fileURL:)`, the second
+    `fileURL` deviation, for blame's reason: `git cat-file --filters
+    HEAD:./<lastPathComponent>` in the file's parent directory — the `./` makes
+    git resolve the name relative to that directory, not the repository root —
+    with a non-zero exit (untracked, outside a repository) answering `nil` rather
+    than throwing, and the bytes classified through `GitBlobText`, so a binary
+    blob is `nil` too. **`--filters`, not `git show`**: the base is diffed against,
+    and a hunk revert writes it into, a buffer read from the worktree, so it must
+    be what a checkout writes — the stored blob would mark every line of an
+    `eol=crlf`/`core.autocrlf` file modified and revert it to LF, and revert an
+    LFS file to its pointer text. It runs on the shared queue: one read per file
+    switch or revision move, not per keystroke.
     The **commit dialog** adds seven more methods and two amendments to the
     process plumbing itself. (1) `ProcessResult` now stores the raw
     `stdoutData`/`stderrData` and exposes `stdout`/`stderr` as **computed**
@@ -469,8 +481,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     plain `git status` afterwards rewriting it as the control that keeps the
     assertion from passing vacuously; a commit message recorded in ISO-8859-1 under
     `i18n.logOutputEncoding=ISO-8859-1` reads back as Unicode through both
-    `commits` and `headMessage`; and `blame` attributes a moved line and a
-    re-indented line to the commit that wrote them, which is what `-w`/`-M` buy.
+    `commits` and `headMessage`; `blame` attributes a moved line and a
+    re-indented line to the commit that wrote them, which is what `-w`/`-M` buy;
+    and `headText` reads a file in a subdirectory, returns CRLF endings under
+    `eol=crlf`, and answers `nil` for a binary blob, an untracked file and a file
+    outside any repository. Its repositories come from the bundle's shared
+    `ThrowawayRepository`, which `GitChangeControllerRepositoryTests` uses too.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the
     "Commit Changes" strip, the message box at full width, the changed files
@@ -647,7 +663,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     spends, a context line drawing none — the checkbox is an `accent` box with an
     `onAccent` check when on and a `textSecondary` stroke when off, and the line numbers and the placeholder are
     `textSecondary`. The dialog around the panel is swept too — its own entry's
-    chrome paragraph above.
+    chrome paragraph above. **Word emphasis**: a `-`/`+` line's
+    `UnifiedDiffLine.emphasis` (Core's `DiffRow.words`, copied onto a modified
+    pair's lines) is drawn as an `AttributedString` background in the line's own
+    `diffWashRole`, built through an `AttributeContainer` — a text run's
+    attribute rather than a view's ground, so it is no second `CodePaneGround`
+    site for `ChromeThemeSourceGatingTests`.
     **A changed line is washed across the whole pane.** The rows sit in a
     `LazyVStack` inside a two-axis `ScrollView`, and the horizontal axis proposes
     no width, so a row's `maxWidth: .infinity` alone resolves to the content's own
@@ -950,6 +971,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ChromePalette.nsColor(_:)` (removed/changed on the old side, added/changed
     on the new side, a filler row plain) — iterating only the visible glyph range and mapping a
     glyph's char index to its row via a `LineStartIndex`-built offset cache.
+    **Word emphasis**: a `.modified` row's changed words — this side's half of
+    Core's `DiffRow.words`, UTF-16 offsets into the row's line — are filled a
+    second time in the row's own wash role, once per row (on its first
+    fragment), through the layout manager's enclosing rects for each range
+    shifted by the line's start; nothing is re-split in the view. A line
+    rewritten past `WordDiff`'s 60% threshold carries no ranges and stays
+    uniformly washed. `DiffWordEmphasisTests` (`PisakaAppTests`) renders both
+    panes in both appearances, and the unified `-`/`+` lines, off a bitmap.
     `DiffGutterView` (an `NSRulerView`, like `LineNumberRulerView`) draws this
     side's 1-based numbers (blank for a filler line, `textSecondary`) plus a thin
     change marker (`ChromeColorRole.diffMarkerRole(for:side:)`). **A macOS diff

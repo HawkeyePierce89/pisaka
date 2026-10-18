@@ -93,7 +93,9 @@ final class GitChangeController {
     var revert: ((Int) -> Void)?
 
     /// Take the editor's two per-update inputs (`updateNSView`): the writer
-    /// gate's read-only consult and the window's change popover.
+    /// gate's read-only consult and the window's change popover. One call
+    /// rather than two assignments keeps `CodeEditorView.swift` inside its
+    /// `file_length` ceiling.
     func configure(writeInFlight: @escaping () -> Bool, popover: ChangeHunkPopoverPresenting?) {
         self.writeInFlight = writeInFlight
         self.popover = popover
@@ -266,6 +268,8 @@ final class GitChangeController {
                 GutterChangeModel.compute(base: base, buffer: buffer)
             }.value
             guard let self, token == self.computeToken else { return }
+            // Cleared explicitly rather than through `setChangeMarkers`, which
+            // refuses an array whose length is not the ruler's line count.
             if changes.hunks.isEmpty {
                 self.ruler?.clearChangeMarkers()
             } else {

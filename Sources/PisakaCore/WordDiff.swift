@@ -62,7 +62,7 @@ public enum WordDiff {
 
     /// The ranges for one modified row, charged against the caller's per-build
     /// `work`; `nil` for a rewrite (the threshold) or when a ceiling ran out.
-    public static func ranges(old: String, new: String, work: inout Work) -> WordDiffRanges? {
+    static func ranges(old: String, new: String, work: inout Work) -> WordDiffRanges? {
         guard !work.isExhausted else { return nil }
         var row = Work(budget: min(maximumRowCells, work.budget))
         let result = ranges(old: old, new: new, rowWork: &row)
@@ -72,7 +72,7 @@ public enum WordDiff {
     }
 
     /// The ranges for one row on its own, under a fresh build ceiling.
-    public static func ranges(old: String, new: String) -> WordDiffRanges? {
+    static func ranges(old: String, new: String) -> WordDiffRanges? {
         var work = Work(budget: maximumBuildCells)
         return ranges(old: old, new: new, work: &work)
     }
@@ -82,7 +82,7 @@ public enum WordDiff {
     /// The ceiling and the work actually done under it, booked separately; see
     /// `EditorConfigGlob.MatchWork` for why the pair is two numbers and two
     /// calls, never one.
-    public struct Work {
+    struct Work {
         /// The ceiling this `Work` started with.
         let ceiling: Int
         /// What is left of the ceiling; at or below zero once it is spent.
@@ -90,7 +90,7 @@ public enum WordDiff {
         /// LCS cells really filled, whatever was charged.
         private(set) var performed = 0
 
-        public init(budget: Int) {
+        init(budget: Int) {
             self.ceiling = budget
             self.budget = budget
         }

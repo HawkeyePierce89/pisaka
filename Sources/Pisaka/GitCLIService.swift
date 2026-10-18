@@ -351,21 +351,29 @@ struct GitCLIService: GitServicing {
     /// diff against: the path is absent from `HEAD` (an untracked or new file),
     /// the file is outside a repository, or the blob is not text.
     ///
-    /// Runs `git show HEAD:./<name>` with the file's **own parent directory** as
-    /// the working directory, for exactly `blame(fileURL:)`'s reason: the caller is
-    /// the editor gutter, which holds a workspace URL and no repository root. The
-    /// `./` prefix makes git resolve the name relative to that directory rather
-    /// than to the repository root, so no `repositoryRoot(for:)` round-trip is
-    /// needed and a file outside any repository simply exits non-zero.
+    /// Runs `git cat-file --filters HEAD:./<name>` with the file's **own parent
+    /// directory** as the working directory, for exactly `blame(fileURL:)`'s
+    /// reason: the caller is the editor gutter, which holds a workspace URL and no
+    /// repository root. The `./` prefix makes git resolve the name relative to that
+    /// directory rather than to the repository root, so no `repositoryRoot(for:)`
+    /// round-trip is needed and a file outside any repository simply exits
+    /// non-zero.
     ///
-    /// The bytes are read raw and classified through `GitBlobText`, the one
+    /// `--filters` applies what a checkout applies — end-of-line conversion
+    /// (`eol=crlf`, `core.autocrlf`) and smudge filters such as Git LFS — because
+    /// the base is diffed against, and a hunk revert writes it into, a buffer read
+    /// from the *worktree*. The stored blob (`git show`) would mark every line of
+    /// a CRLF-converted file as modified and revert it to LF, and would revert an
+    /// LFS file to its pointer text.
+    ///
+    /// The bytes are then classified through `GitBlobText`, the one
     /// standard both sides of every diff are judged by, so a binary blob reads as
     /// "no markers" rather than as U+FFFD-laden text the gutter would diff
     /// against. Only a missing `git` throws; `GitChangeController` swallows that
     /// too.
     func headText(fileURL: URL) async throws -> String? {
         let result = try await run(
-            ["show", "HEAD:./\(fileURL.lastPathComponent)"],
+            ["cat-file", "--filters", "HEAD:./\(fileURL.lastPathComponent)"],
             in: fileURL.deletingLastPathComponent()
         )
         guard result.exitCode == 0 else { return nil }

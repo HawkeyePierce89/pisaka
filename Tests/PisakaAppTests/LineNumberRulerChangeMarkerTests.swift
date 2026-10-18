@@ -98,6 +98,29 @@ final class LineNumberRulerChangeMarkerTests: XCTestCase {
         XCTAssertEqual(harness.ruler.changeMarkerHit(at: NSPoint(x: column, y: band.midY)), -1)
     }
 
+    /// The anchor is the click target: every point the hit test answers a line
+    /// for lies inside that line's rect, so the presenter's outside-click check
+    /// never dismisses a popover the ruler's toggle is about to close.
+    func testEveryHitLiesInsideItsAnchor() {
+        let harness = makeHarness(text: "one\ntwo\nthree\nfour")
+        harness.ruler.setChangeMarkers(markers(count: 4, [
+            0: ChangeLineMarker(deletedAbove: true, deletedBelow: true),
+            2: ChangeLineMarker(strip: .modified, deletedBelow: true),
+        ]))
+        let thickness = harness.ruler.ruleThickness
+        for line in 0..<4 {
+            for fraction in stride(from: CGFloat(0.02), to: 1, by: 0.08) {
+                for x in [thickness - 4, thickness - 2.5, thickness - 0.5] {
+                    var probe = point(harness, line: line, fraction: fraction)
+                    probe.x = x
+                    guard let hit = harness.ruler.changeMarkerHit(at: probe) else { continue }
+                    let anchor = harness.ruler.changeMarkerRect(forHit: hit)
+                    XCTAssertTrue(anchor?.contains(probe) == true, "line \(line) at \(fraction), x \(x) → \(hit)")
+                }
+            }
+        }
+    }
+
     func testAClickOutsideTheColumnIsNotAHit() {
         let harness = makeHarness(text: "one\ntwo\nthree")
         harness.ruler.setChangeMarkers(markers(count: 3, [1: ChangeLineMarker(strip: .added)]))

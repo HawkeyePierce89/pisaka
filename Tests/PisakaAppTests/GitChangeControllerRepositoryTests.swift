@@ -5,7 +5,8 @@ import XCTest
 @testable import PisakaCore
 
 /// `GitChangeController` against the real `git`, in throwaway repositories:
-/// the base is `git show HEAD:./<name>` run in the file's directory, an edit
+/// the base is `git cat-file --filters HEAD:./<name>` run in the file's
+/// directory (a CRLF checkout included, and a sibling of a switched file), an edit
 /// produces a hunk once the coalescing delay elapses, the revert plan built from
 /// that hunk restores the committed bytes exactly, and an untracked file draws
 /// nothing.
@@ -106,6 +107,67 @@ final class GitChangeControllerRepositoryTests: XCTestCase {
         XCTAssertTrue(changes.hunks.isEmpty)
         XCTAssertTrue(harness.ruler.changeMarkers.isEmpty)
         XCTAssertTrue(controller.currentChanges(buffer: "anything\n").hunks.isEmpty)
+    }
+
+    func testAMovedGitRevisionAloneRereadsTheBase() async throws {
+        let (file, committed) = try committedFile(contents: "one\n")
+        let harness = makeHarness(text: committed)
+        let fileID = UUID()
+        controller.attach(ruler: harness.ruler, textView: harness.textView)
+        _ = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 0, gitRevision: 0, contentReplaced: true)
+        }
+        // A commit the buffer never saw: only the Local Changes refresh moves.
+        try fixture.commitFile("file.txt", contents: "two\n", in: file.deletingLastPathComponent())
+
+        let changes = await install {
+            self.controller.sync(fileID: fileID, fileURL: file, diskRevision: 0, gitRevision: 1, contentReplaced: false)
+        }
+
+        XCTAssertEqual(controller.base, "two\n")
+        XCTAssertEqual(changes.hunks.map(\.kind), [.modified])
+        XCTAssertEqual(harness.ruler.changeMarkers.first??.strip, .modified)
+    }
+
+    func testASwitchWhileAReadIsInFlightInstallsOnlyTheNewFilesBase() async throws {
+        let repo = try fixture.makeRepository("repo")
+        try fixture.commitFile("a.txt", contents: "alpha\n", in: repo)
+        try fixture.commitFile("b.txt", contents: "beta\n", in: repo)
+        let harness = makeHarness(text: "beta\n")
+        controller.attach(ruler: harness.ruler, textView: harness.textView)
+
+        // `a`'s read is running when `b` is asked for, so `b` waits as the
+        // pending read; `a`'s answer resumes stale and must be dropped.
+        let changes = await install {
+            self.controller.sync(
+                fileID: UUID(), fileURL: repo.appendingPathComponent("a.txt"),
+                diskRevision: 0, gitRevision: 0, contentReplaced: true
+            )
+            self.controller.sync(
+                fileID: UUID(), fileURL: repo.appendingPathComponent("b.txt"),
+                diskRevision: 0, gitRevision: 0, contentReplaced: true
+            )
+        }
+
+        // The first answer to reach the ruler is `b`'s: `a`'s base against the
+        // `beta` buffer would have been a modified hunk.
+        XCTAssertTrue(changes.hunks.isEmpty, "the stale read reached the ruler")
+        XCTAssertEqual(controller.base, "beta\n")
+    }
+
+    func testABufferSwapDropsTheMarksAndKeepsTheBase() async throws {
+        let (file, committed) = try committedFile(contents: "one\ntwo\nthree\n")
+        let harness = makeHarness(text: committed)
+        _ = await install { self.sync(file, harness) }
+        _ = await install {
+            self.edit(harness, replacing: NSRange(location: 4, length: 3), with: "TWO")
+        }
+        XCTAssertFalse(harness.ruler.changeMarkers.isEmpty)
+
+        controller.beginBufferSwap()
+
+        XCTAssertTrue(harness.ruler.changeMarkers.isEmpty)
+        XCTAssertEqual(controller.base, committed)
     }
 
     // MARK: - Revert through the coordinator

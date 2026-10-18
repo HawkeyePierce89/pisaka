@@ -1284,20 +1284,32 @@ class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         return nil
     }
 
-    /// The rect of the marker `changeMarkerHit(at:)` answered `line` for: the
-    /// strip's band, or the wedge — the popover's anchor.
+    /// The region `changeMarkerHit(at:)` answers `line` for — the popover's
+    /// anchor. It is the click target, not the drawn mark: the presenter treats
+    /// a press inside its anchor as the widget's own and leaves the toggle to
+    /// the ruler, so an anchor narrower than the target would let a second click
+    /// on the column dismiss the popover and immediately reopen it.
     internal func changeMarkerRect(forHit line: Int) -> NSRect? {
         if line == -1 {
-            return changeLineBand(forRulerLine: 0).map { changeWedgeRect(aboveBand: $0) }
+            guard let band = changeLineBand(forRulerLine: 0), let marker = changeMarkers.first ?? nil
+            else { return nil }
+            let alone = marker.strip == nil && !marker.deletedBelow
+            return changeColumnRect(minY: band.minY, maxY: alone ? band.maxY : band.midY)
         }
         guard line >= 0, line < changeMarkers.count, let marker = changeMarkers[line],
               let band = changeLineBand(forRulerLine: line)
         else { return nil }
-        if marker.strip != nil { return changeStripRect(band: band) }
-        if marker.deletedBelow {
-            return changeWedgeRect(belowBand: band, isLastLine: line == lineStartOffsets.count - 1)
-        }
-        return changeWedgeRect(aboveBand: band)
+        let minY = line == 0 && marker.deletedAbove ? band.midY : band.minY
+        // The wedge's lower half overhangs the next line's top, which answers
+        // this line only while the next line carries no marks of its own.
+        let overhangs = marker.deletedBelow && line + 1 < changeMarkers.count && changeMarkers[line + 1] == nil
+        return changeColumnRect(minY: minY, maxY: band.maxY + (overhangs ? changeWedgeHeight / 2 : 0))
+    }
+
+    /// The change column's full width (the hairline included, as the hit test
+    /// counts it) between `minY` and `maxY`.
+    private func changeColumnRect(minY: CGFloat, maxY: CGFloat) -> NSRect {
+        NSRect(x: changeColumnMinX, y: minY, width: horizontalPadding, height: maxY - minY)
     }
 
     /// `rulerLine(atY:)`, plus the trailing empty line and the empty buffer,
