@@ -293,15 +293,15 @@ None new.
 
 ### Task 14: Update documentation
 
-- [ ] `docs/architecture/core-diff-merge.md`: entries for `WordDiff` and for `DiffRow.words` / `UnifiedDiffLine.emphasis`; drop the "no word-level intra-line ranges (deferred)" sentence.
-- [ ] `core-git.md`: `LineShift`, with `BlameShift` as its delegate.
-- [ ] `core-git-models.md`: `ChangeHunk`, `GutterChangeModel`, `ChangeNavigationRule`, `HunkRevertPlan`, each with the decisions above.
-- [ ] `app-editor-overlays.md`: the ruler's change column (geometry, zero width) and `GitChangeController` beside `BlameController`, including the terminal-commit limit.
-- [ ] `app-editor.md`: `ChangeCommands`, `ChangeHunkPopover`.
-- [ ] `core-theme.md` and `core-zoom.md`: updated counts and lists.
-- [ ] `docs/FEATURES.md`: the four features, including the terminal-commit limit stated as blame's is.
-- [ ] `README.md`: shortcuts, if it lists Git shortcuts.
-- [ ] `CLAUDE.md`: index names for the new Core and app files; the theme-suite file count, if it moved; one invariant bullet — "gutter change markers are a reader; a hunk revert is a buffer edit that raises no gate and consults one"; the file stays under 60,000 characters (`LintConfigurationTests`).
+- [x] `docs/architecture/core-diff-merge.md`: entries for `WordDiff` and for `DiffRow.words` / `UnifiedDiffLine.emphasis`; drop the "no word-level intra-line ranges (deferred)" sentence.
+- [x] `core-git.md`: `LineShift`, with `BlameShift` as its delegate.
+- [x] `core-git-models.md`: `ChangeHunk`, `GutterChangeModel`, `ChangeNavigationRule`, `HunkRevertPlan`, each with the decisions above.
+- [x] `app-editor-overlays.md`: the ruler's change column (geometry, zero width) and `GitChangeController` beside `BlameController`, including the terminal-commit limit.
+- [x] `app-editor.md`: `ChangeCommands`, `ChangeHunkPopover`.
+- [x] `core-theme.md` and `core-zoom.md`: updated counts and lists.
+- [x] `docs/FEATURES.md`: the four features, including the terminal-commit limit stated as blame's is.
+- [x] `README.md`: shortcuts, if it lists Git shortcuts. (the shortcut table gains Next / Previous Change; the git-client feature line names the markers, revert, navigation and word emphasis)
+- [x] `CLAUDE.md`: index names for the new Core and app files; the theme-suite file count, if it moved; one invariant bullet — "gutter change markers are a reader; a hunk revert is a buffer edit that raises no gate and consults one"; the file stays under 60,000 characters (`LintConfigurationTests`). (55,169 characters; the theme-suite count already moved to sixty-five in Task 12; `UnifiedDiffLine.emphasis` also noted in `core-commit.md`, `PopoverPlacement.beside` and `changeMarkerRole(for:)` in `core-theme.md`)
 
 ## Post-Completion
 

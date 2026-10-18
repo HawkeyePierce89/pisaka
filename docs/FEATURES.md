@@ -163,6 +163,40 @@ user sees it.
   away), after which it re-aligns on its own. A file outside a git repository, or
   an unsaved "Untitled" buffer, simply has nothing to annotate — the menu item is
   unavailable or the column stays empty, with no error.
+- Change markers in the gutter (macOS): the editor marks what changed in the open
+  file against `HEAD` in a thin strip between the line numbers and the gutter's
+  edge — green for added lines, yellow for modified ones — and a small red wedge
+  where lines were deleted. They follow the **buffer**, not the disk: they update
+  while you type (about a quarter-second after you pause), not only on save, and
+  between two updates they stay on their lines as you edit. The strip lives in
+  space the gutter already had, so the gutter never changes width when markers
+  appear or clear. They refresh after a commit (a partial one too), a pull, a
+  branch checkout, a merge, and a pull request's checkout or merge. Committing
+  from the embedded terminal is the one change they do not notice on their own,
+  as with blame: the just-committed lines stay marked until you switch tabs away
+  and back, save, or Local Changes refreshes. A file outside a repository, an
+  untracked or binary file, a file over 1 MiB and an "Untitled" buffer simply show
+  no markers, with no error.
+- Revert a change (macOS): click a marker to see the lines `HEAD` has there
+  ("No lines in HEAD" for added lines) in a popover beside it, with a **Revert**
+  button; **Git ▸ Revert Change** does the same for the change holding the caret
+  (it beeps when the caret is in no change). A revert puts `HEAD`'s lines back
+  byte for byte — line endings and the presence or absence of a final newline
+  included — as one ordinary edit: ⌘Z undoes it, ⌘⇧Z redoes it, and nothing is
+  written to disk until the next save or autosave. While a git operation is
+  rewriting the working tree (a commit, a pull, a checkout…) Revert does nothing,
+  silently. Esc or a click outside closes the popover, and any edit closes it too.
+- Next Change / Previous Change (macOS): **Git ▸ Next Change** (⌃⌥⇧↓) and
+  **Previous Change** (⌃⌥⇧↑) move the caret to the start of the next or previous
+  change in the file, wrapping around at either end, the way Next / Previous
+  Problem does; a change inside a folded block unfolds. With no changes they beep.
+- Word-level emphasis in diffs (macOS): inside a modified line, the words that
+  actually changed are washed a second time over the line's own colour, in the
+  side-by-side diff (Local Changes' inline diff, the diff window, the Log and Local
+  History) and on the commit dialog's `-`/`+` lines. A line rewritten for the most
+  part (over 60% of it) stays uniformly washed, since highlighting nearly all of it
+  says nothing more, and very long lines (a minified file) skip the emphasis
+  rather than slow the diff down.
 - A path bar above the editor shows where the open file lives —
   its path inside the opened project as breadcrumbs that start with the
   project's name, the way the project tree does
@@ -1863,6 +1897,10 @@ and iPhone. The feature scope landed so far:
   clicking an annotation opens no commit detail, there is no "annotate previous
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
+- The gutter change markers are macOS-only and always compare against `HEAD`:
+  there is no staged-versus-unstaged distinction and no other base. A commit made
+  in the embedded terminal is not noticed until a tab switch, a save or a Local
+  Changes refresh. Files over 1 MiB on either side show no markers.
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
   Go to Definition, completion, hover types, diagnostics, Find Usages and Rename
   only — there is still no signature help, and nothing about the

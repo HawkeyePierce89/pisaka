@@ -33,7 +33,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   multi-file revert, a commit dialog with per-line selection, amend and
   **Commit and Push**, a 3-pane
   merge-conflict resolver, a Git Log with branch graph and filters, a branch
-  switcher, and git blame in the editor gutter. All through your own `git`.
+  switcher, git blame and live change markers in the editor gutter (revert a
+  change from its marker, step through changes), and word-level emphasis in
+  diffs. All through your own `git`.
 - **GitHub pull requests (macOS)** — a Pull Requests panel in the bottom dock
   (Cmd+Shift+R) listing this repository's open pull requests with author,
   `head → base`, draft and review state and a live checks summary; expand a row
@@ -221,6 +223,7 @@ server fetching JSON schemas while it runs.
 | Cmd+Shift+C | Show/Hide the Local Changes panel          |
 | Cmd+Shift+M | Show/Hide the Problems panel               |
 | Cmd+' / Cmd+Shift+' | Next / previous problem in the file (macOS) |
+| Ctrl+Option+Shift+Down / Ctrl+Option+Shift+Up | Next / previous git change in the file (macOS) |
 | Cmd+Shift+U | Show/Hide the Usages panel                 |
 | Cmd+Shift+R | Show/Hide the Pull Requests panel          |
 | Cmd+Shift+H | Local History for the active file          |

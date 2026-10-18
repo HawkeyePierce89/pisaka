@@ -108,10 +108,10 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `GitError.swift`, `GitServicing.swift`, `ChangedFile.swift`, `GitStatusParser.swift`, `BlameLine.swift`, `BlameAlignment.swift`, `BlameShift.swift`, `LineShift.swift`
 
 `docs/architecture/core-diff-merge.md` — diff & three-way merge:
-  `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
+  `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `WordDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
+  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangeHunk.swift`, `GutterChangeModel.swift`, `ChangeNavigationRule.swift`, `HunkRevertPlan.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
@@ -184,10 +184,10 @@ headlessly in `Tests/PisakaAppTests`.
   `TerminalTheme.swift`, `TerminalSession.swift`, `TerminalSessionsModel.swift`, `TerminalPanelView.swift`
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
-  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `LineCommands.swift` / `CommentCommands.swift` / `ProblemCommands.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
+  `CodeEditorView.swift`, `EditorFont.swift`, `LSPDocumentSyncController.swift`, `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift`, `EditorRevealState.swift`, `FoldController.swift` / `FoldCommands.swift`, `SelectionCommands.swift` / `SelectionExpansionController.swift`, `LineCommands.swift` / `CommentCommands.swift` / `ProblemCommands.swift` / `ChangeCommands.swift`, `ChangeHunkPopover.swift`, `CompletionPanel.swift`, `CompletionController.swift`, `HoverController.swift`, `HoverPanel.swift`, `DefinitionPicker.swift`, `LSPProcessTransport.swift`, `LSPToolchain.swift`, `LSPGoToolchainService.swift`, `LSPRustToolchainService.swift`, `ProjectSearchView.swift` / `ProjectSearchWindowController.swift`, `SearchHistoryMenu.swift`
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
-  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
+  `BracketOverlayLayoutManager.swift`, `BracketHighlightController.swift`, `BlameController.swift`, `GitChangeController.swift`, `LineNumberRulerView.swift`, `MinimapTokenizer.swift` / `MinimapView.swift`, `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift`, `OccurrenceHighlightController.swift`, `SyntaxTreeSnapshot.swift`, `TagHighlightController.swift`, `PredicateResolvingHighlighter.swift` (macOS + iOS)
 
 `docs/architecture/app-git-views.md` — git UI & CLI service (macOS):
   `FilePanels.swift`, `BranchSwitcherView.swift`, `GitCLIService.swift`, `CommitDialogView.swift` / `CommitUnifiedDiffView.swift`, `MergeView.swift` / `MergeWindowController.swift`, `EscClosableWindow.swift`, `LocalChangesView.swift`, `DiffView.swift`, `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift`
@@ -392,6 +392,13 @@ because nothing else states them.
   read one lookup whose fallback is granted to the preview's web view and its descendants
   alone, so every other responder keeps beeping.
 
+- **Gutter change markers are a reader; a hunk revert is a buffer edit that raises no
+  gate and consults one** (macOS only, `core-git-models.md`, `app-editor-overlays.md`): the
+  column diffs the **live buffer** against `HEAD` through `LineDiff`'s rows, never a second
+  diff, and every command recomputes from the buffer at the moment it runs rather than
+  acting on the drawn answer. A revert is one undoable edit through the editor's funnel —
+  no disk write, no Local History capture — refused silently while the writer gate is up.
+  Word emphasis is computed once per diff build in Core and carried on the rows.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are snapshotted
   before the hop; a clean, unchanged tab gets `reloadFromDisk`, an edited one
   `reconcileSavedBaseline` + beep, a deleted file force-closes (except after a commit,

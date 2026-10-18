@@ -153,6 +153,13 @@ two new geometry tokens) and each with its readers pinned by a gating
     every case's answer over `allCases`, and exactly the three conflicted kinds
     reaching `conflictBackground`. Rule twenty-nine pins its one reader,
     `MergeView.swift`.
+    **The gutter change marks added a fifth**, `changeMarkerRole(for:
+    ChangeMarkerKind)` — added `statusGreen`, modified `statusYellow`, deleted
+    `statusRed` — a mapping like `changedFileRole(for:)`, not a new role, so the
+    gutter and the Local Changes panel say the three kinds in the same colours
+    (`core-git-models.md`, `ChangeHunk.swift`). Its total answer over `allCases`
+    is pinned in `ChangeHunkTests`; rule fifty pins its one reader,
+    `LineNumberRulerView.swift`.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
@@ -382,6 +389,21 @@ two new geometry tokens) and each with its readers pinned by a gating
     would pass the window's bottom, never above the top. `PopoverPlacementTests`
     pins the ordinary case, the right-edge shift, the narrow window, the short
     window, and the submenu's fit, flip and upward clamp, on literal frames.
+    `beside(anchor:window:width:maxHeight:gap:)` answers a
+    `PopoverBesideAnchoring` for a popover opened from **inside** the window —
+    the editor gutter's change marker (`ChangeHunkPopover.swift`,
+    `app-editor.md`), presented through `ChromePopoverPresenter`'s `.beside`
+    placement with its anchor converted by `rootRect(_:from:)`. The leading x is
+    `gap` past the anchor's `maxX`, shifted left to keep the right edge inside the
+    window and never past its left edge — the bar rule's horizontal half, from the
+    anchor's trailing side. It **hangs down** from the anchor's top, beside the
+    lines the marker stands for, when the room below holds `maxHeight` or at
+    least as much as the room above the anchor's bottom, and otherwise **rises**
+    from the anchor's bottom, so a marker near the window's foot opens upward;
+    the available height is the room in the chosen direction, capped at
+    `maxHeight` and never negative. `PopoverPlacementTests` pins hanging, rising,
+    the short window taking the roomier side, equal room hanging down, and the
+    horizontal keep-inside.
   - `PopoverSelection.swift` — the keyboard selection over a popover's rows: a
     row count and an optional selected index. `init(count:)` selects the first
     row, or nothing at zero; `movedDown()`/`movedUp()` clamp at both ends with

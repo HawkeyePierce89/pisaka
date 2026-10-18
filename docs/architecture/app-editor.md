@@ -2024,6 +2024,77 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     diagnostic, or a target past the live buffer answers `false`. **The chords**
     are claimed by nothing else (`MenuShortcutUniquenessTests` pins them to this
     file), and `StandardKeyBinding.dict` binds no apostrophe with ⌘ held.
+  - `ChangeCommands.swift` (macOS) — the Git menu's change items, *Revert
+    Change* (no shortcut), *Next Change* (⌃⌥⇧↓) and *Previous Change* (⌃⌥⇧↑), plus
+    the coordinator's half. Shaped like `ProblemCommands.swift`: the items are a
+    `View` (`ChangeCommandItems`: a divider and three buttons), named once inside
+    `PisakaApp`'s `CommandMenu("Git")` for the same placement reason, all three
+    disabled with no open tab — the only state a menu item can observe — and
+    reaching the focused editor's coordinator through
+    `EditorCommandTarget.focusedEditor(in:)`, asked once for all three
+    (`focusedCoordinator()`, the eleventh caret-command site,
+    `core-markdown-preview.md` M11). The logic lives here because `PisakaApp.swift`
+    and `CodeEditorView.swift` sit at their lint size caps (`style-lint.md`).
+    **Every command recomputes now**: `gitChanges.currentChanges(buffer:)` from
+    the held base and the live buffer at the moment of the command, never the
+    drawn answer, which may be a quarter-second old (`GitChangeController`,
+    `app-editor-overlays.md`).
+    - **Revert.** `revertChange(atMarker:)` (the popover's, through the exact
+      `hunk(atMarkerLine:)`, `-1` the wedge above line 1) and
+      `revertChangeAtCaret()` (the menu item's, through the lenient
+      `hunk(atLine:)`) share one path answering a `ChangeRevertOutcome`. It first
+      **consults** the writer gate — `gitChanges.writeInFlight()`, a read of
+      `LocalChangesModel.isReverting` — and while it is raised answers `.refused`,
+      which stays **silent**: no beep, no alert, and the gate is never raised
+      here. Then it builds `HunkRevertPlan` (`core-git-models.md`) and applies it
+      through the single-edit funnel `apply(_:in:)`: **one undo step**, the caret
+      at the hunk's first line, **no disk write and no Local History capture** —
+      the next autosave writes and captures the buffer as for any edit, so a
+      revert is a buffer edit and nothing more. No base, no hunk, a stale plan or
+      a declining funnel (mid-composition, a read-only view) is `.noHunk`, which
+      the menu item turns into a beep, as it does with no focused editor.
+    - **Navigation.** `goToChange(_:)` asks `ChangeNavigationRule` with the
+      caret's line (one shared caret-line helper with the caret revert), converts
+      the answer to its line start and lands it through `revealRange(_:)`, the
+      reveal funnel, so a hunk inside a folded block unfolds
+      (`FoldingSourceGatingTests`' fourth caller file, `core-folding.md`).
+      Navigation is a move, not an edit: it **ignores** the writer gate and needs
+      no editable view. No editor, base or hunk answers `false` — a beep.
+    **The chords** avoid Mission Control's ⌃↑ / ⌃↓ and every arrow chord the app
+    declares (`MenuShortcutUniquenessTests`), and the text view's
+    `keyDown`/`performKeyEquivalent` overrides (⌃Space, ⌘D) and the stock key
+    bindings bind no arrow with ⌃⌥⇧ held. Tested in
+    `GitChangeControllerRepositoryTests` (app bundle): the marker and caret
+    reverts, undo/redo, the raised gate, stepping and wrapping over the live
+    hunks, `false` with no hunks, and navigation ignoring the gate.
+  - `ChangeHunkPopover.swift` (macOS) — the change marker's popover and the
+    editor's way to it. `ChangeHunkPopoverRequest` carries the hunk's `HEAD`
+    lines, the marker's rect in the ruler's coordinates and the editor's revert
+    closure, which recomputes at the press rather than trusting the hunk shown.
+    `ChangeHunkPopoverPresenting` is two closures `ContentView` builds over the
+    window's existing `ChromePopoverPresenter` (`.over(_:settings:)`), so
+    `CodeEditorView` names no presenter and **no new theme root is added**: the
+    presenter's root overlay brings its Esc and click-outside monitors and the
+    injected theme. Its `dismiss` closes the presenter **only while this popover
+    is the open one** (`popoverID`), so an edit or a tab switch never closes a
+    branch or project popover opened from the bar meanwhile; presenting the same
+    id again is the presenter's toggle. The anchor goes through the presenter's
+    `rootRect(_:from:)` (the marker rect converted from the ruler into the root's
+    top-left space; `nil` with no root or another window) and the `.beside`
+    placement — Core's `PopoverPlacement.beside` (`core-theme.md`), which hangs
+    the popover down beside the marker or, near the window's foot, raises it.
+    The view is a `ChromePopover`: Head "HEAD"; List the hunk's `HEAD` lines,
+    or "No lines in HEAD" for an added hunk; Foot a *Revert* row (`.undo2`
+    glyph) that dismisses and then calls the request's closure. The chrome is
+    coloured only by popover roles (chrome gating rule fifty). The lines are
+    code-zone text, so the List declares itself `ZoomSurfaceMarker(kind: .code)`,
+    builds its font through `EditorFont.swiftUIFont` at `SettingsStore.fontSize`
+    and the family — never the interface scale (`ZoomSourceGatingTests`) — and
+    states the code table's plain row as its foreground, the one `Color(` it
+    constructs, as `SyntaxBaseForegroundGatingTests` requires of every code-zone
+    surface showing file content. **No row is registered** with the presenter,
+    so the arrows and Return keep reaching the editor, which keeps the focus;
+    only Esc and a click outside close it.
   - `SelectionExpansionController.swift` (macOS) — Expand / Shrink Selection's
     editor side: one per editor, held by the coordinator as **one lazy
     property** (`CodeEditorView.swift` sits at its `file_length` ceiling, which
