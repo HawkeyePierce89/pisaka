@@ -31,11 +31,12 @@ import XCTest
 ///   `--show-signature` nor `log.showSignature=true` is spelled anywhere,
 ///   because signature text corrupts `Commit.parse`'s hash field
 ///   (`CommitParserTests`).
-/// - **The prompt-suppressing commands** (`testTheNetworkCommandsSuppressTheTerminalPrompt`):
+/// - **The prompt-suppressing commands** (`testTheCommandsThatMayPromptSuppressTheTerminalPrompt`):
 ///   the set of functions whose bodies spell `"GIT_TERMINAL_PROMPT": "0"` is exactly
-///   `{fetch, push, pull, commit}` — the commands that reach a remote or run
-///   hooks that may. A set, not a count, so it is the one place that number
-///   lives (`GitHubSourceGatingTests` defers here).
+///   `{fetch, push, pull, commit, headText}` — the commands that reach a
+///   remote, or run hooks or filters that may (`headText`'s `--filters` runs
+///   smudge filters, and an LFS smudge may fetch). A set, not a count, so it is
+///   the one place that number lives (`GitHubSourceGatingTests` defers here).
 /// - **Every checkout is terminated** (`testEveryCheckoutEndsItsRevisionsWithATerminator`):
 ///   the array literals spelling `"checkout"` are exactly the three expected
 ///   spellings — the two branch checkouts ending in `"--"`, plus the path
@@ -184,13 +185,13 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
         }
     }
 
-    func testTheNetworkCommandsSuppressTheTerminalPrompt() throws {
+    func testTheCommandsThatMayPromptSuppressTheTerminalPrompt() throws {
         let bodies = try functionBodies(in: try service())
         let prompting = Set(bodies.filter { $0.value.contains("\"GIT_TERMINAL_PROMPT\": \"0\"") }.keys)
         XCTAssertEqual(
-            prompting, ["fetch", "push", "pull", "commit"],
-            "exactly the commands that reach a remote or run hooks pass GIT_TERMINAL_PROMPT=0 — a credential "
-                + "prompt on /dev/tty would wedge the shared serial queue"
+            prompting, ["fetch", "push", "pull", "commit", "headText"],
+            "exactly the commands that reach a remote, or run hooks or filters that may, pass "
+                + "GIT_TERMINAL_PROMPT=0 — a credential prompt on /dev/tty would wedge the shared serial queue"
         )
     }
 

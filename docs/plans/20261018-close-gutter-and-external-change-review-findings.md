@@ -102,13 +102,13 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 - Modify: `Tests/PisakaCoreTests/GitCLIArgumentSourceGatingTests.swift`
 - Modify: `Tests/PisakaCoreTests/GitHubSourceGatingTests.swift` (only if its deferring comment restates the set)
 
-- [ ] Pass `environment: ["GIT_TERMINAL_PROMPT": "0"]` to `headText`'s `run`, with a comment beside it giving the reason: `--filters` runs smudge filters, and an LFS smudge may fetch and prompt on /dev/tty, which would wedge the shared serial queue. Fetch, push and pull set it for the same reason.
+- [x] Pass `environment: ["GIT_TERMINAL_PROMPT": "0"]` to `headText`'s `run`, with a comment beside it giving the reason: `--filters` runs smudge filters, and an LFS smudge may fetch and prompt on /dev/tty, which would wedge the shared serial queue. Fetch, push and pull set it for the same reason.
   - The arguments, `stdoutLimit` and the directory are unchanged.
-- [ ] Extend `testTheNetworkCommandsSuppressTheTerminalPrompt`'s expected set to `{fetch, push, pull, commit, headText}`.
+- [x] Extend `testTheNetworkCommandsSuppressTheTerminalPrompt`'s expected set to `{fetch, push, pull, commit, headText}`.
   - Rename the test if its name no longer reads truthfully (it now covers commands that reach a remote, or run hooks or filters that may).
   - Update the suite's doc-comment inventory and assertion message.
-- [ ] Check that the suite fails with the variable removed from `headText`, then restore it.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Check that the suite fails with the variable removed from `headText`, then restore it.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: R1, the autosave replay hops to the next main-actor turn
 

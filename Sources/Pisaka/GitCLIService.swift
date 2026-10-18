@@ -383,6 +383,11 @@ struct GitCLIService: GitServicing {
         let result = try await run(
             ["cat-file", "--filters", "HEAD:./\(fileURL.lastPathComponent)"],
             in: fileURL.deletingLastPathComponent(),
+            // `GIT_TERMINAL_PROMPT=0` because `--filters` runs smudge filters, and
+            // an LFS smudge may fetch the object and prompt for credentials on
+            // /dev/tty, which would wedge the shared serial queue. Fetch, push
+            // and pull set it for the same reason.
+            environment: ["GIT_TERMINAL_PROMPT": "0"],
             stdoutLimit: GutterChangeModel.maxSideBytes
         )
         guard result.exitCode == 0, !result.stdoutOverflowed else { return nil }

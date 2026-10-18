@@ -561,7 +561,7 @@ final class GitHubSourceGatingTests: XCTestCase {
             )
         }
         // That `pull` passes GIT_TERMINAL_PROMPT=0 is pinned by
-        // `GitCLIArgumentSourceGatingTests.testTheNetworkCommandsSuppressTheTerminalPrompt`,
+        // `GitCLIArgumentSourceGatingTests.testTheCommandsThatMayPromptSuppressTheTerminalPrompt`,
         // as set equality over the functions that spell it, so the count is not
         // restated here.
     }
