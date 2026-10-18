@@ -89,6 +89,23 @@ public final class WorkspaceModel: ObservableObject {
     /// contract and never the arithmetic.
     @Published public private(set) var diskRevisions: [UUID: Int] = [:]
 
+    /// Per-tab disk side last **observed to differ** from the tab's baseline while
+    /// the tab held edits — the only input of the external-conflict state, filled
+    /// by `checkDisk(id:)` alone and read through `isInExternalConflict(_:)`,
+    /// `externalConflictIDs` and `diskText(forConflict:)`.
+    ///
+    /// **Derived, not sticky.** A tab is in conflict while its entry exists and the
+    /// buffer differs from the entry's text, whether or not it is dirty, so editing
+    /// the buffer by hand to exactly the disk text ends the conflict on its own,
+    /// while a buffer edited back to `savedText` stays in conflict — clean but
+    /// stale — until the next check reloads it as a clean tab. The entry is cleared
+    /// at every baseline site (through `adoptBaseline(at:stamp:)`) and on close.
+    ///
+    /// **Assigned only when it actually changes.** Recording the disk text already
+    /// stored, or clearing an absent entry, writes nothing, so a watcher burst over
+    /// files that did not move republishes nothing.
+    @Published public private(set) var observedDiskSides: [UUID: ObservedDiskSide] = [:]
+
     private let fileService: FileServicing
 
     /// Whether `open(url:)` may route a recognized database file into a
@@ -671,9 +688,14 @@ public final class WorkspaceModel: ObservableObject {
     ///   sees it differ, reads, and finds the content equal (a stamp-only
     ///   refresh). Read the other way round, the newer stamp would vouch for the
     ///   older content and the change would never be seen.
+    ///
+    /// The tab's external-conflict entry is cleared here too: a baseline that
+    /// just moved was read from (or written to) the disk, so whatever was observed
+    /// to differ before no longer describes it.
     private func adoptBaseline(at index: Int, stamp: FileStamp?) {
         openFiles[index].diskStamp = stamp
         diskRevisions[openFiles[index].id, default: 0] += 1
+        setObservedDiskSide(nil, for: openFiles[index].id)
     }
 
     /// The current stamp of `url`, or `nil` for a url-less buffer.
@@ -809,6 +831,155 @@ public final class WorkspaceModel: ObservableObject {
         return true
     }
 
+    // MARK: - External changes
+
+    /// Whether the open tab `id` is in external conflict: the disk was observed
+    /// to differ from its baseline while it held edits, and the buffer still
+    /// differs from that disk side — dirty or not (see `observedDiskSides` for
+    /// the clean-but-stale case). An unreadable disk side differs from every
+    /// buffer.
+    public func isInExternalConflict(_ id: UUID) -> Bool {
+        guard let side = observedDiskSides[id], let text = text(for: id) else { return false }
+        return side.text != text
+    }
+
+    /// The tabs currently in external conflict, in tab order.
+    public var externalConflictIDs: [UUID] {
+        openFiles.map(\.id).filter(isInExternalConflict)
+    }
+
+    /// The disk side of tab `id`'s conflict — what Compare shows and what an
+    /// Overwrite captures first — or `nil` when the tab is not in conflict. An
+    /// unreadable disk side reads as empty text.
+    public func diskText(forConflict id: UUID) -> String? {
+        guard isInExternalConflict(id) else { return nil }
+        return observedDiskSides[id]?.text ?? ""
+    }
+
+    /// Store (or, with `nil`, clear) tab `id`'s observed disk side, assigning the
+    /// published map **only when the entry actually changes**.
+    private func setObservedDiskSide(_ side: ObservedDiskSide?, for id: UUID) {
+        guard observedDiskSides[id] != side else { return }
+        observedDiskSides[id] = side
+    }
+
+    /// Apply the external-change rule to tab `id` and act on its verdict.
+    ///
+    /// Synchronous on the caller's (main) actor: one stat per tab, plus a content
+    /// read only when the stamp moved — the cost profile of `open` and
+    /// `reloadFromDisk`, which already run there — so no generation token is
+    /// needed. Each verdict's action:
+    ///
+    /// - `reload` goes through `reloadFromDisk(id:)`, and `adoptBaseline` through
+    ///   its baseline-only branch (the buffer already equals the disk);
+    /// - `stampOnly` refreshes the stamp alone, compare-before-assign, and ends any
+    ///   recorded conflict (the disk is the baseline again);
+    /// - `conflict` records the disk side and leaves the stamp untouched — the
+    ///   baseline has not moved, so the next trigger reads the disk again;
+    /// - `missing` and `leaveAlone` change nothing but a stale conflict entry,
+    ///   which no longer describes any disk side;
+    /// - `unchanged` assigns nothing at all.
+    ///
+    /// A read that throws is told apart by the stamp: no stamp means the file is
+    /// missing, a stamp means it is there but unreadable (permission, not text).
+    /// Returns the verdict, or `nil` for an unknown, url-less or viewer tab.
+    @discardableResult
+    public func checkDisk(id: UUID) -> ExternalChangeVerdict? {
+        guard let index = indexOf(id), openFiles[index].kind == .text,
+              let url = openFiles[index].url else { return nil }
+        let file = openFiles[index]
+        let current = fileService.fileStamp(at: url)
+        let verdict = ExternalChangeRule.verdict(
+            recorded: file.diskStamp,
+            current: current,
+            read: {
+                do {
+                    return .text(try fileService.read(url: url))
+                } catch {
+                    return current == nil ? .missing : .unreadable
+                }
+            },
+            savedText: file.savedText,
+            text: file.text
+        )
+        switch verdict {
+        case .unchanged:
+            break
+        case .stampOnly:
+            refreshDiskStamp(for: id)
+            setObservedDiskSide(nil, for: id)
+        case .reload, .adoptBaseline:
+            reloadFromDisk(id: id)
+        case .conflict(let diskText):
+            setObservedDiskSide(ObservedDiskSide(text: diskText), for: id)
+        case .missing, .leaveAlone:
+            setObservedDiskSide(nil, for: id)
+        }
+        return verdict
+    }
+
+    /// What one `syncAllWithDisk()` pass found.
+    public struct DiskSyncResult: Equatable {
+        /// The tabs whose baseline moved — reloaded, or a new baseline adopted —
+        /// so the app can reindex them and refresh their blame.
+        public let reloaded: [UUID]
+        /// Every tab in external conflict after the pass, in tab order.
+        public let conflicts: [UUID]
+
+        public init(reloaded: [UUID], conflicts: [UUID]) {
+            self.reloaded = reloaded
+            self.conflicts = conflicts
+        }
+    }
+
+    /// Run `checkDisk(id:)` over every titled text tab — the watcher's coalesced
+    /// event and app activation. A pass over files that did not move publishes
+    /// nothing, on `openFiles` or on `observedDiskSides`.
+    @discardableResult
+    public func syncAllWithDisk() -> DiskSyncResult {
+        var reloaded: [UUID] = []
+        for file in openFiles where file.kind == .text && file.url != nil {
+            switch checkDisk(id: file.id) {
+            case .reload, .adoptBaseline:
+                reloaded.append(file.id)
+            default:
+                break
+            }
+        }
+        return DiskSyncResult(reloaded: reloaded, conflicts: externalConflictIDs)
+    }
+
+    /// Resolve tab `id`'s conflict in the buffer's favour: write it over the
+    /// changed file (`save(for:onExternalChange: .overwrite)`).
+    @discardableResult
+    public func overwriteExternalChange(_ id: UUID) throws -> SaveResult {
+        try save(for: id, onExternalChange: .overwrite)
+    }
+
+    /// Resolve tab `id`'s conflict in the disk's favour: reload it, discarding the
+    /// edits. Returns `reloadFromDisk(id:)`'s answer.
+    @discardableResult
+    public func reloadDiscardingEdits(_ id: UUID) -> Bool {
+        reloadFromDisk(id: id)
+    }
+
+    /// What `save(for:onExternalChange:)` does when the disk changed under the
+    /// buffer's edits.
+    public enum ExternalChangePolicy: Equatable, Sendable {
+        /// Check first, and throw `SaveError.externalChange` without writing.
+        case refuse
+        /// Write regardless — the user's Overwrite answer, and iOS's save.
+        case overwrite
+    }
+
+    /// Errors that can prevent a save to the tab's own url.
+    public enum SaveError: Error, Equatable {
+        /// The file changed outside the app while the tab held edits; nothing
+        /// was written. Resolve with `overwriteExternalChange(_:)` or
+        /// `reloadDiscardingEdits(_:)`.
+        case externalChange
+    }
+
     /// Outcome of attempting to save a file.
     public enum SaveResult: Equatable {
         /// The file was written to its existing url.
@@ -830,44 +1001,85 @@ public final class WorkspaceModel: ObservableObject {
     /// before it even reaches here, but a caller that does not — a Save All, a
     /// scripted save — deserves "there was nothing to do" rather than a failure
     /// report about a file it never edited.
+    ///
+    /// **The write is guarded.** Under `.refuse` (the default) the tab is first
+    /// checked against the disk through `checkDisk(id:)`; a tab in external
+    /// conflict afterwards throws `SaveError.externalChange` and nothing is
+    /// written — `savedText`, the stamp and both tokens stay as they were. A clean
+    /// tab whose file has become unreadable is not written either (`.leaveAlone`:
+    /// there are no edits to protect, and writing the old baseline over it would be
+    /// the very clobber the guard exists to prevent); it answers `.saved`. A
+    /// missing file is no change, so it is recreated exactly as before. `.overwrite`
+    /// skips the check and writes — the macOS Overwrite answer, and iOS's one save,
+    /// which has no conflict UI and keeps today's behaviour.
     @discardableResult
-    public func save(for id: UUID) throws -> SaveResult {
+    public func save(for id: UUID, onExternalChange policy: ExternalChangePolicy = .refuse) throws -> SaveResult {
         guard let index = indexOf(id) else { return .needsSaveAs }
         guard openFiles[index].kind == .text else { return .saved }
         guard let url = openFiles[index].url else { return .needsSaveAs }
+        if policy == .refuse {
+            let verdict = checkDisk(id: id)
+            if isInExternalConflict(id) { throw SaveError.externalChange }
+            if verdict == .leaveAlone { return .saved }
+        }
         try fileService.write(openFiles[index].text, to: url)
         openFiles[index].savedText = openFiles[index].text
         adoptBaseline(at: index, stamp: fileService.fileStamp(at: url))
         return .saved
     }
 
+    /// What one `saveAllDirty()` batch did: the urls it wrote, and the dirty
+    /// tabs it skipped because the disk changed under their edits.
+    public struct SaveBatchResult: Equatable {
+        public let saved: [URL]
+        public let skippedConflicts: [UUID]
+
+        public init(saved: [URL], skippedConflicts: [UUID]) {
+            self.saved = saved
+            self.skippedConflicts = skippedConflicts
+        }
+    }
+
     /// Save every dirty file that already has a url, skipping the rest, and
-    /// return the urls actually written.
+    /// report what was written and what was skipped for a conflict.
     ///
     /// This is the autosave action: unlike `save(for:)` it never returns
     /// `.needsSaveAs` and never prompts. A url-less ("Untitled") buffer is
     /// skipped entirely (autosave must not pop a Save As panel),
     /// and a clean file is skipped because there is nothing to write. For each
-    /// remaining file the `text` is written via `fileService.write(_:to:)` and
-    /// `savedText` advanced to match, clearing the dirty flag.
+    /// remaining file the disk is checked first (`checkDisk(id:)`): a tab in
+    /// external conflict is **skipped and stays dirty** — autosave never writes
+    /// over a change made outside the app — and its id is reported in
+    /// `skippedConflicts`; a tab the check made clean (its buffer already equals
+    /// the disk) has nothing left to write. Every other file's `text` is written
+    /// via `fileService.write(_:to:)` and `savedText` advanced to match, clearing
+    /// the dirty flag.
     ///
     /// A per-file write failure is swallowed: that file is left untouched (it
-    /// stays dirty) and omitted from the returned list, and the batch continues
+    /// stays dirty) and omitted from `saved`, and the batch continues
     /// with the rest — autosave fires unattended and must never abort the batch
     /// or surface a modal on one bad write. Because a successful save clears the
     /// dirty flag, the method is idempotent: an immediate second call finds
-    /// nothing dirty and returns `[]` without writing. The returned urls let the
+    /// nothing dirty and writes nothing. The returned urls let the
     /// caller refresh Local Changes only when something actually changed on disk.
     @discardableResult
-    public func saveAllDirty() -> [URL] {
+    public func saveAllDirty() -> SaveBatchResult {
         var savedURLs: [URL] = []
-        for index in openFiles.indices {
+        var skipped: [UUID] = []
+        for id in openFiles.map(\.id) {
+            guard let index = indexOf(id) else { continue }
             // The kind test is redundant — a viewer tab's `isDirty` is `false` by
             // construction — and stated anyway, because this batch writes files and
             // the reason a database is never among them should not have to be
             // traced through another type's invariant.
             guard openFiles[index].kind == .text else { continue }
             guard openFiles[index].isDirty, let url = openFiles[index].url else { continue }
+            checkDisk(id: id)
+            if isInExternalConflict(id) {
+                skipped.append(id)
+                continue
+            }
+            guard openFiles[index].isDirty else { continue }
             do {
                 try fileService.write(openFiles[index].text, to: url)
                 openFiles[index].savedText = openFiles[index].text
@@ -878,7 +1090,7 @@ public final class WorkspaceModel: ObservableObject {
                 continue
             }
         }
-        return savedURLs
+        return SaveBatchResult(saved: savedURLs, skippedConflicts: skipped)
     }
 
     /// Errors that can prevent a Save As.
@@ -962,6 +1174,9 @@ public final class WorkspaceModel: ObservableObject {
         textReplacementRevisions[removed.id] = nil
         // Same reasoning for the disk-content token.
         diskRevisions[removed.id] = nil
+        // And for the external-conflict entry, through the compare-before-assign
+        // helper so a tab that never conflicted republishes nothing.
+        setObservedDiskSide(nil, for: removed.id)
         guard selectedID == removed.id else { return }
         if openFiles.isEmpty {
             selectedID = nil

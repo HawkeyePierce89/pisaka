@@ -259,7 +259,7 @@ final class AutosaveController {
         // leaves every listing identical and stays silent, which is exactly the
         // frequent self-noise `kFSEventStreamCreateFlagIgnoreSelf` exists to drop.
         let missingBeforeWrite = missingDirtyPaths(in: model)
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
         if !saved.isEmpty {
             onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
         }
@@ -356,7 +356,7 @@ final class AutosaveController {
             // so. The report is still made: the caller's Local History capture is
             // the one thing on this path that still has work to do, and it is the
             // last chance these bytes get.
-            let saved = model.saveAllDirty()
+            let saved = model.saveAllDirty().saved
             guard !saved.isEmpty else { return }
             onSaved?(saved, false, true)
             return
@@ -365,7 +365,7 @@ final class AutosaveController {
         // is a change of tree membership the watcher will not report), then report
         // only when something was actually written.
         let missingBeforeWrite = missingDirtyPaths(in: model)
-        let saved = model.saveAllDirty()
+        let saved = model.saveAllDirty().saved
         guard !saved.isEmpty else { return }
         onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) }, false)
     }

@@ -74,3 +74,14 @@ public enum ExternalChangeRule {
         }
     }
 }
+
+/// The disk side of a tab's external conflict, as `WorkspaceModel` records it:
+/// the text read when the rule said `conflict`, or `nil` when the file could not
+/// be read as text (an unreadable side differs from every buffer).
+public struct ObservedDiskSide: Equatable, Sendable {
+    public let text: String?
+
+    public init(text: String?) {
+        self.text = text
+    }
+}

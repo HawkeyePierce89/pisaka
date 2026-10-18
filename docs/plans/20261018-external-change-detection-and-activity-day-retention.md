@@ -148,26 +148,26 @@ Part B, retention. Local History retention counts 14 activity days per project i
 - Modify: `Sources/Pisaka/AutosaveController.swift` (adapt to the new return type only)
 - Modify: WorkspaceModel test suites
 
-- [ ] Add a published per-tab map of observed disk text, plus these entry points:
+- [x] Add a published per-tab map of observed disk text, plus these entry points:
   - `isInExternalConflict(id)`: the entry exists and the buffer differs from it, whether or not the tab is dirty
   - `externalConflictIDs`
   - `diskText(forConflict:)`, for Compare and the Overwrite capture
-- [ ] Mutate the map only when it actually changes. Recording the same disk text that is already stored, or clearing an absent entry, assigns nothing.
-- [ ] Clear an entry at every baseline site, on close, and on saveAs to another path. Recording a conflict leaves the tab's stamp untouched.
-- [ ] `checkDisk(id:)` applies the rule to one tab:
+- [x] Mutate the map only when it actually changes. Recording the same disk text that is already stored, or clearing an absent entry, assigns nothing.
+- [x] Clear an entry at every baseline site, on close, and on saveAs to another path. Recording a conflict leaves the tab's stamp untouched.
+- [x] `checkDisk(id:)` applies the rule to one tab:
   - reload goes through reloadFromDisk
   - adoptBaseline goes through reloadFromDisk's baseline-only branch
   - stampOnly refreshes the stamp only, through Task 1's compare-before-assign refresh
   - conflict records the disk text
   - unchanged assigns nothing at all
-- [ ] `syncAllWithDisk()` runs `checkDisk(id:)` over every titled text tab. It returns the ids it reloaded and the ids now in conflict, so the app can reindex and refresh blame.
-- [ ] `save(for:onExternalChange:)` takes `.refuse` (the default) or `.overwrite`. Under `.refuse` it runs checkDisk first and throws `SaveError.externalChange` without writing.
-- [ ] saveAllDirty() runs the check for each dirty titled tab and skips the conflicted ones, which stay dirty. It returns `SaveBatchResult(saved: [URL], skippedConflicts: [UUID])`.
-- [ ] Add the two resolutions:
+- [x] `syncAllWithDisk()` runs `checkDisk(id:)` over every titled text tab. It returns the ids it reloaded and the ids now in conflict, so the app can reindex and refresh blame.
+- [x] `save(for:onExternalChange:)` takes `.refuse` (the default) or `.overwrite`. Under `.refuse` it runs checkDisk first and throws `SaveError.externalChange` without writing.
+- [x] saveAllDirty() runs the check for each dirty titled tab and skips the conflicted ones, which stay dirty. It returns `SaveBatchResult(saved: [URL], skippedConflicts: [UUID])`.
+- [x] Add the two resolutions:
   - `overwriteExternalChange(id)`: a save with `.overwrite`
   - `reloadDiscardingEdits(id)`: reloadFromDisk on a dirty tab
-- [ ] Update the iOS explicit save to pass `.overwrite`, which keeps today's behaviour. Adapt the AutosaveController call sites to `.saved`.
-- [ ] Tests:
+- [x] Update the iOS explicit save to pass `.overwrite`, which keeps today's behaviour. Adapt the AutosaveController call sites to `.saved`.
+- [x] Tests:
   - the autosave batch skips and reports a conflict while writing the others
   - a refused save writes nothing and leaves savedText, the stamp and the tokens alone
   - editing the buffer by hand to the disk text ends the conflict
@@ -177,7 +177,7 @@ Part B, retention. Local History retention counts 14 activity days per project i
   - a missing file is still recreated on save
   - the iOS policy writes over a changed file
   - a syncAllWithDisk pass over unchanged files publishes nothing on $openFiles or on the conflict map (count the sink's emissions), and a second pass over an already recorded conflict publishes nothing either
-- [ ] Run swift test; it must pass before task 4.
+- [x] Run swift test; it must pass before task 4.
 
 ### Task 4: Two new Local History events and the Compare title
 

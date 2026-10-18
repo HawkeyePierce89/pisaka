@@ -254,7 +254,7 @@ final class SaveTransformIntegrationTests: XCTestCase {
         let dirty = model.openFiles.filter { $0.isDirty && $0.url != nil }.map(\.id)
         XCTAssertEqual(Set(dirty), [a, b])
         for id in dirty { prepareForSave(id, in: model, editorConfig: config) }
-        let written = model.saveAllDirty()
+        let written = model.saveAllDirty().saved
 
         XCTAssertEqual(Set(written.map(\.lastPathComponent)), ["a.swift", "b.swift"])
         XCTAssertEqual(tree.files["a.swift"], "a1\r\na2\r\n")
