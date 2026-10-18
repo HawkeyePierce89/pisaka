@@ -33,11 +33,12 @@ import XCTest
 ///   (`CommitParserTests`).
 /// - **The prompt-suppressing commands** (`testTheCommandsThatMayPromptSuppressTheTerminalPrompt`):
 ///   the set of functions whose bodies spell `"GIT_TERMINAL_PROMPT": "0"` is exactly
-///   `{fetch, push, pull, commit, headText, checkout, createAndCheckout}` — the
+///   `{fetch, push, pull, commit, headText, checkout, createAndCheckout, restoreFromHead}` — the
 ///   commands that reach a remote, or run hooks or filters that may
 ///   (`headText`'s `--filters` and every checkout run smudge filters, and an
-///   LFS smudge may fetch; `checkout` names both the branch checkout and the
-///   revert's path restore). A set, not a count, so it is
+///   LFS smudge may fetch; `restoreFromHead` is the revert's path restore, named
+///   apart from `checkout` because the reader joins same-named bodies, so one
+///   overload carrying the variable would cover for the other). A set, not a count, so it is
 ///   the one place that number lives (`GitHubSourceGatingTests` defers here).
 /// - **Every checkout is terminated** (`testEveryCheckoutEndsItsRevisionsWithATerminator`):
 ///   the array literals spelling `"checkout"` are exactly the three expected
@@ -191,7 +192,8 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
         let bodies = try functionBodies(in: try service())
         let prompting = Set(bodies.filter { $0.value.contains("\"GIT_TERMINAL_PROMPT\": \"0\"") }.keys)
         XCTAssertEqual(
-            prompting, ["fetch", "push", "pull", "commit", "headText", "checkout", "createAndCheckout"],
+            prompting,
+            ["fetch", "push", "pull", "commit", "headText", "checkout", "createAndCheckout", "restoreFromHead"],
             "exactly the commands that reach a remote, or run hooks or filters that may, pass "
                 + "GIT_TERMINAL_PROMPT=0 — a credential prompt on /dev/tty would wedge the shared serial queue"
         )

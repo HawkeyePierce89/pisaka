@@ -385,8 +385,9 @@ struct GitCLIService: GitServicing {
             in: fileURL.deletingLastPathComponent(),
             // `GIT_TERMINAL_PROMPT=0` because `--filters` runs smudge filters, and
             // an LFS smudge may fetch the object and prompt for credentials on
-            // /dev/tty, which would wedge the shared serial queue. Fetch, push
-            // and pull set it for the same reason.
+            // /dev/tty, which would wedge the shared serial queue. Every command
+            // that may prompt sets it; the set is pinned by
+            // `GitCLIArgumentSourceGatingTests`.
             environment: ["GIT_TERMINAL_PROMPT": "0"],
             stdoutLimit: GutterChangeModel.maxSideBytes
         )
@@ -529,7 +530,7 @@ struct GitCLIService: GitServicing {
             // A conflicted file is reverted by checking out the `HEAD` (ours)
             // version, the same plumbing as a plain modification; the merge editor
             // is the normal path, but a revert still discards the file's changes.
-            try await checkout(file.path, root: root)
+            try await restoreFromHead(file.path, root: root)
         case .renamed:
             try await revertRename(file, root: root)
         case .added:
@@ -621,7 +622,7 @@ struct GitCLIService: GitServicing {
                     try await move(from: file.path, to: oldPath, root: root)
                     changed.append(file.path)
                     do {
-                        try await checkout(oldPath, root: root)
+                        try await restoreFromHead(oldPath, root: root)
                     } catch let error where !(error is PartialRevertError) {
                         // The `git mv` renamed the (shared) inode, but this checkout
                         // failed to restore its `HEAD` content *and* its probe did
@@ -642,7 +643,7 @@ struct GitCLIService: GitServicing {
                     changed.append(oldPath)
                     return
                 }
-                try await checkout(oldPath, root: root)
+                try await restoreFromHead(oldPath, root: root)
                 changed.append(oldPath)
             }
             try await remove(file.path, root: root)
@@ -693,7 +694,7 @@ struct GitCLIService: GitServicing {
     /// edits for a worktree the revert never wrote. If the worktree still differs
     /// (or already matched before), the checkout did not restore it here, so we
     /// report nothing.
-    private func checkout(_ path: String, root: URL) async throws {
+    private func restoreFromHead(_ path: String, root: URL) async throws {
         // Capture the pre-checkout state; the probe below needs it to distinguish
         // an actual worktree restore from an index-only change that left the
         // worktree already matching `HEAD`.

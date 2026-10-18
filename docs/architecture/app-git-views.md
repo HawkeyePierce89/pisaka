@@ -348,7 +348,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `GIT_TERMINAL_PROMPT=0`**: `--filters` runs the smudge filters, and an LFS
     smudge may fetch the object and prompt for credentials on /dev/tty, which
     would wedge the shared serial queue behind a question nothing can answer —
-    fetch, push and pull set it for the same reason (the set is pinned below). `GitBlobText` accepts UTF-8 alone, so
+    every command that may prompt sets it for the same reason (the set is pinned below). `GitBlobText` accepts UTF-8 alone, so
     the byte cap is the text's.
     The **commit dialog** adds seven more methods and two amendments to the
     process plumbing itself. (1) `ProcessResult` now stores the raw
@@ -442,7 +442,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     signs when `commit.gpgsign` is on, and the gutter's `headText`, whose
     `--filters` runs smudge filters — an LFS smudge may fetch the object and ask
     for credentials on /dev/tty — and the three checkouts (`checkout(branch:)`,
-    `createAndCheckout`, the revert's path restore), which run the same filters. Without it, anything that decides to prompt
+    `createAndCheckout`, the revert's path restore `restoreFromHead`), which run the same filters. Without it, anything that decides to prompt
     blocks on a question nothing can answer, and since every call shares the serial
     `queue`, the Local Changes refresh, the Log, the branch
     widget and every later git operation queue behind it and silently stop working
@@ -483,7 +483,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     containing `"--pretty` equal to the set containing `"--encoding=UTF-8"`, neither
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
-    commit, headText, checkout, createAndCheckout}` (the one place that set lives); exactly three `checkout` spellings,
+    commit, headText, checkout, createAndCheckout, restoreFromHead}` (the one place that set lives); exactly three `checkout` spellings,
     every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
     arguments do what is claimed is a fact about git itself, so
     `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a
