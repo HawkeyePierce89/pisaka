@@ -116,12 +116,12 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 - Modify: `Sources/Pisaka/AutosaveController.swift`
 - Create: `Tests/PisakaAppTests/AutosaveReplayOrderTests.swift`
 
-- [ ] Change `replayPendingIfReady()` so it schedules `Task { @MainActor [weak self] in … }`.
+- [x] Change `replayPendingIfReady()` so it schedules `Task { @MainActor [weak self] in … }`.
   - When the turn comes, it re-checks `!isRegularSuspended` and `pendingAutosave`, then clears the flag and calls `performAutosave()`.
   - The flag stays set until then, so a gate raised in between keeps the debt.
   - `resume()` and `resumeFromModal()` both go through it; `flushNow` is untouched.
   - The doc comment states the reason: every gated operation lowers its gates and then resyncs its tabs in the same synchronous stretch, so the replay must not run first. The deferred disk-check pass follows the same rule.
-- [ ] App-layer test, using real files and the real `FileService`:
+- [x] App-layer test, using real files and the real `FileService`:
   1. Open a tab and edit it (dirty).
   2. `suspend()` the autosave.
   3. Fire a trigger synchronously under the gate by changing `selectedID` to a second open tab, so `pendingAutosave` is set.
@@ -131,9 +131,9 @@ Four small corrections to existing contracts, each raised by the acceptance revi
   7. Assert immediately: the tab is dirty and `isInExternalConflict == false`.
   8. Rendezvous on the `onSaved` sink's expectation for the replayed autosave, then assert that the tab is still not in conflict and that the replay treated it as writable (its buffer is on disk).
   - On the current code the synchronous replay puts the tab in conflict before the reconcile, and the sink never fires for it.
-- [ ] Second test: a gate raised again before the hop's turn keeps the pending save, and it is replayed after the next drop.
-- [ ] Run the new test against the old `replayPendingIfReady` to see it fail, then against the fix to see it pass.
-- [ ] Run `xcodegen generate` if the test folder needs it, then run `swift test` and the app-layer bundle (the same eight known scale-1.8 failures and no others). Both must pass before Task 4.
+- [x] Second test: a gate raised again before the hop's turn keeps the pending save, and it is replayed after the next drop.
+- [x] Run the new test against the old `replayPendingIfReady` to see it fail, then against the fix to see it pass.
+- [x] Run `xcodegen generate` if the test folder needs it, then run `swift test` and the app-layer bundle (the same eight known scale-1.8 failures and no others). Both must pass before Task 4.
 
 ### Task 4: R4, the quit asks, flushes, then tears down
 

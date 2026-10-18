@@ -84,8 +84,9 @@ final class AutosaveController {
     /// the next upstream emission). It is replayed once *all* gates clear (both
     /// counters back to zero), so a brief suspend (an in-flight revert) stays transparent
     /// to the idle-autosave guarantee rather than silently swallowing a pending save
-    /// of an unrelated dirty file.
-    private var pendingAutosave = false
+    /// of an unrelated dirty file. Readable so the app-layer tests can see the
+    /// debt survive a gate raised again before the replay's turn.
+    private(set) var pendingAutosave = false
 
     /// Begin observing the triggers. `onSaved` is invoked (on the main thread,
     /// after a successful autosave that wrote at least one file) so the caller can
@@ -238,10 +239,23 @@ final class AutosaveController {
 
     /// Run a deferred autosave (a trigger that fired while suspended) once both
     /// gates are clear, so a suspend window doesn't lose a pending save.
+    ///
+    /// The replay runs on the **next main-actor turn**, never inside `resume()`:
+    /// every gated operation lowers its gates and then resyncs its tabs in the
+    /// same synchronous stretch, so a replay run first would judge the
+    /// operation's own write as an outside change and put a tab edited across
+    /// it in external conflict before its resync reconciled it. The deferred
+    /// disk-check pass (`DiskSyncController.gateChanged`) follows the same rule.
+    /// The flag stays set until the turn comes, and both gates and the flag are
+    /// read again then, so a gate raised in between keeps the debt for the next
+    /// drop. `flushNow` is not a replay and keeps its synchronous path.
     private func replayPendingIfReady() {
         guard !isRegularSuspended, pendingAutosave else { return }
-        pendingAutosave = false
-        performAutosave()
+        Task { @MainActor [weak self] in
+            guard let self, !self.isRegularSuspended, self.pendingAutosave else { return }
+            self.pendingAutosave = false
+            self.performAutosave()
+        }
     }
 
     /// The debounced / focus-loss / tab-switch path: save all dirty titled files
