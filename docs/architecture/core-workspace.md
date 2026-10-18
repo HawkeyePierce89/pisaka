@@ -599,12 +599,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     *The conflict map is derived, not sticky.* `observedDiskSides: [UUID:
     ObservedDiskSide]` holds, per tab, the disk side last observed to differ
     while the tab held edits (`nil` text when it could not be read), and only
-    `checkDisk` fills it. A tab is in conflict (`isInExternalConflict(_:)`,
+    `checkDisk` fills it — plus `reconcileSavedBaseline`, which keeps an
+    existing entry alive (see below). A tab is in conflict (`isInExternalConflict(_:)`,
     `externalConflictIDs`) while its entry exists **and** the buffer differs from
     the entry's text — dirtiness is not part of the test. `diskText(forConflict:)`
     is what Compare shows and what an Overwrite captures first; an unreadable
     side reads as empty. The entry is cleared at every baseline site (through
-    `adoptBaseline`) and on close. Two cases follow: a buffer edited by hand to
+    `adoptBaseline`) and on close, **with one exception**:
+    `reconcileSavedBaseline` — the git-operation resyncs' way of *preserving* an
+    edited tab — re-records the entry against the disk it just read while the
+    buffer still differs from it (a missing file ends it, as `.missing` does).
+    Preserving an edit is not answering the conflict; clearing it there let the
+    next autosave write the buffer over the outside change after any commit,
+    checkout, pull, revert or merge apply, unasked and uncaptured. Two cases follow: a buffer edited by hand to
     exactly the disk text ends the conflict on its own; a buffer edited back to
     `savedText` — **clean but stale** — stays in conflict on purpose, so the bar
     and the marker stay up, autosave writes nothing (the tab is not dirty), and

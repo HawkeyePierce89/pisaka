@@ -157,7 +157,14 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
             "markSaved": { model, _, id in model.markSaved(for: id) },
             "overwrite": { model, _, id in try model.overwriteExternalChange(id) },
             "reloadFromDisk": { model, _, id in model.reloadDiscardingEdits(id) },
-            "reconcileSavedBaseline": { model, _, id in model.reconcileSavedBaseline(id: id) },
+            "reconcileSavedBaseline (buffer now equals the disk)": { model, tree, id in
+                tree.files["a.txt"] = "my edit"
+                model.reconcileSavedBaseline(id: id)
+            },
+            "reconcileSavedBaseline (file gone)": { model, tree, id in
+                tree.files["a.txt"] = nil
+                model.reconcileSavedBaseline(id: id)
+            },
         ]
         var cleared: Set<String> = []
         for (name, site) in sites {
@@ -168,6 +175,45 @@ final class WorkspaceModelExternalChangeTests: XCTestCase {
             if model.observedDiskSides[id] == nil { cleared.insert(name) }
         }
         XCTAssertEqual(cleared, Set(sites.keys))
+    }
+
+    /// A git operation's resync preserves an edited tab through
+    /// `reconcileSavedBaseline`; that must not resolve the conflict, or the next
+    /// autosave writes the buffer over the outside change unasked.
+    func testAReconcileKeepsTheConflictWhileTheBufferStillDiffersFromTheDisk() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+
+        XCTAssertTrue(model.reconcileSavedBaseline(id: id))
+
+        XCTAssertTrue(model.isInExternalConflict(id))
+        XCTAssertEqual(model.diskText(forConflict: id), "changed outside the app")
+        XCTAssertEqual(file(model, id).savedText, "changed outside the app")
+        let batch = model.saveAllDirty()
+        XCTAssertEqual(batch.saved, [])
+        XCTAssertEqual(batch.skippedConflicts, [id])
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertEqual(tree.files["a.txt"], "changed outside the app")
+    }
+
+    func testAReconcileRecordsTheConflictAgainstWhatIsOnDiskNow() throws {
+        let (tree, model, id) = try makeConflict()
+        model.checkDisk(id: id)
+        tree.files["a.txt"] = "written by the operation"
+
+        model.reconcileSavedBaseline(id: id)
+
+        XCTAssertEqual(model.diskText(forConflict: id), "written by the operation")
+        XCTAssertThrowsError(try model.save(for: id))
+    }
+
+    func testAReconcileOfATabNotInConflictRecordsNoConflict() throws {
+        let (_, model, id) = try makeConflict()
+
+        model.reconcileSavedBaseline(id: id)
+
+        XCTAssertFalse(model.isInExternalConflict(id))
+        XCTAssertTrue(model.observedDiskSides.isEmpty)
     }
 
     // MARK: - The guarded save

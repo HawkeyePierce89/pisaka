@@ -99,7 +99,9 @@ public final class WorkspaceModel: ObservableObject {
     /// the buffer by hand to exactly the disk text ends the conflict on its own,
     /// while a buffer edited back to `savedText` stays in conflict — clean but
     /// stale — until the next check reloads it as a clean tab. The entry is cleared
-    /// at every baseline site (through `adoptBaseline(at:stamp:)`) and on close.
+    /// at every baseline site (through `adoptBaseline(at:stamp:)`) and on close,
+    /// with one exception: `reconcileSavedBaseline(id:)` re-records it while the
+    /// buffer still differs from the disk it just read.
     ///
     /// **Assigned only when it actually changes.** Recording the disk text already
     /// stored, or clearing an absent entry, writes nothing, so a watcher burst over
@@ -833,6 +835,12 @@ public final class WorkspaceModel: ObservableObject {
     /// stays clean. No-op returning `false` for an unknown id or a url-less
     /// ("Untitled") buffer.
     ///
+    /// A tab **in external conflict** stays in conflict while its buffer still
+    /// differs from the disk just read, the entry re-recorded against that disk
+    /// side: preserving an edit is not answering the conflict, and a cleared entry
+    /// would let the next autosave write over the outside change unasked. A
+    /// missing file ends the conflict, as `checkDisk`'s `.missing` does.
+    ///
     /// A **viewer** tab is a no-op returning `false`: it has no baseline, because
     /// it can never be dirty in the first place.
     @discardableResult
@@ -841,9 +849,20 @@ public final class WorkspaceModel: ObservableObject {
         guard let url = openFiles[index].url else { return false }
         // Stamped *before* the read (see `adoptBaseline(at:stamp:)` for why); a
         // deleted file records no stamp.
+        let wasInConflict = isInExternalConflict(id)
         let stamp = fileService.fileStamp(at: url)
-        openFiles[index].savedText = (try? fileService.read(url: url)) ?? ""
+        let disk = try? fileService.read(url: url)
+        openFiles[index].savedText = disk ?? ""
         adoptBaseline(at: index, stamp: stamp)
+        // A conflict survives the reconcile while the buffer still differs from
+        // the disk: the resync preserves the edit, it does not resolve the
+        // question, and clearing the entry would let the next autosave write the
+        // buffer over the outside change unasked. The entry is re-recorded
+        // against what is on disk now; a missing file ends it, as `checkDisk`'s
+        // `.missing` does.
+        if wasInConflict, stamp != nil, disk != openFiles[index].text {
+            setObservedDiskSide(ObservedDiskSide(text: disk), for: id)
+        }
         return true
     }
 
