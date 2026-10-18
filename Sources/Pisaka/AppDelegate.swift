@@ -17,22 +17,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var languageServerTeardown: (@MainActor () -> (@MainActor () async -> Void)?)?
 
     /// Installed by `PisakaApp` beside `languageServerTeardown`, and asked
-    /// **first**, before any teardown: it puts the external-change question
-    /// (Overwrite / Reload / Cancel) for each dirty tab whose file changed on
-    /// disk. `.cancel` cancels the quit with nothing torn down; `.proceed` may
-    /// carry work to wait for — the Local History captures the answers queued —
-    /// before the process is let go. Asked again after any wait, until a round
-    /// finds nothing to ask (`askAgainAfterTeardown()`).
+    /// **first**, before any teardown is requested: it puts the external-change
+    /// question (Overwrite / Reload / Cancel) for each dirty tab whose file
+    /// changed on disk. `.cancel` cancels the quit with nothing torn down and
+    /// nothing flushed; `.proceed` may carry work to wait for — the Local History
+    /// captures the answers queued — before the process is let go. The first
+    /// round alternates with the flush until a flush skips nothing; after the
+    /// teardown's wait it is asked again (`askUntilFlushed()`), for a conflict
+    /// that arose during the wait.
     var externalChangeQuestion: (@MainActor () -> ExternalChangeQuitAnswer)?
 
     /// Installed beside `externalChangeQuestion`: the quit's own flush
     /// (`AutosaveController.flushNow(abandoningBuffers: true)`), answering `true`
     /// when it skipped a tab in conflict. Run in the same synchronous stretch as
-    /// the approval, right after a round of the question that found nothing to
-    /// ask, so the question and the write are one step: a file another process
-    /// changed after that round is skipped here and sends the quit back to the
-    /// question, instead of being skipped silently by the `willTerminate` flush
-    /// with the edits lost. That later flush then finds nothing dirty.
+    /// each round of the question, right after it, so the question and the write
+    /// are one step: a file another process changed after that round is skipped
+    /// here and sends the quit back to the question, instead of being skipped
+    /// silently by the `willTerminate` flush with the edits lost. The first round
+    /// flushes **before** the language-server teardown is requested, so a Cancel
+    /// in that round leaves the servers running. The `willTerminate` flush then
+    /// finds nothing dirty.
     var flushBeforeTermination: (@MainActor () -> Bool)?
     private var isAwaitingTeardown = false
 
@@ -62,32 +66,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// stays the fallback for anything this did not reach.
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        shouldTerminate { sender.reply(toApplicationShouldTerminate: $0) }
+    }
+
+    /// The quit's whole sequence, with the deferred answer taken as `reply` so a
+    /// headless test can observe it without terminating its host. It asks, then
+    /// flushes, then tears down:
+    ///
+    /// 1. The first round runs synchronously on the main actor: the question, then
+    ///    the flush, again until a flush skips nothing. A Cancel there answers
+    ///    `.terminateCancel` with nothing flushed by the quit and no teardown
+    ///    requested — the language servers keep running.
+    /// 2. Only then is `languageServerTeardown` read. Nothing to wait for — no
+    ///    server and no Local History capture — answers `.terminateNow`.
+    /// 3. Otherwise the reply is deferred: the captures and the teardown are
+    ///    awaited, then `askUntilFlushed()` asks about whatever fell into conflict
+    ///    during the wait, the one case where a Cancel after the teardown is still
+    ///    reachable.
+    @MainActor
+    func shouldTerminate(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
         // A second ⌘Q while the first is still waiting changes nothing: the one
         // reply below answers it.
         guard !isAwaitingTeardown else { return .terminateLater }
         var pending: [@MainActor () async -> Void] = []
-        switch externalChangeQuestion?() {
-        case .cancel:
-            return .terminateCancel
-        case .proceed(let awaiting):
-            if let awaiting { pending.append(awaiting) }
-        case nil:
-            break
-        }
+        repeat {
+            switch externalChangeQuestion?() {
+            case .cancel:
+                return .terminateCancel
+            case .proceed(let awaiting):
+                if let awaiting { pending.append(awaiting) }
+            case nil:
+                break
+            }
+        } while !flushLeftNoConflict()
         if let teardown = languageServerTeardown?() { pending.append(teardown) }
-        if pending.isEmpty, flushLeftNoConflict() { return .terminateNow }
+        guard !pending.isEmpty else { return .terminateNow }
         isAwaitingTeardown = true
         Task { @MainActor in
             for work in pending { await work() }
             let proceed = await askUntilFlushed()
             isAwaitingTeardown = false
-            sender.reply(toApplicationShouldTerminate: proceed)
+            reply(proceed)
         }
         return .terminateLater
     }
 
-    /// The question again, once the wait is over — or once the flush skipped a
-    /// conflict. The window stays live while the quit waits — buffers still take
+    /// The question again, once the wait is over. The first round already
+    /// flushed, so this one finds only what fell into conflict during the wait.
+    /// The window stays live while the quit waits — buffers still take
     /// edits and the disk still moves — and another process can change a file even
     /// between a round and the flush, so a dirty tab can fall into conflict after
     /// any round. Asked until a round finds nothing left to ask *and* the flush

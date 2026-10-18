@@ -141,23 +141,23 @@ Four small corrections to existing contracts, each raised by the acceptance revi
 - Modify: `Sources/Pisaka/AppDelegate.swift`
 - Create: `Tests/PisakaAppTests/QuitOrderTests.swift`
 
-- [ ] Move the body of `applicationShouldTerminate` into an internal method that takes the asynchronous reply as a closure; the delegate method passes `sender.reply(toApplicationShouldTerminate:)`. This seam lets a headless test observe the deferred reply without terminating the test host.
-- [ ] The first round stays synchronous on the main actor and loops until the flush skips nothing:
+- [x] Move the body of `applicationShouldTerminate` into an internal method that takes the asynchronous reply as a closure; the delegate method passes `sender.reply(toApplicationShouldTerminate:)`. This seam lets a headless test observe the deferred reply without terminating the test host.
+- [x] The first round stays synchronous on the main actor and loops until the flush skips nothing:
   1. Ask `externalChangeQuestion`; `.cancel` answers `.terminateCancel` with no teardown requested.
   2. Collect any `awaiting`.
   3. Run `flushLeftNoConflict()`.
   4. If that flush skipped a conflict, ask again.
-- [ ] Only after that round, read `languageServerTeardown?()`.
+- [x] Only after that round, read `languageServerTeardown?()`.
   - If nothing is pending, answer `.terminateNow`.
   - Otherwise await the Local History writes and the teardown, then run `askUntilFlushed()`, unchanged. Its question finds only conflicts that arose during the wait, the one case where a Cancel after the teardown is still reachable.
   - Update the doc comments of `externalChangeQuestion`, `flushBeforeTermination` and `askUntilFlushed`.
-- [ ] App-layer tests with recording closures:
+- [x] App-layer tests with recording closures:
   - order: a conflicted round answered `.proceed`, then the flush, then the teardown factory, in that order;
   - Cancel on the first round: `.terminateCancel`, the teardown factory never invoked and the flush never run;
   - a flush that skips a conflict sends the quit back to the question before any teardown;
   - no live servers and no conflict: `.terminateNow` with exactly one flush;
   - a conflict introduced during the teardown wait, staged by a `Gate` the teardown closure waits on: the re-check asks, and a Cancel replies `false`.
-- [ ] Run `swift test` and the app-layer bundle; both must pass before Task 5.
+- [x] Run `swift test` and the app-layer bundle; both must pass before Task 5.
 
 ### Task 5: Documentation and inventory suites
 
