@@ -289,11 +289,11 @@ Part B, retention. Local History retention counts 14 activity days per project i
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run swift test.
-- [ ] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`.
-- [ ] Run the iOS Simulator build to confirm the save(for:) call site compiles.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Confirm every acceptance criterion maps to a test (criteria 1–7) or a gate (criterion 8), and that the new rule and the retention code paths are fully covered.
+- [x] Run swift test. (6914 tests, 0 failures)
+- [x] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. (453 tests; the only failures are the same 8 scale-1.8 layout assertions in BottomBarLayout/BottomBarToolTip/ChromePopoverLayout/CommitDialogLayout that tasks 6 and 7 recorded as reproducing on the unchanged baseline on this machine; every suite this feature adds or touches passes)
+- [x] Run the iOS Simulator build to confirm the save(for:) call site compiles. (BUILD SUCCEEDED under Xcode 26.3)
+- [x] Run `swiftlint --strict` from the repository root. (0.65.1, 0 violations)
+- [x] Confirm every acceptance criterion maps to a test (criteria 1–7) or a gate (criterion 8), and that the new rule and the retention code paths are fully covered. (stamp and rule: ExternalChangeRuleTests, WorkspaceModelDiskStampTests; clean reload, conflict state, refused save, overwrite policy, autosave/termination skips and compare-before-assign: WorkspaceModelExternalChangeTests; gate deferral, burst-proof autosave, bar Reload and Compare: DiskSyncControllerTests; bar layout: ExternalChangeBarLayoutTests; the two events and the capture order: LocalHistorySnapshotTests, LocalHistoryModelTests, LocalHistorySourceGatingTests, DiffWindowTitleTests; activity-day retention, the record and the calendar fallback: LocalHistoryPolicyTests, LocalHistoryStoreTests, LocalHistoryLayoutTests. The modal prompts are untested NSAlert glue by convention, and their Core halves are pinned above. Criterion 8: the four gates above)
 
 ### Task 9: Update documentation
 
