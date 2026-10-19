@@ -350,6 +350,12 @@ public final class LocalChangesModel: ObservableObject {
         // go through `refreshImpl` instead, so they do not advance it (a revert
         // must not suppress its *own* error via its *own* refresh).
         operationGeneration += 1
+        // The user's intent to clear a standing revert error is recorded here,
+        // synchronously, rather than only when this refresh publishes: a watcher
+        // echo started after it supersedes it through `refreshGeneration`, and
+        // would otherwise publish while still keeping the error this refresh was
+        // asked to clear.
+        revertErrorStanding = false
         await refreshImpl(root: root)
     }
 
@@ -362,7 +368,9 @@ public final class LocalChangesModel: ObservableObject {
     /// filtered by the watcher, so an event it delivers may be the echo of an
     /// operation still in flight or just finished; superseding a revert from
     /// there, or clearing its message, would make a partly failed batch report
-    /// nothing. A user's manual or save-driven `refresh` still clears it.
+    /// nothing. A user's manual or save-driven `refresh` still clears it — it
+    /// lowers the standing flag at its entry, so a watcher refresh that
+    /// supersedes it clears the message in its place.
     ///
     /// It is also never a folder switch: a `root` other than the one last
     /// requested is dropped. The watcher hops to the main queue, so an event for
@@ -593,8 +601,8 @@ public final class LocalChangesModel: ObservableObject {
     /// deleting the no-`HEAD` cases) via the injected `GitServicing`.
     ///
     /// Destructive and irreversible — callers confirm first. The displayed list is
-    /// a snapshot and nothing watches the filesystem on its behalf (the macOS
-    /// FSEvents watcher feeds the *project tree* only, never this list), so
+    /// a snapshot, and the macOS FSEvents watcher's refresh of it trails a disk
+    /// change by its coalescing delay (and never fires on iOS), so
     /// immediately before
     /// *each* file's mutation the repository is re-queried and that file is checked
     /// against its *current* status: a file that changed (e.g. an untracked/added

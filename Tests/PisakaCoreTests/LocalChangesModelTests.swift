@@ -1456,6 +1456,35 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testADiskChangeRefreshSupersedingAUserRefreshStillClearsARevertsError() async {
+        // The watcher's echo of a save lands after the save's own refresh started
+        // and supersedes it: the user's request to clear the error must survive.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.files = [a, b]
+        git.revertFailPath = "b.swift"
+        git.onRevert = { git.files = [b] }
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        _ = await model.revert([a, b])
+        XCTAssertNotNil(model.errorMessage)
+
+        git.gateChangedFiles = true
+        let generation = model.currentRequestGeneration
+        let userTask = Task { await model.refresh(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(1, in: git)
+        let diskTask = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(2, in: git)
+        git.release(call: git.gatedCallIndices[1])
+        await diskTask.value
+        git.release(call: git.gatedCallIndices[0])
+        await userTask.value
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.changedFiles, [b])
+    }
+
     func testADiskChangeRefreshDoesNotSupersedeASuspendedRevertsError() async {
         // The watcher's refresh lands while a failing revert is suspended on its
         // trailing refresh: unlike a user's refresh, it is not a newer operation,

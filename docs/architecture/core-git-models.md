@@ -357,7 +357,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     about a second later, mid-batch or just after it; through `refresh` that echo
     would supersede the revert's trailing error write or clear the published one,
     and a partly failed destructive batch would report nothing. A manual or
-    save-driven `refresh` still clears it. It is also **never a folder switch**:
+    save-driven `refresh` still clears it, lowering the flag at its entry so a
+    watcher refresh that supersedes it clears the message in its place. It is also **never a folder switch**:
     a root other than the one last requested is dropped, because the watcher hops
     to the main queue and an event for the previous folder can be delivered after
     the switch carrying the generation read at delivery, which would otherwise pass
