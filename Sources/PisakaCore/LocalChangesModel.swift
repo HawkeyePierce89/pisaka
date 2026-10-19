@@ -137,7 +137,8 @@ public final class LocalChangesModel: ObservableObject {
     /// `errorMessage` writes against an *older* operation restoring a stale
     /// message over a newer one's result *within the same project*. The UI lets
     /// operations overlap (a save's auto-refresh, the manual refresh button, a
-    /// second context-menu revert), so an older failed revert suspended on its
+    /// second context-menu revert; the project watcher's `refreshForDiskChange`
+    /// deliberately is not one), so an older failed revert suspended on its
     /// internal `await refresh` can resume after a newer refresh/revert already
     /// published — and without this would clobber it. `revert` captures the token
     /// at entry; its own internal refreshes go through the non-bumping
@@ -145,6 +146,14 @@ public final class LocalChangesModel: ObservableObject {
     /// of `revert`'s error writes is gated on the token still matching (so a
     /// superseded revert drops its message instead of overwriting newer state).
     private var operationGeneration = 0
+
+    /// `true` while `errorMessage` is the failure a `revert` reported, the only
+    /// feedback a destructive batch gives about the files it did not reach.
+    /// `refreshForDiskChange` leaves such a message standing: the revert's own
+    /// `git` children write the worktree, and the watcher event they raise lands
+    /// about a second later, so clearing it there would wipe the report before it
+    /// was read. Every other write to `errorMessage` lowers it.
+    private var revertErrorStanding = false
 
     public init(gitService: GitServicing, fileService: FileServicing = FileService()) {
         self.gitService = gitService
@@ -325,7 +334,8 @@ public final class LocalChangesModel: ObservableObject {
         // — before bumping `operationGeneration`, so a dropped refresh supersedes
         // nothing — keeps the latest folder-open request authoritative. Every app
         // refresh call site (folder-open, the post-save refresh, the manual refresh
-        // button, and the view's `onAppear`/`onChange` backstop) now passes the
+        // button, the view's `onAppear`/`onChange` backstop, and the project
+        // watcher's `refreshForDiskChange`) now passes the
         // generation captured *synchronously* at the call site, so any of them that
         // ends up running after a newer folder switch is rejected here rather than
         // entering `refreshImpl` and being misread as a switch *back* to its
@@ -341,6 +351,21 @@ public final class LocalChangesModel: ObservableObject {
         // must not suppress its *own* error via its *own* refresh).
         operationGeneration += 1
         await refreshImpl(root: root)
+    }
+
+    /// The refresh the project watcher asks for when a file changed on disk.
+    ///
+    /// The same pinned-generation rejection as `refresh`, but it is not a new
+    /// top-level operation: it never advances `operationGeneration`, and a
+    /// successful result leaves a standing revert error in place. The app's own
+    /// `git` children (a revert's `checkout`, a branch switch, a pull) are not
+    /// filtered by the watcher, so an event it delivers may be the echo of an
+    /// operation still in flight or just finished; superseding a revert from
+    /// there, or clearing its message, would make a partly failed batch report
+    /// nothing. A user's manual or save-driven `refresh` still clears it.
+    public func refreshForDiskChange(root: URL, requestGeneration: Int) async {
+        if requestGeneration != rootRequestGeneration { return }
+        await refreshImpl(root: root, keepingRevertError: true)
     }
 
     /// Synchronously record that the opened project is switching to `root`,
@@ -375,6 +400,7 @@ public final class LocalChangesModel: ObservableObject {
         selected = nil
         revertSelection = []
         errorMessage = nil
+        revertErrorStanding = false
         clearSelectionDiff()
         return rootRequestGeneration
     }
@@ -387,7 +413,7 @@ public final class LocalChangesModel: ObservableObject {
     /// project is rejected if the opened folder changed before the task ran.
     public var currentRequestGeneration: Int { rootRequestGeneration }
 
-    private func refreshImpl(root: URL) async {
+    private func refreshImpl(root: URL, keepingRevertError: Bool = false) async {
         refreshGeneration += 1
         let generation = refreshGeneration
         // A change of opened folder invalidates the currently displayed files
@@ -408,6 +434,7 @@ public final class LocalChangesModel: ObservableObject {
             selected = nil
             revertSelection = []
             errorMessage = nil
+            revertErrorStanding = false
             clearSelectionDiff()
         }
         // The request generation this refresh's `root` corresponds to (captured
@@ -433,7 +460,10 @@ public final class LocalChangesModel: ObservableObject {
             projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
-            errorMessage = nil
+            if !(keepingRevertError && revertErrorStanding) {
+                errorMessage = nil
+                revertErrorStanding = false
+            }
             // Reconcile the checkbox set and selection against the refreshed
             // list in one pure step (clear-on-root-change vs intersect, plus the
             // selection re-bind) — see `reconcile`.
@@ -481,6 +511,7 @@ public final class LocalChangesModel: ObservableObject {
             // the now-empty `changedFiles`.
             revertSelection = []
             errorMessage = error.localizedDescription
+            revertErrorStanding = false
         }
     }
 
@@ -687,6 +718,7 @@ public final class LocalChangesModel: ObservableObject {
                     // we would restore this stale error over the newer result).
                     if projectStillCurrent() && operationStillLatest() {
                         errorMessage = message
+                        revertErrorStanding = true
                     }
                 }
                 return revertedURLs
@@ -710,6 +742,7 @@ public final class LocalChangesModel: ObservableObject {
                 // this revert was not superseded by a newer same-project operation.
                 if projectStillCurrent() && operationStillLatest() {
                     errorMessage = reason
+                    revertErrorStanding = true
                 }
                 return revertedURLs
             }
@@ -752,6 +785,7 @@ public final class LocalChangesModel: ObservableObject {
                     // and a newer same-project operation has not superseded us.
                     if projectStillCurrent() && operationStillLatest() {
                         errorMessage = message
+                        revertErrorStanding = true
                     }
                 }
                 return revertedURLs
@@ -762,6 +796,7 @@ public final class LocalChangesModel: ObservableObject {
         // repository over a project the user switched to mid-revert.
         if projectStillCurrent() {
             errorMessage = nil
+            revertErrorStanding = false
             await refreshImpl(root: requestedRoot)
             // `refresh` awaited; only update the checked set if the project is still
             // current and no newer same-project operation has superseded us (a

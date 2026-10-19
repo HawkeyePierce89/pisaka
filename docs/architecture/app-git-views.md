@@ -484,7 +484,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
     commit, headText, checkout, createAndCheckout, restoreFromHead}` (the one place that set lives); exactly three `checkout` spellings,
-    every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
+    every one with a `--`; blame's `-w`/`-M` with no `-C`; and that the one
+    `projectWatcher.start(` callback in `PisakaApp.swift` asks the model's
+    `refreshForDiskChange` and names no writer gate (`app-shell.md`). Whether those
     arguments do what is claimed is a fact about git itself, so
     `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a
     real git in throwaway repositories: a local branch named like a tracked

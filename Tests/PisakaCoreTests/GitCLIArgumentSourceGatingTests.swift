@@ -51,8 +51,9 @@ import XCTest
 /// - **The project watcher refreshes Local Changes, ungated**
 ///   (`testTheProjectWatcherRefreshesLocalChangesUngated`): the one
 ///   `projectWatcher.start(` call in `Sources/Pisaka/PisakaApp.swift` hands a
-///   callback whose body calls `refreshLocalChanges()` and names neither
-///   `autosave.suspend()` nor `beginRevert()`. It lives here because it leans on
+///   callback whose body calls the model's `refreshForDiskChange(` — the entry
+///   point that neither supersedes a running revert nor clears its error — and
+///   names neither `autosave.suspend()` nor `beginRevert()`. It lives here because it leans on
 ///   the first rule: that refresh cannot feed the watcher only because every
 ///   `git` it runs carries `--no-optional-locks`. Its subject is a call, not a
 ///   literal, so it reads that file through
@@ -245,6 +246,18 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
         )
     }
 
+    /// The first `{ … }` block at or after `index`, braces balanced.
+    private static func braced(after index: String.Index, in text: String) -> String? {
+        guard let open = text[index...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        for current in text[open...].indices {
+            if text[current] == "{" { depth += 1 }
+            if text[current] == "}" { depth -= 1 }
+            if depth == 0 { return String(text[open...current]) }
+        }
+        return nil
+    }
+
     func testTheProjectWatcherRefreshesLocalChangesUngated() throws {
         let app = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
             try String(contentsOf: Self.appURL, encoding: .utf8)
@@ -254,18 +267,11 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
             "one watcher subscription — re-point this rule if that changes"
         )
         let start = try XCTUnwrap(app.range(of: "projectWatcher.start("))
-        let open = try XCTUnwrap(app[start.upperBound...].firstIndex(of: "{"), "the watcher's callback is gone")
-        var depth = 0
-        var close = open
-        for index in app[open...].indices {
-            if app[index] == "{" { depth += 1 }
-            if app[index] == "}" { depth -= 1 }
-            if depth == 0 { close = index; break }
-        }
-        let callback = app[open...close]
+        let callback = try XCTUnwrap(Self.braced(after: start.upperBound, in: app), "the watcher's callback is gone")
         XCTAssertEqual(
-            occurrences(of: "refreshLocalChanges()", in: String(callback)), 1,
-            "an edit made outside the app reaches Local Changes only through the watcher's refresh"
+            occurrences(of: "localChanges.refreshForDiskChange(", in: callback), 1,
+            "an edit made outside the app reaches Local Changes only through the watcher's refresh, "
+                + "and through the entry point that leaves a revert's error standing"
         )
         for gate in ["autosave.suspend()", "beginRevert()"] {
             XCTAssertFalse(callback.contains(gate), "the watcher's refresh is a reader and raises no writer gate")

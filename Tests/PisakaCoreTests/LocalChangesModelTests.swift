@@ -1429,6 +1429,93 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    // MARK: - the project watcher's refresh
+
+    func testADiskChangeRefreshKeepsAFailedRevertsError() async {
+        // The revert's own `git` children write the worktree, so the watcher's
+        // echo lands after the revert has reported: it must not wipe the report.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.files = [a, b]
+        git.revertFailPath = "b.swift"
+        git.onRevert = { git.files = [b] }
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        _ = await model.revert([a, b])
+        let reported = try? XCTUnwrap(model.errorMessage)
+        XCTAssertNotNil(reported)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+
+        XCTAssertEqual(model.errorMessage, reported)
+        XCTAssertEqual(model.changedFiles, [b])
+
+        // A refresh the user asks for still clears it.
+        await model.refresh(root: root, requestGeneration: model.currentRequestGeneration)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testADiskChangeRefreshDoesNotSupersedeASuspendedRevertsError() async {
+        // The watcher's refresh lands while a failing revert is suspended on its
+        // trailing refresh: unlike a user's refresh, it is not a newer operation,
+        // so the revert still reports.
+        let git = StubGit()
+        let untracked = ChangedFile(path: "a.txt", status: .untracked)
+        let modified = ChangedFile(path: "a.txt", status: .modified)
+        // call 0: initial refresh; call 1: the revert's re-query (flips a → abort);
+        // call 2: the revert's trailing refresh (gated); call 3: the watcher's.
+        git.resultsPerChangedFilesCall = [[untracked], [modified], [modified], [modified]]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        git.gateChangedFiles = true
+
+        let revertTask = Task { await model.revert([untracked]) }
+        await waitForGatedCalls(1, in: git)
+        git.release(call: 1)
+        await waitForGatedCalls(2, in: git)
+
+        let generation = model.currentRequestGeneration
+        let diskTask = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(3, in: git)
+        git.release(call: 3)
+        await diskTask.value
+        git.release(call: 2)
+        _ = await revertTask.value
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.changedFiles, [modified])
+    }
+
+    func testADiskChangeRefreshClearsAFailedRefreshsError() async {
+        let git = StubGit()
+        git.error = StubError.boom
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        XCTAssertNotNil(model.errorMessage)
+
+        git.error = nil
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testADiskChangeRefreshForASupersededFolderIsRejected() async {
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [a]
+        let model = makeModel(git: git)
+        let stale = model.prepareForFolderChange(root: root)
+        await model.refresh(root: root, requestGeneration: stale)
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+        await model.refresh(root: other, requestGeneration: current)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: stale)
+
+        XCTAssertEqual(model.root, other)
+    }
+
     func testPrepareForFolderChangeBumpsGuardSoSuspendedRevertBails() async {
         // The app records a folder switch synchronously (before the `Task`-wrapped
         // refresh) via `prepareForFolderChange`. A revert already suspended on its
@@ -2483,10 +2570,18 @@ final class LocalChangesModelTests: XCTestCase {
 
         let elsewhere = URL(fileURLWithPath: "/elsewhere")
         git.repoRoot = elsewhere
-        await model.refresh(root: root)
+        let gate = Gate()
+        files.readGate = gate
+        let refresh = Task { await model.refresh(root: root) }
+        await gate.waitUntilReached()
 
-        // The previous repository's diff is gone; the refresh's own load then
-        // publishes one computed against the new root, never the old one.
+        // The previous repository's diff is gone while the refresh's own load is
+        // still reading — the drop, not the rebuild, is what takes it off screen.
+        XCTAssertNil(model.selectionDiff)
+
+        gate.release()
+        await refresh.value
+        // The load then publishes one computed against the new root, never the old one.
         XCTAssertNotEqual(model.selectionDiff, previous)
         XCTAssertEqual(model.selectionDiff?.fingerprint.root, elsewhere)
     }

@@ -63,9 +63,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `filesToRevert(contextFile:)` is the pure batch-vs-single resolution (if the
     context row is checked, revert every checked file, else just that row);
     `revert(_:)` *re-queries* the repo (`changedFiles`) immediately before *each*
-    file's mutation — the displayed list is a snapshot and nothing watches the
-    filesystem on its behalf (the macOS FSEvents watcher feeds the *project tree*
-    only, never this list), so a destructive revert verifies each file still has the same
+    file's mutation — the displayed list is a snapshot (the macOS FSEvents
+    watcher re-queries it about a second after a change, ignores `.git`, and is
+    nothing a destructive write may rely on), so a destructive revert verifies each file still has the same
     `status`/`oldPath` against fresh state and aborts the batch (with
     `errorMessage`) on any file that changed (e.g. an untracked/added file that
     became tracked and modified, which a stale revert would delete, discarding the
@@ -158,7 +158,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     generation that no longer equals `rootRequestGeneration` (before bumping
     `operationGeneration`, so a dropped refresh supersedes nothing). *Every* app
     refresh call site — folder-open, the post-save refresh, the manual refresh
-    button, and the view's `onAppear`/`onChange` backstop — pins the generation it
+    button, the view's `onAppear`/`onChange` backstop, and the project watcher's
+    `refreshForDiskChange` — pins the generation it
     captured synchronously, so any refresh that ends up running after a newer folder
     switch is rejected here rather than entering `refreshImpl`, where its stale root
     (`!= lastRequestedRoot`) would be misread as a switch *back* to the old repo —
@@ -346,7 +347,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the common refresh free of reads. Refreshes reach the model from a save,
     from the app's other worktree-changing paths, and **from every
     project-watcher event** (`app-shell.md`), which is how an edit made outside
-    the app reaches the list and the diff. Tests: a second refresh with an
+    the app reaches the list and the diff. The watcher's refresh is its own entry
+    point, `refreshForDiskChange(root:requestGeneration:)`: the same pinned
+    generation rejection, but it is **not a new operation** — it never advances
+    `operationGeneration` — and a successful result **leaves a standing revert
+    error** (`revertErrorStanding`, raised only by `revert`'s three error writes and
+    lowered by every other write to `errorMessage`). The watcher does not filter the
+    app's own `git` children, so a revert's `checkout` raises an event that lands
+    about a second later, mid-batch or just after it; through `refresh` that echo
+    would supersede the revert's trailing error write or clear the published one,
+    and a partly failed destructive batch would report nothing. A manual or
+    save-driven `refresh` still clears it. A change confined to `.git` (a terminal
+    commit or `git add`) raises no watcher event, so it reaches the list on the next
+    save or Refresh. Tests for the entry point: a failed revert's error survives a
+    disk-change refresh and a following `refresh` clears it, a disk-change refresh
+    landing while a failing revert is suspended on its trailing refresh does not
+    suppress that revert's error, a failed refresh's error is cleared by it, and a
+    superseded folder's generation is rejected. Tests: a second refresh with an
     equal list and a moved stamp rebuilds the published diff with no manual
     load, an equal list with an unchanged stamp reads nothing, a refresh
     superseded by a newer selection does not publish over it, a failed refresh

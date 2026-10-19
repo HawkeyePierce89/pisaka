@@ -1132,14 +1132,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     taking the writer gate would serialize the editor behind a background walk. The
     root is *captured* rather than read from the model, so the refresh always names
     the folder this subscription was started for.
-    That same callback finally calls `refreshLocalChanges()`, which is how an edit
-    made **outside the app** reaches the Local Changes list and — through the
-    model's own post-refresh load (`core-git-models.md`) — the selected file's
-    inline diff; before it, only a save re-queried the list, so an external edit
-    never did. It is ungated because it is a reader, keeps the generation pin
-    `refreshLocalChanges()` captures before its hop, and **cannot feed itself**:
-    every `git` the refresh runs carries `--no-optional-locks`, so `status`
-    writes nothing under `.git` and raises no event of its own.
+    That same callback finally asks the model's `refreshForDiskChange`, which is
+    how an edit made **outside the app** reaches the Local Changes list and —
+    through the model's own post-refresh load (`core-git-models.md`) — the selected
+    file's inline diff; before it, only a save re-queried the list, so an external
+    edit never did. It is ungated because it is a reader, pins the request
+    generation before its hop like `refreshLocalChanges()` (for the captured root
+    this subscription was started for), and **cannot feed
+    itself**: every `git` the refresh runs carries `--no-optional-locks`, so
+    `status` writes nothing under `.git` and raises no event of its own. It goes
+    through the model's `refreshForDiskChange` rather than `refresh` because
+    `IgnoreSelf` does not cover the app's own `git` children: a revert's
+    `checkout` raises an event that lands mid-batch or just after, and that entry
+    point neither supersedes the revert nor clears the error it reported. A change
+    confined to `.git` (a terminal commit or `git add`) is dropped by
+    `TreeRefreshFilter`, so it reaches the list on the next save or Refresh.
     `GitCLIArgumentSourceGatingTests` pins the call inside the watcher's callback
     body, beside the rule that pins that flag. **The index needs its own
     counterpart to the explicit tree bumps below**, and gets it as

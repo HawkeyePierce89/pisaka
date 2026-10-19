@@ -503,8 +503,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the folder. On macOS the token has two further sources, both view-layer: the
     FSEvents `ProjectWatcher` (so an *external* change reaches the tree on its own)
     and the tree header's manual Refresh button. Core stays unaware of all three —
-    it only publishes the token. Nothing *else* watches the filesystem: Local
-    Changes and the Git Log still refresh on demand only, and open tabs are
+    it only publishes the token. The same watcher callback also re-queries Local
+    Changes on macOS (`refreshForDiskChange`, `app-shell.md`); nothing *else*
+    watches the filesystem: the Git Log still refreshes on demand only, and open tabs are
     checked against the disk only by the external-change pass the app runs on the
     watcher's coalesced event and on activation, plus the guard before every
     write — never by a watcher of their own (so

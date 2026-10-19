@@ -2283,14 +2283,20 @@ struct PisakaApp: App {
         // post-refresh load, the selected file's inline diff. It cannot feed
         // itself: every `git` the refresh runs carries `--no-optional-locks`, so
         // `status` writes nothing under `.git` and raises no event of its own. It
-        // is ungated because it is a reader, and it keeps the generation pin
-        // `refreshLocalChanges()` captures before its hop.
+        // is ungated because it is a reader, and it pins the request generation
+        // before its hop like every other refresh, for the root this subscription
+        // was started for. It goes through
+        // `refreshForDiskChange` rather than `refresh`: the app's own `git`
+        // children are not filtered by the watcher, so the event may be the echo
+        // of a revert still running or just finished, and that entry point
+        // neither supersedes the revert nor clears the error it reported.
         projectWatcher.start(root: url, onChange: {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)
             editorConfig.noteProjectFilesChanged()
             diskSync.requestPass()
-            refreshLocalChanges()
+            let generation = localChanges.currentRequestGeneration
+            Task { await localChanges.refreshForDiskChange(root: url, requestGeneration: generation) }
         })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a

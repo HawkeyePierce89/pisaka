@@ -1313,8 +1313,8 @@ user sees it.
   clears the filter and the search box immediately. (On iPhone/iPad the advanced
   filter is a sheet built fresh on each presentation, so its pickers open on today
   rather than remembering an unticked day.) All git access is
-  read-only — no history mutation, and (like Local Changes) no filesystem
-  watching: both panels refresh on demand.
+  read-only — no history mutation, and no filesystem watching: the Log
+  refreshes on demand (Local Changes, on macOS, also follows changes on disk).
 - Branch switcher: a widget in the always-visible bottom bar shows
   the current branch. Click it for a popover listing local and remote branches
   (the current one marked) with a filter field: pick a local branch to check it
@@ -2105,9 +2105,11 @@ and iPhone. The feature scope landed so far:
   Copy Path / Copy Relative Path offers one) and no window proxy icon, and iOS has
   no equivalent bar.
 - Automatic file-change detection is macOS only: there, the project tree, open
-  editor tabs and Local Changes follow a change made on disk. The Git Log is
-  still refreshed on demand — on its Refresh button, or after an operation of
-  its own — and on iOS every panel is.
+  editor tabs and Local Changes follow a change made on disk. The watcher
+  ignores the project's own `.git` folder, so a commit or staging done in the
+  terminal — which changes only `.git` — reaches Local Changes on the next save
+  or Refresh. The Git Log is still refreshed on demand — on its Refresh button,
+  or after an operation of its own — and on iOS every panel is.
 - Session restore is macOS-only: on iOS only the last opened folder comes back
   (through its security-scoped bookmark) — the tabs, the selection, and "Untitled"
   text are not restored — and a folder switch there leaves the previous project's
