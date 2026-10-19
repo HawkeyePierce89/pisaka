@@ -136,6 +136,23 @@ final class HunkRevertPlanTests: XCTestCase {
         XCTAssertNil(HunkRevertPlan.plan(hunk: hunk, base: "a", buffer: "x\nb"))
     }
 
+    func testFinalNewlineOnlyHunkRevertsToHeadsTerminatorState() {
+        guard let (gained, _) = revertOnly(base: "a\nb", buffer: "a\nb\n") else { return }
+        XCTAssertEqual(gained, "a\nb")
+        guard let (lost, _) = revertOnly(base: "a\r\nb\r\n", buffer: "a\r\nb") else { return }
+        XCTAssertEqual(lost, "a\r\nb\r\n")
+    }
+
+    /// A blank last line appended or removed is an insert or a delete, not the
+    /// final-newline row, and its revert still restores HEAD's terminator state
+    /// on the line above.
+    func testBlankLastLineHunkRevertsToHeadsTerminatorState() {
+        guard let (appended, _) = revertOnly(base: "a", buffer: "a\n\n") else { return }
+        XCTAssertEqual(appended, "a")
+        guard let (removed, _) = revertOnly(base: "a\n\n", buffer: "a") else { return }
+        XCTAssertEqual(removed, "a\n\n")
+    }
+
     // MARK: - Fuzz
 
     private struct LCG {
@@ -146,7 +163,9 @@ final class HunkRevertPlanTests: XCTestCase {
         }
     }
 
-    private static let words = ["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta", "iota", "kappa"]
+    /// The blank entry puts empty lines — a trailing blank one included — next
+    /// to the end-of-text rule.
+    private static let words = ["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta", "iota", "kappa", ""]
 
     /// A random small text. Each line's terminator is a function of its content
     /// — so a line the diff calls unchanged is byte-identical on both sides —
@@ -165,10 +184,8 @@ final class HunkRevertPlanTests: XCTestCase {
     func testRevertingEveryHunkBackToFrontYieldsHead() {
         var rng = LCG(state: 0x5eed_cafe_f00d_beef)
         for iteration in 0..<3000 {
-            let baseFinal = rng.next(2) == 0
-            let bufferFinal = rng.next(2) == 0
-            let base = randomText(&rng, finalNewline: baseFinal)
-            let buffer = randomText(&rng, finalNewline: bufferFinal)
+            let base = randomText(&rng, finalNewline: rng.next(2) == 0)
+            let buffer = randomText(&rng, finalNewline: rng.next(2) == 0)
             let all = hunks(base: base, buffer: buffer)
             let context = "#\(iteration) base=\(String(reflecting: base)) buffer=\(String(reflecting: buffer))"
 
@@ -181,16 +198,9 @@ final class HunkRevertPlanTests: XCTestCase {
                 result = apply(plan, to: result)
             }
 
-            // A final newline differing on an unchanged last line is invisible to
-            // the diff, so no hunk can bring it back; everywhere else the answer
-            // is HEAD byte for byte.
-            let bufferLineCount = TerminatedLines.ranges(buffer).count
-            let reachesEnd = all.last.map { $0.newLines.upperBound == bufferLineCount } ?? false
-            if baseFinal == bufferFinal || reachesEnd || base.isEmpty || buffer.isEmpty {
-                XCTAssertEqual(result, base, context)
-            } else {
-                XCTAssertEqual(hunks(base: base, buffer: result), [], context)
-            }
+            // A final newline differing on an unchanged last line is a hunk of
+            // its own, so the answer is HEAD byte for byte without exception.
+            XCTAssertEqual(result, base, context)
         }
     }
 

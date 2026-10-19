@@ -3732,7 +3732,8 @@ transport's own SIGTERM→SIGKILL grace (2 s) follows that. A server whose strea
 has ended costs no wait. `shutdownAll()` runs the sessions concurrently, so the
 grace is paid once per quit, not once per server. The quit uses it:
 `applicationShouldTerminate` answers `.terminateLater` while the workspace holds a
-live server, awaits `shutdownAll()` and replies `true` (`app-shell.md`), and
+live server, awaits `shutdownAll()` and replies with the quit's post-wait
+re-check (`app-shell.md`), and
 `terminateNow()` stays the `willTerminate` fallback for a quit that never asked
 the delegate. Both graces reach Core through injectable waits, so the tests are
 causal.

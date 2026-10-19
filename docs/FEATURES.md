@@ -176,7 +176,8 @@ user sees it.
   as with blame: the just-committed lines stay marked until you switch tabs away
   and back, save, or Local Changes refreshes. A file outside a repository, an
   untracked or binary file, a file over 1 MiB and an "Untitled" buffer simply show
-  no markers, with no error.
+  no markers, with no error. A change that only adds or removes the final newline
+  is marked on the last line, as a modified line.
 - Revert a change (macOS): click a marker to see the lines `HEAD` has there
   ("No lines in HEAD" for added lines) in a popover beside it, with a **Revert**
   button; **Git ▸ Revert Change** does the same for the change holding the caret
@@ -1243,8 +1244,11 @@ user sees it.
   as its own outcome rather than as a failed commit. Files that cannot be split
   line by line — a deleted file, a binary, non-UTF-8, unreadable or very large one
   (over 1 MiB), and a file that differs in something other than its lines (only
-  the line endings, only the mode) — show a "committed as a whole" note instead of
-  a diff and are committed whole or not at all. Immediately before committing, the
+  the line endings in the middle of the file, only the mode) — show a "committed
+  as a whole" note instead of a diff and are committed whole or not at all. A
+  change that only adds or removes the final newline is an ordinary selectable
+  change on the last line, and the diff views show it as a modified last line
+  whose two sides read the same. Immediately before committing, the
   change list is re-read and every included file re-diffed; if anything changed
   under the dialog (`git` in the terminal, another editor) the whole commit is
   abandoned with a message naming the file, and nothing is written; an *amend* is
@@ -1938,7 +1942,9 @@ and iPhone. The feature scope landed so far:
 - The gutter change markers are macOS-only and always compare against `HEAD`:
   there is no staged-versus-unstaged distinction and no other base. A commit made
   in the embedded terminal is not noticed until a tab switch, a save or a Local
-  Changes refresh. Files over 1 MiB on either side show no markers.
+  Changes refresh. Files over 1 MiB on either side show no markers. A change that
+  only adds or removes the final newline is marked on the last line; a line whose
+  ending alone switched in the middle of the file (CRLF to LF) is not marked.
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
   Go to Definition, completion, hover types, diagnostics, Find Usages and Rename
   only — there is still no signature help, and nothing about the

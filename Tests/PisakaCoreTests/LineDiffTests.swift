@@ -181,6 +181,64 @@ final class LineDiffTests: XCTestCase {
         }
     }
 
+    // MARK: - Final newline
+
+    /// The one terminator the row builder sees: a last line that only gained or
+    /// lost its separator is a `.modified` row with no word ranges, in either
+    /// direction and for every separator.
+    func testFinalNewlineOnlyDifferenceIsAModifiedLastRow() {
+        for separator in ["\n", "\r\n", "\r", "\u{0085}"] {
+            let unterminated = "a\(separator)b"
+            let terminated = "a\(separator)b\(separator)"
+            let name = "separator \(separator.unicodeScalars.map(\.value))"
+            for (old, new) in [(unterminated, terminated), (terminated, unterminated)] {
+                for wordRanges in [true, false] {
+                    let rows = LineDiff.rows(old: old, new: new, wordRanges: wordRanges)
+                    assertInvariants(rows)
+                    XCTAssertEqual(rows.map(\.kind), [.unchanged, .modified], name)
+                    XCTAssertEqual(rows[1].left, DiffLine(number: 2, text: "b"), name)
+                    XCTAssertEqual(rows[1].right, DiffLine(number: 2, text: "b"), name)
+                    XCTAssertNil(rows[1].words, name)
+                }
+            }
+        }
+    }
+
+    func testMatchingFinalTerminationGivesNoChangedRow() {
+        for (old, new) in [("a\nb\n", "a\nb\n"), ("a\nb", "a\nb"), ("a\r\nb\n", "a\r\nb\r\n")] {
+            let rows = LineDiff.rows(old: old, new: new)
+            XCTAssertEqual(rows.map(\.kind), [.unchanged, .unchanged], String(reflecting: (old, new)))
+        }
+    }
+
+    func testFinalNewlineChangeWithDifferingTextKeepsItsWordRanges() {
+        let rows = LineDiff.rows(old: "a\nfoo bar", new: "a\nfoo baz\n")
+        XCTAssertEqual(rows.map(\.kind), [.unchanged, .modified])
+        XCTAssertNotNil(rows[1].words)
+        let gutter = LineDiff.rows(old: "a\nfoo bar", new: "a\nfoo baz\n", wordRanges: false)
+        XCTAssertEqual(gutter.map(\.kind), [.unchanged, .modified])
+        XCTAssertNil(gutter[1].words)
+    }
+
+    func testEmptyVersusLoneNewlineIsStillAnInsert() {
+        XCTAssertEqual(LineDiff.rows(old: "", new: "\n").map(\.kind), [.added])
+        XCTAssertEqual(LineDiff.rows(old: "\n", new: "").map(\.kind), [.removed])
+    }
+
+    /// Only the *last* pair carries the rule: an earlier unchanged row next to a
+    /// final-newline change stays unchanged, and a change above the last line
+    /// leaves an equally terminated last line alone.
+    func testOnlyTheLastPairSeesTheTerminator() {
+        XCTAssertEqual(LineDiff.rows(old: "x\na\nb", new: "y\na\nb\n").map(\.kind),
+                       [.modified, .unchanged, .modified])
+        XCTAssertEqual(LineDiff.rows(old: "x\nb\n", new: "y\nb\n").map(\.kind), [.modified, .unchanged])
+        // The last line was appended, so the final op is an insert, not an equal pair.
+        XCTAssertEqual(LineDiff.rows(old: "a", new: "a\nb\n").map(\.kind), [.unchanged, .added])
+        // A blank last line appended: the final op is again an insert.
+        XCTAssertEqual(LineDiff.rows(old: "a", new: "a\n\n").map(\.kind), [.unchanged, .added])
+        XCTAssertEqual(LineDiff.rows(old: "a\n\n", new: "a").map(\.kind), [.unchanged, .removed])
+    }
+
     // MARK: - Large-file bounds (common prefix/suffix + matrix cap)
 
     func testEditInLargeFileIsLocalizedAfterPrefixSuffixTrim() {

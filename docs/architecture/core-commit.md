@@ -139,9 +139,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **The converse is deliberately *not*
     an invariant:** "selecting every unit yields the worktree bytes" holds only
     when every unchanged line is terminated the same way on both sides, because a
-    line whose separator alone switched produces no changed row — there is no unit
-    for it, nothing to check — and the rule above emits it from the old side with
-    the old terminator. Where that stronger guarantee is actually needed it is
+    mid-file line whose separator alone switched (CRLF→LF, say) produces no
+    changed row — there is no unit for it, nothing to check — and the rule above
+    emits it from the old side with the old terminator. The one terminator
+    `LineDiff` does see is the **final** one: a last line that only gained or lost
+    its terminator is a `.modified` row (`core-diff-merge.md`), so it is a unit
+    like any other — selected, the result carries the worktree's ending; not
+    selected, `HEAD`'s, byte for byte — and the side rule carries the selected
+    side's terminator with no code here knowing why (`PartialCommitBuilderTests`).
+    Where that stronger guarantee is actually needed it is
     obtained **structurally instead**: a fully checked file bypasses the builder
     entirely and is placed into the index from the working file by git itself (see
     `CommitPlan`). A selected

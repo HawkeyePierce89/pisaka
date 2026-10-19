@@ -146,8 +146,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     answer, and naming one here would let the call pull a branch the tail never
     switched to. A non-zero exit throws `GitError.pullFailed(reason:)` with git's
     trimmed stderr; `GitCLIService` runs it on the same serial queue under
-    `GIT_TERMINAL_PROMPT=0`, which the four network- or hook-reaching commands
-    (`fetch`, `push`, `pull`, `commit`) carry, and **iOS is left at the
+    `GIT_TERMINAL_PROMPT=0`, which every command that may prompt carries (the set
+    is pinned by `GitCLIArgumentSourceGatingTests`, `app-git-views.md`), and **iOS is left at the
     protocol default** — the tail is macOS only, and libgit2 gains nothing from a
     fast-forward it has no caller for (`core-github.md`).
   - `ChangedFile.swift` — `FileStatus` (`modified, added, deleted, renamed,

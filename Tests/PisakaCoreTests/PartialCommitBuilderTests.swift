@@ -106,6 +106,17 @@ final class PartialCommitBuilderTests: XCTestCase {
         XCTAssertEqual(assembleAll(head: "a\nb", worktree: "a\nB\n"), "a\nB\n")
     }
 
+    /// A last line that only gained or lost its terminator is a unit of its own:
+    /// selected, it brings the worktree bytes; unselected, HEAD's, byte for byte.
+    func testFinalNewlineOnlyChangeIsAUnitInBothDirections() {
+        for (head, worktree) in [("a\nb", "a\nb\n"), ("a\nb\n", "a\nb"), ("a\r\nb", "a\r\nb\r\n")] {
+            let name = String(reflecting: (head, worktree))
+            XCTAssertEqual(units(rows(head, worktree)), [1], name)
+            XCTAssertEqual(assembleAll(head: head, worktree: worktree), worktree, name)
+            XCTAssertEqual(assembleNone(head: head, worktree: worktree), head, name)
+        }
+    }
+
     /// The counterexample to the *unconditional* reading of the rule above, and
     /// the reason it is stated conditionally in the doc comment rather than pinned
     /// as an invariant.

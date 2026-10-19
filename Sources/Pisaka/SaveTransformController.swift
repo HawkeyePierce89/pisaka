@@ -503,9 +503,10 @@ final class SaveTransformController {
         // normally do, because the editor's binding writes every change straight
         // into `updateText`. They disagree for exactly one window: a model-side
         // rewrite (Replace All, a revert, a merge apply, a reload) lands in the
-        // model first and reaches the view on SwiftUI's next update pass, and
-        // those writers replay a deferred autosave *synchronously* from their own
-        // `defer { autosave.resume() }` — i.e. inside that window. Transforming
+        // model first and reaches the view on SwiftUI's next update pass, and a
+        // deferred autosave those writers owe replays on the next main-actor turn
+        // after their own `defer { autosave.resume() }`, which can still land
+        // before that pass — i.e. inside that window. Transforming
         // the view's stale text there would push it straight back through
         // `didChangeText` and silently undo the rewrite in that tab, then write
         // the result to disk. When they disagree the model wins and the rewrite

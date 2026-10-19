@@ -55,6 +55,17 @@ final class GutterChangeModelTests: XCTestCase {
         XCTAssertEqual(changes.markers[1].strip, .modified)
     }
 
+    func testFinalNewlineOnlyDifferenceMarksTheLastLineModified() {
+        for (base, buffer) in [("a\nb", "a\nb\n"), ("a\nb\n", "a\nb")] {
+            let changes = GutterChangeModel.compute(base: base, buffer: buffer)
+            let hunk = ChangeHunk(kind: .modified, newLines: 1..<2, oldLines: 1..<2)
+            XCTAssertEqual(changes.hunks, [hunk], String(reflecting: (base, buffer)))
+            XCTAssertEqual(changes.markers[1].strip, .modified)
+            XCTAssertEqual(changes.hunk(atLine: 1), hunk)
+            XCTAssertNil(changes.hunk(atLine: 0))
+        }
+    }
+
     // MARK: - Separators
 
     func testCRLF() {

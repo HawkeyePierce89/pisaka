@@ -383,6 +383,12 @@ struct GitCLIService: GitServicing {
         let result = try await run(
             ["cat-file", "--filters", "HEAD:./\(fileURL.lastPathComponent)"],
             in: fileURL.deletingLastPathComponent(),
+            // `GIT_TERMINAL_PROMPT=0` because `--filters` runs smudge filters, and
+            // an LFS smudge may fetch the object and prompt for credentials on
+            // /dev/tty, which would wedge the shared serial queue. Every command
+            // that may prompt sets it; the set is pinned by
+            // `GitCLIArgumentSourceGatingTests`.
+            environment: ["GIT_TERMINAL_PROMPT": "0"],
             stdoutLimit: GutterChangeModel.maxSideBytes
         )
         guard result.exitCode == 0, !result.stdoutOverflowed else { return nil }
@@ -434,9 +440,11 @@ struct GitCLIService: GitServicing {
     /// local changes); on a non-zero exit we throw `GitError.checkoutFailed(reason:)`
     /// carrying git's stderr, which names the conflicting files so the widget can
     /// show exactly what blocked the switch. `run` already throws
-    /// `GitError.gitUnavailable` if git cannot launch.
+    /// `GitError.gitUnavailable` if git cannot launch. Every checkout carries
+    /// `GIT_TERMINAL_PROMPT=0` for `headText`'s reason: it runs smudge filters,
+    /// and an LFS smudge may fetch and prompt on /dev/tty.
     func checkout(branch: String, root: URL) async throws {
-        let result = try await run(["checkout", branch, "--"], in: root)
+        let result = try await run(["checkout", branch, "--"], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -454,7 +462,9 @@ struct GitCLIService: GitServicing {
     /// invalid start point git rejects, or a dirty tree blocking the switch) throws
     /// `GitError.checkoutFailed(reason:)` with git's stderr.
     func createAndCheckout(name: String, startPoint: String, root: URL) async throws {
-        let result = try await run(["checkout", "-b", name, startPoint, "--"], in: root)
+        let result = try await run(
+            ["checkout", "-b", name, startPoint, "--"], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"]
+        )
         guard result.exitCode == 0 else {
             throw GitError.checkoutFailed(reason: checkoutReason(result.stderr))
         }
@@ -520,7 +530,7 @@ struct GitCLIService: GitServicing {
             // A conflicted file is reverted by checking out the `HEAD` (ours)
             // version, the same plumbing as a plain modification; the merge editor
             // is the normal path, but a revert still discards the file's changes.
-            try await checkout(file.path, root: root)
+            try await restoreFromHead(file.path, root: root)
         case .renamed:
             try await revertRename(file, root: root)
         case .added:
@@ -612,7 +622,7 @@ struct GitCLIService: GitServicing {
                     try await move(from: file.path, to: oldPath, root: root)
                     changed.append(file.path)
                     do {
-                        try await checkout(oldPath, root: root)
+                        try await restoreFromHead(oldPath, root: root)
                     } catch let error where !(error is PartialRevertError) {
                         // The `git mv` renamed the (shared) inode, but this checkout
                         // failed to restore its `HEAD` content *and* its probe did
@@ -633,7 +643,7 @@ struct GitCLIService: GitServicing {
                     changed.append(oldPath)
                     return
                 }
-                try await checkout(oldPath, root: root)
+                try await restoreFromHead(oldPath, root: root)
                 changed.append(oldPath)
             }
             try await remove(file.path, root: root)
@@ -684,12 +694,12 @@ struct GitCLIService: GitServicing {
     /// edits for a worktree the revert never wrote. If the worktree still differs
     /// (or already matched before), the checkout did not restore it here, so we
     /// report nothing.
-    private func checkout(_ path: String, root: URL) async throws {
+    private func restoreFromHead(_ path: String, root: URL) async throws {
         // Capture the pre-checkout state; the probe below needs it to distinguish
         // an actual worktree restore from an index-only change that left the
         // worktree already matching `HEAD`.
         let matchedHeadBefore = await worktreeMatchesHead(path, root: root)
-        let result = try await run(["checkout", "HEAD", "--", path], in: root)
+        let result = try await run(["checkout", "HEAD", "--", path], in: root, environment: ["GIT_TERMINAL_PROMPT": "0"])
         guard result.exitCode == 0 else {
             let underlying = GitError.notARepository(stderr: result.stderr)
             if !matchedHeadBefore, await worktreeMatchesHead(path, root: root) {
