@@ -363,8 +363,15 @@ public final class LocalChangesModel: ObservableObject {
     /// operation still in flight or just finished; superseding a revert from
     /// there, or clearing its message, would make a partly failed batch report
     /// nothing. A user's manual or save-driven `refresh` still clears it.
+    ///
+    /// It is also never a folder switch: a `root` other than the one last
+    /// requested is dropped. The watcher hops to the main queue, so an event for
+    /// the previous folder can be delivered after the switch, carrying the
+    /// generation read at delivery; without this it would pass the pinned check
+    /// and be misread as a switch back, stranding the panel on that folder.
     public func refreshForDiskChange(root: URL, requestGeneration: Int) async {
         if requestGeneration != rootRequestGeneration { return }
+        guard root == lastRequestedRoot else { return }
         await refreshImpl(root: root, keepingRevertError: true)
     }
 

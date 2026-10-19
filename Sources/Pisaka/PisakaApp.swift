@@ -2284,8 +2284,9 @@ struct PisakaApp: App {
         // itself: every `git` the refresh runs carries `--no-optional-locks`, so
         // `status` writes nothing under `.git` and raises no event of its own. It
         // is ungated because it is a reader, and it pins the request generation
-        // before its hop like every other refresh, for the root this subscription
-        // was started for. It goes through
+        // before its hop like every other refresh; an event for a folder already
+        // switched away from is dropped by the model, never read as a switch. It
+        // goes through
         // `refreshForDiskChange` rather than `refresh`: the app's own `git`
         // children are not filtered by the watcher, so the event may be the echo
         // of a revert still running or just finished, and that entry point

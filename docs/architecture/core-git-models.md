@@ -357,13 +357,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     about a second later, mid-batch or just after it; through `refresh` that echo
     would supersede the revert's trailing error write or clear the published one,
     and a partly failed destructive batch would report nothing. A manual or
-    save-driven `refresh` still clears it. A change confined to `.git` (a terminal
+    save-driven `refresh` still clears it. It is also **never a folder switch**:
+    a root other than the one last requested is dropped, because the watcher hops
+    to the main queue and an event for the previous folder can be delivered after
+    the switch carrying the generation read at delivery, which would otherwise pass
+    the pinned check and switch the panel back. A change confined to `.git` (a terminal
     commit or `git add`) raises no watcher event, so it reaches the list on the next
     save or Refresh. Tests for the entry point: a failed revert's error survives a
     disk-change refresh and a following `refresh` clears it, a disk-change refresh
     landing while a failing revert is suspended on its trailing refresh does not
     suppress that revert's error, a failed refresh's error is cleared by it, and a
-    superseded folder's generation is rejected. Tests: a second refresh with an
+    superseded folder's generation is rejected, and a late event for the previous
+    folder carrying the current generation leaves the panel on the new one. Tests: a second refresh with an
     equal list and a moved stamp rebuilds the published diff with no manual
     load, an equal list with an unchanged stamp reads nothing, a refresh
     superseded by a newer selection does not publish over it, a failed refresh

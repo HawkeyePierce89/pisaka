@@ -1516,6 +1516,23 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(model.root, other)
     }
 
+    func testALateDiskChangeRefreshForThePreviousFolderIsNotAFolderSwitch() async {
+        // The watcher's event for the old folder is delivered after the switch and
+        // reads the *current* generation then: it must not switch the panel back.
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        let model = makeModel(git: git)
+        await model.refresh(root: root, requestGeneration: model.prepareForFolderChange(root: root))
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+        await model.refresh(root: other, requestGeneration: current)
+
+        XCTAssertEqual(model.root, other)
+        XCTAssertEqual(model.currentRequestGeneration, current)
+    }
+
     func testPrepareForFolderChangeBumpsGuardSoSuspendedRevertBails() async {
         // The app records a folder switch synchronously (before the `Task`-wrapped
         // refresh) via `prepareForFolderChange`. A revert already suspended on its
