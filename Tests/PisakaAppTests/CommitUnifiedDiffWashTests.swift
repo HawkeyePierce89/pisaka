@@ -53,6 +53,11 @@ import PisakaCore
 /// change the hosted diff in place — a file switch, a placeholder in between,
 /// a font-size change — compare the width it settles at against a fresh render
 /// of the same end state.
+///
+/// **Vertical alignment.** A one-row diff, hosted without its header rows, must
+/// paint its wash from the pane's top edge (within the 2-point padding); before
+/// `.defaultScrollAnchor(.topLeading)` it began 141 points down, centred. The
+/// placeholder must stay centred about the pane's middle.
 @MainActor
 final class CommitUnifiedDiffWashTests: XCTestCase {
 
@@ -184,6 +189,35 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         XCTAssertEqual(contentWidth, visible, accuracy: 0.5, "the content is wider than the visible pane")
     }
 
+    // MARK: - Vertical alignment
+
+    /// A diff shorter than its pane starts at the pane's top: one added row, no
+    /// header rows, so the first thing painted is that row's wash, and it begins
+    /// within the content's 2-point vertical padding of the top edge. A
+    /// two-axis `ScrollView` centres content shorter than its viewport, which
+    /// put a one-line diff in the middle of the 300-point pane.
+    func testAShortDiffStartsAtThePanesTop() throws {
+        let line = UnifiedDiffLine(kind: .added, text: "new", oldNumber: nil, newNumber: 1, unitIndex: 0)
+        let render = try DiffRender(lines: [line], headers: false, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let added = try XCTUnwrap(
+            render.extent(of: .diffAddedBackground, atX: render.width - 4), "the added line is not washed"
+        )
+        XCTAssertLessThan(added.maxY - added.minY, 100, "the wash fills the pane — the case is not exercised")
+        XCTAssertLessThanOrEqual(added.minY, 2.5, "the diff does not start at the pane's top")
+    }
+
+    /// The placeholder is a separate view and keeps its centred layout: its
+    /// glyph and sentence sit about the pane's vertical middle.
+    func testThePlaceholderStaysCentredVertically() throws {
+        let render = try DiffRender(lines: [], scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        try render.update { $0.wholeOnlyMessage = "Committed as a whole." }
+        let ink = try XCTUnwrap(render.inkExtent(atX: render.width / 2), "the placeholder draws nothing")
+        XCTAssertGreaterThan(ink.minY, 60, "the placeholder is pinned to the top")
+        XCTAssertEqual((ink.minY + ink.maxY) / 2, 150, accuracy: 20, "the placeholder is not centred vertically")
+    }
+
     // MARK: - Live updates
 
     /// Switching to a narrower diff whose widest row keeps its index and width
@@ -274,10 +308,13 @@ private final class DiffInput: ObservableObject {
     @Published var lines: [UnifiedDiffLine]
     @Published var wholeOnlyMessage: String?
     @Published var fontSize: Double
+    /// Whether the file and hunk header rows are drawn above the lines.
+    let headers: Bool
 
-    init(lines: [UnifiedDiffLine], fontSize: Double) {
+    init(lines: [UnifiedDiffLine], fontSize: Double, headers: Bool = true) {
         self.lines = lines
         self.fontSize = fontSize
+        self.headers = headers
     }
 }
 
@@ -286,7 +323,9 @@ private struct DiffHost: View {
 
     var body: some View {
         CommitUnifiedDiffView(
-            rows: CommitUnifiedDiffWashTests.displayRows(input.lines), selectedUnits: [0],
+            rows: input.headers
+                ? CommitUnifiedDiffWashTests.displayRows(input.lines) : input.lines.map { .line($0) },
+            selectedUnits: [0],
             wholeOnlyMessage: input.wholeOnlyMessage, fontSize: input.fontSize
         )
     }
@@ -306,9 +345,9 @@ private final class DiffRender {
 
     init(
         lines: [UnifiedDiffLine], fontSize: Double = 13, appearance: ChromeAppearance = .dark,
-        scrollToTrailingEdge: Bool
+        headers: Bool = true, scrollToTrailingEdge: Bool
     ) throws {
-        input = DiffInput(lines: lines, fontSize: fontSize)
+        input = DiffInput(lines: lines, fontSize: fontSize, headers: headers)
         self.appearance = appearance
         ground = appearance == .dark ? .black : .white
         let root = DiffHost(input: input)
@@ -420,5 +459,14 @@ private final class DiffRender {
     }
 
     func color(atX x: CGFloat, y: CGFloat) -> NSColor? { render.color(atX: x, y: y) }
+
+    /// The vertical extent of anything drawn brighter than the dark render's
+    /// black ground in column `x`.
+    func inkExtent(atX x: CGFloat) -> (minY: CGFloat, maxY: CGFloat)? {
+        render.extent(atX: x) { color in
+            guard let color else { return false }
+            return max(color.redComponent, color.greenComponent, color.blueComponent) > 0.15
+        }
+    }
 }
 #endif

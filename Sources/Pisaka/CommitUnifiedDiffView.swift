@@ -120,6 +120,12 @@ struct CommitUnifiedDiffView: View {
     /// pane's: with legacy scroll bars the vertical scroller takes part of the
     /// pane, and a width read from SwiftUI — the pane's frame or the scroll
     /// view's container — still includes it.
+    ///
+    /// **A diff shorter than the pane starts at its top.** A two-axis
+    /// `ScrollView` centres content shorter than its viewport, so a one-line diff
+    /// sat in the middle of the pane; the top-leading default anchor pins it to
+    /// the top edge instead (`CommitUnifiedDiffWashTests`). The placeholders are
+    /// a separate view and stay centred.
     private var diff: some View {
         ScrollView([.vertical, .horizontal]) {
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -145,6 +151,7 @@ struct CommitUnifiedDiffView: View {
             // width and scroll horizontally.
             .background(VisibleWidthProbe(width: $visibleWidth))
         }
+        .defaultScrollAnchor(.topLeading)
         // A memoized diff hands back the same array, so this comparison is the
         // storage-identity fast path on every pass but a file switch. `initial`
         // covers a diff that reappears after a placeholder, whose earlier

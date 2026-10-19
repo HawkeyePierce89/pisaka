@@ -169,14 +169,14 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 - Modify: `Sources/Pisaka/CommitUnifiedDiffView.swift`
 - Modify: `Tests/PisakaAppTests/CommitUnifiedDiffWashTests.swift` (or a new `CommitUnifiedDiffLayoutTests.swift` using `HostedRender`)
 
-- [ ] Apply `.defaultScrollAnchor(.topLeading)` to the diff's `ScrollView([.vertical, .horizontal])`. Leave the rows, the width probe, the `minWidth` frame and the placeholder untouched.
-- [ ] If the measurement below still shows the content centred, use the fallback instead:
+- [x] Apply `.defaultScrollAnchor(.topLeading)` to the diff's `ScrollView([.vertical, .horizontal])`. Leave the rows, the width probe, the `minWidth` frame and the placeholder untouched.
+- [x] If the measurement below still shows the content centred, use the fallback instead (not needed: with the anchor alone the one-row wash starts at y = 2):
   - extend the probe to report the clip height;
   - add `minHeight` with `.topLeading` alignment to the content frame;
   - say why in the view's doc comment.
-- [ ] Test with `HostedRender`: one `.added` row in a tall pane. Measure the wash's first painted row off the bitmap and assert it begins within the 2-pt vertical padding of the pane's top edge. Assert that a pane with a placeholder still draws its glyph centred vertically.
-- [ ] Confirm the new top-alignment assertion fails before the change.
-- [ ] Run the app-layer bundle.
+- [x] Test with `HostedRender`: one `.added` row in a tall pane. Measure the wash's first painted row off the bitmap and assert it begins within the 2-pt vertical padding of the pane's top edge. Assert that a pane with a placeholder still draws its glyph centred vertically.
+- [x] Confirm the new top-alignment assertion fails before the change. (It failed at 141 pt down.)
+- [x] Run the app-layer bundle. (480 tests, only the eight known scale-1.8 failures. `DiffWordEmphasisTests`' unified scan now drops runs narrower than 1.5 pt, because the top-aligned rows put the checkbox's anti-aliased edges in its sampled band.)
 
 ### Task 7: Verify acceptance criteria
 
