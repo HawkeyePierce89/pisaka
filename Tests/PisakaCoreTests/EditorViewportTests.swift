@@ -197,4 +197,48 @@ final class EditorViewportTests: XCTestCase {
 
         XCTAssertEqual(memory.viewport(for: fileID, clampedToLength: 100), recorded)
     }
+
+    // MARK: - In-place replacement of the shown tab
+
+    // The live viewport captured just before `updateNSView`'s buffer swap,
+    // re-applied clamped to the replacement text — the second consumer of
+    // `clamped(toLength:)`, phrased against real before/after texts.
+
+    private func lines(_ count: Int) -> String {
+        (1...count).map { "line \($0)" }.joined(separator: "\n") + "\n"
+    }
+
+    func testInPlaceReplacementKeepsACaretInsideAnUnchangedPrefix() {
+        let old = lines(240) as NSString
+        let new = old.replacingOccurrences(of: "line 200\n", with: "edited\n") as NSString
+        let caret = old.range(of: "line 3\n").location + 2
+        let captured = EditorViewport(selection: NSRange(location: caret, length: 0), topCharacterOffset: 0)
+        XCTAssertEqual(captured.clamped(toLength: new.length), captured)
+    }
+
+    func testInPlaceReplacementPutsACaretPastAShrunkenEndAtTheEnd() {
+        let new = lines(10) as NSString
+        let captured = EditorViewport(selection: NSRange(location: (lines(240) as NSString).length - 4, length: 0), topCharacterOffset: 0)
+        XCTAssertEqual(captured.clamped(toLength: new.length).selection, NSRange(location: new.length, length: 0))
+    }
+
+    func testInPlaceReplacementTruncatesASelectionCrossingTheNewEnd() {
+        let new = lines(10) as NSString
+        let captured = EditorViewport(selection: NSRange(location: new.length - 5, length: 400), topCharacterOffset: 0)
+        XCTAssertEqual(captured.clamped(toLength: new.length).selection, NSRange(location: new.length - 5, length: 5))
+    }
+
+    func testInPlaceReplacementResolvesAnAnchorPastTheNewEndToTheLastCharacter() {
+        let new = lines(10) as NSString
+        let captured = EditorViewport(selection: NSRange(location: 0, length: 0), topCharacterOffset: 2_000)
+        XCTAssertEqual(captured.clamped(toLength: new.length).topCharacterOffset, new.length - 1)
+    }
+
+    func testInPlaceReplacementWithAnEmptyBufferCollapsesToTheTop() {
+        let captured = EditorViewport(selection: NSRange(location: 40, length: 3), topCharacterOffset: 30)
+        XCTAssertEqual(
+            captured.clamped(toLength: ("" as NSString).length),
+            EditorViewport(selection: NSRange(location: 0, length: 0), topCharacterOffset: 0)
+        )
+    }
 }

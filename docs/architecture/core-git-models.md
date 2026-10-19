@@ -63,9 +63,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `filesToRevert(contextFile:)` is the pure batch-vs-single resolution (if the
     context row is checked, revert every checked file, else just that row);
     `revert(_:)` *re-queries* the repo (`changedFiles`) immediately before *each*
-    file's mutation — the displayed list is a snapshot and nothing watches the
-    filesystem on its behalf (the macOS FSEvents watcher feeds the *project tree*
-    only, never this list), so a destructive revert verifies each file still has the same
+    file's mutation — the displayed list is a snapshot (the macOS FSEvents
+    watcher re-queries it about a second after a change, ignores `.git`, and is
+    nothing a destructive write may rely on), so a destructive revert verifies each file still has the same
     `status`/`oldPath` against fresh state and aborts the batch (with
     `errorMessage`) on any file that changed (e.g. an untracked/added file that
     became tracked and modified, which a stale revert would delete, discarding the
@@ -158,7 +158,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     generation that no longer equals `rootRequestGeneration` (before bumping
     `operationGeneration`, so a dropped refresh supersedes nothing). *Every* app
     refresh call site — folder-open, the post-save refresh, the manual refresh
-    button, and the view's `onAppear`/`onChange` backstop — pins the generation it
+    button, the view's `onAppear`/`onChange` backstop, and the project watcher's
+    `refreshForDiskChange` — pins the generation it
     captured synchronously, so any refresh that ends up running after a newer folder
     switch is rejected here rather than entering `refreshImpl`, where its stale root
     (`!= lastRequestedRoot`) would be misread as a switch *back* to the old repo —
@@ -289,8 +290,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     or `.tooLarge` — the `ChangedFile` it was computed for and the
     `LocalChangesInlineDiff.Fingerprint` it was computed from) is the
     inline diff beside the list, loaded by `loadSelectionDiff(token:)` under a
-    token from `beginSelectionDiffLoad()`, which the view calls
-    **synchronously before the `Task` hop**. A load runs in one fixed order:
+    token from `beginSelectionDiffLoad()`, which the caller claims
+    **synchronously before the `Task` hop** — the view on appear and on a
+    selection change, the model itself at the end of every refresh (below). A load runs in one fixed order:
     **token, then fingerprint, then skip-or-load, then the off-main read and
     diff, then the token re-check, then the main-actor publish.** The
     fingerprint is taken on the main actor (the working-copy stamp is one stat
@@ -334,11 +336,57 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     skip it. Tests: a published diff is gone after `prepareForFolderChange`, a
     refresh resolving a new root clears it while a same-root one keeps it, and
     a load held at a `Gate` in its working-copy read past a switch publishes
-    nothing and never reads `HEAD`. `listRevision` advances on every successful
-    refresh publish — not on a failed one — so the view can re-read the diff
-    after a refresh whose list came out *equal* (an already-modified file
-    edited again), which fires no change of its own. Tests stage the race with
-    a gated `HEAD` read, resolved out of order.
+    nothing and never reads `HEAD`. **A refresh drives the inline diff
+    itself**: `refreshImpl`'s success path, right after `listRevision += 1`,
+    claims `beginSelectionDiffLoad()` synchronously and awaits
+    `loadSelectionDiff(token:)` before `refresh` returns. That is what makes a
+    refresh whose list came out *equal* — an already-modified file edited again,
+    which changes nothing a view could observe — still reach the rebuild,
+    without depending on SwiftUI delivering an `onChange`; the token claimed
+    there lets a newer selection's load outrank it, and `needsRebuild` keeps
+    the common refresh free of reads. Refreshes reach the model from a save,
+    from the app's other worktree-changing paths, and **from every
+    project-watcher event** (`app-shell.md`), which is how an edit made outside
+    the app reaches the list and the diff. The watcher's refresh is its own entry
+    point, `refreshForDiskChange(root:requestGeneration:)`: the same pinned
+    generation rejection, but it is **not a new operation** — it never advances
+    `operationGeneration` — and a successful result **leaves a standing revert
+    error** (`revertErrorStanding`, raised only by `revert`'s three error writes and
+    lowered by every other write to `errorMessage`). The watcher does not filter the
+    app's own `git` children, so a revert's `checkout` raises an event that lands
+    about a second later, mid-batch or just after it; through `refresh` that echo
+    would supersede the revert's trailing error write or clear the published one,
+    and a partly failed destructive batch would report nothing. A manual or
+    save-driven `refresh` still clears it, lowering the flag at its entry so a
+    watcher refresh that supersedes it clears the message in its place. It is also **never a folder switch**:
+    a root other than the one last requested is dropped, because the watcher hops
+    to the main queue and an event for the previous folder can be delivered after
+    the switch carrying the generation read at delivery, which would otherwise pass
+    the pinned check and switch the panel back. **At most one runs at a time**: the
+    watcher fires once per FSEvents batch for as long as a build or an install
+    writes under the root, and a `status` on a large repository can outlast that
+    interval, so events landing while one runs coalesce into **exactly one
+    follow-up**, the newest event, re-validated against the generation and root
+    when it starts — still needed, because the running query may have read the
+    tree before the later change. A change confined to `.git` (a terminal
+    commit or `git add`) raises no watcher event, so it reaches the list on the next
+    save or Refresh. Tests for the entry point: a failed revert's error survives a
+    disk-change refresh and a following `refresh` clears it, a disk-change refresh
+    landing while a failing revert is suspended on its trailing refresh does not
+    suppress that revert's error, a failed refresh's error is cleared by it, and a
+    superseded folder's generation is rejected, and a late event for the previous
+    folder carrying the current generation leaves the panel on the new one; three events
+    during a running disk-change refresh cost one more `status`, not three, and an
+    event for a newly opened folder queued behind the old folder's refresh still
+    runs. Tests: a second refresh with an
+    equal list and a moved stamp rebuilds the published diff with no manual
+    load, an equal list with an unchanged stamp reads nothing, a refresh
+    superseded by a newer selection does not publish over it, a failed refresh
+    leaves the published diff alone, and a refresh with nothing selected
+    publishes `nil`. `listRevision` still advances on every successful refresh
+    publish — not on a failed one — but its readers are now the editor's
+    gutter-marker and blame tokens, not the inline diff. Tests stage the race
+    with a gated `HEAD` read, resolved out of order.
   - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**
     and its **refusal of binary and oversized files**, pure. `Fingerprint` is everything a file's inline diff is computed from as
     far as it can be known without reading a side: the repository root, the

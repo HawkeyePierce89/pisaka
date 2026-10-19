@@ -484,7 +484,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
     commit, headText, checkout, createAndCheckout, restoreFromHead}` (the one place that set lives); exactly three `checkout` spellings,
-    every one with a `--`; and blame's `-w`/`-M` with no `-C`. Whether those
+    every one with a `--`; blame's `-w`/`-M` with no `-C`; and that the one
+    `projectWatcher.start(` callback in `PisakaApp.swift` asks the model's
+    `refreshForDiskChange` and names no writer gate (`app-shell.md`). Whether those
     arguments do what is claimed is a fact about git itself, so
     `GitCLIServiceRepositoryTests` (`PisakaAppTests`) drives the service against a
     real git in throwaway repositories: a local branch named like a tracked
@@ -694,7 +696,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     could not widen the content either. So the content's width is the larger of
     two *measured* values — the pane's visible width, read from AppKit as the
     enclosing clip view's width by a small representable probe
-    (`VisibleWidthProbe`, re-reporting on every clip-frame change), and the
+    (`VisibleSizeProbe`, re-reporting on every clip-frame change), and the
     widest realized row's
     natural width, which each row reports through `onGeometryChange` before its
     fill (the row hugs its content there, holding no spacer, so it reports its
@@ -715,6 +717,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the same suite forces `.legacy` onto the hosted scroll view itself — no
     preference is read or written, so it holds on any machine — and holds the
     content to the clip view's width.
+    **A diff shorter than the pane starts at its top.** A two-axis `ScrollView`
+    centres content shorter than its viewport, so a one-line diff sat in the
+    middle of the pane. The content's minimum height is the clip view's height —
+    the same probe reports the clip *size*, so a legacy horizontal scroller is
+    excluded like the vertical one — with the frame top-leading aligned, so the
+    content is never shorter than the viewport and there is nothing to centre.
+    **The default scroll anchor is not the fix**: `.defaultScrollAnchor(.topLeading)`
+    moved the content to the top on macOS 26 and did nothing on macOS 15, where
+    CI runs — the measured minimum height is what holds on every supported
+    macOS. The placeholders are a separate view that keeps its centred layout.
+    `CommitUnifiedDiffWashTests`' `testAShortDiffStartsAtThePanesTop` renders
+    one `.added` row in a tall pane and asserts the wash's first painted row lies
+    within the 2-point vertical padding of the top edge (it measured 141 points
+    down before, on both systems with the anchor alone on the older one), and a
+    placeholder pane still draws its glyph vertically centred. Because the rows
+    now sit at the top, `DiffWordEmphasisTests`' unified scan drops runs narrower
+    than 1.5 points: the checkbox's anti-aliased edges fall inside its sampled
+    band.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle
@@ -838,11 +858,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     are the code zone, and `DiffView` already declares itself a zoom surface);
     its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
     claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
-    hop** on appear, on every selection change and on every `listRevision`
-    advance (a refresh that left the list equal — an already-modified file
-    edited again — still re-reads). **Whether a trigger does any work is the
-    model's decision, not the view's**: the view fires on every one of those
-    triggers, and `loadSelectionDiff(token:)` compares the selected file's
+    hop** on appear and on every selection change. **The re-read after a
+    refresh is not the view's**: the model starts it itself at the end of every
+    successful refresh publish (`core-git-models.md`), so a refresh that left
+    the list equal — an already-modified file edited again — rebuilds without
+    depending on this view observing anything, and the view's former
+    `onChange(of: model.listRevision)` trigger is gone. **Whether a trigger
+    does any work is the model's decision, not the view's**: the view fires on
+    every one of its triggers, and `loadSelectionDiff(token:)` compares the selected file's
     fingerprint (status, path, old path, `HEAD` object, working-copy stamp)
     with the published diff's and returns without reading when nothing
     changed; when something did, the working-copy read and the line diff run

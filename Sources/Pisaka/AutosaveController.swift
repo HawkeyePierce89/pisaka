@@ -90,9 +90,9 @@ final class AutosaveController {
 
     /// Begin observing the triggers. `onSaved` is invoked (on the main thread,
     /// after a successful autosave that wrote at least one file) so the caller can
-    /// refresh Local Changes — nothing watches the filesystem on *its* behalf (the
-    /// macOS FSEvents `ProjectWatcher` feeds only the project tree), so a save must
-    /// re-run `git status` explicitly.
+    /// refresh Local Changes — the FSEvents `ProjectWatcher` does refresh it, but
+    /// drops this process's own writes (`kFSEventStreamCreateFlagIgnoreSelf`), so
+    /// a save must re-run `git status` explicitly.
     ///
     /// Its `createdFile` argument reports whether at least one of those writes
     /// *created* its file rather than overwriting it (see `missingDirtyPaths(in:)`),

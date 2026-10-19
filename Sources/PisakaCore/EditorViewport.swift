@@ -52,6 +52,10 @@ public struct EditorViewport: Equatable {
     ///   documents the same reasoning.
     /// - A `NSNotFound` or negative location has no meaningful position at all
     ///   and collapses to `{0, 0}`.
+    ///
+    /// Two consumers: the tab-switch restore, reading the memory, and the
+    /// in-place replacement of the *shown* tab, which captures the live viewport
+    /// just before the buffer swap and re-applies it clamped to the new text.
     public func clamped(toLength length: Int) -> EditorViewport {
         let limit = max(0, length)
         let anchor = min(max(topCharacterOffset, 0), max(0, limit - 1))

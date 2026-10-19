@@ -1429,6 +1429,186 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    // MARK: - the project watcher's refresh
+
+    func testADiskChangeRefreshKeepsAFailedRevertsError() async {
+        // The revert's own `git` children write the worktree, so the watcher's
+        // echo lands after the revert has reported: it must not wipe the report.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.files = [a, b]
+        git.revertFailPath = "b.swift"
+        git.onRevert = { git.files = [b] }
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        _ = await model.revert([a, b])
+        let reported = try? XCTUnwrap(model.errorMessage)
+        XCTAssertNotNil(reported)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+
+        XCTAssertEqual(model.errorMessage, reported)
+        XCTAssertEqual(model.changedFiles, [b])
+
+        // A refresh the user asks for still clears it.
+        await model.refresh(root: root, requestGeneration: model.currentRequestGeneration)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testADiskChangeRefreshSupersedingAUserRefreshStillClearsARevertsError() async {
+        // The watcher's echo of a save lands after the save's own refresh started
+        // and supersedes it: the user's request to clear the error must survive.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.files = [a, b]
+        git.revertFailPath = "b.swift"
+        git.onRevert = { git.files = [b] }
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        _ = await model.revert([a, b])
+        XCTAssertNotNil(model.errorMessage)
+
+        git.gateChangedFiles = true
+        let generation = model.currentRequestGeneration
+        let userTask = Task { await model.refresh(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(1, in: git)
+        let diskTask = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(2, in: git)
+        git.release(call: git.gatedCallIndices[1])
+        await diskTask.value
+        git.release(call: git.gatedCallIndices[0])
+        await userTask.value
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.changedFiles, [b])
+    }
+
+    func testADiskChangeRefreshDoesNotSupersedeASuspendedRevertsError() async {
+        // The watcher's refresh lands while a failing revert is suspended on its
+        // trailing refresh: unlike a user's refresh, it is not a newer operation,
+        // so the revert still reports.
+        let git = StubGit()
+        let untracked = ChangedFile(path: "a.txt", status: .untracked)
+        let modified = ChangedFile(path: "a.txt", status: .modified)
+        // call 0: initial refresh; call 1: the revert's re-query (flips a → abort);
+        // call 2: the revert's trailing refresh (gated); call 3: the watcher's.
+        git.resultsPerChangedFilesCall = [[untracked], [modified], [modified], [modified]]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        git.gateChangedFiles = true
+
+        let revertTask = Task { await model.revert([untracked]) }
+        await waitForGatedCalls(1, in: git)
+        git.release(call: 1)
+        await waitForGatedCalls(2, in: git)
+
+        let generation = model.currentRequestGeneration
+        let diskTask = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(3, in: git)
+        git.release(call: 3)
+        await diskTask.value
+        git.release(call: 2)
+        _ = await revertTask.value
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.changedFiles, [modified])
+    }
+
+    func testDiskChangeEventsDuringARunningRefreshCoalesceIntoOneFollowUp() async {
+        // A build writing under the root fires an event per FSEvents batch: the
+        // events landing while one `status` runs must cost one more, not one each.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.resultsPerChangedFilesCall = [[a], [a, b]]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let generation = model.prepareForFolderChange(root: root)
+
+        let first = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(1, in: git)
+        for _ in 0..<3 {
+            await model.refreshForDiskChange(root: root, requestGeneration: generation)
+        }
+        git.release(call: 0)
+        await waitForGatedCalls(2, in: git)
+        git.release(call: 1)
+        await first.value
+
+        XCTAssertEqual(git.gatedCallIndices, [0, 1])
+        XCTAssertEqual(model.changedFiles, [a, b])
+    }
+
+    func testADiskChangeEventForANewFolderQueuedBehindTheOldFoldersRefreshStillRuns() async {
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [a]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let stale = model.prepareForFolderChange(root: root)
+        let first = Task { await model.refreshForDiskChange(root: root, requestGeneration: stale) }
+        await waitForGatedCalls(1, in: git)
+
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+        await model.refreshForDiskChange(root: other, requestGeneration: current)
+        git.release(call: 0)
+        await waitForGatedCalls(2, in: git)
+        git.release(call: 1)
+        await first.value
+
+        XCTAssertEqual(model.root, other)
+        XCTAssertEqual(model.changedFiles, [a])
+    }
+
+    func testADiskChangeRefreshClearsAFailedRefreshsError() async {
+        let git = StubGit()
+        git.error = StubError.boom
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        XCTAssertNotNil(model.errorMessage)
+
+        git.error = nil
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testADiskChangeRefreshForASupersededFolderIsRejected() async {
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [a]
+        let model = makeModel(git: git)
+        let stale = model.prepareForFolderChange(root: root)
+        await model.refresh(root: root, requestGeneration: stale)
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+        await model.refresh(root: other, requestGeneration: current)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: stale)
+
+        XCTAssertEqual(model.root, other)
+    }
+
+    func testALateDiskChangeRefreshForThePreviousFolderIsNotAFolderSwitch() async {
+        // The watcher's event for the old folder is delivered after the switch and
+        // reads the *current* generation then: it must not switch the panel back.
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        let model = makeModel(git: git)
+        await model.refresh(root: root, requestGeneration: model.prepareForFolderChange(root: root))
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+
+        await model.refreshForDiskChange(root: root, requestGeneration: model.currentRequestGeneration)
+        await model.refresh(root: other, requestGeneration: current)
+
+        XCTAssertEqual(model.root, other)
+        XCTAssertEqual(model.currentRequestGeneration, current)
+    }
+
     func testPrepareForFolderChangeBumpsGuardSoSuspendedRevertBails() async {
         // The app records a folder switch synchronously (before the `Task`-wrapped
         // refresh) via `prepareForFolderChange`. A revert already suspended on its
@@ -2060,6 +2240,91 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
     }
 
+    /// The refresh alone rebuilds the diff: no view-driven load follows it, so
+    /// an equal list — which fires no change a view could observe — still
+    /// reaches the rebuild. Failed before the model drove the load itself.
+    func testARefreshAloneRebuildsTheDiffOfAnEditedSelectedFile() async {
+        let (model, _, files) = await loadedModifiedFile()
+
+        files.contentsByPath["/repo/a.swift"] = "newer\n"
+        files.stampsByPath["/repo/a.swift"] = stampB
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "newer\n")))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
+    }
+
+    func testARefreshAloneDoesNoInlineDiffWorkWhenNothingChanged() async {
+        let (model, git, files) = await loadedModifiedFile()
+        let published = model.selectionDiff
+        let headReads = git.headReads.count
+        let headSizeReads = git.headSizeReads.count
+        let workingReads = files.reads.count
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(git.headReads.count, headReads)
+        XCTAssertEqual(git.headSizeReads.count, headSizeReads)
+        XCTAssertEqual(files.reads.count, workingReads)
+        XCTAssertEqual(model.selectionDiff, published)
+    }
+
+    func testARefreshsLoadSupersededByANewerSelectionNeverPublishes() async {
+        // The refresh's own load for `older` is held at its HEAD read while the
+        // user selects `newer`; the newer selection's diff must stay on screen.
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified, headObject: "o")
+        let newer = ChangedFile(path: "newer.swift", status: .modified, headObject: "n")
+        git.files = [older, newer]
+        git.headByPath = ["older.swift": "o1\n", "newer.swift": "n1\n"]
+        let files = StubFiles()
+        files.contentsByPath = ["/repo/older.swift": "o2\n", "/repo/newer.swift": "n2\n"]
+        files.stampsByPath = ["/repo/older.swift": stampA, "/repo/newer.swift": stampA]
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(older)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        files.stampsByPath["/repo/older.swift"] = stampB
+        git.gatedHeadPaths = ["older.swift"]
+        let refresh = Task { await model.refresh(root: root) }
+        await waitFor("the refresh's load to reach its HEAD read") { git.suspendedHeadPaths == ["older.swift"] }
+
+        model.select(newer)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+
+        git.releaseHead("older.swift")
+        await refresh.value
+
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "n1\n", new: "n2\n")))
+    }
+
+    func testAFailedRefreshLeavesThePublishedDiffAlone() async {
+        let (model, git, files) = await loadedModifiedFile()
+        let published = model.selectionDiff
+        let headReads = git.headReads.count
+        let workingReads = files.reads.count
+
+        git.error = StubError.boom
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.selectionDiff, published)
+        XCTAssertEqual(git.headReads.count, headReads)
+        XCTAssertEqual(files.reads.count, workingReads)
+    }
+
+    func testARefreshWithNothingSelectedPublishesNil() async {
+        let (model, _, _) = await loadedModifiedFile()
+        model.select(nil)
+        XCTAssertNotNil(model.selectionDiff)
+
+        await model.refresh(root: root)
+
+        XCTAssertNil(model.selectionDiff)
+    }
+
     func testAHeadOnlyChangeRefreshesTheDiff() async {
         // A partial commit of the selected file: HEAD moves, the status, path
         // and working copy (stamp included) do not.
@@ -2081,9 +2346,9 @@ final class LocalChangesModelTests: XCTestCase {
         let headReads = git.headReads.count
         let workingReads = files.reads.count
 
-        // Nothing changed, but the stamp is unknown: every load reads again.
+        // Nothing changed, but the stamp is unknown: the refresh's own load
+        // reads again.
         await model.refresh(root: root)
-        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
         XCTAssertEqual(git.headReads.count, headReads + 1)
         XCTAssertEqual(files.reads.count, workingReads + 1)
@@ -2393,12 +2658,25 @@ final class LocalChangesModelTests: XCTestCase {
         files.contentsByPath["/repo/a.bin"] = "new\n"
         let model = await selectedFile(git: git, files: files)
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
-        XCTAssertNotNil(model.selectionDiff)
+        let previous = model.selectionDiff
+        XCTAssertNotNil(previous)
 
-        git.repoRoot = URL(fileURLWithPath: "/elsewhere")
-        await model.refresh(root: root)
+        let elsewhere = URL(fileURLWithPath: "/elsewhere")
+        git.repoRoot = elsewhere
+        let gate = Gate()
+        files.readGate = gate
+        let refresh = Task { await model.refresh(root: root) }
+        await gate.waitUntilReached()
 
+        // The previous repository's diff is gone while the refresh's own load is
+        // still reading — the drop, not the rebuild, is what takes it off screen.
         XCTAssertNil(model.selectionDiff)
+
+        gate.release()
+        await refresh.value
+        // The load then publishes one computed against the new root, never the old one.
+        XCTAssertNotEqual(model.selectionDiff, previous)
+        XCTAssertEqual(model.selectionDiff?.fingerprint.root, elsewhere)
     }
 
     func testASameRootRefreshKeepsThePublishedDiff() async {

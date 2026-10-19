@@ -776,6 +776,14 @@ struct CodeEditorView: NSViewRepresentable {
         // own undo/redo stack across switches and one file's edits can never be
         // undone onto another's contents.
         let contentReplaced = switchedFile || textView.string != text
+        // Where the *displayed* tab is sitting, read off the live view before
+        // the swap below discards it: an in-place replacement (a silent reload,
+        // Reload from the bar, Replace All, a post-operation `reloadFromDisk`, a
+        // merge apply, a Local History restore) re-applies it afterwards rather
+        // than leaving the caret at the end of the new text. A local value, not
+        // the viewport memory: the memory records where a tab was *left*, and
+        // the `externallyReplaced` forget below is that store's own rule.
+        let preserved = (contentReplaced && !switchedFile) ? context.coordinator.captureViewport() : nil
         if contentReplaced {
             // A *plain tab switch* (the incoming file's own text, untouched while
             // it sat off screen) is not D32's wholesale replacement: the store is
@@ -1058,17 +1066,18 @@ struct CodeEditorView: NSViewRepresentable {
         //   minimap/bracket/search/blame reconciliation above so the bounds
         //   notification the scroll posts refreshes geometry that already describes
         //   the incoming file rather than the outgoing one.
-        // - Only on a *switch*: an update driven by an ordinary keystroke must
-        //   leave the user's own scrolling alone.
+        // - Only on a *switch* from the memory: an update driven by an ordinary
+        //   keystroke must leave the user's own scrolling alone. An in-place
+        //   replacement of the shown tab re-applies the live position captured
+        //   before the swap instead, clamped to the new text by the same rule.
         // - An explicit reveal outranks the memory. Activating a Find in Files
         //   result (or a go-to-definition) in an already-open background tab is a
         //   switch too, and must land on the match rather than on where the tab
         //   happened to be; `hasPendingReveal` asks the question without consuming
         //   the request, which `applyReveal` below still does.
-        if switchedFile,
-           !context.coordinator.hasPendingReveal(reveal.request, fileID: fileID) {
-            context.coordinator.restoreViewport(for: fileID)
-        }
+        context.coordinator.restoreViewportAfterUpdate(
+            fileID: fileID, switchedFile: switchedFile, preserved: preserved, reveal: reveal.request
+        )
 
         // Consume a pending Find in Files activation. Deliberately *after* the
         // buffer swap above: when the activation opened the file, this very update
@@ -1087,8 +1096,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         // Once the incoming tab's selection is restored or revealed, say where
         // its caret is outright: a restore that leaves the selection where the
-        // outgoing tab had it sends no selection change at all.
-        if switchedFile || gainedCaretListener {
+        // outgoing tab had it sends no selection change at all — nor does an
+        // in-place re-apply, which would otherwise leave the readout on the
+        // swap's end-of-file value.
+        if switchedFile || contentReplaced || gainedCaretListener {
             context.coordinator.reportCaretPosition(of: textView)
         }
         // The same reason, for the current-line wash: a restored selection that
@@ -3803,6 +3814,28 @@ struct CodeEditorView: NSViewRepresentable {
             // that exists, so there is exactly one path below.
             textView.setSelectedRange(viewport.selection)
             scrollAnchor(to: viewport.topCharacterOffset)
+        }
+
+        /// The viewport tail of `updateNSView`. A switch restores the incoming
+        /// tab from the memory (`restoreViewport(for:)`); an in-place
+        /// replacement of the shown tab re-applies `preserved`, the live
+        /// position `updateNSView` captured just before the swap, clamped by the
+        /// same `EditorViewport.clamped(toLength:)` — so a caret past a shrunken
+        /// new end lands at the end and a stale anchor names the last character;
+        /// an ordinary update does nothing. A pending reveal outranks both,
+        /// asked without consuming it.
+        func restoreViewportAfterUpdate(
+            fileID: UUID, switchedFile: Bool, preserved: EditorViewport?, reveal: EditorRevealState.Request?
+        ) {
+            guard switchedFile || preserved != nil, !hasPendingReveal(reveal, fileID: fileID) else { return }
+            guard !switchedFile else { return restoreViewport(for: fileID) }
+            guard let textView, let preserved else { return }
+            let clamped = preserved.clamped(toLength: textView.textStorage?.length ?? 0)
+            // The swap moved the caret on its own, so no direction may be read
+            // across it.
+            forgetFoldSelectionDirection()
+            textView.setSelectedRange(clamped.selection)
+            scrollAnchor(to: clamped.topCharacterOffset)
         }
 
         /// Scroll so the character at `anchor` sits at the top of the viewport,

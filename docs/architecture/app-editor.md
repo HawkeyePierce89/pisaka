@@ -731,9 +731,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     with the file id and the position of the selection's
     **trailing end** (`NSMaxRange`), so a selection still reads a position — at
     the end of every `textViewDidChangeSelection`, and at the end of an update
-    that **switched tabs** or **gained the listener**, after the viewport restore
-    and the reveal — a restore that leaves the selection where the outgoing tab
-    had it sends no selection change at all. `makeNSView` deliberately leaves
+    that **switched tabs**, **replaced the content** or **gained the listener**,
+    after the viewport restore and the reveal — a restore that leaves the
+    selection where the outgoing tab had it sends no selection change at all, and
+    neither does the in-place re-apply below, which would otherwise leave the
+    readout on the swap's end-of-file value. `makeNSView` deliberately leaves
     `reportCaret` unassigned, so the update SwiftUI runs straight after it reads
     as gaining the listener and reports the new editor's caret before any move
     (the scroll listener's own gained-listener idiom, and it keeps `makeNSView`
@@ -841,8 +843,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     immediately discards it again, since the id is no longer in `openFileIDs`, so a
     closed tab retains nothing and reopening the file starts at the top, whereas
     recording afterwards would leave that entry alive for the app run. The restore
-    runs *last*, on a `switchedFile` update only (an ordinary keystroke must leave
-    the user's own scrolling alone) and after the highlighter/minimap/bracket/
+    runs *last*, on a `switchedFile` update (or, from a live capture rather than
+    the memory, on an in-place replacement — below; an ordinary keystroke must
+    leave the user's own scrolling alone) and after the highlighter/minimap/bracket/
     search/blame reconciliation, so the bounds notification the scroll posts
     refreshes geometry that already describes the incoming file. **An explicit
     reveal outranks the memory**: activating a Find in Files result or a
@@ -867,6 +870,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     characters the incoming text
     never had, so `forgetViewport(for:)` runs and the restore finds nothing and
     writes the top-of-file state, exactly as on a first visit.
+    **An in-place replacement of the *displayed* tab keeps its position.** Every
+    path that rewrites the shown buffer — the watcher's and activation's silent
+    reloads, Reload from the external-change bar, Replace All, a post-operation
+    `reloadFromDisk`, a merge apply, a Local History restore — reaches the one
+    `textView.string = text` swap, which on its own leaves the caret at the end of
+    the new text. So when `contentReplaced && !switchedFile`, `updateNSView` takes
+    `captureViewport()` off the live view *before* the swap, into a local, and
+    `restoreViewportAfterUpdate(fileID:switchedFile:preserved:reveal:)` — the
+    viewport tail that also dispatches the switch restore, merged so `updateNSView`
+    stays under its body and file ceilings — re-applies it at the restore's point
+    in the ordering, clamped by the same `EditorViewport.clamped(toLength:)`: a
+    caret inside an unchanged prefix stays put, a caret or selection past a
+    shrunken new end lands at (or is truncated to) the end, and a stale anchor
+    names the last character. It clears the fold-selection direction, as the
+    switch restore does, since the swap moved the caret on its own. **It does not
+    go through the memory**, for two reasons: the `externallyReplaced` branch
+    above already calls `forgetViewport(for:)` — the signal fires for the shown
+    tab too — so recording into the store would mean reordering a forget the
+    off-screen rule depends on; and the store's entry says where a tab was
+    *left*, not where it is now. A value captured before the swap and applied
+    after it touches neither rule. A pending reveal outranks it exactly as it
+    outranks the switch restore, and the **off-screen case is unchanged**: a
+    switch onto an externally replaced tab still forgets and starts at the top.
+    `InPlaceReplacementViewportTests` pins both the kept caret and anchor and the
+    truncation past a shrunken end through a real `reloadFromDisk`; the clamp
+    cases are `EditorViewportTests`'.
     `pruneUndoManagers(keeping:)` is renamed
     `prunePerFileState(keeping:)` accordingly: it already pruned
     `externalTextRevisions` as well as the undo managers, and now prunes a third

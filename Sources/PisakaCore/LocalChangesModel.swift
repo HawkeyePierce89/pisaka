@@ -137,7 +137,8 @@ public final class LocalChangesModel: ObservableObject {
     /// `errorMessage` writes against an *older* operation restoring a stale
     /// message over a newer one's result *within the same project*. The UI lets
     /// operations overlap (a save's auto-refresh, the manual refresh button, a
-    /// second context-menu revert), so an older failed revert suspended on its
+    /// second context-menu revert; the project watcher's `refreshForDiskChange`
+    /// deliberately is not one), so an older failed revert suspended on its
     /// internal `await refresh` can resume after a newer refresh/revert already
     /// published — and without this would clobber it. `revert` captures the token
     /// at entry; its own internal refreshes go through the non-bumping
@@ -145,6 +146,14 @@ public final class LocalChangesModel: ObservableObject {
     /// of `revert`'s error writes is gated on the token still matching (so a
     /// superseded revert drops its message instead of overwriting newer state).
     private var operationGeneration = 0
+
+    /// `true` while `errorMessage` is the failure a `revert` reported, the only
+    /// feedback a destructive batch gives about the files it did not reach.
+    /// `refreshForDiskChange` leaves such a message standing: the revert's own
+    /// `git` children write the worktree, and the watcher event they raise lands
+    /// about a second later, so clearing it there would wipe the report before it
+    /// was read. Every other write to `errorMessage` lowers it.
+    private var revertErrorStanding = false
 
     public init(gitService: GitServicing, fileService: FileServicing = FileService()) {
         self.gitService = gitService
@@ -325,7 +334,8 @@ public final class LocalChangesModel: ObservableObject {
         // — before bumping `operationGeneration`, so a dropped refresh supersedes
         // nothing — keeps the latest folder-open request authoritative. Every app
         // refresh call site (folder-open, the post-save refresh, the manual refresh
-        // button, and the view's `onAppear`/`onChange` backstop) now passes the
+        // button, the view's `onAppear`/`onChange` backstop, and the project
+        // watcher's `refreshForDiskChange`) now passes the
         // generation captured *synchronously* at the call site, so any of them that
         // ends up running after a newer folder switch is rejected here rather than
         // entering `refreshImpl` and being misread as a switch *back* to its
@@ -340,8 +350,60 @@ public final class LocalChangesModel: ObservableObject {
         // go through `refreshImpl` instead, so they do not advance it (a revert
         // must not suppress its *own* error via its *own* refresh).
         operationGeneration += 1
+        // The user's intent to clear a standing revert error is recorded here,
+        // synchronously, rather than only when this refresh publishes: a watcher
+        // echo started after it supersedes it through `refreshGeneration`, and
+        // would otherwise publish while still keeping the error this refresh was
+        // asked to clear.
+        revertErrorStanding = false
         await refreshImpl(root: root)
     }
+
+    /// The refresh the project watcher asks for when a file changed on disk.
+    ///
+    /// The same pinned-generation rejection as `refresh`, but it is not a new
+    /// top-level operation: it never advances `operationGeneration`, and a
+    /// successful result leaves a standing revert error in place. The app's own
+    /// `git` children (a revert's `checkout`, a branch switch, a pull) are not
+    /// filtered by the watcher, so an event it delivers may be the echo of an
+    /// operation still in flight or just finished; superseding a revert from
+    /// there, or clearing its message, would make a partly failed batch report
+    /// nothing. A user's manual or save-driven `refresh` still clears it — it
+    /// lowers the standing flag at its entry, so a watcher refresh that
+    /// supersedes it clears the message in its place.
+    ///
+    /// It is also never a folder switch: a `root` other than the one last
+    /// requested is dropped. The watcher hops to the main queue, so an event for
+    /// the previous folder can be delivered after the switch, carrying the
+    /// generation read at delivery; without this it would pass the pinned check
+    /// and be misread as a switch back, stranding the panel on that folder.
+    ///
+    /// At most one runs at a time. The watcher fires once per FSEvents batch for
+    /// as long as anything under the root is being written — a build, an
+    /// install — and a `status` on a large repository can outlast that interval,
+    /// so events arriving while one runs are coalesced into exactly one
+    /// follow-up, started when it finishes and re-validated then. The follow-up
+    /// is still needed: the running query may have read the tree before the
+    /// change that raised the later event.
+    public func refreshForDiskChange(root: URL, requestGeneration: Int) async {
+        if requestGeneration != rootRequestGeneration { return }
+        guard root == lastRequestedRoot else { return }
+        pendingDiskChange = (root, requestGeneration)
+        guard !diskChangeRefreshRunning else { return }
+        diskChangeRefreshRunning = true
+        defer { diskChangeRefreshRunning = false }
+        while let next = pendingDiskChange {
+            pendingDiskChange = nil
+            guard next.generation == rootRequestGeneration,
+                  next.root == lastRequestedRoot else { continue }
+            await refreshImpl(root: next.root, keepingRevertError: true)
+        }
+    }
+
+    /// The single disk-change refresh in flight, and the one event (the
+    /// newest, already validated at its delivery) waiting behind it.
+    private var diskChangeRefreshRunning = false
+    private var pendingDiskChange: (root: URL, generation: Int)?
 
     /// Synchronously record that the opened project is switching to `root`,
     /// *before* launching the async `refresh` that queries it.
@@ -375,6 +437,7 @@ public final class LocalChangesModel: ObservableObject {
         selected = nil
         revertSelection = []
         errorMessage = nil
+        revertErrorStanding = false
         clearSelectionDiff()
         return rootRequestGeneration
     }
@@ -387,7 +450,7 @@ public final class LocalChangesModel: ObservableObject {
     /// project is rejected if the opened folder changed before the task ran.
     public var currentRequestGeneration: Int { rootRequestGeneration }
 
-    private func refreshImpl(root: URL) async {
+    private func refreshImpl(root: URL, keepingRevertError: Bool = false) async {
         refreshGeneration += 1
         let generation = refreshGeneration
         // A change of opened folder invalidates the currently displayed files
@@ -408,6 +471,7 @@ public final class LocalChangesModel: ObservableObject {
             selected = nil
             revertSelection = []
             errorMessage = nil
+            revertErrorStanding = false
             clearSelectionDiff()
         }
         // The request generation this refresh's `root` corresponds to (captured
@@ -433,7 +497,10 @@ public final class LocalChangesModel: ObservableObject {
             projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
-            errorMessage = nil
+            if !(keepingRevertError && revertErrorStanding) {
+                errorMessage = nil
+                revertErrorStanding = false
+            }
             // Reconcile the checkbox set and selection against the refreshed
             // list in one pure step (clear-on-root-change vs intersect, plus the
             // selection re-bind) — see `reconcile`.
@@ -452,6 +519,13 @@ public final class LocalChangesModel: ObservableObject {
             // until the next selection load.
             if previousRoot != repoRoot { clearSelectionDiff() }
             listRevision += 1
+            // The refresh drives the inline diff itself, so an equal list — an
+            // already-modified file edited again, which changes nothing a view
+            // could observe — still reaches the rebuild. The token is claimed
+            // here, synchronously, so a newer selection's load outranks this one;
+            // `needsRebuild` keeps the common refresh free of reads.
+            let token = beginSelectionDiffLoad()
+            await loadSelectionDiff(token: token)
         } catch {
             // Same stale-result guards on the failure path: a superseded refresh —
             // whether superseded by a newer refresh of the same folder
@@ -474,6 +548,7 @@ public final class LocalChangesModel: ObservableObject {
             // the now-empty `changedFiles`.
             revertSelection = []
             errorMessage = error.localizedDescription
+            revertErrorStanding = false
         }
     }
 
@@ -548,8 +623,8 @@ public final class LocalChangesModel: ObservableObject {
     /// deleting the no-`HEAD` cases) via the injected `GitServicing`.
     ///
     /// Destructive and irreversible — callers confirm first. The displayed list is
-    /// a snapshot and nothing watches the filesystem on its behalf (the macOS
-    /// FSEvents watcher feeds the *project tree* only, never this list), so
+    /// a snapshot, and the macOS FSEvents watcher's refresh of it trails a disk
+    /// change by its coalescing delay (and never fires on iOS), so
     /// immediately before
     /// *each* file's mutation the repository is re-queried and that file is checked
     /// against its *current* status: a file that changed (e.g. an untracked/added
@@ -680,6 +755,7 @@ public final class LocalChangesModel: ObservableObject {
                     // we would restore this stale error over the newer result).
                     if projectStillCurrent() && operationStillLatest() {
                         errorMessage = message
+                        revertErrorStanding = true
                     }
                 }
                 return revertedURLs
@@ -703,6 +779,7 @@ public final class LocalChangesModel: ObservableObject {
                 // this revert was not superseded by a newer same-project operation.
                 if projectStillCurrent() && operationStillLatest() {
                     errorMessage = reason
+                    revertErrorStanding = true
                 }
                 return revertedURLs
             }
@@ -745,6 +822,7 @@ public final class LocalChangesModel: ObservableObject {
                     // and a newer same-project operation has not superseded us.
                     if projectStillCurrent() && operationStillLatest() {
                         errorMessage = message
+                        revertErrorStanding = true
                     }
                 }
                 return revertedURLs
@@ -755,6 +833,7 @@ public final class LocalChangesModel: ObservableObject {
         // repository over a project the user switched to mid-revert.
         if projectStillCurrent() {
             errorMessage = nil
+            revertErrorStanding = false
             await refreshImpl(root: requestedRoot)
             // `refresh` awaited; only update the checked set if the project is still
             // current and no newer same-project operation has superseded us (a
@@ -814,9 +893,10 @@ public final class LocalChangesModel: ObservableObject {
     /// superseded, or `nil` once a load finds nothing selected.
     @Published public private(set) var selectionDiff: SelectionDiff?
 
-    /// Bumped on every successful refresh publish, so a view can reload the
-    /// inline diff after a refresh that left the list *equal* (an already
-    /// modified file edited again) and therefore fired no change of its own.
+    /// Bumped on every successful refresh publish, even one that left the list
+    /// *equal* and therefore fired no change of its own. Its readers are the
+    /// editor's gutter-marker and blame tokens; the inline diff no longer reads
+    /// it, because the refresh now starts that load itself (`refreshImpl`).
     @Published public private(set) var listRevision = 0
 
     /// Orders overlapping inline-diff loads; see `beginSelectionDiffLoad()`.

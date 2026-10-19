@@ -38,7 +38,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     problem to act on; macOS has no stock equivalent and keeps the beep for both,
     so the split costs nothing there.
   - `Platform/PlatformAlert.swift` — `presentMessage` over `NSAlert` /
-    `UIAlertController`.
+    `UIAlertController`. On macOS a one-button `NSAlert` gives Esc no answer of
+    its own, so the key fell through to the window beneath — the commit dialog's
+    sheet closed under the "unsaved changes are not included" notice. For the
+    duration of `runModal()` a local key-down monitor answers Esc by
+    `NSApp.stopModal(withCode: .alertFirstButtonReturn)` and **consumes** the
+    event, so nothing beneath sees it; it is removed in a `defer`, and Return
+    stays the default button's. The key test is
+    `answersAsDismiss(_:)` — a key-down that is Esc (key code 53 or the escape
+    character) carrying none of ⌘, ⌥ or ⌃, so a chord containing Esc keeps its
+    own meaning — factored out so `MessageAlertKeyTests` (app-layer) pins it
+    with synthesized events; the modal session itself needs an active app. The
+    iOS branch is unchanged.
   - `Platform/PlatformRoute.swift` — `RoutePresentation` (separate window on
     macOS; sheet / navigation push on iOS, compact-vs-regular aware).
   - `Platform/LicenseCatalogLoader.swift` — the bundled-license reader shared by
