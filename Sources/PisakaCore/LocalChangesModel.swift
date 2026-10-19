@@ -452,6 +452,13 @@ public final class LocalChangesModel: ObservableObject {
             // until the next selection load.
             if previousRoot != repoRoot { clearSelectionDiff() }
             listRevision += 1
+            // The refresh drives the inline diff itself, so an equal list — an
+            // already-modified file edited again, which changes nothing a view
+            // could observe — still reaches the rebuild. The token is claimed
+            // here, synchronously, so a newer selection's load outranks this one;
+            // `needsRebuild` keeps the common refresh free of reads.
+            let token = beginSelectionDiffLoad()
+            await loadSelectionDiff(token: token)
         } catch {
             // Same stale-result guards on the failure path: a superseded refresh —
             // whether superseded by a newer refresh of the same folder
@@ -814,9 +821,10 @@ public final class LocalChangesModel: ObservableObject {
     /// superseded, or `nil` once a load finds nothing selected.
     @Published public private(set) var selectionDiff: SelectionDiff?
 
-    /// Bumped on every successful refresh publish, so a view can reload the
-    /// inline diff after a refresh that left the list *equal* (an already
-    /// modified file edited again) and therefore fired no change of its own.
+    /// Bumped on every successful refresh publish, even one that left the list
+    /// *equal* and therefore fired no change of its own. Its readers are the
+    /// editor's gutter-marker and blame tokens; the inline diff no longer reads
+    /// it, because the refresh now starts that load itself (`refreshImpl`).
     @Published public private(set) var listRevision = 0
 
     /// Orders overlapping inline-diff loads; see `beginSelectionDiffLoad()`.

@@ -115,22 +115,22 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 - Modify: `Sources/Pisaka/LocalChangesView.swift`
 - Modify: `Tests/PisakaCoreTests/LocalChangesModelTests.swift`
 
-- [ ] Write the failing test first:
+- [x] Write the failing test first:
   - load a selected modified file;
   - change its working contents and move its stamp, keeping the git list equal;
   - `await model.refresh(root:)` with no manual `loadSelectionDiff`;
   - assert `selectionDiff` holds the new rows and the new stamp.
 
   Confirm it fails on the current code.
-- [ ] In `refreshImpl`'s success path, right after `listRevision += 1`, claim `beginSelectionDiffLoad()` synchronously and `await loadSelectionDiff(token:)`. The existing token checks keep a newer selection's load authoritative.
-- [ ] Remove `LocalChangesView`'s `.onChange(of: model.listRevision)` trigger and keep the `selected` trigger and `onAppear`. Update the comment there and the `listRevision` doc comment: its readers are now the gutter and blame tokens, not the inline diff.
-- [ ] Add tests for the edge cases:
+- [x] In `refreshImpl`'s success path, right after `listRevision += 1`, claim `beginSelectionDiffLoad()` synchronously and `await loadSelectionDiff(token:)`. The existing token checks keep a newer selection's load authoritative.
+- [x] Remove `LocalChangesView`'s `.onChange(of: model.listRevision)` trigger and keep the `selected` trigger and `onAppear`. Update the comment there and the `listRevision` doc comment: its readers are now the gutter and blame tokens, not the inline diff.
+- [x] Add tests for the edge cases:
   - an equal list with an unchanged stamp does no read (the existing no-work property, now through `refresh` alone);
   - a refresh superseded by a newer selection does not publish over it;
   - a failed refresh does not touch the published diff;
   - a refresh with nothing selected publishes `nil`.
-- [ ] Adjust any existing test that relied on `refresh` doing no inline-diff work.
-- [ ] Run `swift test`. It must pass before Task 4.
+- [x] Adjust any existing test that relied on `refresh` doing no inline-diff work. (Two: `testAnUnknownStampAlwaysRebuilds` now counts the refresh's own read, and `testARefreshResolvingANewRootDropsThePublishedDiff` asserts the old repository's diff is replaced by one computed against the new root, since the refresh now reloads it.)
+- [x] Run `swift test`. It must pass before Task 4.
 
 ### Task 4: R2 — external edits refresh Local Changes through the watcher
 

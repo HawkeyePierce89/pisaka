@@ -2060,6 +2060,91 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
     }
 
+    /// The refresh alone rebuilds the diff: no view-driven load follows it, so
+    /// an equal list — which fires no change a view could observe — still
+    /// reaches the rebuild. Failed before the model drove the load itself.
+    func testARefreshAloneRebuildsTheDiffOfAnEditedSelectedFile() async {
+        let (model, _, files) = await loadedModifiedFile()
+
+        files.contentsByPath["/repo/a.swift"] = "newer\n"
+        files.stampsByPath["/repo/a.swift"] = stampB
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "old\n", new: "newer\n")))
+        XCTAssertEqual(model.selectionDiff?.fingerprint.workingStamp, stampB)
+    }
+
+    func testARefreshAloneDoesNoInlineDiffWorkWhenNothingChanged() async {
+        let (model, git, files) = await loadedModifiedFile()
+        let published = model.selectionDiff
+        let headReads = git.headReads.count
+        let headSizeReads = git.headSizeReads.count
+        let workingReads = files.reads.count
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(git.headReads.count, headReads)
+        XCTAssertEqual(git.headSizeReads.count, headSizeReads)
+        XCTAssertEqual(files.reads.count, workingReads)
+        XCTAssertEqual(model.selectionDiff, published)
+    }
+
+    func testARefreshsLoadSupersededByANewerSelectionNeverPublishes() async {
+        // The refresh's own load for `older` is held at its HEAD read while the
+        // user selects `newer`; the newer selection's diff must stay on screen.
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified, headObject: "o")
+        let newer = ChangedFile(path: "newer.swift", status: .modified, headObject: "n")
+        git.files = [older, newer]
+        git.headByPath = ["older.swift": "o1\n", "newer.swift": "n1\n"]
+        let files = StubFiles()
+        files.contentsByPath = ["/repo/older.swift": "o2\n", "/repo/newer.swift": "n2\n"]
+        files.stampsByPath = ["/repo/older.swift": stampA, "/repo/newer.swift": stampA]
+        let model = makeModel(git: git, files: files)
+        await model.refresh(root: root)
+        model.select(older)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+
+        files.stampsByPath["/repo/older.swift"] = stampB
+        git.gatedHeadPaths = ["older.swift"]
+        let refresh = Task { await model.refresh(root: root) }
+        await waitFor("the refresh's load to reach its HEAD read") { git.suspendedHeadPaths == ["older.swift"] }
+
+        model.select(newer)
+        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+
+        git.releaseHead("older.swift")
+        await refresh.value
+
+        XCTAssertEqual(model.selectionDiff?.file, newer)
+        XCTAssertEqual(model.selectionDiff?.content, .rows(LineDiff.rows(old: "n1\n", new: "n2\n")))
+    }
+
+    func testAFailedRefreshLeavesThePublishedDiffAlone() async {
+        let (model, git, files) = await loadedModifiedFile()
+        let published = model.selectionDiff
+        let headReads = git.headReads.count
+        let workingReads = files.reads.count
+
+        git.error = StubError.boom
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.selectionDiff, published)
+        XCTAssertEqual(git.headReads.count, headReads)
+        XCTAssertEqual(files.reads.count, workingReads)
+    }
+
+    func testARefreshWithNothingSelectedPublishesNil() async {
+        let (model, _, _) = await loadedModifiedFile()
+        model.select(nil)
+        XCTAssertNotNil(model.selectionDiff)
+
+        await model.refresh(root: root)
+
+        XCTAssertNil(model.selectionDiff)
+    }
+
     func testAHeadOnlyChangeRefreshesTheDiff() async {
         // A partial commit of the selected file: HEAD moves, the status, path
         // and working copy (stamp included) do not.
@@ -2081,9 +2166,9 @@ final class LocalChangesModelTests: XCTestCase {
         let headReads = git.headReads.count
         let workingReads = files.reads.count
 
-        // Nothing changed, but the stamp is unknown: every load reads again.
+        // Nothing changed, but the stamp is unknown: the refresh's own load
+        // reads again.
         await model.refresh(root: root)
-        await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
 
         XCTAssertEqual(git.headReads.count, headReads + 1)
         XCTAssertEqual(files.reads.count, workingReads + 1)
@@ -2393,12 +2478,17 @@ final class LocalChangesModelTests: XCTestCase {
         files.contentsByPath["/repo/a.bin"] = "new\n"
         let model = await selectedFile(git: git, files: files)
         await model.loadSelectionDiff(token: model.beginSelectionDiffLoad())
-        XCTAssertNotNil(model.selectionDiff)
+        let previous = model.selectionDiff
+        XCTAssertNotNil(previous)
 
-        git.repoRoot = URL(fileURLWithPath: "/elsewhere")
+        let elsewhere = URL(fileURLWithPath: "/elsewhere")
+        git.repoRoot = elsewhere
         await model.refresh(root: root)
 
-        XCTAssertNil(model.selectionDiff)
+        // The previous repository's diff is gone; the refresh's own load then
+        // publishes one computed against the new root, never the old one.
+        XCTAssertNotEqual(model.selectionDiff, previous)
+        XCTAssertEqual(model.selectionDiff?.fingerprint.root, elsewhere)
     }
 
     func testASameRootRefreshKeepsThePublishedDiff() async {

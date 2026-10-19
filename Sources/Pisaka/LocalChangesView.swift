@@ -124,11 +124,11 @@ struct LocalChangesView: View {
             loadSelectionDiff()
         }
         .onChange(of: projectRoot) { newRoot in refresh(root: newRoot) }
-        // The inline diff follows the selection, and re-reads after every
-        // refresh — `listRevision` advances even when the refreshed list is equal,
-        // which is exactly when an already-modified file was edited again.
+        // The inline diff follows the selection here. The re-read after a refresh
+        // is the model's own (`LocalChangesModel.refreshImpl` starts it), so an
+        // equal list — an already-modified file edited again — rebuilds without
+        // depending on this view observing anything.
         .onChange(of: model.selected) { _ in loadSelectionDiff() }
-        .onChange(of: model.listRevision) { _ in loadSelectionDiff() }
         // The focus anchor sits on the outer VStack (not the list) so focus
         // survives placeholder states and an empty change list.
         .background(
