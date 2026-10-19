@@ -377,11 +377,33 @@ public final class LocalChangesModel: ObservableObject {
     /// the previous folder can be delivered after the switch, carrying the
     /// generation read at delivery; without this it would pass the pinned check
     /// and be misread as a switch back, stranding the panel on that folder.
+    ///
+    /// At most one runs at a time. The watcher fires once per FSEvents batch for
+    /// as long as anything under the root is being written — a build, an
+    /// install — and a `status` on a large repository can outlast that interval,
+    /// so events arriving while one runs are coalesced into exactly one
+    /// follow-up, started when it finishes and re-validated then. The follow-up
+    /// is still needed: the running query may have read the tree before the
+    /// change that raised the later event.
     public func refreshForDiskChange(root: URL, requestGeneration: Int) async {
         if requestGeneration != rootRequestGeneration { return }
         guard root == lastRequestedRoot else { return }
-        await refreshImpl(root: root, keepingRevertError: true)
+        pendingDiskChange = (root, requestGeneration)
+        guard !diskChangeRefreshRunning else { return }
+        diskChangeRefreshRunning = true
+        defer { diskChangeRefreshRunning = false }
+        while let next = pendingDiskChange {
+            pendingDiskChange = nil
+            guard next.generation == rootRequestGeneration,
+                  next.root == lastRequestedRoot else { continue }
+            await refreshImpl(root: next.root, keepingRevertError: true)
+        }
     }
+
+    /// The single disk-change refresh in flight, and the one event (the
+    /// newest, already validated at its delivery) waiting behind it.
+    private var diskChangeRefreshRunning = false
+    private var pendingDiskChange: (root: URL, generation: Int)?
 
     /// Synchronously record that the opened project is switching to `root`,
     /// *before* launching the async `refresh` that queries it.

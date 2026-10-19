@@ -1516,6 +1516,53 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(model.changedFiles, [modified])
     }
 
+    func testDiskChangeEventsDuringARunningRefreshCoalesceIntoOneFollowUp() async {
+        // A build writing under the root fires an event per FSEvents batch: the
+        // events landing while one `status` runs must cost one more, not one each.
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .modified)
+        git.resultsPerChangedFilesCall = [[a], [a, b]]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let generation = model.prepareForFolderChange(root: root)
+
+        let first = Task { await model.refreshForDiskChange(root: root, requestGeneration: generation) }
+        await waitForGatedCalls(1, in: git)
+        for _ in 0..<3 {
+            await model.refreshForDiskChange(root: root, requestGeneration: generation)
+        }
+        git.release(call: 0)
+        await waitForGatedCalls(2, in: git)
+        git.release(call: 1)
+        await first.value
+
+        XCTAssertEqual(git.gatedCallIndices, [0, 1])
+        XCTAssertEqual(model.changedFiles, [a, b])
+    }
+
+    func testADiskChangeEventForANewFolderQueuedBehindTheOldFoldersRefreshStillRuns() async {
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        git.files = [a]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        let stale = model.prepareForFolderChange(root: root)
+        let first = Task { await model.refreshForDiskChange(root: root, requestGeneration: stale) }
+        await waitForGatedCalls(1, in: git)
+
+        let other = URL(fileURLWithPath: "/other")
+        let current = model.prepareForFolderChange(root: other)
+        await model.refreshForDiskChange(root: other, requestGeneration: current)
+        git.release(call: 0)
+        await waitForGatedCalls(2, in: git)
+        git.release(call: 1)
+        await first.value
+
+        XCTAssertEqual(model.root, other)
+        XCTAssertEqual(model.changedFiles, [a])
+    }
+
     func testADiskChangeRefreshClearsAFailedRefreshsError() async {
         let git = StubGit()
         git.error = StubError.boom

@@ -362,14 +362,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a root other than the one last requested is dropped, because the watcher hops
     to the main queue and an event for the previous folder can be delivered after
     the switch carrying the generation read at delivery, which would otherwise pass
-    the pinned check and switch the panel back. A change confined to `.git` (a terminal
+    the pinned check and switch the panel back. **At most one runs at a time**: the
+    watcher fires once per FSEvents batch for as long as a build or an install
+    writes under the root, and a `status` on a large repository can outlast that
+    interval, so events landing while one runs coalesce into **exactly one
+    follow-up**, the newest event, re-validated against the generation and root
+    when it starts — still needed, because the running query may have read the
+    tree before the later change. A change confined to `.git` (a terminal
     commit or `git add`) raises no watcher event, so it reaches the list on the next
     save or Refresh. Tests for the entry point: a failed revert's error survives a
     disk-change refresh and a following `refresh` clears it, a disk-change refresh
     landing while a failing revert is suspended on its trailing refresh does not
     suppress that revert's error, a failed refresh's error is cleared by it, and a
     superseded folder's generation is rejected, and a late event for the previous
-    folder carrying the current generation leaves the panel on the new one. Tests: a second refresh with an
+    folder carrying the current generation leaves the panel on the new one; three events
+    during a running disk-change refresh cost one more `status`, not three, and an
+    event for a newly opened folder queued behind the old folder's refresh still
+    runs. Tests: a second refresh with an
     equal list and a moved stamp rebuilds the published diff with no manual
     load, an equal list with an unchanged stamp reads nothing, a refresh
     superseded by a newer selection does not publish over it, a failed refresh
