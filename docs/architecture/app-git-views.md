@@ -715,6 +715,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the same suite forces `.legacy` onto the hosted scroll view itself — no
     preference is read or written, so it holds on any machine — and holds the
     content to the clip view's width.
+    **A diff shorter than the pane starts at its top.** A two-axis `ScrollView`
+    centres content shorter than its viewport, so a one-line diff sat in the
+    middle of the pane; `.defaultScrollAnchor(.topLeading)` (macOS 14+) on the
+    diff's scroll view pins it to the top edge. The anchor alone suffices — no
+    measured minimum height is needed — and the placeholders are a separate view
+    that keeps its centred layout. `CommitUnifiedDiffWashTests`'
+    `testAShortDiffStartsAtThePanesTop` renders one `.added` row in a tall pane
+    and asserts the wash's first painted row lies within the 2-point vertical
+    padding of the top edge (it measured 141 points down before the anchor), and
+    a placeholder pane still draws its glyph vertically centred. Because the rows
+    now sit at the top, `DiffWordEmphasisTests`' unified scan drops runs narrower
+    than 1.5 points: the checkbox's anti-aliased edges fall inside its sampled
+    band.
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle
@@ -838,11 +851,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     are the code zone, and `DiffView` already declares itself a zoom surface);
     its rows are `model.selectionDiff`, loaded by `loadSelectionDiff()`, which
     claims `beginSelectionDiffLoad()`'s token **synchronously before the `Task`
-    hop** on appear, on every selection change and on every `listRevision`
-    advance (a refresh that left the list equal — an already-modified file
-    edited again — still re-reads). **Whether a trigger does any work is the
-    model's decision, not the view's**: the view fires on every one of those
-    triggers, and `loadSelectionDiff(token:)` compares the selected file's
+    hop** on appear and on every selection change. **The re-read after a
+    refresh is not the view's**: the model starts it itself at the end of every
+    successful refresh publish (`core-git-models.md`), so a refresh that left
+    the list equal — an already-modified file edited again — rebuilds without
+    depending on this view observing anything, and the view's former
+    `onChange(of: model.listRevision)` trigger is gone. **Whether a trigger
+    does any work is the model's decision, not the view's**: the view fires on
+    every one of its triggers, and `loadSelectionDiff(token:)` compares the selected file's
     fingerprint (status, path, old path, `HEAD` object, working-copy stamp)
     with the published diff's and returns without reading when nothing
     changed; when something did, the working-copy read and the line diff run

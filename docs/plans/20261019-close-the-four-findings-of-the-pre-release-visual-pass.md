@@ -188,12 +188,12 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 
 ### Task 8: Update documentation
 
-- [ ] `docs/architecture/app-editor.md`, viewport memory entry: the in-place replacement rule (live capture before the swap, clamped re-apply after, the reveal outranks it, the off-screen case unchanged) and why it does not go through the memory store.
-- [ ] `docs/architecture/core-git-models.md`, `LocalChangesModel` entry: a refresh now drives the inline-diff load itself, `listRevision`'s remaining readers, and the watcher as a refresh trigger.
-- [ ] `docs/architecture/app-git-views.md`: the Local Changes view's triggers, and `CommitUnifiedDiffView`'s top alignment and how it is pinned.
-- [ ] `docs/architecture/app-shell.md`: the watcher callback's new member, and that both one-button alerts answer Esc. `docs/architecture/app-ios.md`'s PlatformAlert entry: the macOS Esc monitor.
-- [ ] `docs/FEATURES.md`: a reload of the shown tab (external change, Reload, Replace All, merge apply, Local History restore) keeps the caret and scroll position; the Local Changes inline diff follows edits; Esc closes the commit-time notice.
-- [ ] `CLAUDE.md`: change it only if a claim there changes. None is expected; if one is edited, keep it under the measured size.
+- [x] `docs/architecture/app-editor.md`, viewport memory entry: the in-place replacement rule (live capture before the swap, clamped re-apply after, the reveal outranks it, the off-screen case unchanged) and why it does not go through the memory store.
+- [x] `docs/architecture/core-git-models.md`, `LocalChangesModel` entry: a refresh now drives the inline-diff load itself, `listRevision`'s remaining readers, and the watcher as a refresh trigger.
+- [x] `docs/architecture/app-git-views.md`: the Local Changes view's triggers, and `CommitUnifiedDiffView`'s top alignment and how it is pinned.
+- [x] `docs/architecture/app-shell.md`: the watcher callback's new member, and that both one-button alerts answer Esc. `docs/architecture/app-ios.md`'s PlatformAlert entry: the macOS Esc monitor.
+- [x] `docs/FEATURES.md`: a reload of the shown tab (external change, Reload, Replace All, merge apply, Local History restore) keeps the caret and scroll position; the Local Changes inline diff follows edits; Esc closes the commit-time notice.
+- [x] `CLAUDE.md`: change it only if a claim there changes. None is expected; if one is edited, keep it under the measured size. (No claim changed; not edited.)
 
 ## Post-Completion
 

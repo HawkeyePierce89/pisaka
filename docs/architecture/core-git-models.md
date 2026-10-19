@@ -289,8 +289,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     or `.tooLarge` — the `ChangedFile` it was computed for and the
     `LocalChangesInlineDiff.Fingerprint` it was computed from) is the
     inline diff beside the list, loaded by `loadSelectionDiff(token:)` under a
-    token from `beginSelectionDiffLoad()`, which the view calls
-    **synchronously before the `Task` hop**. A load runs in one fixed order:
+    token from `beginSelectionDiffLoad()`, which the caller claims
+    **synchronously before the `Task` hop** — the view on appear and on a
+    selection change, the model itself at the end of every refresh (below). A load runs in one fixed order:
     **token, then fingerprint, then skip-or-load, then the off-main read and
     diff, then the token re-check, then the main-actor publish.** The
     fingerprint is taken on the main actor (the working-copy stamp is one stat
@@ -334,11 +335,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     skip it. Tests: a published diff is gone after `prepareForFolderChange`, a
     refresh resolving a new root clears it while a same-root one keeps it, and
     a load held at a `Gate` in its working-copy read past a switch publishes
-    nothing and never reads `HEAD`. `listRevision` advances on every successful
-    refresh publish — not on a failed one — so the view can re-read the diff
-    after a refresh whose list came out *equal* (an already-modified file
-    edited again), which fires no change of its own. Tests stage the race with
-    a gated `HEAD` read, resolved out of order.
+    nothing and never reads `HEAD`. **A refresh drives the inline diff
+    itself**: `refreshImpl`'s success path, right after `listRevision += 1`,
+    claims `beginSelectionDiffLoad()` synchronously and awaits
+    `loadSelectionDiff(token:)` before `refresh` returns. That is what makes a
+    refresh whose list came out *equal* — an already-modified file edited again,
+    which changes nothing a view could observe — still reach the rebuild,
+    without depending on SwiftUI delivering an `onChange`; the token claimed
+    there lets a newer selection's load outrank it, and `needsRebuild` keeps
+    the common refresh free of reads. Refreshes reach the model from a save,
+    from the app's other worktree-changing paths, and **from every
+    project-watcher event** (`app-shell.md`), which is how an edit made outside
+    the app reaches the list and the diff. Tests: a second refresh with an
+    equal list and a moved stamp rebuilds the published diff with no manual
+    load, an equal list with an unchanged stamp reads nothing, a refresh
+    superseded by a newer selection does not publish over it, a failed refresh
+    leaves the published diff alone, and a refresh with nothing selected
+    publishes `nil`. `listRevision` still advances on every successful refresh
+    publish — not on a failed one — but its readers are now the editor's
+    gutter-marker and blame tokens, not the inline diff. Tests stage the race
+    with a gated `HEAD` read, resolved out of order.
   - `LocalChangesInlineDiff.swift` — the inline diff's **"unchanged" rule**
     and its **refusal of binary and oversized files**, pure. `Fingerprint` is everything a file's inline diff is computed from as
     far as it can be known without reading a side: the repository root, the

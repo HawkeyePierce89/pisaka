@@ -1131,7 +1131,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     extracted from a half-rewritten file, which the next refresh corrects, while
     taking the writer gate would serialize the editor behind a background walk. The
     root is *captured* rather than read from the model, so the refresh always names
-    the folder this subscription was started for. **The index needs its own
+    the folder this subscription was started for.
+    That same callback finally calls `refreshLocalChanges()`, which is how an edit
+    made **outside the app** reaches the Local Changes list and — through the
+    model's own post-refresh load (`core-git-models.md`) — the selected file's
+    inline diff; before it, only a save re-queried the list, so an external edit
+    never did. It is ungated because it is a reader, keeps the generation pin
+    `refreshLocalChanges()` captures before its hop, and **cannot feed itself**:
+    every `git` the refresh runs carries `--no-optional-locks`, so `status`
+    writes nothing under `.git` and raises no event of its own.
+    `GitCLIArgumentSourceGatingTests` pins the call inside the watcher's callback
+    body, beside the rule that pins that flag. **The index needs its own
     counterpart to the explicit tree bumps below**, and gets it as
     `notifyIndexOfProjectFileChanges()`: `IgnoreSelf` hides every write *this*
     process performs, and the stamp-gated refresh is the only thing that re-extracts
@@ -1368,7 +1378,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     strand a feature the other files are perfectly committable through, and the
     alert is raised **last** — after the re-entry guard is closed and the
     suspension is balanced by `onDismiss` — since it runs a nested run loop a
-    second ⌘K could re-enter; and it raises the **modal** autosave gate (`suspendForModal()` rather
+    second ⌘K could re-enter. Because that alert sits over the already-raised
+    sheet, **Esc answers it and goes no further**: `PlatformAlert.presentMessage`
+    gives every one-button alert an Esc answer and consumes the key, so the
+    dialog beneath stays open and usable (the folder-switch refusal,
+    `reportUnsavedBeforeFolderSwitch`, shares the rule through the same
+    function; `app-ios.md`). And it raises the **modal** autosave gate (`suspendForModal()` rather
     than `suspend()`, deliberately, so a quit while the sheet is open still flushes
     every dirty file), whose matching `resumeFromModal()` is the sheet's
     `onDismiss` — firing on *every* closing path, which is what makes the

@@ -142,7 +142,13 @@ user sees it.
   All, a revert, a merge apply) the remembered position is dropped and the tab
   opens at the top; and activating a Find in Files result or a Go to Definition in
   an already-open background tab scrolls to the match rather than to the
-  remembered position. macOS only — the iOS editor opens each tab at the top.
+  remembered position. The tab you are **looking at** keeps its place when its
+  text is replaced under it — a change made outside the app, Reload from the
+  "changed on disk" bar, a project Replace All, a revert, a merge apply or a
+  Local History restore: the caret, the selection and the scroll position stay
+  where they were, and only a caret or selection past the end of a shorter new
+  text moves back to the end. macOS only — the iOS editor opens each tab at the
+  top.
 - Annotate with Git Blame (macOS): right-click the editor gutter and choose
   "Annotate with Git Blame" to show a column to the left of the line numbers with,
   per line, who last changed it and when. Right-click again ("Close Annotations")
@@ -1025,7 +1031,8 @@ user sees it.
   away on its own once the conflict is over, including when you edit the buffer
   to match the disk. A file that was deleted is not a conflict: saving recreates
   it, as before. If the commit dialog's pre-commit flush finds a tab in this
-  state, it names the file and commits the disk's version; switching to another
+  state, it names the file and commits the disk's version (Esc closes that
+  notice and leaves the commit dialog open); switching to another
   project folder is refused while one is open, naming the file, until you
   answer the bar.
 - While one of the app's own git operations is writing to the working tree — a
@@ -1190,7 +1197,11 @@ user sees it.
   into the editor; with no row selected either shortcut does nothing. A deleted
   row offers neither jump; a successful jump moves keyboard focus into the editor
   so typing continues immediately. The list
-  refreshes manually (a refresh button) and automatically after you save a file.
+  refreshes manually (a refresh button), automatically after you save a file,
+  and on macOS whenever a file in the project changes on disk — including an
+  edit made outside the app. The inline diff follows the selected file's
+  content: after every refresh it is rebuilt if that file changed, even when the
+  list itself looks the same.
   You can revert (discard) local changes: check one or more files and choose
   Revert from a file's context menu to restore the checked set to their `HEAD`
   version (an unchecked file reverts just itself; a reverted untracked file is
@@ -2093,11 +2104,10 @@ and iPhone. The feature scope landed so far:
   segments are not clickable, the bar has no "copy path" action (the tab menu's
   Copy Path / Copy Relative Path offers one) and no window proxy icon, and iOS has
   no equivalent bar.
-- Automatic file-change detection covers the project tree on macOS only. Local
-  Changes, the Git Log, and open editor tabs are still refreshed on demand — an
-  external edit to a file you have open does not reload its tab, and the git
-  panels refresh on save, on their Refresh button, or after an operation of their
-  own.
+- Automatic file-change detection is macOS only: there, the project tree, open
+  editor tabs and Local Changes follow a change made on disk. The Git Log is
+  still refreshed on demand — on its Refresh button, or after an operation of
+  its own — and on iOS every panel is.
 - Session restore is macOS-only: on iOS only the last opened folder comes back
   (through its security-scoped bookmark) — the tabs, the selection, and "Untitled"
   text are not restored — and a folder switch there leaves the previous project's
