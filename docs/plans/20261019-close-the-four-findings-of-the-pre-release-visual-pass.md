@@ -77,18 +77,18 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 - Modify: `Sources/PisakaCore/EditorViewport.swift` (doc comment only: name the second consumer of `clamped(toLength:)`)
 - Modify: `Tests/PisakaCoreTests/EditorViewportTests.swift` (or the suite that already tests `EditorViewport`)
 
-- [ ] In `updateNSView`, before the highlighter detach and the `textView.string = text` swap, capture `let preserved = (contentReplaced && !switchedFile) ? context.coordinator.captureViewport() : nil`.
-- [ ] Add a coordinator method `restorePreservedViewport(_:)`. It clamps through `EditorViewport.clamped(toLength:)`, then calls `setSelectedRange` and `scrollAnchor(to:)`. It also clears the fold-selection direction, as `restoreViewport` does.
-- [ ] Call that method at the same point as the switch restore: `else if let preserved, !hasPendingReveal(reveal.request, fileID:)`. This keeps the order after the minimap, bracket, search, blame and fold reconciliation, and before `applyReveal`.
-- [ ] Extend the caret report so `reportCaretPosition(of:)` also runs when `contentReplaced`, so the status bar line cannot keep the swap's end-of-file value.
-- [ ] Leave the off-screen branch (`externallyReplaced` → `forgetViewport`) unchanged. Update the comments on the swap block and on the restore block to name the in-place rule and why it uses a live capture rather than the memory.
-- [ ] Core tests for the arithmetic the in-place rule relies on:
+- [x] In `updateNSView`, before the highlighter detach and the `textView.string = text` swap, capture `let preserved = (contentReplaced && !switchedFile) ? context.coordinator.captureViewport() : nil`.
+- [x] Add a coordinator method `restorePreservedViewport(_:)`. It clamps through `EditorViewport.clamped(toLength:)`, then calls `setSelectedRange` and `scrollAnchor(to:)`. It also clears the fold-selection direction, as `restoreViewport` does. (Landed merged with the switch restore's dispatch as `restoreViewportAfterUpdate(fileID:switchedFile:preserved:reveal:)`, so `updateNSView` stays under its body and file length ceilings.)
+- [x] Call that method at the same point as the switch restore: `else if let preserved, !hasPendingReveal(reveal.request, fileID:)`. This keeps the order after the minimap, bracket, search, blame and fold reconciliation, and before `applyReveal`.
+- [x] Extend the caret report so `reportCaretPosition(of:)` also runs when `contentReplaced`, so the status bar line cannot keep the swap's end-of-file value.
+- [x] Leave the off-screen branch (`externallyReplaced` → `forgetViewport`) unchanged. Update the comments on the swap block and on the restore block to name the in-place rule and why it uses a live capture rather than the memory.
+- [x] Core tests for the arithmetic the in-place rule relies on:
   - a caret inside an unchanged prefix stays exactly where it was;
   - a caret past a shrunken new end lands at the end;
   - a selection crossing the new end is truncated;
   - an anchor past the new end resolves to the last character;
   - an empty new buffer gives `{0,0}` and anchor 0.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: R1 — app-layer test of a displayed-tab reload
 
