@@ -138,10 +138,10 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Modify: an app-layer suite if a seam exists; otherwise a Core gating suite pins the call site (see below)
 
-- [ ] Add `refreshLocalChanges()` to the `projectWatcher.start(root:onChange:)` callback. It uses the existing generation-pinned helper and takes no gate, because it is a reader.
-- [ ] Correct `refreshLocalChanges()`'s doc comment, which currently says "without filesystem watching". Add a comment on the watcher callback explaining why no loop arises (`--no-optional-locks` reads write nothing to `.git`) and why the refresh is ungated.
-- [ ] Pin the wiring statically with comment- and literal-stripped matching. Prefer extending the existing gating suite that reads `PisakaApp.swift` (for example `GitCLIArgumentSourceGatingTests`, or a new rule in the most fitting `*SourceGatingTests`). Assert that the watcher's callback body calls `refreshLocalChanges()`, and update that suite's doc-comment inventory.
-- [ ] Run `swift test` and the macOS build. Both must pass before Task 5.
+- [x] Add `refreshLocalChanges()` to the `projectWatcher.start(root:onChange:)` callback. It uses the existing generation-pinned helper and takes no gate, because it is a reader.
+- [x] Correct `refreshLocalChanges()`'s doc comment, which currently says "without filesystem watching". Add a comment on the watcher callback explaining why no loop arises (`--no-optional-locks` reads write nothing to `.git`) and why the refresh is ungated.
+- [x] Pin the wiring statically with comment- and literal-stripped matching. Prefer extending the existing gating suite that reads `PisakaApp.swift` (for example `GitCLIArgumentSourceGatingTests`, or a new rule in the most fitting `*SourceGatingTests`). Assert that the watcher's callback body calls `refreshLocalChanges()`, and update that suite's doc-comment inventory. (Landed in `GitCLIArgumentSourceGatingTests`, whose `--no-optional-locks` rule is what keeps the refresh from feeding the watcher; seen to fail with the call removed.)
+- [x] Run `swift test` and the macOS build. Both must pass before Task 5.
 
 ### Task 5: R3 — Esc answers the one-button message alert and never reaches the dialog beneath
 

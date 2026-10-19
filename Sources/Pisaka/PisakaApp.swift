@@ -2278,11 +2278,19 @@ struct PisakaApp: App {
         // of directories on the main thread; what keeps that cheap is that the
         // walk stops at the project root and that the answer is cached again on
         // the way out, not that the cache is rarely dropped.
+        // The same callback re-queries Local Changes, which is what makes an edit
+        // made outside the app reach the list — and, through the model's own
+        // post-refresh load, the selected file's inline diff. It cannot feed
+        // itself: every `git` the refresh runs carries `--no-optional-locks`, so
+        // `status` writes nothing under `.git` and raises no event of its own. It
+        // is ungated because it is a reader, and it keeps the generation pin
+        // `refreshLocalChanges()` captures before its hop.
         projectWatcher.start(root: url, onChange: {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)
             editorConfig.noteProjectFilesChanged()
             diskSync.requestPass()
+            refreshLocalChanges()
         })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a
@@ -4074,8 +4082,9 @@ struct PisakaApp: App {
         }
     }
 
-    /// Re-query the repository for changed files after a successful save, so the
-    /// Local Changes panel reflects the edit without filesystem watching. No-op
+    /// Re-query the repository for changed files, so the Local Changes panel
+    /// reflects an edit: after a successful save, and on every project-watcher
+    /// event, which is how a change made outside the app reaches the list. No-op
     /// when no project folder is open.
     private func refreshLocalChanges() {
         guard let root = model.projectRoot else { return }
