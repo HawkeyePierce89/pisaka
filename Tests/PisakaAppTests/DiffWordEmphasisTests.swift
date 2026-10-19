@@ -212,8 +212,9 @@ private final class UnifiedRender {
     /// Runs narrower than 1.5 points are dropped: the sampled band can cross the
     /// line's checkbox, whose anti-aliased edges pass through the doubled level
     /// for a pixel or two. That happens since the diff is top-aligned in its
-    /// pane (`.defaultScrollAnchor(.topLeading)`), which moved the rows to a
-    /// different pixel offset; an emphasized word is always several points wide.
+    /// pane (the content's minimum height is the visible height), which moved
+    /// the rows to a different pixel offset; an emphasized word is always
+    /// several points wide.
     func strongRuns(inRowWashed role: ChromeColorRole) throws -> [ClosedRange<CGFloat>] {
         let row = try XCTUnwrap(render.extent(of: role, atX: width - 4, ground: .black), "no \(role.rawValue) row")
         let y = row.minY + 4

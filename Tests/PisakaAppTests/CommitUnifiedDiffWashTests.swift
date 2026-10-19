@@ -56,8 +56,10 @@ import PisakaCore
 ///
 /// **Vertical alignment.** A one-row diff, hosted without its header rows, must
 /// paint its wash from the pane's top edge (within the 2-point padding); before
-/// `.defaultScrollAnchor(.topLeading)` it began 141 points down, centred. The
-/// placeholder must stay centred about the pane's middle.
+/// the content's minimum height was the visible height it began 141 points
+/// down, centred — and `.defaultScrollAnchor(.topLeading)` cured that on macOS
+/// 26 only, leaving CI's macOS 15 at the same 141. The placeholder must stay
+/// centred about the pane's middle.
 @MainActor
 final class CommitUnifiedDiffWashTests: XCTestCase {
 
@@ -195,7 +197,8 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
     /// header rows, so the first thing painted is that row's wash, and it begins
     /// within the content's 2-point vertical padding of the top edge. A
     /// two-axis `ScrollView` centres content shorter than its viewport, which
-    /// put a one-line diff in the middle of the 300-point pane.
+    /// put a one-line diff in the middle of the 300-point pane; the content's
+    /// measured minimum height leaves nothing shorter than the viewport.
     func testAShortDiffStartsAtThePanesTop() throws {
         let line = UnifiedDiffLine(kind: .added, text: "new", oldNumber: nil, newNumber: 1, unitIndex: 0)
         let render = try DiffRender(lines: [line], headers: false, scrollToTrailingEdge: false)
@@ -373,7 +376,7 @@ private final class DiffRender {
 
     /// Sets the hosted scroll view's scroller style to `.legacy` and lets the
     /// layout settle, so the clip view shrinks by the vertical scroller's width
-    /// and `VisibleWidthProbe` reports it. Should the hosting framework's own
+    /// and `VisibleSizeProbe` reports it. Should the hosting framework's own
     /// update pass reset the style, it is applied again and settled once more;
     /// the case's guard on the visible width catches a style that still did not
     /// hold.

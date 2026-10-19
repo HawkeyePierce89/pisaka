@@ -696,7 +696,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     could not widen the content either. So the content's width is the larger of
     two *measured* values — the pane's visible width, read from AppKit as the
     enclosing clip view's width by a small representable probe
-    (`VisibleWidthProbe`, re-reporting on every clip-frame change), and the
+    (`VisibleSizeProbe`, re-reporting on every clip-frame change), and the
     widest realized row's
     natural width, which each row reports through `onGeometryChange` before its
     fill (the row hugs its content there, holding no spacer, so it reports its
@@ -719,14 +719,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     content to the clip view's width.
     **A diff shorter than the pane starts at its top.** A two-axis `ScrollView`
     centres content shorter than its viewport, so a one-line diff sat in the
-    middle of the pane; `.defaultScrollAnchor(.topLeading)` (macOS 14+) on the
-    diff's scroll view pins it to the top edge. The anchor alone suffices — no
-    measured minimum height is needed — and the placeholders are a separate view
-    that keeps its centred layout. `CommitUnifiedDiffWashTests`'
-    `testAShortDiffStartsAtThePanesTop` renders one `.added` row in a tall pane
-    and asserts the wash's first painted row lies within the 2-point vertical
-    padding of the top edge (it measured 141 points down before the anchor), and
-    a placeholder pane still draws its glyph vertically centred. Because the rows
+    middle of the pane. The content's minimum height is the clip view's height —
+    the same probe reports the clip *size*, so a legacy horizontal scroller is
+    excluded like the vertical one — with the frame top-leading aligned, so the
+    content is never shorter than the viewport and there is nothing to centre.
+    **The default scroll anchor is not the fix**: `.defaultScrollAnchor(.topLeading)`
+    moved the content to the top on macOS 26 and did nothing on macOS 15, where
+    CI runs — the measured minimum height is what holds on every supported
+    macOS. The placeholders are a separate view that keeps its centred layout.
+    `CommitUnifiedDiffWashTests`' `testAShortDiffStartsAtThePanesTop` renders
+    one `.added` row in a tall pane and asserts the wash's first painted row lies
+    within the 2-point vertical padding of the top edge (it measured 141 points
+    down before, on both systems with the anchor alone on the older one), and a
+    placeholder pane still draws its glyph vertically centred. Because the rows
     now sit at the top, `DiffWordEmphasisTests`' unified scan drops runs narrower
     than 1.5 points: the checkbox's anti-aliased edges fall inside its sampled
     band.
