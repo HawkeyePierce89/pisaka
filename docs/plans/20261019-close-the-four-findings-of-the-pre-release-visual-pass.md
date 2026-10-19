@@ -180,11 +180,11 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. The only failures allowed are the eight known scale-1.8 ones.
-- [ ] Run `swiftlint --strict` from the repository root with the committed configuration.
-- [ ] Run the macOS build under the pinned Xcode (Release configuration, as CI builds it).
-- [ ] Confirm the tests written as failing-first (Task 2, Task 3 and Task 6) fail with their fixes reverted and pass with them applied.
+- [x] Run `swift test`. (6955 tests, 0 failures.)
+- [x] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' test`. The only failures allowed are the eight known scale-1.8 ones. (480 tests; exactly the eight known scale-1.8 failures.)
+- [x] Run `swiftlint --strict` from the repository root with the committed configuration. (0 violations.)
+- [x] Run the macOS build under the pinned Xcode (Release configuration, as CI builds it). (Succeeded, unsigned.)
+- [x] Confirm the tests written as failing-first (Task 2, Task 3 and Task 6) fail with their fixes reverted and pass with them applied. (Re-checked: the Core refresh test, both `InPlaceReplacementViewportTests` cases and `testAShortDiffStartsAtThePanesTop` fail reverted, pass restored.)
 
 ### Task 8: Update documentation
 
