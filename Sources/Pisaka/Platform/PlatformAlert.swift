@@ -14,9 +14,11 @@ import UIKit
 /// / `confirmRevert` / `confirmDelete`) stay where they are — a synchronous modal
 /// has no faithful iOS counterpart (iOS alerts are async), so those keep their
 /// macOS-specific shape and the iOS views will present their own async confirms.
-/// View-layer only — no pure logic to test.
+/// On macOS the one-button alert answers Esc as its button (`answersAsDismiss`),
+/// pinned headlessly by `MessageAlertKeyTests`.
 enum PlatformAlert {
-    /// Present a one-button informational alert. On iOS, no-ops when no presenting
+    /// Present a one-button informational alert. On macOS, Esc answers it as the
+    /// button and is consumed, never reaching the window beneath. On iOS, no-ops when no presenting
     /// view controller can be found (e.g. during teardown) rather than trapping.
     static func presentMessage(title: String, message: String) {
         #if os(macOS)
@@ -24,6 +26,20 @@ enum PlatformAlert {
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
+        // A one-button `NSAlert` gives Esc no answer of its own, so the key fell
+        // through to whatever sat beneath — the commit dialog's sheet, which
+        // closed under the notice. The monitor lives exactly as long as the modal
+        // session: it stops the session with the one button's code and consumes
+        // the event, so the window underneath never sees it. Return stays the
+        // default button's.
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard Self.answersAsDismiss(event) else { return event }
+            NSApp.stopModal(withCode: .alertFirstButtonReturn)
+            return nil
+        }
+        defer {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
         alert.runModal()
         #elseif os(iOS)
         guard let presenter = Self.topViewController() else { return }
@@ -32,6 +48,20 @@ enum PlatformAlert {
         presenter.present(alert, animated: true)
         #endif
     }
+
+    #if os(macOS)
+    /// Whether `event` dismisses a one-button message alert: a key-down that is Esc
+    /// (key code 53, or the escape character) carrying none of ⌘, ⌥ or ⌃, so a
+    /// chord that merely contains Esc keeps its own meaning. Factored out so the
+    /// app-layer suite can pin the rule with synthesized events
+    /// (`MessageAlertKeyTests`); the modal session itself needs an active app.
+    static func answersAsDismiss(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let chordModifiers: NSEvent.ModifierFlags = [.command, .option, .control]
+        guard event.modifierFlags.isDisjoint(with: chordModifiers) else { return false }
+        return event.keyCode == 53 || event.charactersIgnoringModifiers == "\u{1b}"
+    }
+    #endif
 
     #if os(iOS)
     /// The frontmost presented view controller of the active foreground scene's key

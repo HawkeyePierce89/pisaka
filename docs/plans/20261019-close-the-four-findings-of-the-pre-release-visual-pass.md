@@ -149,19 +149,19 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 - Modify: `Sources/Pisaka/Platform/PlatformAlert.swift`
 - Create: `Tests/PisakaAppTests/MessageAlertKeyTests.swift`
 
-- [ ] Add `static func answersAsDismiss(_ event: NSEvent) -> Bool` (macOS): a key-down event that is Esc (key code 53, or `cancelOperation` characters) with no command, option or control modifiers.
-- [ ] In `presentMessage` on macOS:
+- [x] Add `static func answersAsDismiss(_ event: NSEvent) -> Bool` (macOS): a key-down event that is Esc (key code 53, or `cancelOperation` characters) with no command, option or control modifiers.
+- [x] In `presentMessage` on macOS:
   - install `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` before `runModal()`;
   - when the monitor sees a matching event, call `NSApp.stopModal(withCode: .alertFirstButtonReturn)` and consume the event by returning `nil`;
   - remove the monitor in a `defer`.
 
   The OK button keeps Return. The iOS branch is unchanged.
-- [ ] Leave the order in `openCommitDialog` unchanged: the dialog is raised, then the alert is reported. Note in `reportUnsavedBeforeCommit`'s and `reportUnsavedBeforeFolderSwitch`'s doc comments that both share the rule.
-- [ ] App-layer tests with synthesized `NSEvent.keyEvent`s:
+- [x] Leave the order in `openCommitDialog` unchanged: the dialog is raised, then the alert is reported. Note in `reportUnsavedBeforeCommit`'s and `reportUnsavedBeforeFolderSwitch`'s doc comments that both share the rule.
+- [x] App-layer tests with synthesized `NSEvent.keyEvent`s:
   - Esc answers;
   - ⌘-Esc, Return and a letter do not;
   - a key-up does not.
-- [ ] Run the app-layer bundle and the macOS build.
+- [x] Run the app-layer bundle and the macOS build. (478 tests, only the eight known scale-1.8 failures; Release build succeeds.)
 
 ### Task 6: R4 — top-align the commit dialog's unified diff
 

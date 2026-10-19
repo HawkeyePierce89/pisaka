@@ -2574,6 +2574,10 @@ struct PisakaApp: App {
 
     /// Say that the pre-dialog flush left files unsaved, so the commit will record
     /// what is on disk rather than what is on screen for them.
+    ///
+    /// Shown over the already-raised commit dialog, so Esc must close this notice
+    /// and nothing else: `PlatformAlert.presentMessage` answers and consumes it,
+    /// the rule `reportUnsavedBeforeFolderSwitch` shares through the same function.
     private func reportUnsavedBeforeCommit(_ names: [String]) {
         PlatformFeedback.warning()
         PlatformAlert.presentMessage(
@@ -2595,6 +2599,9 @@ struct PisakaApp: App {
     /// Reached only from the *replacing* path (`hadFolder`), which is what makes the
     /// message's reason true: the first Open Folder of a run carries its tabs into
     /// the project instead of closing them, so it has nothing to refuse.
+    ///
+    /// Esc answers it as OK, by the rule `reportUnsavedBeforeCommit` shares — both
+    /// go through `PlatformAlert.presentMessage`.
     private func reportUnsavedBeforeFolderSwitch(_ names: [String]) {
         PlatformFeedback.warning()
         PlatformAlert.presentMessage(
