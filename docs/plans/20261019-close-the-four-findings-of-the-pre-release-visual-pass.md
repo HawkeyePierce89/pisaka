@@ -95,18 +95,18 @@ This plan fixes the four defects the pre-release visual pass found, and nothing 
 **Files:**
 - Create: `Tests/PisakaAppTests/InPlaceReplacementViewportTests.swift`
 
-- [ ] Build the fixture:
+- [x] Build the fixture:
   - a 240-line file written to a temp directory and opened through a real `WorkspaceModel(fileService: FileService())`;
   - a `CodeEditorView` bound to that buffer's text, hosted in an `NSHostingView` inside an offscreen `NSWindow` through a small `@ObservedObject` host view;
   - the editor's `NSTextView` found in the hosting hierarchy.
-- [ ] Case 1:
+- [x] Case 1:
   - set the selection to line 3 and the top of the view to line 1, then change line 200 on disk;
   - call `model.reloadFromDisk(id:)`;
   - rendezvous on the predicate `textView.string == newText` with an `XCTNSPredicateExpectation`, not a delay;
   - assert the selection is unchanged and `captureViewport()?.topCharacterOffset` is unchanged.
-- [ ] Case 2: put the caret past the new end, rewrite the file shorter on disk and reload. After the same rendezvous, assert the selection is `{newLength, 0}` and no exception was raised.
-- [ ] Confirm both cases fail with the Task 1 change stashed and pass with it applied. Record the result in the test's doc comment.
-- [ ] Run the app-layer bundle. The only failures allowed are the eight known scale-1.8 ones.
+- [x] Case 2: put the caret past the new end, rewrite the file shorter on disk and reload. After the same rendezvous, assert the selection is `{newLength, 0}` and no exception was raised. (Landed behind a selection crossing the new end, truncated to it, because a bare caret alone also lands at the end without the fix; case 1 scrolls to line 40 rather than line 1 so the anchor assertion can fail.)
+- [x] Confirm both cases fail with the Task 1 change stashed and pass with it applied. Record the result in the test's doc comment.
+- [x] Run the app-layer bundle. The only failures allowed are the eight known scale-1.8 ones.
 
 ### Task 3: R2 — the model rebuilds the inline diff after every refresh publish (Core)
 
