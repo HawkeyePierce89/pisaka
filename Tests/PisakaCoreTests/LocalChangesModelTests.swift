@@ -2826,6 +2826,31 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("build/out.o")), .ignored)
     }
 
+    func testTheLookupIsBuiltAgainstTheOpenedFolderAsTheUserSpelledIt() async {
+        // The folder was opened through a spelling git never reports (a link, in
+        // life): git resolves its own top level, and the tree's rows stay
+        // spelled under the folder as opened.
+        let git = StubGit()
+        let gitRoot = URL(fileURLWithPath: "/resolved/repo")
+        git.repoRoot = gitRoot
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        git.ignored = ["build"]
+        let model = makeModel(git: git)
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(
+            model.treeGitStatus,
+            TreeGitStatus(
+                snapshot: GitStatusSnapshot(changedFiles: git.files, ignoredPaths: ["build"]),
+                repositoryRoot: gitRoot,
+                openedFolder: root
+            )
+        )
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("a.swift")), .modified)
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("build/x.o")), .ignored)
+    }
+
     func testIgnoredPathsNeverReachChangedFiles() async {
         let git = StubGit()
         let changed = ChangedFile(path: "a.swift", status: .untracked)

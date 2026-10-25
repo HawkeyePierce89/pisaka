@@ -1175,7 +1175,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     technology could actuate (a real disclosure triangle is a button with an
     expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
     the row re-declares itself as one — combined element, `.isButton`, the
-    expansion state as its `accessibilityValue`, and an `accessibilityAction`
+    expansion state — followed by the git state's word, see the git-status
+    entry below — as its `accessibilityValue`, and an `accessibilityAction`
     toggling the same binding, adding no second expansion path. **The glyphs
     are the design's**, drawn through `DesignGlyphImage` in `textSecondary`: the
     chevron at 12 in the 12-point chevron column — `chevron-down` when expanded,
@@ -1236,10 +1237,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`ChromeGeometry.treeIndentStep`, the former literal `12`) — are tokens, read
     by every chrome list (`core-theme.md`). What stays in `TreeRowLayout` is the
     part that is the *tree's* own: the chevron column, its spacing and the gutter
-    derived from the two. Both sets have the same **three** readers — both row
-    kinds and, since the inline draft occupies the row it stands in and must be
+    derived from the two. Both sets have the same **four** readers — both row
+    kinds; since the inline draft occupies the row it stands in and must be
     padded and gutter-inset with the very same numbers or the tree would visibly
-    shift as a draft opens and closes, `ProjectTreeDraftField.swift` — which is
+    shift as a draft opens and closes, `ProjectTreeDraftField.swift`; and the
+    indent guide, which centres its rule in the chevron column inset by the row
+    padding (see the indent-guide entry below) — which is
     why `TreeRowLayout` is internal rather than `private`. As literals they would
     drift apart, and reading alike is the whole point. Every size
     goes through `\.interfaceMetrics` like the rest of the tree; the style names
@@ -1555,9 +1558,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     its rename draft is open, mirroring the folder row, so the field stays
     reachable as itself. **The tree only reads git state**: no trigger, no
     timer, no git call and no writer-gate interaction of its own — it redraws
-    when the model publishes a new lookup, which every existing refresh does.
+    when the model publishes a new lookup, which every existing refresh does —
+    the tree's own file operations included, which re-ask git themselves
+    because the watcher drops this process's writes (`app-shell.md`).
     Chrome gating rule fifty-one pins `ProjectTreeView.swift` as the mapping's
-    only reader (`core-theme.md`).
+    only reader and `ContentView`'s hand-off of the lookup (`core-theme.md`);
+    `TreeGitStatusColourTests` (app bundle) renders one tree with the lookup
+    and once with `.empty`, and pins that a folder and a modified file draw
+    their names in `statusYellow`, an ignored file's in `textSecondary`, the
+    glyph unchanged, and a plain row pixel-identical to the tree without git
+    state.
   - `ProjectTreeView.swift`, **indent guides** — while a folder is expanded, a
     private `TreeIndentGuide` draws one vertical `hairline` rule **behind its
     children block**. `FolderDisclosureStyle` wraps `configuration.content` in

@@ -196,14 +196,18 @@ final class TreeGitStatusTests: XCTestCase {
         let canonicalFolder = CanonicalPath.canonical(link)
         XCTAssertNotEqual(canonicalFolder.path, link.standardizedFileURL.path)
 
-        // git reports a fully resolved top level; the user opened the link.
-        let gitRoot = URL(fileURLWithPath: repository.path).resolvingSymlinksInPath()
+        // git reports a fully resolved top level — realpath(3)'s spelling, which
+        // keeps the `/private` Foundation's resolution strips — and the user
+        // opened the link.
+        let resolved = try XCTUnwrap(realpath(repository.path, nil))
+        defer { free(resolved) }
+        let gitRoot = URL(fileURLWithPath: String(cString: resolved))
         let status = TreeGitStatus(
             snapshot: GitStatusSnapshot(
                 changedFiles: [ChangedFile(path: "pkg/a.swift", status: .modified)],
                 ignoredPaths: ["pkg/out"]
             ),
-            repositoryRoot: URL(fileURLWithPath: "/private" + gitRoot.path),
+            repositoryRoot: gitRoot,
             openedFolder: link
         )
         // A listing spelled under the folder's resolved spelling…

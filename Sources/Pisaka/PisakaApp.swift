@@ -1880,6 +1880,9 @@ struct PisakaApp: App {
         guard wasCreated, let root = model.projectRoot, isInsideProject(solution.url, root: root)
         else { return }
         model.bumpTreeRevision()
+        // A reader's refresh, for `newFile(in:name:)`'s reason: the created
+        // solution is untracked, and this process's write raises no watcher event.
+        refreshLocalChanges()
     }
 
     /// Whether `url` sits inside the opened project — the tree-bump condition.
@@ -4987,6 +4990,10 @@ struct PisakaApp: App {
             try fileService.createFile(at: url)
             openFile(url: url)
             model.bumpTreeRevision()
+            // The watcher drops this process's own writes, so nothing else
+            // re-asks git: without this the new file stays uncoloured in the
+            // tree (and missing from Local Changes) until its first save.
+            refreshLocalChanges()
         } catch {
             refreshTreeAfterFailedCreate(componentCount: components.count)
             reportFileOperationFailure(error)
@@ -5116,6 +5123,10 @@ struct PisakaApp: App {
             // The index still holds the entry filed under the old path; only the
             // refresh's removal pass drops it, and only this call reaches it.
             notifyIndexOfProjectFileChanges()
+            // Re-ask git, for `newFile(in:name:)`'s reason: the moved name, both
+            // parent folders and an entry moved into or out of an ignored folder
+            // would otherwise keep their old colours.
+            refreshLocalChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -5182,6 +5193,9 @@ struct PisakaApp: App {
             // Handing the entries back to disk is only half of it: what actually
             // drops the deleted files' symbols is the refresh's removal pass.
             notifyIndexOfProjectFileChanges()
+            // Re-ask git, for `newFile(in:name:)`'s reason: a deleted tracked
+            // file's folders would otherwise not turn modified.
+            refreshLocalChanges()
         } catch {
             reportFileOperationFailure(error)
         }

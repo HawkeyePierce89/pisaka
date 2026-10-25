@@ -6,8 +6,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Changes view, mirroring `WorkspaceModel`'s shape. Injects `GitServicing` (repo
     access) and `FileServicing` (working copy) so the real services run in `Pisaka`
     and in-memory stubs in tests. Publishes `changedFiles`, `groupingMode`
-    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, and `projectPrefix` (the opened folder's
-    repository-relative path, set together with `root`). The `git`-touching
+    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, `projectPrefix` (the opened folder's
+    repository-relative path, set together with `root`), and `treeGitStatus`
+    (the project tree's lookup, published with `changedFiles`; see below). The `git`-touching
     entry points are `async` (the underlying `GitServicing` runs off the main
     thread): `refresh(root:) async`, `revert(_:) async -> [URL]`,
     `rows(for:) async -> [DiffRow]`, and `selectedRows() async -> [DiffRow]`;
@@ -37,7 +38,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the published state only if the token is still the latest — so a superseded
     refresh discards its result instead of clobbering a newer one. A *change of
     opened folder* (the raw requested root differs from `lastRequestedRoot`) also
-    clears `changedFiles`/`selected`/`revertSelection`/`errorMessage`
+    clears `changedFiles`/`selected`/`revertSelection`/`errorMessage`/`treeGitStatus`
     *synchronously at entry*, before the first `await`: the previous project's
     files belong to a different repo and must not stay actionable
     (selectable/revertable) during the query for the new repo's status. A
@@ -659,7 +660,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     answer, built once per refresh and asked per row with **no file-system call
     and no git call**. Two types.
     **`TreeGitState`** is the closed row state, declared highest precedence
-    first: `conflict`, `modified`, `added`, `ignored`, `plain`. A record's status
+    first: `conflict`, `modified`, `added`, `ignored`, `plain` — the order its
+    synthesized `Comparable` follows, so the aggregation compares states
+    directly and a lesser state is a stronger one. A record's status
     maps to a change state through one exhaustive switch — unmerged → `conflict`;
     modified, renamed and deleted → `modified`; added (copies included, the
     parser already reading a copy as `.added`) and untracked → `added`. A rename

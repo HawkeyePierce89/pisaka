@@ -1168,6 +1168,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     buffer-sourced entry is precisely what a refresh declines to touch. The call is
     cheap enough to leave ungated and unconditional: 500 ms debounce, a walk that
     re-reads only what changed, and no writer gate.
+    **Local Changes needs the same counterpart, and gets `refreshLocalChanges()`**
+    beside the bump in `newFile`, `performMove` and `deleteItem` (and in
+    `openLeetCodeSolution` when it created the file inside the project): the
+    project tree's git colours come only from `LocalChangesModel`'s published
+    lookup, and `IgnoreSelf` means no watcher event re-asks git after these
+    writes, so a renamed, moved, created or deleted entry — and its folders —
+    would keep their old colours until some unrelated save. `newFolder` is left
+    out on purpose: git does not report an empty directory, so a refresh could
+    change nothing. A reader's refresh: generation-pinned before its hop like
+    every other, after the operation already passed the writer gate.
     Because the watcher ignores self-generated events, `saveAs(id:)` bumps
     explicitly: after a successful `model.saveAs(url:for:)` it calls
     `model.bumpTreeRevision()` (next to `refreshLocalChanges()`) — Save As writes a

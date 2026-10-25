@@ -525,7 +525,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file ignored only through an excludes file named by the repository's
     `core.excludesFile` (standing in for the global one), while a force-added
     tracked file inside an ignored directory, once modified, is reported as
-    modified and its sibling stays ignored. Its repositories come from the bundle's shared
+    modified and its sibling stays ignored, and run outside any repository
+    throws `notARepository` from both it and `changedFiles`. Its repositories come from the bundle's shared
     `ThrowawayRepository`, which `GitChangeControllerRepositoryTests` uses too.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the

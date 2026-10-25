@@ -6100,7 +6100,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// - no app file declares `func treeNameRole`;
     /// - the app files spelling `treeNameRole(for:` equal `treeNameRoleReaders`;
     /// - no gated file qualifies a row-state case as `TreeGitState.`, or spells
-    ///   `case` followed, on the same line, by `.ignored`.
+    ///   `case` followed, on the same line, by `.ignored`;
+    /// - `ContentView.swift` hands the tree `gitStatus: localChanges.treeGitStatus`
+    ///   — the parameter defaults to an empty lookup, so dropping the argument
+    ///   compiles and draws every row plain.
     ///
     /// Stated limit: `.conflict`, `.modified`, `.added` and `.plain` are also
     /// other types' case names the gated views legitimately switch over — the
@@ -6138,6 +6141,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
             )
         }
+
+        let contentView = try XCTUnwrap(try Self.swiftSources().first { $0.lastPathComponent == "ContentView.swift" })
+        let wiring = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(contentView))
+        XCTAssertNotNil(
+            wiring.range(of: #"\bgitStatus:\s*localChanges\.treeGitStatus\b"#, options: .regularExpression),
+            "ContentView.swift no longer hands the tree localChanges.treeGitStatus — every row would draw plain"
+        )
     }
 
     // MARK: - Self-check

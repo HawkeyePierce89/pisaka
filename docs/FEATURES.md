@@ -1906,8 +1906,16 @@ and iPhone. The feature scope landed so far:
   search bar nor the Find in Files window, and so no query history either. There
   is no "replace
   in selection", and the project search reads tree `.gitignore` files only (not
-  `core.excludesFile` or `.git/info/exclude`). The recent-searches list cannot be
+  `core.excludesFile` or `.git/info/exclude`) — so a file the project tree dims
+  through one of those two is still searched. The recent-searches list cannot be
   filtered, pruned entry by entry, or scoped to one project.
+- The project tree's git colours (macOS) follow every Local Changes refresh — a
+  save, a change on disk the watcher sees, the app's own git operations and the
+  tree's own create, rename, move and delete. A change made only inside `.git`
+  from outside the app (a `git add` or `git commit` in a terminal, an edit to
+  `.git/info/exclude` or the global excludes file) is not seen until the next
+  such refresh; the tree header's Refresh button re-reads the folder listings
+  only, while the Local Changes panel's refresh re-asks git.
 - The project tree supports create, rename, and delete (via a row context menu)
   and, on macOS, a move by drag and drop. That drag is intra-tree only — its
   payload carries a private type identifier, so nothing can be dragged to or from

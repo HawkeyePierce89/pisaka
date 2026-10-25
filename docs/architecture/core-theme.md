@@ -39,8 +39,8 @@ described at the end of this document.
 the geometry tokens, the appearance resolution, the tree row's states and
 `diagnosticRole(for:)` — `ChromeRoleMappingTests` (`swift test`, since part four
 (b)) pins the per-feature answers beside it — the changed-file status's letter,
-word and role, the pull-request checks' glyph, words and role, and the diff
-wash and marker — verbatim over `allCases`, `ChromePaletteTests` (app
+word and role, the pull-request checks' glyph, words and role, the diff
+wash and marker, and the project tree's name role per git state — verbatim over `allCases`, `ChromePaletteTests` (app
 bundle) pins the values themselves, and `TreeRowBackgroundTests` (app bundle,
 since part five (g)) pins the project tree's state-to-role mapping and that it
 composes no alpha.
@@ -721,7 +721,13 @@ full entry; what is **not** listed here has not been swept.
     a strength the palette now carries, so the mapping composes no alpha.
     `TreeRowBackgroundTests` pins the mapping and that it composes none, and the
     mapping takes the theme as a role-to-colour *function* so no view file names
-    the theme's type (rule five).
+    the theme's type (rule five). Since the git-status pass each row's *name* —
+    not its glyph, chevron or background — takes
+    `ChromeColorRole.treeNameRole(for:)` (`statusRed`, `statusYellow`,
+    `statusGreen`, `textSecondary`), and `plain` applies no foreground at all;
+    an expanded folder draws a `hairline` indent guide behind its children at
+    the scaled `hairlineWidth`, centred in the chevron column (rule fifty-one,
+    `app-window.md`).
 
 #### Part two — the editor pane's own chrome
 
@@ -4187,6 +4193,9 @@ The fifty-one rules, each invisible to the compiler:
     label naming one of those four is not matched — the stated limit, rule
     seventeen's shape. Rule seventeen stays the changed-file *letter*'s rule,
     with its own reader set; the two mappings are deliberately separate rules.
+    And `ContentView.swift` hands the tree `gitStatus:
+    localChanges.treeGitStatus`: the parameter defaults to an empty lookup, so
+    a dropped argument compiles and draws every row plain.
     Matched against comment- and literal-stripped text.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually

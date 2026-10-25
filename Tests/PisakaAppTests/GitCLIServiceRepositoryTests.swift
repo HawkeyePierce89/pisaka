@@ -43,7 +43,9 @@ import PisakaCore
 ///   path, `.git/info/exclude`, and a `core.excludesFile` (set in the
 ///   repository's config, standing in for the global one) — while none of it
 ///   reaches the changed files, and a force-added tracked file inside an
-///   ignored directory still reports its edit while its sibling stays ignored.
+///   ignored directory still reports its edit while its sibling stays ignored;
+/// - that status command, run outside any repository, throws
+///   `GitError.notARepository` from both `statusSnapshot` and `changedFiles`.
 ///
 /// The repositories come from `ThrowawayRepository`, whose own git runs with
 /// the machine's configuration masked; the service under test inherits the
@@ -312,6 +314,21 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         let lookup = TreeGitStatus(snapshot: snapshot, repositoryRoot: repositoryRoot, openedFolder: repo)
         XCTAssertEqual(lookup.state(for: repo.appendingPathComponent("pisaka-vendor/kept.txt")), .modified)
         XCTAssertEqual(lookup.state(for: repo.appendingPathComponent("pisaka-vendor/sibling.txt")), .ignored)
+    }
+
+    func testTheStatusCommandOutsideAnyRepositoryThrowsNotARepository() async throws {
+        let outside = scratch.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let service = GitCLIService()
+
+        do {
+            _ = try await service.statusSnapshot(root: outside)
+            XCTFail("statusSnapshot answered for a folder outside any repository")
+        } catch GitError.notARepository {}
+        do {
+            _ = try await service.changedFiles(root: outside)
+            XCTFail("changedFiles answered for a folder outside any repository")
+        } catch GitError.notARepository {}
     }
 
     // MARK: - Helpers
