@@ -472,6 +472,67 @@ final class TreeChainRuleTests: XCTestCase {
         XCTAssertEqual(tree.listedPaths, listed)
     }
 
+    /// A revision change empties the memo, and the reload that follows draws a
+    /// separated head as a plain row. Its run is still read by that load, so
+    /// joining it again lists nothing.
+    func testJoiningASeparatedHeadAfterARevisionChangeListsNothingNew() throws {
+        let tree = tree(["a/b/c/d/one.swift", "a/b/c/d/two.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let headOnly: Set = [key(tree, "a")]
+        _ = try rows(memo, revision: 0, separated: headOnly, tree: tree)
+        XCTAssertEqual(
+            try rows(memo, revision: 1, separated: headOnly, tree: tree),
+            [plain(tree, "a", offersShowAsOneRow: true)]
+        )
+        let listed = tree.listedPaths
+        XCTAssertEqual(Array(listed.suffix(5)), ["", "a", "a/b", "a/b/c", "a/b/c/d"])
+
+        let joined = try XCTUnwrap(onlyChain(try rows(memo, revision: 1, tree: tree)))
+        XCTAssertEqual(names(joined.segments), ["a", "b", "c", "d"])
+        XCTAssertEqual(tree.listedPaths, listed)
+    }
+
+    /// A probe that failed under the load is answered as that failure again by
+    /// a re-run through the memo alone — the separation toggle's read — even
+    /// once the directory reads: the toggle lists nothing, and the next load
+    /// retries it.
+    func testARememberedOnlyReRunAnswersAFailedProbeAsTheLoadDidAndListsNothing() throws {
+        let tree = tree(["a/b/c/d/one.swift", "a/b/c/d/two.swift"])
+        tree.unreadableDirectories = ["a/b/c"]
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let headOnly: Set = [key(tree, "a")]
+        XCTAssertEqual(try rows(memo, revision: 0, separated: headOnly, tree: tree), [plain(tree, "a", offersShowAsOneRow: true)])
+        let listed = tree.listedPaths
+        XCTAssertEqual(listed, ["", "a", "a/b", "a/b/c"])
+
+        tree.unreadableDirectories = []
+        let joined = TreeChainRule.rows(
+            in: try memo.rememberedListing(of: tree.root, revision: 0),
+            separated: [],
+            isSymbolicLink: { tree.symbolicLinkDestination(at: $0) != nil },
+            list: { try memo.rememberedListing(of: $0, revision: 0) }
+        )
+        XCTAssertEqual(names(try XCTUnwrap(onlyChain(joined)).segments), ["a", "b"])
+        XCTAssertEqual(tree.listedPaths, listed)
+
+        let reloaded = try XCTUnwrap(onlyChain(try rows(memo, revision: 0, tree: tree)))
+        XCTAssertEqual(names(reloaded.segments), ["a", "b", "c", "d"])
+        XCTAssertEqual(tree.listedPaths, listed + ["a/b/c", "a/b/c/d"])
+    }
+
+    func testTheRememberedListingNeverReads() throws {
+        let tree = tree(["a/one.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        XCTAssertThrowsError(try memo.rememberedListing(of: tree.url("a"), revision: 0)) {
+            XCTAssertEqual($0 as? TreeListingMemo.NotRemembered, TreeListingMemo.NotRemembered())
+        }
+        _ = try memo.listing(of: tree.url("a"), revision: 0)
+        XCTAssertEqual(names(try memo.rememberedListing(of: URL(fileURLWithPath: root.path + "/x/../a/"), revision: 0)), ["one.swift"])
+        XCTAssertThrowsError(try memo.rememberedListing(of: tree.url("a"), revision: 1))
+        XCTAssertEqual(names(try memo.listing(of: tree.url("a"), revision: 0)), ["one.swift"])
+        XCTAssertEqual(tree.listedPaths, ["a"])
+    }
+
     func testATwoSegmentChainsRemainderIsItsTail() throws {
         let tree = tree(["a/b/one.swift", "a/b/two.swift"])
         let chain = try XCTUnwrap(onlyChain(try rows(tree)))

@@ -22,6 +22,9 @@ import Foundation
 ///   before it (it becomes a plain row under the tail); otherwise append and
 ///   list it.
 ///
+/// A separated head is walked all the same — its row is a plain folder, but the
+/// run's listings are read under this load, so joining it again lists nothing.
+///
 /// A chain of one segment is a plain folder row. Every failure while probing is
 /// **silent**: it shapes the answer and never throws out of the rule.
 public enum TreeChainRule {
@@ -67,10 +70,10 @@ public enum TreeChainRule {
         guard !isSymbolicLink(entry.url), let headListing = try? list(entry.url) else {
             return .folder(entry, offersShowAsOneRow: false)
         }
-        guard !separated.contains(key(for: entry.url)) else {
-            return .folder(entry, offersShowAsOneRow: holdsOneFolder(headListing))
-        }
-
+        // A separated head still walks the run it would draw, so the run's
+        // listings are in the memo: "Show as One Row" then re-runs this rule
+        // over the memo alone, even after a revision bump left only the head's
+        // listing read. The cost is the one an unseparated head pays.
         var segments = [entry]
         var tailListing: [DirectoryEntry]? = headListing
         while let listing = tailListing, holdsOneFolder(listing), segments.count < maximumSegments {
@@ -86,6 +89,9 @@ public enum TreeChainRule {
             tailListing = nextListing
         }
 
+        guard !separated.contains(key(for: entry.url)) else {
+            return .folder(entry, offersShowAsOneRow: holdsOneFolder(headListing))
+        }
         guard segments.count > 1 else { return .folder(entry, offersShowAsOneRow: false) }
         return .chain(TreeChain(segments: segments, tailListing: tailListing))
     }
@@ -226,8 +232,16 @@ public struct TreeChain: Equatable {
 /// `TreeChainRule.key(for:)`, the spelling `separated` uses, so the memo adds no
 /// canonicalisation site of its own.
 ///
-/// The memo lists only when asked; it never lists on its own.
+/// The memo lists only when asked; it never lists on its own, and
+/// `rememberedListing(of:revision:)` never lists at all — the read a
+/// re-run with no load behind it (a separation toggle) goes through, so a probe
+/// that failed under the load is answered as that failure again rather than
+/// retried outside one.
 public final class TreeListingMemo {
+    /// Thrown by `rememberedListing(of:revision:)` for a listing this revision
+    /// has not read successfully.
+    public struct NotRemembered: Error, Equatable {}
+
     private let list: (URL) throws -> [DirectoryEntry]
     private var revision: Int?
     private var listings: [String: [DirectoryEntry]] = [:]
@@ -249,6 +263,18 @@ public final class TreeListingMemo {
         let listing = try list(url)
         listings[key] = listing
         return listing
+    }
+
+    /// The listing of `url` this revision already read, never reading on a
+    /// miss: a different revision, a directory not asked yet, or one whose read
+    /// failed all throw `NotRemembered`. The rule takes that as it takes any
+    /// failed probe — a plain row, or the walk stopping before it — which is
+    /// the shape the load that missed it drew.
+    public func rememberedListing(of url: URL, revision: Int) throws -> [DirectoryEntry] {
+        guard self.revision == revision, let remembered = listings[TreeChainRule.key(for: url)] else {
+            throw NotRemembered()
+        }
+        return remembered
     }
 
     /// Forget every listing — a project-root change.

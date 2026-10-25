@@ -1721,8 +1721,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and nothing tree-wide records it. Neither set is
     written to the session, both are cleared on a project-root change, and
     neither is pruned — a key whose folder is gone matches no row. A `separated`
-    change re-runs the rule over the node's cached listing against the memo and
-    lists nothing.
+    change re-runs the rule over the node's cached listing against the memo
+    alone (`rememberedListing(of:revision:)`) and lists nothing — joining
+    included, because the rule walks a separated head's run under every load
+    that draws it, and a probe that failed under that load is answered as the
+    same failure rather than retried (`core-workspace.md`).
     **Re-evaluation needs no new trigger.** Every expanded node reloads on a
     `treeRevision` bump, as before, through the memo, and a node also reloads
     when the shape its parent hands it changes (`TreeNodeShape` is `Equatable`,

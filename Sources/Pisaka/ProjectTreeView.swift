@@ -847,11 +847,13 @@ private struct DirectoryNodeView: View {
         // (the parent's probe read it), so this reload reads nothing new.
         .onChange(of: shape) { _ in reloadOrForget() }
         // Which folders are separated changed: the same listing, new rows. The
-        // rule re-runs against the memo, which holds every probe this node's
-        // listing already caused, and nothing is listed.
+        // rule re-runs against the memo alone, which holds every probe this
+        // node's listing already caused, and nothing is listed — a probe that
+        // failed under the load is answered as that failure again, and is
+        // retried by the next load, never by the toggle.
         .onChange(of: separated) { _ in
             guard let children else { return }
-            let childRows = childRows(for: children, revision: model.treeRevision)
+            let childRows = childRows(for: children, revision: model.treeRevision, rememberedOnly: true)
             rows = childRows
             dropDraftNotLed(by: childRows)
         }
@@ -904,12 +906,14 @@ private struct DirectoryNodeView: View {
     private func segmentsText(_ segments: [DirectoryEntry], under chain: TreeChain, trailingSeparator: Bool) -> Text {
         let separator = Text(verbatim: "/").foregroundStyle(theme.color(.textSecondary))
         var runs: [Text] = []
+        // Read once: the chain computes the array on every ask.
+        let gitStatusURLs = chain.gitStatusURLs
         // `segments` is always a prefix of the chain's own — all of them, or
         // the leading ones — so each index names its segment's git url.
         for (index, segment) in segments.enumerated() {
             if index > 0 { runs.append(separator) }
             let name = Text(verbatim: segment.name)
-            let state = gitStatus.state(for: chain.gitStatusURLs[index])
+            let state = gitStatus.state(for: gitStatusURLs[index])
             if let role = ChromeColorRole.treeNameRole(for: state) {
                 runs.append(name.foregroundStyle(theme.color(role)))
             } else {
@@ -1001,14 +1005,18 @@ private struct DirectoryNodeView: View {
     }
 
     /// `TreeChainRule`'s rows for this node's listing, every probe read through
-    /// the memo under `revision`. A probe failure is silent by the rule: it
-    /// shapes the answer (a plain row) and never beeps.
-    private func childRows(for listing: [DirectoryEntry], revision: Int) -> [TreeRow] {
-        TreeChainRule.rows(
+    /// the memo under `revision` — or, with `rememberedOnly`, answered by the
+    /// memo alone, a miss reading nothing. A probe failure is silent by the
+    /// rule: it shapes the answer (a plain row) and never beeps.
+    private func childRows(for listing: [DirectoryEntry], revision: Int, rememberedOnly: Bool = false) -> [TreeRow] {
+        let memo = listingMemo
+        return TreeChainRule.rows(
             in: listing,
             separated: separated,
             isSymbolicLink: { model.isSymbolicLink($0) },
-            list: { try listingMemo.listing(of: $0, revision: revision) }
+            list: rememberedOnly
+                ? { try memo.rememberedListing(of: $0, revision: revision) }
+                : { try memo.listing(of: $0, revision: revision) }
         )
     }
 

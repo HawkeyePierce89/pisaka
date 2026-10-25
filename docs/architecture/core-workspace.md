@@ -835,7 +835,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`maximumSegments`): the 32nd segment is still listed, so its listing is the
     tail's contents and the rest of the run appears as that tail's children.
     `offersShowAsOneRow` on the plain-folder case is true exactly when the
-    folder is separated **and** would otherwise qualify. **Every probe failure
+    folder is separated **and** would otherwise qualify. **A separated head is
+    walked all the same**: its row is a plain folder, but the run it would draw
+    is listed under the load that drew it, so `Show as One Row` re-runs the rule
+    over the memo alone — even after a revision bump left nothing else read. Its
+    cost is the one the unseparated head pays. **Every probe failure
     is silent**: it shapes the answer and never throws out of the rule; only a
     node's own contents read may beep, in the view.
     **Symbolic links in today's listing.** `FileService.contentsOfDirectory`
@@ -903,7 +907,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and the order in which a parent and an already-expanded child load never
     causes a second read within one revision. It lists only when asked: nothing
     lists on the watcher callback, in the drop hover path, or on an unfold
-    toggle, which re-runs the rule against the memo. **Stated limit**: the
+    toggle, which re-runs the rule through `rememberedListing(of:revision:)` —
+    the memo's answer alone, a miss (another revision, a directory not asked
+    yet, a failed read) throwing `NotRemembered` without reading. The rule takes
+    a miss as any failed probe, so a probe that failed under the load is drawn
+    as that failure again and is retried by the next load, never by the
+    toggle. **Stated limit**: the
     memo bounds reads *within* a revision, not across them — the rule lists
     every non-link subfolder of a listing it is asked about, so a folder of N
     subfolders costs N + 1 reads each time a revision change empties the memo
@@ -931,7 +940,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that segment (same `id`, its listing holding the old tail and the file), and
     after the extend a rename draft of the old tail leads nowhere. The unfold
     sequence — `{a}`, `{a, b}`, then `a` removed — is three rule re-runs with no
-    new listing, the rule staying local to each folder.
+    new listing, the rule staying local to each folder; and a separated head
+    loaded under a fresh revision is joined again with no new listing either.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one

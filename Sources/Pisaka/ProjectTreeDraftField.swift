@@ -99,7 +99,10 @@ struct TreeNameFieldView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: metrics.scaled(4)) {
+            // The gap is the create draft's, between its glyph and the field. A
+            // chain rename's column is its `a/b/` text, which the field must
+            // follow with no gap, or the path reads `a/b/  c`.
+            HStack(spacing: isCreate ? metrics.scaled(4) : 0) {
                 iconColumn
 
                 ProjectTreeDraftFieldRepresentable(
