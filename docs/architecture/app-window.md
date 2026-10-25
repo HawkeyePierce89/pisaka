@@ -1725,7 +1725,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     alone (`rememberedListing(of:revision:)`) and lists nothing — joining
     included, because the rule walks a separated head's run under every load
     that draws it, and a probe that failed under that load is answered as the
-    same failure rather than retried (`core-workspace.md`).
+    same failure rather than retried (`core-workspace.md`). The memo answers
+    only for a load it still holds, so the handler first asks it for the
+    node's **own** listing: on a miss it takes the ordinary
+    `reloadOrForget()` instead. That is the project-root change — the tree's
+    `onChange(of: projectRoot)` resets the memo and clears `separated`, and
+    SwiftUI may run it *after* the new root node's `onAppear` load, which
+    would otherwise leave the `separated` re-run reading an empty memo and
+    drawing every top-level chain as a plain folder until the next bump.
     **Re-evaluation needs no new trigger.** Every expanded node reloads on a
     `treeRevision` bump, as before, through the memo, and a node also reloads
     when the shape its parent hands it changes (`TreeNodeShape` is `Equatable`,

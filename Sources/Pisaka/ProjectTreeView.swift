@@ -851,8 +851,20 @@ private struct DirectoryNodeView: View {
         // node's listing already caused, and nothing is listed — a probe that
         // failed under the load is answered as that failure again, and is
         // retried by the next load, never by the toggle.
+        //
+        // The memo answers only for a load it still remembers. A project-root
+        // change resets it in the tree's `onChange(of: projectRoot)`, which
+        // SwiftUI may run *after* the new root node's `onAppear` load — the
+        // same root change also clears `separated`, so this handler would then
+        // re-run over an empty memo and draw every chain as a plain folder.
+        // When this node's own listing is not remembered, the toggle has no
+        // load behind it, so it reloads (or forgets, collapsed) instead.
         .onChange(of: separated) { _ in
             guard let children else { return }
+            guard (try? listingMemo.rememberedListing(of: contentsDirectory, revision: model.treeRevision)) != nil else {
+                reloadOrForget()
+                return
+            }
             let childRows = childRows(for: children, revision: model.treeRevision, rememberedOnly: true)
             rows = childRows
             dropDraftNotLed(by: childRows)
