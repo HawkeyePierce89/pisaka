@@ -898,7 +898,9 @@ private struct DirectoryNodeView: View {
 /// before and after this change — from the `.padding(.leading,
 /// metrics.scaled(12))` `DirectoryNodeView` puts on each child row. An inset
 /// here would be indent that never existed: it measured 28pt per level against
-/// today's 12pt, truncating names in a pane only ~200pt wide.
+/// today's 12pt, truncating names in a pane only ~200pt wide. What it does add
+/// to `content` is a background: the indent guide (`TreeIndentGuide`), which
+/// takes no width.
 ///
 /// The row's *right*-click menu is passed in rather than left on the label, so
 /// the three targets a folder row has — the hover highlight, the tap and the
@@ -934,9 +936,46 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 menu: menu
             )
             if configuration.isExpanded {
-                configuration.content
+                // One stack around the content so the guide is *one* background
+                // spanning the whole children block — nested expanded blocks and
+                // an open create-draft included — rather than a modifier the
+                // content's rows would each receive. A background, so every
+                // row's own background paints over it exactly as before.
+                VStack(alignment: .leading, spacing: 0) {
+                    configuration.content
+                }
+                .background(alignment: .leading) { TreeIndentGuide() }
             }
         }
+    }
+}
+
+/// The hairline an expanded folder draws down beside its children block, on
+/// the centre of the folder's own chevron column.
+///
+/// Placed by layout, never by arithmetic on a token: the row's horizontal
+/// padding inset, then a frame exactly one chevron column wide with the rule
+/// centred in it — the chevron's own two measurements, so the guide stays on
+/// the chevron's centre at every interface scale. Nested folders sit one
+/// indent step in, so their guides land one step deeper with nothing here
+/// knowing about depth. A collapsed folder draws nothing because its content
+/// is not rendered at all. Decoration only: no hit target, no highlight, and
+/// hidden from accessibility.
+private struct TreeIndentGuide: View {
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.color(.hairline))
+            .frame(width: metrics.scaled(ChromeGeometry.hairlineWidth))
+            .frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
+            .frame(maxHeight: .infinity)
+            .padding(.leading, metrics.scaled(ChromeGeometry.rowPaddingX))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

@@ -191,7 +191,7 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Create: `Tests/PisakaAppTests/TreeIndentGuideLayoutTests.swift`
 
-- [ ] While a folder is expanded, draw one vertical guide behind its children block.
+- [x] While a folder is expanded, draw one vertical guide behind its children block.
   - Put it in the folder's disclosure-style body, as a small private view that reads the environment's metrics and theme.
   - It spans the block's full height, nested expanded blocks and an open create-draft included. Nested folders draw their own, deeper guides.
   - Its x position is the centre of the parent folder's chevron column: inset by the scaled row padding, then centred in a frame one scaled chevron column wide.
@@ -199,9 +199,9 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
   - No arithmetic on any token.
   - A collapsed folder draws nothing, because its content is not rendered at all.
   - No highlight, no hit target, no setting.
-- [ ] App-layer test, with a few renders only and not in loops. Render a tree whose root is expanded with a couple of children, at scale 1 and at one larger scale. Assert that a `hairline`-coloured column exists at the root chevron's centre across the children rows' span, that it is the scaled width, and that it moves with the scale. Also assert that it is absent from the root row itself, above the children block.
-- [ ] Keep `TreeRowGlyphLayoutTests` green. If one of its samples now overlaps the guide column, re-scope the sample; do not move the guide.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 7.
+- [x] App-layer test, with a few renders only and not in loops. Render a tree whose root is expanded with a couple of children, at scale 1 and at one larger scale. Assert that a `hairline`-coloured column exists at the root chevron's centre across the children rows' span, that it is the scaled width, and that it moves with the scale. Also assert that it is absent from the root row itself, above the children block.
+- [x] Keep `TreeRowGlyphLayoutTests` green. If one of its samples now overlaps the guide column, re-scope the sample; do not move the guide.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 7. (The pinned Xcode 26.3 is not installed on this machine; the app-layer bundle ran under the installed Xcode after `xcodegen generate`: 485 tests, 0 failures. `swift test`: 6996 tests, 0 failures. `swiftlint --strict`: 0 violations. `TreeRowGlyphLayoutTests` stayed green unchanged: its samples do not overlap the guide column.)
 
 ### Task 7: Verify acceptance criteria
 
