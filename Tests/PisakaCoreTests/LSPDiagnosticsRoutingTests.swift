@@ -990,7 +990,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         let entry = try XCTUnwrap(model.store.entry(for: mainFile))
         XCTAssertEqual(entry.serverKey.root, serverRoot, "the store keys by the canonical root, as the clears will")
-        XCTAssertEqual(entry.diagnostics.count, 2)
+        XCTAssertEqual(entry.mapped?.count, 2)
         XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 1, warnings: 1))
 
         // And D33 empties it through the same wiring.
@@ -1034,6 +1034,6 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     private func publishedEntries(in model: DiagnosticsModel) -> [Diagnostic] {
-        model.store.entry(for: mainFile)?.diagnostics ?? []
+        model.store.entry(for: mainFile)?.mapped ?? []
     }
 }

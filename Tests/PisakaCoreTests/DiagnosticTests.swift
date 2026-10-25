@@ -153,6 +153,31 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual(mapped?.severity, .error)
     }
 
+    /// The positional factory carries the server's range verbatim and converts
+    /// severity exactly as the mapped factory does: unknown is `.error`.
+    func testThePositionalFactoryKeepsTheServerRangeAndConvertsSeverityAlike() {
+        let range = LSPRange(
+            start: LSPPosition(line: 40, character: 7),
+            end: LSPPosition(line: 41, character: 2)
+        )
+        let known = PositionalDiagnostic.make(
+            from: LSPDiagnostic(range: range, severity: .warning, source: "gopls", message: "unused"),
+            url: url
+        )
+        XCTAssertEqual(
+            known,
+            PositionalDiagnostic(range: range, severity: .warning, message: "unused", source: "gopls", fileURL: url)
+        )
+
+        let unknown = PositionalDiagnostic.make(
+            from: LSPDiagnostic(range: range, severity: LSPDiagnosticSeverity(rawValue: 17), message: "x"),
+            url: url
+        )
+        XCTAssertEqual(unknown.severity, .error)
+        let absent = PositionalDiagnostic.make(from: LSPDiagnostic(range: range, message: "x"), url: url)
+        XCTAssertEqual(absent.severity, .error)
+    }
+
     /// One malformed entry is dropped; its siblings survive — the same
     /// per-element rule `LSPHoverResponse` states.
     func testAMalformedEntryIsDroppedWithoutTakingThePushDown() throws {

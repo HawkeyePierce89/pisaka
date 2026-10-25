@@ -245,11 +245,11 @@ everything known about its file. This plan keeps those reports.
   `Tests/PisakaCoreTests/DiagnosticsModelTests.swift`,
   `Tests/PisakaCoreTests/LSPDiagnosticsRoutingTests.swift` (mechanical accessor updates)
 
-- [ ] Add `PositionalDiagnostic` (Equatable, Hashable, Sendable): the server's
+- [x] Add `PositionalDiagnostic` (Equatable, Hashable, Sendable): the server's
   `LSPRange`, severity, message, source and file URL. Add a factory from an
   `LSPDiagnostic`, using the same `DiagnosticSeverity(lspValue:)` conversion as the
   mapped factory.
-- [ ] Make the entry payload an enum (mapped / positional), keeping `serverKey`
+- [x] Make the entry payload an enum (mapped / positional), keeping `serverKey`
   provenance on every entry:
   - add the optional `mapped` accessor;
   - add a positional `replace` beside the existing mapped one;
@@ -258,10 +258,10 @@ everything known about its file. This plan keeps those reports.
     it is mapped;
   - `clear(serverKey:)` and `clearAll()` remove both kinds;
   - `counts` spans both kinds.
-- [ ] `diagnostics(at:in:)`, `worstSeverityPerLine`, the model's `diagnostics(in:)` and
+- [x] `diagnostics(at:in:)`, `worstSeverityPerLine`, the model's `diagnostics(in:)` and
   `noteEdit`'s early-return guard read `mapped` only. `ProblemCommands` reads
   `store.entry(for:)?.mapped`.
-- [ ] Tests:
+- [x] Tests:
   - a positional entry installs, and an empty positional report installs an empty
     entry;
   - for a positional entry, `diagnostics(in:)` and `diagnostics(at:in:)` return
@@ -270,7 +270,7 @@ everything known about its file. This plan keeps those reports.
   - the mapped-only clear leaves a positional entry and removes a mapped one;
   - server clear and `clearAll` remove positional entries;
   - counts include positional errors and warnings and exclude information and hints.
-- [ ] Run `swift test` and build the macOS app target. Both must pass before Task 2.
+- [x] Run `swift test` and build the macOS app target. Both must pass before Task 2. (Xcode_26.3 absent locally; built with the installed Xcode 27.1.)
 
 ### Task 2: One ordering for both kinds; panel rows carry a reveal target; closed-row activation
 

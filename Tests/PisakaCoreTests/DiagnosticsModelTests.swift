@@ -92,7 +92,7 @@ final class DiagnosticsModelTests: XCTestCase {
         ]
         model.receive(published(set, version: 1))
 
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
         XCTAssertEqual(entry()?.serverKey, serverKey)
     }
 
@@ -113,8 +113,8 @@ final class DiagnosticsModelTests: XCTestCase {
             diagnostics: [diagnostic(at: 4, length: 3, line: 1, message: "go")]
         ))
 
-        XCTAssertEqual(entry()?.diagnostics.count, 1)
-        XCTAssertEqual(entry()?.diagnostics.first?.message, "go")
+        XCTAssertEqual(entry()?.mapped?.count, 1)
+        XCTAssertEqual(entry()?.mapped?.first?.message, "go")
         XCTAssertEqual(entry()?.serverKey.serverID, goID)
     }
 
@@ -138,8 +138,8 @@ final class DiagnosticsModelTests: XCTestCase {
             version: 1
         ))
 
-        XCTAssertEqual(entry()?.diagnostics.count, 1)
-        XCTAssertEqual(entry()?.diagnostics.first?.message, "first")
+        XCTAssertEqual(entry()?.mapped?.count, 1)
+        XCTAssertEqual(entry()?.mapped?.first?.message, "first")
     }
 
     /// A versioned push whose version the *current* record does not name cannot
@@ -154,7 +154,7 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry(), "held, not shown")
 
         model.noteSynced(url: url, version: 2, revision: 0)
-        XCTAssertEqual(entry()?.diagnostics, set, "the landing report admits it")
+        XCTAssertEqual(entry()?.mapped, set, "the landing report admits it")
     }
 
     /// The replay half of the same hold: a push for a version no sync ever
@@ -171,7 +171,7 @@ final class DiagnosticsModelTests: XCTestCase {
 
         let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "fresh")]
         model.receive(published(set, version: 3))
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     /// The forced-flush race ``LSPWorkspace/prepare(forceFlush:)``'s invariant
@@ -186,7 +186,7 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry(), "the answer outran its own report: nothing on the surfaces yet")
 
         model.noteSynced(url: url, version: 2, revision: 0)
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
         XCTAssertEqual(model.counts.warnings, 1)
     }
 
@@ -195,7 +195,7 @@ final class DiagnosticsModelTests: XCTestCase {
         let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "unversioned")]
         model.receive(published(set, version: nil))
 
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     // MARK: - The hold-and-reconcile step
@@ -211,7 +211,7 @@ final class DiagnosticsModelTests: XCTestCase {
 
         model.noteSynced(url: url, version: 1, revision: 0)
 
-        XCTAssertEqual(entry()?.diagnostics, set, "the landing record admits the held push")
+        XCTAssertEqual(entry()?.mapped, set, "the landing record admits the held push")
         XCTAssertEqual(entry()?.serverKey, serverKey)
     }
 
@@ -223,7 +223,7 @@ final class DiagnosticsModelTests: XCTestCase {
 
         model.noteSynced(url: url, version: 1, revision: 0)
 
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     /// The hold is judged against the record that lands, verbatim: a push
@@ -237,7 +237,7 @@ final class DiagnosticsModelTests: XCTestCase {
 
         let set = [diagnostic(at: 0, length: 3, line: 0, message: "now")]
         model.receive(published(set, version: 1))
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     /// The starvation shape (iteration two's fix, finished): a provider flush
@@ -268,7 +268,7 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry())
 
         model.noteSynced(url: url, version: 3, revision: 1)
-        XCTAssertEqual(entry()?.diagnostics, set, "the settling sync's own push is what lands")
+        XCTAssertEqual(entry()?.mapped, set, "the settling sync's own push is what lands")
     }
 
     /// An edit between the hold and the report condemns the held set: it
@@ -293,7 +293,7 @@ final class DiagnosticsModelTests: XCTestCase {
         model.noteSynced(url: url, version: 2, revision: 1)
         let set = [diagnostic(at: 6, length: 3, line: 1, message: "fresh")]
         model.receive(published(set, version: 2))
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     /// A wholesale replacement between the hold and the report drops the held
@@ -341,7 +341,7 @@ final class DiagnosticsModelTests: XCTestCase {
         // Another server's document clear does not touch the Swift hold…
         model.receive(.cleared(.document(url: otherURL)))
         model.noteSynced(url: url, version: 1, revision: 0)
-        XCTAssertEqual(entry()?.diagnostics.first?.message, "swift")
+        XCTAssertEqual(entry()?.mapped?.first?.message, "swift")
         // …while its own hold is condemned: the record it was waiting for lands,
         // and nothing is admitted against it. Asserted by *landing that record*,
         // because the entry simply not existing yet would satisfy any weaker
@@ -371,7 +371,7 @@ final class DiagnosticsModelTests: XCTestCase {
 
         model.noteSynced(url: url, version: 2, revision: 0)
 
-        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(entry()?.mapped, set)
     }
 
     /// Task 5's contract, pinned here where it is consumed: a sync reported for
@@ -403,7 +403,7 @@ final class DiagnosticsModelTests: XCTestCase {
         // Self-correcting: the next debounce re-syncs at the current revision.
         model.noteSynced(url: url, version: 2, revision: 2)
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "fresh")], version: 2))
-        XCTAssertEqual(entry()?.diagnostics.first?.message, "fresh")
+        XCTAssertEqual(entry()?.mapped?.first?.message, "fresh")
     }
 
     // MARK: - The sync controller's pin (Task 5)
@@ -469,7 +469,7 @@ final class DiagnosticsModelTests: XCTestCase {
         model.noteSynced(url: url, version: 2, revision: model.currentRevision(for: url))
         let fresh = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "settled")]
         model.receive(published(fresh, version: 2))
-        XCTAssertEqual(entry()?.diagnostics, fresh)
+        XCTAssertEqual(entry()?.mapped, fresh)
     }
 
     /// A wholesale replacement moves the revision too — so a sync pinned before
@@ -524,12 +524,12 @@ final class DiagnosticsModelTests: XCTestCase {
             changeInLength: edit.delta
         )
 
-        XCTAssertEqual(entry()?.diagnostics.count, 2)
+        XCTAssertEqual(entry()?.mapped?.count, 2)
         // Untouched survivor keeps everything, including its stored line.
-        XCTAssertEqual(entry()?.diagnostics.first, before)
+        XCTAssertEqual(entry()?.mapped?.first, before)
         // Shifted survivor moves by the delta and renumbers from the new table:
         // offset 10 sits on new line 2 ("aaa\nXXbbb\n" ends at 10).
-        let shifted = entry()?.diagnostics.last
+        let shifted = entry()?.mapped?.last
         XCTAssertEqual(shifted?.range, NSRange(location: 10, length: 3))
         XCTAssertEqual(shifted?.line, 2)
         XCTAssertEqual(shifted?.message, "after")
@@ -556,7 +556,7 @@ final class DiagnosticsModelTests: XCTestCase {
         // at one.
         model.noteSynced(url: url, version: 2, revision: 1)
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "next")], version: 2))
-        XCTAssertEqual(entry()?.diagnostics.first?.message, "next")
+        XCTAssertEqual(entry()?.mapped?.first?.message, "next")
     }
 
     // MARK: - Document independence
@@ -585,8 +585,8 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(published(mainSet, version: 1)) // gated: revision moved
         model.receive(published(otherSet, version: 1, url: otherURL)) // still fresh
 
-        XCTAssertEqual(model.store.entry(for: otherURL)?.diagnostics, otherSet)
-        XCTAssertEqual(entry()?.diagnostics.map(\.message), ["main"])
+        XCTAssertEqual(model.store.entry(for: otherURL)?.mapped, otherSet)
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["main"])
         XCTAssertEqual(model.counts.errors, 1)
         XCTAssertEqual(model.counts.warnings, 1)
     }
@@ -722,7 +722,7 @@ final class DiagnosticsModelTests: XCTestCase {
         // An all-clear push: an entry exists, holding nothing.
         model.noteSynced(url: url, version: 1, revision: model.currentRevision(for: url))
         model.receive(published([], version: 1))
-        XCTAssertEqual(entry()?.diagnostics, [])
+        XCTAssertEqual(entry()?.mapped, [])
         publishes = 0
 
         type()
@@ -734,7 +734,7 @@ final class DiagnosticsModelTests: XCTestCase {
         publishes = 0
         type()
         XCTAssertEqual(publishes, 1, "a non-empty set is shifted and republished")
-        XCTAssertEqual(entry()?.diagnostics.count, 1)
+        XCTAssertEqual(entry()?.mapped?.count, 1)
     }
 
     // MARK: - Query forwarding
@@ -825,6 +825,6 @@ final class DiagnosticsModelTests: XCTestCase {
         // …and the channel is still live: the next current report's own push lands.
         model.noteSynced(url: url, version: 3, revision: 2)
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "fresh")], version: 3))
-        XCTAssertEqual(entry()?.diagnostics.map(\.message), ["fresh"])
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["fresh"])
     }
 }

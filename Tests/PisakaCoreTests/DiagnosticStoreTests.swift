@@ -52,7 +52,7 @@ final class DiagnosticStoreTests: XCTestCase {
         let secondPush = [diagnostic(at: 8, line: 2)]
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: secondPush)
 
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics, secondPush)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped, secondPush)
     }
 
     /// The "all clear" push is an empty *entry*, not a missing one: provenance
@@ -62,20 +62,20 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [])
 
         let entry = store.entry(for: mainURL)
-        XCTAssertEqual(entry?.diagnostics, [])
+        XCTAssertEqual(entry?.mapped, [])
         XCTAssertEqual(entry?.serverKey, swiftKey)
     }
 
     // MARK: - Clearing
 
-    func testClearByURLRemovesOnlyThatDocument() {
+    func testMappedClearRemovesOnlyThatDocument() {
         var store = DiagnosticStore()
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
         store.replace(url: utilURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, line: 1)])
-        store.clear(url: mainURL)
+        store.clearMapped(url: mainURL)
 
         XCTAssertNil(store.entry(for: mainURL))
-        XCTAssertEqual(store.entry(for: utilURL)?.diagnostics.count, 1)
+        XCTAssertEqual(store.entry(for: utilURL)?.mapped?.count, 1)
     }
 
     func testClearByServerKeyLeavesAnotherServersDocumentsAlone() {
@@ -113,7 +113,7 @@ final class DiagnosticStoreTests: XCTestCase {
         store.apply(shift: shiftedSet, to: mainURL)
 
         let entry = store.entry(for: mainURL)
-        XCTAssertEqual(entry?.diagnostics, shiftedSet)
+        XCTAssertEqual(entry?.mapped, shiftedSet)
         XCTAssertEqual(entry?.serverKey, swiftKey)
     }
 
@@ -466,7 +466,7 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertEqual(groups[0].rows.map(\.message), ["m", "other", "m"])
 
         // The entry itself is untouched by the rendering rule.
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 4)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped?.count, 4)
         XCTAssertEqual(store.counts.errors, 4)
     }
 
@@ -495,7 +495,7 @@ final class DiagnosticStoreTests: XCTestCase {
 
         let groups = store.rows(relativeTo: rootURL)
         XCTAssertEqual(groups[0].rows.count, 1)
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 2)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped?.count, 2)
     }
 
     // MARK: - Counts
@@ -628,5 +628,147 @@ final class DiagnosticStoreTests: XCTestCase {
             store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
             [nil, nil, .warning]
         )
+    }
+
+    // MARK: - Positional entries
+
+    private func positional(
+        _ fileURL: URL = URL(fileURLWithPath: "/tmp/pkg/Sources/App/main.swift"),
+        line: Int,
+        character: Int = 0,
+        severity: DiagnosticSeverity = .error,
+        message: String = "p"
+    ) -> PositionalDiagnostic {
+        PositionalDiagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: line, character: character),
+                end: LSPPosition(line: line, character: character + 3)
+            ),
+            severity: severity,
+            message: message,
+            source: "test",
+            fileURL: fileURL
+        )
+    }
+
+    func testAPositionalEntryInstallsWithItsProvenanceAndNoMappedSet() {
+        var store = DiagnosticStore()
+        let set = [positional(line: 1), positional(line: 2, severity: .warning)]
+        store.replace(url: mainURL, serverKey: goKey, positional: set)
+
+        let entry = store.entry(for: mainURL)
+        XCTAssertEqual(entry?.positional, set)
+        XCTAssertNil(entry?.mapped, "a positional entry has no mapped set, by type")
+        XCTAssertEqual(entry?.serverKey, goKey)
+    }
+
+    func testAnEmptyPositionalReportInstallsAnEmptyEntry() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [])
+
+        let entry = store.entry(for: mainURL)
+        XCTAssertEqual(entry?.positional, [])
+        XCTAssertEqual(entry?.serverKey, goKey)
+    }
+
+    func testEitherKindReplacesTheOtherWholesale() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 0)])
+        let mapped = [diagnostic(at: 0, line: 0)]
+        store.replace(url: mainURL, serverKey: goKey, diagnostics: mapped)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped, mapped)
+
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 2)])
+        XCTAssertNil(store.entry(for: mainURL)?.mapped)
+        XCTAssertEqual(store.entry(for: mainURL)?.positional?.count, 1)
+    }
+
+    /// The editor queries read mapped sets only: a positional entry draws no
+    /// squiggle, answers no hover and marks no gutter line.
+    func testEditorQueriesSeeNothingOfAPositionalEntry() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [positional(line: 0), positional(line: 1, character: 1, severity: .warning)]
+        )
+
+        XCTAssertTrue(store.diagnostics(at: 0, in: mainURL).isEmpty)
+        XCTAssertTrue(store.diagnostics(at: 5, in: mainURL).isEmpty)
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
+            [nil, nil, nil]
+        )
+    }
+
+    func testAShiftDoesNotTouchAPositionalEntry() {
+        var store = DiagnosticStore()
+        let set = [positional(line: 1)]
+        store.replace(url: mainURL, serverKey: goKey, positional: set)
+
+        store.apply(shift: [diagnostic(at: 5, line: 1)], to: mainURL)
+
+        XCTAssertEqual(store.entry(for: mainURL)?.positional, set)
+        XCTAssertNil(store.entry(for: mainURL)?.mapped, "a shift must not turn a positional entry into a mapped one")
+    }
+
+    func testTheMappedClearLeavesAPositionalEntryAndRemovesAMappedOne() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: goKey, diagnostics: [diagnostic(utilURL, at: 0, line: 0)])
+
+        store.clearMapped(url: mainURL)
+        store.clearMapped(url: utilURL)
+
+        XCTAssertEqual(store.entry(for: mainURL)?.positional?.count, 1)
+        XCTAssertNil(store.entry(for: utilURL))
+    }
+
+    func testTheServerClearRemovesPositionalEntries() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: swiftKey, positional: [positional(utilURL, line: 0)])
+
+        store.clear(serverKey: goKey)
+
+        XCTAssertNil(store.entry(for: mainURL))
+        XCTAssertEqual(store.entry(for: utilURL)?.serverKey, swiftKey, "another server's positional entry survives")
+    }
+
+    func testClearAllRemovesPositionalEntries() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: swiftKey, diagnostics: [diagnostic(utilURL, at: 0, line: 0)])
+
+        store.clearAll()
+
+        XCTAssertNil(store.entry(for: mainURL))
+        XCTAssertNil(store.entry(for: utilURL))
+    }
+
+    func testCountsSpanBothKindsAndExcludeInformationAndHints() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [
+                positional(line: 0, severity: .error),
+                positional(line: 1, severity: .error),
+                positional(line: 2, severity: .warning),
+                positional(line: 3, severity: .information),
+                positional(line: 4, severity: .hint),
+            ]
+        )
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            diagnostics: [
+                diagnostic(utilURL, at: 0, line: 0, severity: .error),
+                diagnostic(utilURL, at: 4, line: 1, severity: .warning),
+                diagnostic(utilURL, at: 8, line: 2, severity: .hint),
+            ]
+        )
+
+        XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 3, warnings: 2))
     }
 }

@@ -100,6 +100,57 @@ public struct Diagnostic: Equatable, Hashable, Sendable {
     }
 }
 
+/// One diagnostic about a document no buffer holds: the server's own LSP
+/// positions, verbatim, with the message and metadata to display.
+///
+/// The second of the store's two kinds, and deliberately a separate type, not
+/// a `Diagnostic` with placeholder offsets: a report for a file the workspace
+/// does not hold has no buffer to be mapped against, so it carries no UTF-16
+/// offsets at all. Every editor-facing reader (squiggles, gutter, hover, the
+/// edit shift, Next/Previous Problem) reads `DiagnosticStore.Entry.mapped`,
+/// which is `nil` for this kind — so none of them can see one, by type. The
+/// panel rows, the counts and the tree read severity and position, which both
+/// kinds carry. The position is mapped onto a buffer only once the file is
+/// opened and a row is activated.
+public struct PositionalDiagnostic: Equatable, Hashable, Sendable {
+    /// The server's range, exactly as pushed — zero-based lines and UTF-16
+    /// characters counted with LSP's separators.
+    public var range: LSPRange
+    public var severity: DiagnosticSeverity
+    public var message: String
+    public var source: String?
+    public var fileURL: URL
+
+    public init(
+        range: LSPRange,
+        severity: DiagnosticSeverity,
+        message: String,
+        source: String?,
+        fileURL: URL
+    ) {
+        self.range = range
+        self.severity = severity
+        self.message = message
+        self.source = source
+        self.fileURL = fileURL
+    }
+}
+
+public extension PositionalDiagnostic {
+    /// Carry one wire diagnostic over unmapped. The severity goes through the
+    /// same total conversion the mapped factory uses, so an absent or unknown
+    /// wire severity is `.error` in both kinds.
+    static func make(from lsp: LSPDiagnostic, url: URL) -> PositionalDiagnostic {
+        PositionalDiagnostic(
+            range: lsp.range,
+            severity: DiagnosticSeverity(lspValue: lsp.severity?.rawValue),
+            message: lsp.message,
+            source: lsp.source,
+            fileURL: url
+        )
+    }
+}
+
 // MARK: - Mapping
 
 public extension Diagnostic {

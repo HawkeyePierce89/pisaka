@@ -35,15 +35,51 @@ public struct DiagnosticStore: Equatable, Sendable {
     }
 
     /// One document's set plus the provenance that produced it.
+    ///
+    /// The set is one of two kinds, and the kind is a type rather than a flag:
+    /// a **mapped** set was mapped onto a buffer the workspace holds and carries
+    /// UTF-16 offsets; a **positional** set describes a document no buffer holds
+    /// and carries the server's positions only. Editor-facing readers go through
+    /// ``mapped``, which is `nil` for a positional entry, so a positional set can
+    /// never reach a squiggle, the gutter, hover, the edit shift or problem
+    /// navigation.
     public struct Entry: Equatable, Sendable {
-        /// Ordered however the last push arrived; the queries impose order.
-        public var diagnostics: [Diagnostic]
+        public var payload: Payload
         public let serverKey: ServerKey
 
-        public init(diagnostics: [Diagnostic], serverKey: ServerKey) {
-            self.diagnostics = diagnostics
+        public init(payload: Payload, serverKey: ServerKey) {
+            self.payload = payload
             self.serverKey = serverKey
         }
+
+        /// The buffer-mapped set, or `nil` for a positional entry — the only
+        /// accessor an editor-facing reader uses.
+        public var mapped: [Diagnostic]? {
+            guard case .mapped(let diagnostics) = payload else { return nil }
+            return diagnostics
+        }
+
+        /// The server-positioned set, or `nil` for a mapped entry.
+        public var positional: [PositionalDiagnostic]? {
+            guard case .positional(let diagnostics) = payload else { return nil }
+            return diagnostics
+        }
+
+        /// Every severity the set holds, whichever kind it is — what the counts
+        /// read, so the header's numbers span closed files too.
+        var severities: [DiagnosticSeverity] {
+            switch payload {
+            case .mapped(let diagnostics): return diagnostics.map(\.severity)
+            case .positional(let diagnostics): return diagnostics.map(\.severity)
+            }
+        }
+    }
+
+    /// The two kinds of set an ``Entry`` can hold. Each is ordered however the
+    /// last push arrived; the queries impose order.
+    public enum Payload: Equatable, Sendable {
+        case mapped([Diagnostic])
+        case positional([PositionalDiagnostic])
     }
 
     /// The header's two numbers. Information and hint are deliberately absent:
@@ -123,14 +159,36 @@ public struct DiagnosticStore: Equatable, Sendable {
         diagnostics: [Diagnostic]
     ) {
         entries[url.standardizedFileURL] = Entry(
-            diagnostics: diagnostics,
+            payload: .mapped(diagnostics),
             serverKey: serverKey
         )
     }
 
-    /// Forget one document — `didClose`, a tab close, a buffer replaced.
-    public mutating func clear(url: URL) {
-        entries.removeValue(forKey: url.standardizedFileURL)
+    /// Wholesale replacement with a positional set — the report for a document
+    /// no buffer holds. The same LSP semantics as the mapped replacement: it
+    /// replaces whatever was known for the URI, whichever kind that was, and an
+    /// empty report installs an empty entry so provenance survives.
+    public mutating func replace(
+        url: URL,
+        serverKey: ServerKey,
+        positional diagnostics: [PositionalDiagnostic]
+    ) {
+        entries[url.standardizedFileURL] = Entry(
+            payload: .positional(diagnostics),
+            serverKey: serverKey
+        )
+    }
+
+    /// Forget one document's **mapped** set — a buffer replaced wholesale.
+    ///
+    /// A positional entry is left alone: it never described a buffer, so a
+    /// buffer's replacement cannot have made it stale. That is what lets a file
+    /// being opened keep showing its positional record in the panel and the tree
+    /// until the first mapped report replaces it.
+    public mutating func clearMapped(url: URL) {
+        let key = url.standardizedFileURL
+        guard entries[key]?.mapped != nil else { return }
+        entries.removeValue(forKey: key)
     }
 
     /// Forget every document one server answered for — D33's teardown clears:
@@ -152,10 +210,14 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// gate would then trust. An empty shifted array still installs — after a
     /// keystroke dropped the one error there was, "no known problems" is true
     /// until the next push says otherwise.
+    ///
+    /// Installs only onto a **mapped** entry: a shift is computed from buffer
+    /// offsets, and a positional entry has none to shift.
     public mutating func apply(shift: [Diagnostic], to url: URL) {
-        guard var entry = entries[url.standardizedFileURL] else { return }
-        entry.diagnostics = shift
-        entries[url.standardizedFileURL] = entry
+        let key = url.standardizedFileURL
+        guard var entry = entries[key], entry.mapped != nil else { return }
+        entry.payload = .mapped(shift)
+        entries[key] = entry
     }
 
     // MARK: - Queries
@@ -173,9 +235,8 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// exception the convention would make unhittable: a zero-length diagnostic
     /// contains exactly its own offset, so pointing at it still finds it.
     public func diagnostics(at offset: Int, in url: URL) -> [Diagnostic] {
-        guard let entry = entries[url.standardizedFileURL] else { return [] }
-        let hits = entry
-            .diagnostics
+        guard let mapped = entries[url.standardizedFileURL]?.mapped else { return [] }
+        let hits = mapped
             .filter { diagnostic in
                 let start = diagnostic.range.location
                 let end = start + diagnostic.range.length
@@ -224,8 +285,8 @@ public struct DiagnosticStore: Equatable, Sendable {
             return Array(repeating: nil, count: max(0, lineCount))
         }
         var result = [DiagnosticSeverity?](repeating: nil, count: lineCount)
-        guard let entry = entries[url.standardizedFileURL] else { return result }
-        for diagnostic in entry.diagnostics {
+        guard let mapped = entries[url.standardizedFileURL]?.mapped else { return result }
+        for diagnostic in mapped {
             guard diagnostic.range.location >= 0 else { continue }
             // The last line the span touches: for a zero-length range its own
             // line; otherwise the line containing the last covered character
@@ -249,7 +310,8 @@ public struct DiagnosticStore: Equatable, Sendable {
         return result
     }
 
-    /// The panel's rows: one `FileRows` per diagnosed document, files ordered
+    /// The panel's rows: one `FileRows` per document with a non-empty mapped
+    /// set (the positional kind is not listed here yet), files ordered
     /// by path, rows within a file by ``Diagnostic/orderingKey`` — the stable
     /// reading order decided once on the value type.
     ///
@@ -269,10 +331,13 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// breadcrumb's spelling of the same file.
     public func rows(relativeTo root: URL) -> [FileRows] {
         entries
-            .filter { !$0.value.diagnostics.isEmpty }
-            .map { url, entry -> FileRows in
+            .compactMap { url, entry -> (URL, [Diagnostic])? in
+                guard let mapped = entry.mapped, !mapped.isEmpty else { return nil }
+                return (url, mapped)
+            }
+            .map { url, diagnostics -> FileRows in
                 var seen = Set<Row>()
-                let rows = Diagnostic.sortedByOrderingKey(entry.diagnostics)
+                let rows = Diagnostic.sortedByOrderingKey(diagnostics)
                     .map(Row.init)
                     .filter { seen.insert($0).inserted }
                 return FileRows(
@@ -289,13 +354,14 @@ public struct DiagnosticStore: Equatable, Sendable {
             }
     }
 
-    /// Errors and warnings across every document — the header's numbers.
+    /// Errors and warnings across every document, both kinds — the header's
+    /// numbers.
     public var counts: Counts {
         var errors = 0
         var warnings = 0
         for entry in entries.values {
-            for diagnostic in entry.diagnostics {
-                switch diagnostic.severity {
+            for severity in entry.severities {
+                switch severity {
                 case .error: errors += 1
                 case .warning: warnings += 1
                 case .information, .hint: break

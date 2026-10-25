@@ -203,7 +203,9 @@ public final class DiagnosticsModel: ObservableObject {
         // exactly the case the first clause misses. Shifting an empty set can
         // only produce an empty set, so skipping is behaviour-preserving here
         // too.
-        guard let existing = store.entry(for: url)?.diagnostics, !existing.isEmpty else { return }
+        // A positional entry is guarded out by type: `mapped` is `nil` for it,
+        // and a shift is defined over buffer offsets it does not carry.
+        guard let existing = store.entry(for: url)?.mapped, !existing.isEmpty else { return }
         let shifted = DiagnosticShift.updated(
             existing,
             previousLineStarts: previousLineStarts,
@@ -223,7 +225,7 @@ public final class DiagnosticsModel: ObservableObject {
         revisions[key] = (revisions[key] ?? 0) + 1
         syncs[key] = nil
         heldPushes[key] = nil
-        store.clear(url: url)
+        store.clearMapped(url: url)
     }
 
     // MARK: - The push channel
@@ -309,7 +311,7 @@ public final class DiagnosticsModel: ObservableObject {
     /// close prunes it. Idempotent, so arriving both ways costs nothing.
     public func noteDocumentClosed(url: URL) {
         let key = url.standardizedFileURL
-        store.clear(url: key)
+        store.clearMapped(url: key)
         heldPushes[key] = nil
         syncs[key] = nil
         revisions[key] = nil
@@ -341,7 +343,7 @@ public final class DiagnosticsModel: ObservableObject {
     /// deliberately flattens away; overlap resolution into painted runs is the
     /// view layer's (`BracketOverlayLayoutManager.setDiagnosticRuns`).
     public func diagnostics(in url: URL) -> [Diagnostic] {
-        store.entry(for: url)?.diagnostics ?? []
+        store.entry(for: url)?.mapped ?? []
     }
 
     /// Every diagnostic of `url` whose range contains `offset`, ordered by
