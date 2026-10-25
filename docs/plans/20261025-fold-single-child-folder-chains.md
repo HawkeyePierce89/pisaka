@@ -209,18 +209,18 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 **Files:**
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 
-- [ ] `ProjectTreeView` owns one `TreeListingMemo`, which is cleared with the draft on a root change. `DirectoryNodeView` is driven by the row value its parent hands it:
+- [x] `ProjectTreeView` owns one `TreeListingMemo`, which is cleared with the draft on a root change. `DirectoryNodeView` is driven by the row value its parent hands it:
   - segments, contents directory, handed-down listing;
   - plain folder or chain;
   - the root node is built as a single segment.
-- [ ] `loadChildren()` lists the **contents directory** through the memo and stores the listing for siblings and reveal. It then asks `TreeChainRule.rows` with `model.isSymbolicLink` and the memo as the listing function, and renders those rows. A folder row and a chain row go through one `DirectoryNodeView` branch, identified by `TreeRow.id`.
-- [ ] The node also reloads when its tail changes, and after a `separated` change, from the memo with no listing. The existing beep-unless-missing handling applies only to the node's own contents read; probe failures are silent, by the rule.
-- [ ] The draft checks:
+- [x] `loadChildren()` lists the **contents directory** through the memo and stores the listing for siblings and reveal. It then asks `TreeChainRule.rows` with `model.isSymbolicLink` and the memo as the listing function, and renders those rows. A folder row and a chain row go through one `DirectoryNodeView` branch, identified by `TreeRow.id`.
+- [x] The node also reloads when its tail changes, and after a `separated` change, from the memo with no listing. The existing beep-unless-missing handling applies only to the node's own contents read; probe failures are silent, by the rule.
+- [x] The draft checks:
   - collapse and missing-directory ask `draftIsBelow(contentsDirectory)`;
   - the reload check asks `TreeRow.leads(toDraftAnchor:renaming:)` of the returned rows instead of matching names in the listing;
   - the create-expands-the-folder `onChange` compares against the contents directory.
-- [ ] Tests: no new app test in this task. The Core suites from Tasks 1–2 cover the decisions, and `TreeIndentGuideLayoutTests`, `TreeRowGlyphLayoutTests`, `TreeGitStatusColourTests`, `TreeDiagnosticMarkTests` and `TreeRowBackgroundTests` must stay green, which proves that plain trees render as before.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 4.
+- [x] Tests: no new app test in this task. The Core suites from Tasks 1–2 cover the decisions, and `TreeIndentGuideLayoutTests`, `TreeRowGlyphLayoutTests`, `TreeGitStatusColourTests`, `TreeDiagnosticMarkTests` and `TreeRowBackgroundTests` must stay green, which proves that plain trees render as before.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 4. (Pinned Xcode 26.3 absent: the app-layer bundle ran under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`; 488 app tests, 7092 Core tests, 0 lint violations.)
 
 ### Task 4: Drawing a chain row and its operations
 

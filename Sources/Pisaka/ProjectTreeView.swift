@@ -98,6 +98,10 @@ struct ProjectTreeView: View {
     /// with nothing published, so it survives re-renders without causing any (see
     /// `TreeDragSession`).
     @StateObject private var dragSession = TreeDragSession()
+    /// The tree's one `TreeListingMemo`, which every node's load — each chain
+    /// probe included — lists through, so a directory is read at most once per
+    /// `treeRevision` (see `TreeListingSource`).
+    @StateObject private var listings = TreeListingSource()
 
     @State private var draft: TreeEditDraft?
     @State private var draftAppearedTrigger: Int = 0
@@ -218,9 +222,13 @@ struct ProjectTreeView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     DirectoryNodeView(
                         model: model,
-                        url: root,
+                        // The root is built as itself, a single segment: it is
+                        // never one of a listing's entries, so `TreeChainRule`
+                        // never sees it and it heads no chain.
+                        shape: .folder(DirectoryEntry(url: root, isDirectory: true)),
                         revealURL: root,
-                        name: root.lastPathComponent,
+                        listingMemo: listings.memo(listingThrough: model),
+                        separated: [],
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
                         onNewFolder: onNewFolder,
@@ -264,6 +272,7 @@ struct ProjectTreeView: View {
             }
             .onChange(of: model.projectRoot) { _ in
                 draft = nil
+                listings.memo(listingThrough: model).reset()
             }
         }
     }
@@ -398,6 +407,14 @@ struct TreeSelection: Equatable {
 /// first time it is expanded. Children are cached in `@State` so collapsing and
 /// re-expanding does not re-read the disk on every toggle.
 ///
+/// The row draws a `TreeNodeShape` its parent hands it: one folder, or a chain
+/// of folders `TreeChainRule` answered. Either way the head is the row's
+/// identity and the **contents directory** — the tail — is what it lists and
+/// expands to. Every listing, this node's own and each probe of its children,
+/// is read through the tree's one `TreeListingMemo`, and the children drawn are
+/// `TreeChainRule.rows` over that listing, so a folder and a chain go through
+/// one `ForEach` branch and keep their `@State` when one turns into the other.
+///
 /// It is drawn with `FolderDisclosureStyle`, so the *whole* row — chevron, icon,
 /// name and the blank space right of it — is one click target that toggles
 /// expansion, with a file row's hover highlight; the right-click menu is handed
@@ -407,12 +424,19 @@ struct TreeSelection: Equatable {
 /// isExpanded)` path a chevron click has always used.
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
-    let url: URL
-    /// This node as a reveal request spells it — the opened root, then one
-    /// listing name per level — which `url` need not be: a listing may spell
-    /// its entries under a resolved parent (`/tmp` lists as `/private/tmp`).
+    /// What this row draws, as its parent's rows answered it (see
+    /// `TreeNodeShape`); the root is a single folder.
+    let shape: TreeNodeShape
+    /// This node's head as a reveal request spells it — the opened root, then
+    /// one listing name per level — which its listed url need not be: a listing
+    /// may spell its entries under a resolved parent (`/tmp` lists as
+    /// `/private/tmp`).
     let revealURL: URL
-    let name: String
+    /// The tree's one listing memo, handed down the recursion.
+    let listingMemo: TreeListingMemo
+    /// The keys (`TreeChainRule.key(for:)`) of folders the user asked to see as
+    /// separate folders, handed down as a value.
+    let separated: Set<String>
     let onOpenFile: (URL) -> Void
     let onNewFile: (URL, String) -> Void
     let onNewFolder: (URL, String) -> Void
@@ -453,7 +477,11 @@ private struct DirectoryNodeView: View {
     let siblings: [String]
 
     @State private var isExpanded: Bool
+    /// The contents directory's listing, kept for the create draft's siblings
+    /// and for reveal.
     @State private var children: [DirectoryEntry]?
+    /// The rows drawn below this one: `TreeChainRule`'s answer over `children`.
+    @State private var rows: [TreeRow]?
     /// The token of the last reveal request this node expanded for, so it acts
     /// on each request once and never fights a later collapse by the user.
     @State private var honouredRevealToken: Int?
@@ -469,9 +497,10 @@ private struct DirectoryNodeView: View {
     /// first expansion.
     init(
         model: WorkspaceModel,
-        url: URL,
+        shape: TreeNodeShape,
         revealURL: URL,
-        name: String,
+        listingMemo: TreeListingMemo,
+        separated: Set<String>,
         onOpenFile: @escaping (URL) -> Void,
         onNewFile: @escaping (URL, String) -> Void,
         onNewFolder: @escaping (URL, String) -> Void,
@@ -495,9 +524,10 @@ private struct DirectoryNodeView: View {
         siblings: [String] = []
     ) {
         self.model = model
-        self.url = url
+        self.shape = shape
         self.revealURL = revealURL
-        self.name = name
+        self.listingMemo = listingMemo
+        self.separated = separated
         self.onOpenFile = onOpenFile
         self.onNewFile = onNewFile
         self.onNewFolder = onNewFolder
@@ -521,6 +551,13 @@ private struct DirectoryNodeView: View {
         _isExpanded = State(initialValue: startsExpanded)
     }
 
+    /// The row's head: its identity, and what it is dragged, dropped onto,
+    /// deleted and decorated as.
+    private var url: URL { shape.head }
+    /// The folder this row lists and expands to — the head for a plain folder,
+    /// the tail for a chain — and the one a create writes into.
+    private var contentsDirectory: URL { shape.contentsDirectory }
+
     var body: some View {
         // Asked once per render: the name's colour and the row's spoken state
         // are both drawn from this one answer, and the glyph's dot and the
@@ -528,7 +565,7 @@ private struct DirectoryNodeView: View {
         let gitState = gitStatus.state(for: url)
         let diagnosticMark = diagnostics.mark(for: url)
         DisclosureGroup(isExpanded: $isExpanded) {
-            if case .create(let parent, let isFolder) = draft, parent == url {
+            if case .create(let parent, let isFolder) = draft, parent == contentsDirectory {
                 Group {
                     TreeNameFieldView(
                         // Rebuilt from the payload the `if case` just bound, not
@@ -539,9 +576,9 @@ private struct DirectoryNodeView: View {
                         siblings: children?.map(\.name) ?? [],
                         onCommit: { newName in
                             if isFolder {
-                                onNewFolder(url, newName)
+                                onNewFolder(contentsDirectory, newName)
                             } else {
-                                onNewFile(url, newName)
+                                onNewFile(contentsDirectory, newName)
                             }
                             draft = nil
                         },
@@ -557,13 +594,17 @@ private struct DirectoryNodeView: View {
             }
 
             let currentChildrenNames = children?.map(\.name) ?? []
-            ForEach(children ?? []) { entry in
-                if entry.isDirectory {
+            // One branch for a plain folder and a chain alike, identified by the
+            // row's head (`TreeRow.id`): a folder that turns into a chain, or
+            // back, keeps its node and therefore its expansion.
+            ForEach(rows ?? []) { row in
+                if let childShape = TreeNodeShape(row) {
                     DirectoryNodeView(
                         model: model,
-                        url: entry.url,
-                        revealURL: revealURL.appendingPathComponent(entry.name),
-                        name: entry.name,
+                        shape: childShape,
+                        revealURL: revealURL.appendingPathComponent(childShape.head.lastPathComponent),
+                        listingMemo: listingMemo,
+                        separated: separated,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
                         onNewFolder: onNewFolder,
@@ -582,10 +623,10 @@ private struct DirectoryNodeView: View {
                         gitStatus: gitStatus,
                         diagnostics: diagnostics,
                         onRevealed: onRevealed,
-                        siblings: currentChildrenNames
+                        siblings: childShape.renameSiblings ?? currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
-                } else {
+                } else if case .file(let entry) = row {
                     FileRowView(
                         entry: entry,
                         onOpen: { onOpenFile(entry.url) },
@@ -634,14 +675,14 @@ private struct DirectoryNodeView: View {
                 .treeDiagnosticDot(
                     diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
                 )
-                if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
+                if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
                     TreeNameFieldView(
                         // The bound entry, not the optional re-read: see the
                         // create row above.
                         draft: .rename(entry: draftedEntry),
                         siblings: siblings,
                         onCommit: { newName in
-                            onRename(url, newName)
+                            onRename(draftedEntry.url, newName)
                             draft = nil
                         },
                         onCancel: { draft = nil }
@@ -650,7 +691,7 @@ private struct DirectoryNodeView: View {
                     // The name alone takes the git colour: the glyph stays
                     // `textSecondary`, and the rename field above is not
                     // recoloured.
-                    Text(name)
+                    Text(shape.label)
                         .treeNameForeground(ChromeColorRole.treeNameRole(for: gitState), resolving: theme.color)
                 }
             }
@@ -674,7 +715,7 @@ private struct DirectoryNodeView: View {
                 isRoot: isRoot,
                 dragSession: dragSession,
                 isDrafted: {
-                    if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
+                    if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
                         return true
                     }
                     return false
@@ -688,17 +729,17 @@ private struct DirectoryNodeView: View {
                 // surfaces spell no `Divider()` at all.
                 Section {
                     Button("New File") {
-                        if mayBeginFileOperation() { draft = .create(parent: url, isFolder: false) }
+                        if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: false) }
                     }
                     Button("New Folder") {
-                        if mayBeginFileOperation() { draft = .create(parent: url, isFolder: true) }
+                        if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: true) }
                     }
                 }
                 if !isRoot {
                     Section {
                         Button("Rename") {
                             if mayBeginFileOperation() {
-                                draft = .rename(entry: DirectoryEntry(url: url, isDirectory: true))
+                                draft = .rename(entry: shape.renameEntry)
                             }
                         }
                         Button("Delete") { onDelete(url) }
@@ -713,9 +754,13 @@ private struct DirectoryNodeView: View {
         // mouse-down monitor (the region view went away with the row), and a
         // later re-expansion would revive an editable field that steals focus
         // for a rename the user believes they ended by collapsing the folder.
+        //
+        // Asked about the contents directory, not the head: a chain's own rename
+        // draft is anchored inside the head (at the tail's parent) and is drawn
+        // in this row's label, which a collapse keeps on screen.
         .onChange(of: isExpanded) { expanded in
             if !expanded {
-                if draftIsBelow(url) {
+                if draftIsBelow(contentsDirectory) {
                     draft = nil
                 }
             } else if children == nil {
@@ -723,7 +768,7 @@ private struct DirectoryNodeView: View {
             }
         }
         .onChange(of: draft) { newDraft in
-            if case .create(let parent, _) = newDraft, parent == url {
+            if case .create(let parent, _) = newDraft, parent == contentsDirectory {
                 isExpanded = true
             }
         }
@@ -739,20 +784,46 @@ private struct DirectoryNodeView: View {
                 loadChildren()
             }
         }
-        // A file operation anywhere in the tree bumps `treeRevision`; re-read
-        // this directory's children if it is currently expanded so a created /
-        // renamed / deleted entry appears without reopening the folder. A
-        // collapsed node instead drops its cached children so its next expansion
-        // re-reads from disk (the lazy first-load only fires when `children ==
-        // nil`); without this, a previously-loaded node targeted while collapsed
-        // would show a stale listing until the folder is reopened.
-        .onChange(of: model.treeRevision) { _ in
-            if isExpanded {
-                loadChildren()
-            } else {
-                children = nil
-            }
+        // A file operation anywhere in the tree bumps `treeRevision`, so a
+        // created / renamed / deleted entry appears without reopening the folder.
+        .onChange(of: model.treeRevision) { _ in reloadOrForget() }
+        // The parent's rows re-ran and handed this node a different shape — a
+        // chain that extended or shortened keeps its head, and so this node,
+        // but now lists another tail. The memo already holds that listing
+        // (the parent's probe read it), so this reload reads nothing new.
+        .onChange(of: shape) { _ in reloadOrForget() }
+        // Which folders are separated changed: the same listing, new rows. The
+        // rule re-runs against the memo, which holds every probe this node's
+        // listing already caused, and nothing is listed.
+        .onChange(of: separated) { _ in
+            guard let children else { return }
+            rows = childRows(for: children, revision: model.treeRevision)
         }
+    }
+
+    /// Re-read the contents directory if this node is expanded; otherwise drop
+    /// the cached listing so the next expansion re-reads it (the lazy first load
+    /// only fires when `children == nil`). Without the drop, a previously loaded
+    /// node changed while collapsed would show a stale listing until reopened.
+    private func reloadOrForget() {
+        if isExpanded {
+            loadChildren()
+        } else {
+            children = nil
+            rows = nil
+        }
+    }
+
+    /// `TreeChainRule`'s rows for this node's listing, every probe read through
+    /// the memo under `revision`. A probe failure is silent by the rule: it
+    /// shapes the answer (a plain row) and never beeps.
+    private func childRows(for listing: [DirectoryEntry], revision: Int) -> [TreeRow] {
+        TreeChainRule.rows(
+            in: listing,
+            separated: separated,
+            isSymbolicLink: { model.isSymbolicLink($0) },
+            list: { try listingMemo.listing(of: $0, revision: revision) }
+        )
     }
 
     /// Expand this node once for a reveal request naming it. Expansion goes
@@ -780,11 +851,13 @@ private struct DirectoryNodeView: View {
         onRevealed(reveal.token, TreeRevealRequest.rowID(entry.url))
     }
 
-    /// Read this directory's contents through the model. A read failure must
-    /// not crash the view: we beep and leave `children` unset (mirroring the
-    /// error handling in `PisakaApp`). Leaving it `nil` rather than caching an
-    /// empty list lets a transient failure be retried by collapsing and
-    /// re-expanding the directory.
+    /// Read the contents directory through the tree's listing memo, then draw
+    /// `TreeChainRule`'s rows over it. A read failure must not crash the view:
+    /// we beep and leave `children` unset (mirroring the error handling in
+    /// `PisakaApp`). Leaving it `nil` rather than caching an empty list — and the
+    /// memo remembering successes only — lets a transient failure be retried by
+    /// collapsing and re-expanding the directory. Only this node's own read can
+    /// beep; a failure while probing a child is silent by the rule.
     ///
     /// One failure is *not* worth feedback: the directory no longer existing. A
     /// revision-driven reload runs for every expanded node, and an external
@@ -794,30 +867,36 @@ private struct DirectoryNodeView: View {
     /// drops them. Beeping a burst at the user for an ordinary delete they
     /// themselves performed is noise, not information.
     private func loadChildren() {
+        let revision = model.treeRevision
         do {
-            let listing = try model.children(of: url)
+            let listing = try listingMemo.listing(of: contentsDirectory, revision: revision)
+            let childRows = childRows(for: listing, revision: revision)
             children = listing
+            rows = childRows
             withdrawRevealIfUnreachable()
 
             // A successful reload can lose the draft just as thoroughly as a
             // collapse or an `ENOENT` does — the entry the draft is drawn at, or
             // the child folder its subtree hangs from, is simply no longer
-            // listed (an external delete, rename or move). That row is gone from
-            // the hierarchy with nothing left to draw the field, so the draft is
-            // dropped here for the reason recorded on the collapse above.
-            if let expected = draftedChild(),
-               !listing.contains(where: { $0.name == expected.name && (!expected.mustBeDirectory || $0.isDirectory) }) {
+            // listed (an external delete, rename or move), or a reshape folded
+            // the folder it was anchored on into a chain's inner segment. That
+            // row is gone from the hierarchy with nothing left to draw the
+            // field, so the draft is dropped here for the reason recorded on the
+            // collapse above.
+            if let hanging = draftHangingBelow(),
+               !childRows.contains(where: { $0.leads(toDraftAnchor: hanging.anchor, renaming: hanging.renamed) }) {
                 draft = nil
             }
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
-            } else if draftIsBelow(url) {
+            } else if draftIsBelow(contentsDirectory) {
                 // This directory is gone, so everything under it is too — the
                 // same reach as a collapse, for the same reason.
                 draft = nil
             }
             children = nil
+            rows = nil
         }
     }
 
@@ -859,41 +938,29 @@ private struct DirectoryNodeView: View {
         )
     }
 
-    /// The child of *this* directory that the open draft depends on: the row the
-    /// draft is drawn at when it is anchored here, or the folder its subtree
-    /// hangs from when it is anchored deeper. `nil` when no draft is anchored
-    /// below this directory, or when the draft is drawn by this node's own row
-    /// (a create in this very folder — this folder exists, we just read it).
+    /// The open draft's anchor — the folder it writes into — and the entry it
+    /// renames, when the draft hangs off one of *this* node's rows: `nil` when no
+    /// draft is anchored below the contents directory, or when the draft is
+    /// drawn by this node's own row (a create in this very folder — this folder
+    /// exists, we just read it).
     ///
     /// This is the reload half of `draftIsBelow(_:)`, and deliberately the same
-    /// reach: a listing that no longer offers the way down to the drafted row has
-    /// taken that row out of the hierarchy exactly as a collapse would. A
-    /// directory is additionally *required to still be one* when the draft lives
-    /// further down, because a folder replaced by a file of the same name (an
-    /// external `rm -rf src && touch src`) stops rendering its subtree without
-    /// ever losing the name.
-    private func draftedChild() -> (name: String, mustBeDirectory: Bool)? {
-        guard let draft, draftIsBelow(url) else { return nil }
-        let anchor: URL
+    /// reach: rows that no longer offer the way down to the drafted row have
+    /// taken that row out of the hierarchy exactly as a collapse would. Whether a
+    /// row still offers it is `TreeRow.leads(toDraftAnchor:renaming:)`'s answer,
+    /// which also requires a folder further down to *still be one*, because a
+    /// folder replaced by a file of the same name (an external
+    /// `rm -rf src && touch src`) stops rendering its subtree without ever
+    /// losing the name.
+    private func draftHangingBelow() -> (anchor: URL, renamed: URL?)? {
+        guard let draft, draftIsBelow(contentsDirectory) else { return nil }
         switch draft {
-        case .create(let parent, _): anchor = parent
-        case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
+        case .create(let parent, _):
+            let isThisFolder = parent.standardizedFileURL.path == contentsDirectory.standardizedFileURL.path
+            return isThisFolder ? nil : (parent, nil)
+        case .rename(let draftedEntry):
+            return (draftedEntry.url.deletingLastPathComponent(), draftedEntry.url)
         }
-        // Unresolved, for `draftIsBelow(_:)`'s reason and one more of its own:
-        // the name taken out of these components is compared against the names
-        // in *this* directory's listing, which are what the filesystem spells,
-        // not what they point at.
-        let anchorComponents = anchor.standardizedFileURL.pathComponents
-        let selfComponents = url.standardizedFileURL.pathComponents
-        if anchorComponents.count > selfComponents.count {
-            return (anchorComponents[selfComponents.count], true)
-        }
-        // Anchored in this very directory: a rename's row is the drafted entry
-        // itself (of either kind), a create's row is this folder's own.
-        if case .rename(let draftedEntry) = draft {
-            return (draftedEntry.url.lastPathComponent, false)
-        }
-        return nil
     }
 
     /// Whether `error` is "this path is gone" — the node is about to disappear from
@@ -902,6 +969,85 @@ private struct DirectoryNodeView: View {
         let nsError = error as NSError
         guard nsError.domain == NSCocoaErrorDomain else { return false }
         return nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError
+    }
+}
+
+/// What one directory node draws, as its parent's rows hand it down: a single
+/// folder (the root, a plain folder row) or a chain `TreeChainRule` answered.
+/// Every address is read off the Core value; the view derives none of them.
+///
+/// Equatable as a whole, chain listing included, so a node notices a reshape
+/// that kept its head — an extended or shortened chain — and reloads.
+private enum TreeNodeShape: Equatable {
+    case folder(DirectoryEntry)
+    case chain(TreeChain)
+
+    /// The shape a directory row draws; nil for a file row.
+    init?(_ row: TreeRow) {
+        switch row {
+        case .file: return nil
+        case .folder(let entry, _): self = .folder(entry)
+        case .chain(let chain): self = .chain(chain)
+        }
+    }
+
+    /// The row's identity: the folder, or the chain's head.
+    var head: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.identity
+        }
+    }
+
+    /// What the row lists and expands to: the folder, or the chain's tail.
+    var contentsDirectory: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.contentsDirectory
+        }
+    }
+
+    /// The row's name: the folder's, or the segments joined with `/`.
+    var label: String {
+        switch self {
+        case .folder(let entry): return entry.name
+        case .chain(let chain): return chain.label
+        }
+    }
+
+    /// The entry a rename of this row names: the folder, or the chain's tail.
+    var renameEntry: DirectoryEntry {
+        switch self {
+        case .folder(let entry): return entry
+        case .chain(let chain): return chain.renameTarget
+        }
+    }
+
+    /// The names a rename must not collide with when they are not the parent's
+    /// listing: a chain's tail sits in its parent segment, not in the listing the
+    /// row was drawn from. Nil for a plain folder, whose siblings are that
+    /// listing's names.
+    var renameSiblings: [String]? {
+        switch self {
+        case .folder: return nil
+        case .chain(let chain): return chain.renameSiblings
+        }
+    }
+}
+
+/// Holds the project tree's one `TreeListingMemo` for the tree's lifetime. An
+/// `ObservableObject` with nothing published, like `TreeDragSession`: listing
+/// through the memo must invalidate nothing. The memo is made on the first ask,
+/// because its listing function is the model's `children(of:)` and a
+/// `@StateObject`'s initial value cannot read the view's `model`.
+private final class TreeListingSource: ObservableObject {
+    private var memo: TreeListingMemo?
+
+    func memo(listingThrough model: WorkspaceModel) -> TreeListingMemo {
+        if let memo { return memo }
+        let made = TreeListingMemo { try model.children(of: $0) }
+        memo = made
+        return made
     }
 }
 
