@@ -1352,8 +1352,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     remain parameterless callbacks. The callbacks only *request* the
     operation: `PisakaApp` validates once more, performs the disk I/O and
     bumps `treeRevision`. `DirectoryNodeView` also observes `.onChange(of:
-    model.treeRevision)`: when currently expanded it re-reads
-    `children(of:)` so a created / renamed / deleted entry appears without
+    model.treeRevision)`: when currently expanded it re-reads its listing
+    (through the tree's `TreeListingMemo`, which reads `children(of:)` once per
+    revision — see the single-child chains entry) so a created / renamed /
+    deleted entry appears without
     reopening the folder; a collapsed node instead drops its cached children
     (`children = nil`) so its next expansion re-reads from disk — without
     this an already-loaded node targeted while collapsed would keep showing
@@ -1373,8 +1375,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     one publishes nothing; the default is a no-op so previews and tests construct
     the view without the wiring. The header is absent from the
     `projectRoot == nil` placeholder so its whole pane stays the open-folder
-    click target. So `treeRevision` — the single re-read trigger
-    `DirectoryNodeView` observes — now has three sources: the app's own
+    click target. So `treeRevision` — the single trigger on which
+    `DirectoryNodeView` reads the disk anew (a node also reloads when its parent
+    hands it a new shape and re-runs the chain rule when `separated` changes,
+    both through the memo and listing nothing new) — now has three sources: the app's own
     operations (the context-menu callbacks, Save As, a branch checkout), the
     FSEvents `ProjectWatcher` on macOS, and this button (the manual fallback
     for whatever the watcher misses — an FSEvents buffer overflow, a network
@@ -1708,9 +1712,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `b/c`, which offers the same item again; `Show as One Row` removes the folder.
     Unfolding an **expanded** chain also records `TreeChain.remainderHead` (the
     second segment) in the transient "open on first appearance" set: the new
-    node starts expanded and spends its key in `.onAppear`, so nothing the user
-    was looking at disappears, while the head keeps its own expansion because its
-    identity is unchanged; a collapsed chain records nothing. Neither set is
+    node starts expanded and spends its key in `.onAppear`, so the row the user
+    was looking at stays expanded, while the head keeps its own expansion because
+    its identity is unchanged; a collapsed chain records nothing. **A stated
+    limit**: folders the user had opened *below* the tail are rebuilt under the
+    new remainder node and come back collapsed (the same holds for `Show as One
+    Row` on an open folder's descendants), since expansion is per-node `@State`
+    and nothing tree-wide records it. Neither set is
     written to the session, both are cleared on a project-root change, and
     neither is pruned — a key whose folder is gone matches no row. A `separated`
     change re-runs the rule over the node's cached listing against the memo and
@@ -1727,9 +1735,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **contents directory** — asking about the head would drop a chain row's own
     rename draft, anchored inside the head, on collapse — and the reload check
     asks each returned row `TreeRow.leads(toDraftAnchor:renaming:)`, so a draft
-    anchored on what became an inner segment is dropped; the create-expands
-    `onChange` compares against the contents directory. `TreeDraftDismissRule`
-    is untouched.
+    anchored on what became an inner segment is dropped — and so does the
+    `separated` handler, whose re-run can fold the anchor into a chain just the
+    same. `leads` answers reachability only, so a reshape can still hand a draft
+    to a node that is **collapsed** — a shortened chain's old tail, now a plain
+    collapsed row (or, collapsed itself, the shortened chain), or a folder under
+    an unfolded chain's tail — where nothing draws it; a collapsed node therefore
+    re-asserts the collapse rule (`dropDraftHiddenByCollapse()`, a draft below
+    its contents directory is dropped) when it appears and when a reload finds
+    it collapsed. The create-expands `onChange` compares against the contents
+    directory. `TreeDraftDismissRule` is untouched.
     **Reveal through chains.** `TreeRevealRequest` gains two chain questions,
     asked of the node's segments in reveal spelling
     (`TreeNodeShape.revealURLs(underHead:)` → `TreeChain.revealURLs`): a chain
@@ -1750,7 +1765,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `model.isSymbolicLink` and the memo as the listing function, so each
     directory is read at most once per revision whatever the probe order. Only
     the node's own contents read may beep (unless the directory is missing);
-    probe failures are silent by the rule. Nothing lists outside a load.
+    probe failures are silent by the rule. Nothing lists outside a load. **A
+    stated limit** follows from the memo: a folder first opened later in the
+    same revision shows the listing its parent's probe read, not a fresh one, so
+    a change that bumps no revision (an FSEvents overflow, a network volume)
+    stays unseen there until the watcher's next event or the Refresh button —
+    where before this a never-loaded folder read the disk on its first open.
     `TreeChainRowLayoutTests` (app bundle) builds a real project in which
     `a/b/c` holds two files, reveals one so the chain expands through the reveal
     path, and renders one window at scale 1 and one at 1.8: exactly four rows
@@ -1763,7 +1783,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
-    red reason line), `TreeDraftDismissRegion` (the invisible mouse-down
+    red reason line; a rename's icon column is the optional `leading` text — a
+    chain row's leading segments, built and coloured by the row — or nothing), `TreeDraftDismissRegion` (the invisible mouse-down
     observer), `ProjectTreeDraftFieldRepresentable` (+ its `Coordinator`)
     and `CustomTextField`. The layer split gives this view no business
     logic: it collects the typed text, draws the invalid-input text and a
@@ -1863,7 +1884,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     draws an icon column of its own, so during a **rename** the row's icon
     and the row's padding around the field belong to the row, sit outside
     the rectangle, and a click on them cancels like any other click on the
-    row. Because the
+    row — except a chain rename's `leading` segments, which are drawn inside
+    the draft and so are "inside" like the field. Because the
     monitor is *local*, ⌘Tab away and ⌘Tab back preserves the draft: another
     app's clicks are never seen, and window resign-key is not a
     cancellation. Returning by *clicking* the window is the limit noted
@@ -1960,7 +1982,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     The reason line's inset is likewise construction rather than arithmetic:
     it is led by the *same* `iconColumn` view drawn hidden and collapsed to
     zero height, so it matches the field's lead exactly and stays zero for a
-    rename draft, which has no icon column at all.
+    rename draft, which has no icon column of that kind. A chain rename's
+    `leading` text is not twinned: its reason line starts at zero, under the
+    leading segments rather than under the field, with the row's full width to
+    wrap in.
     **The draft is in the chrome theme's gated set** (`core-theme.md`), although
     it is an editing affordance rather than a row: an inline draft *replaces* a
     tree row on screen and must read identically to the row it stands in for. So

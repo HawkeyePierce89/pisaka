@@ -168,8 +168,8 @@ public struct TreeChain: Equatable {
     public var leadingSegments: [DirectoryEntry] { Array(segments.dropLast()) }
     /// The folder heading the row drawn under the head once the chain is shown
     /// as separate folders — the second segment. Unfolding an *expanded* chain
-    /// opens it on first appearance, so nothing the user was looking at
-    /// disappears.
+    /// opens it on first appearance, so the row the user was looking at stays
+    /// expanded (folders opened below the tail are rebuilt collapsed).
     public var remainderHead: URL { segments[1].url }
 
     /// The row id, expansion key and unfold key.

@@ -127,7 +127,10 @@ struct TreeNameFieldView: View {
                 // spacing between *subviews*, and a modified `EmptyView` is
                 // still a subview — a zero-width one. Leaving the hidden column
                 // in for a rename would therefore inset its reason line by that
-                // gap instead of the zero the field sits at.
+                // gap instead of the zero the field sits at. A chain rename's
+                // `leading` text is not twinned either: its reason line starts
+                // at zero, under the leading segments, rather than under the
+                // field.
                 HStack(alignment: .top, spacing: isCreate ? metrics.scaled(4) : 0) {
                     // The *same* icon column the field sits beside, drawn hidden
                     // and collapsed to zero height: the reason's inset is then

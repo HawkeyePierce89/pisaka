@@ -39,7 +39,8 @@ user sees it.
   On macOS a run of folders that each hold only the next (`src/main/java/com`)
   is one `a/b/c` row, each segment coloured by its own git state, that expands
   straight to the last folder's contents; Delete and dragging act on the first
-  folder, while New File, Rename and dropping act on the last.
+  folder, while New File, Rename and dropping act on the last — the menu names
+  its target, **Rename "c"** and **Delete "a/b/c"**.
   **Show as Separate Folders** on such a row (and **Show as One Row** back)
   changes only that row, until the app quits or another folder is opened.
   Dotfiles are visible,

@@ -885,7 +885,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     excludes any renamed entry's own name — and `leadingSegments` are the ones a
     rename field is drawn after. `remainderHead` (the second segment) is the
     folder the view opens on first appearance when an expanded chain is shown
-    as separate folders. `revealURLs(underHeadRevealURL:)` spells each segment
+    as separate folders (only that folder: folders opened below the tail come
+    back collapsed, `app-window.md`). `revealURLs(underHeadRevealURL:)` spells each segment
     the way `TreeRevealRule` does — the head's reveal url, then one name
     appended per level — so a reveal request matches every segment.
     `key(for:)` is `standardizedFileURL.path`, the url as the tree spells it and

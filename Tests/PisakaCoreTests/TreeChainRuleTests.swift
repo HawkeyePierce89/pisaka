@@ -390,6 +390,37 @@ final class TreeChainRuleTests: XCTestCase {
         XCTAssertFalse(TreeRow.chain(after).leads(toDraftAnchor: anchor, renaming: renamed))
     }
 
+    /// A shorten moves the old tail's drafts *below* the row rather than off
+    /// it: the shortened chain still leads to a rename of `c` (anchored on the
+    /// new tail `b`) and to a create in `c`, and so does `c`'s own plain row.
+    /// `leads` answers reachability only; whether the row that holds the draft
+    /// is expanded is the view's question, which drops a draft below a
+    /// collapsed node.
+    func testAShortenStillLeadsToTheOldTailsDrafts() throws {
+        let tree = tree(["a/b/c/one.swift", "a/b/c/two.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let before = try XCTUnwrap(onlyChain(try rows(memo, revision: 0, tree: tree)))
+        XCTAssertTrue(TreeRow.chain(before).leads(toDraftAnchor: tree.url("a/b"), renaming: tree.url("a/b/c")))
+        XCTAssertTrue(TreeRow.chain(before).leads(toDraftAnchor: tree.url("a/b/c"), renaming: nil))
+
+        tree.files["a/b/notes.md"] = ""
+        let after = try XCTUnwrap(onlyChain(try rows(memo, revision: 1, tree: tree)))
+        XCTAssertEqual(names(after.segments), ["a", "b"])
+        XCTAssertTrue(TreeRow.chain(after).leads(toDraftAnchor: tree.url("a/b"), renaming: tree.url("a/b/c")))
+        XCTAssertTrue(TreeRow.chain(after).leads(toDraftAnchor: tree.url("a/b/c"), renaming: nil))
+
+        let oldTail = try XCTUnwrap(
+            TreeChainRule.rows(
+                in: try XCTUnwrap(after.tailListing),
+                separated: [],
+                isSymbolicLink: { tree.symbolicLinkDestination(at: $0) != nil },
+                list: { try memo.listing(of: $0, revision: 1) }
+            ).first { $0.id == tree.url("a/b/c") }
+        )
+        XCTAssertEqual(oldTail, plain(tree, "a/b/c", offersShowAsOneRow: false))
+        XCTAssertTrue(oldTail.leads(toDraftAnchor: tree.url("a/b/c"), renaming: nil))
+    }
+
     // MARK: - Per-row unfold
 
     /// The rule over `folder`'s listing, every read through `memo`.

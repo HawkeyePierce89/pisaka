@@ -830,6 +830,10 @@ private struct DirectoryNodeView: View {
                 onSeparation(.appeared(shape.head))
             }
             expandIfRevealed()
+            // A reshape can hand a draft to a node built collapsed — a
+            // shortened chain's old tail, now a plain row of its own, or a
+            // folder under an unfolded chain's tail — where nothing draws it.
+            dropDraftHiddenByCollapse()
             if isExpanded && children == nil {
                 loadChildren()
             }
@@ -847,7 +851,9 @@ private struct DirectoryNodeView: View {
         // listing already caused, and nothing is listed.
         .onChange(of: separated) { _ in
             guard let children else { return }
-            rows = childRows(for: children, revision: model.treeRevision)
+            let childRows = childRows(for: children, revision: model.treeRevision)
+            rows = childRows
+            dropDraftNotLed(by: childRows)
         }
     }
 
@@ -897,12 +903,13 @@ private struct DirectoryNodeView: View {
     /// each `/` is drawn in `textSecondary`.
     private func segmentsText(_ segments: [DirectoryEntry], under chain: TreeChain, trailingSeparator: Bool) -> Text {
         let separator = Text(verbatim: "/").foregroundStyle(theme.color(.textSecondary))
-        let stateURLs = Dictionary(uniqueKeysWithValues: zip(chain.segments.map(\.url), chain.gitStatusURLs))
         var runs: [Text] = []
+        // `segments` is always a prefix of the chain's own — all of them, or
+        // the leading ones — so each index names its segment's git url.
         for (index, segment) in segments.enumerated() {
             if index > 0 { runs.append(separator) }
             let name = Text(verbatim: segment.name)
-            let state = gitStatus.state(for: stateURLs[segment.url] ?? segment.url)
+            let state = gitStatus.state(for: chain.gitStatusURLs[index])
             if let role = ChromeColorRole.treeNameRole(for: state) {
                 runs.append(name.foregroundStyle(theme.color(role)))
             } else {
@@ -941,8 +948,10 @@ private struct DirectoryNodeView: View {
             }
         }
         // A view choice, not a file operation: no draft, no gate. Unfolding an
-        // expanded chain opens its remainder, so nothing on screen disappears;
-        // the head keeps its own expansion, its identity unchanged.
+        // expanded chain opens its remainder, so the row the user was looking
+        // at stays expanded; the head keeps its own expansion, its identity
+        // unchanged. Folders opened *below* the tail are rebuilt under the new
+        // remainder node and come back collapsed — a stated limit.
         if let chain = shape.chain {
             Section {
                 Button(TreeChain.showAsSeparateFoldersTitle) {
@@ -966,6 +975,28 @@ private struct DirectoryNodeView: View {
         } else {
             children = nil
             rows = nil
+            // A shortened chain keeps its node but moves its contents up: a
+            // draft its old tail drew now sits below this collapsed row.
+            dropDraftHiddenByCollapse()
+        }
+    }
+
+    /// A collapsed node draws nothing below its contents directory, so a draft
+    /// anchored there is drawn nowhere and is dropped — the collapse handler's
+    /// rule, re-asserted where a reshape rather than a click leaves the node
+    /// collapsed with such a draft.
+    private func dropDraftHiddenByCollapse() {
+        if !isExpanded && draftIsBelow(contentsDirectory) {
+            draft = nil
+        }
+    }
+
+    /// Drop the draft when it hangs off this node's rows and none of
+    /// `childRows` still offers the way down to it.
+    private func dropDraftNotLed(by childRows: [TreeRow]) {
+        if let hanging = draftHangingBelow(),
+           !childRows.contains(where: { $0.leads(toDraftAnchor: hanging.anchor, renaming: hanging.renamed) }) {
+            draft = nil
         }
     }
 
@@ -1042,10 +1073,7 @@ private struct DirectoryNodeView: View {
             // row is gone from the hierarchy with nothing left to draw the
             // field, so the draft is dropped here for the reason recorded on the
             // collapse above.
-            if let hanging = draftHangingBelow(),
-               !childRows.contains(where: { $0.leads(toDraftAnchor: hanging.anchor, renaming: hanging.renamed) }) {
-                draft = nil
-            }
+            dropDraftNotLed(by: childRows)
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
