@@ -1170,7 +1170,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     re-reads only what changed, and no writer gate.
     **Local Changes needs the same counterpart, and gets `refreshLocalChanges()`**
     beside the bump in `newFile`, `performMove` and `deleteItem` (and in
-    `openLeetCodeSolution` when it created the file inside the project): the
+    `openLeetCodeProblem` when LeetCode created the file inside the project,
+    made before the cancellation check and the tab open so neither can skip
+    it, and there joined by `notifyIndexOfProjectFileChanges()` because the stub,
+    unlike `newFile`'s empty file, has symbols no buffer may carry): the
     project tree's git colours come only from `LocalChangesModel`'s published
     lookup, and `IgnoreSelf` means no watcher event re-asks git after these
     writes, so a renamed, moved, created or deleted entry — and its folders —
@@ -1537,9 +1540,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Esc), and keeps `PlatformAlert` for the two failures that happen with the sheet
     already gone — the tab open, and a login LeetCode rejected behind the dismissed
     web view; `openLeetCodeSolution`
-    opens the file through `model.open(url:)` like any other and bumps the tree
-    revision **only** when it landed inside the open project, because opening a
-    problem never changes the project root — and when that open *fails* it re-asks
+    opens the file through `model.open(url:)` like any other — the tree bump for a
+    created file is `openLeetCodeProblem`'s, made **only** when it landed
+    inside the open project because opening a problem never changes the project
+    root, and made before the cancellation check so a withdrawn or failed open
+    still owes it — and when that open *fails* it re-asks
     the statement question for the selected tab before alerting, since the
     statement `openProblem` published is global rather than keyed to a tab and the
     selection did not change, so `ContentView`'s `.task(id:)` would not re-run
