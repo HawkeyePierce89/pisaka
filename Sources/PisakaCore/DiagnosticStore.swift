@@ -125,6 +125,15 @@ public struct DiagnosticStore: Equatable, Sendable {
         /// diagnostic, the server's start line for a positional one.
         public let line: Int
 
+        /// The one-based line the panel shows beside the message — what the
+        /// user reads in the gutter. Total: a positional row's `line` is a
+        /// number a *server* sent, decoded straight off the wire, so `line + 1`
+        /// with an `Int.max` in it would trap the app on one malformed report.
+        /// A negative line reads as the first, as `LSPPositionMap` clamps it.
+        public var displayLine: Int {
+            line < 0 ? 1 : line == .max ? line : line + 1
+        }
+
         init(_ diagnostic: Diagnostic) {
             severity = diagnostic.severity
             message = diagnostic.message
@@ -171,6 +180,16 @@ public struct DiagnosticStore: Equatable, Sendable {
         public let pathComponents: [String]
         /// Ordered by ``Diagnostic/orderingKey`` within the file.
         public let rows: [Row]
+
+        /// The panel's file order: by path components, ties (the same
+        /// components reached by two spellings) by absolute URL — total, so the
+        /// full build and an incremental merge agree on every list.
+        static func precedes(_ lhs: FileRows, _ rhs: FileRows) -> Bool {
+            if lhs.pathComponents != rhs.pathComponents {
+                return lhs.pathComponents.lexicographicallyPrecedes(rhs.pathComponents)
+            }
+            return lhs.url.absoluteString < rhs.url.absoluteString
+        }
     }
 
     /// Keyed by `url.standardizedFileURL`, so `/a/b.swift` spelled with a
@@ -390,29 +409,32 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// `~` story of its own and inventing one would disagree with the
     /// breadcrumb's spelling of the same file.
     public func rows(relativeTo root: URL) -> [FileRows] {
-        entries
-            .compactMap { url, entry -> FileRows? in
-                let ordered: [Row]
-                switch entry.payload {
-                case .mapped(let diagnostics):
-                    ordered = Diagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
-                case .positional(let diagnostics):
-                    ordered = PositionalDiagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
-                }
-                guard !ordered.isEmpty else { return nil }
-                var seen = Set<Row>()
-                return FileRows(
-                    url: url,
-                    pathComponents: Self.pathComponents(of: url, relativeTo: root),
-                    rows: ordered.filter { seen.insert($0).inserted }
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.pathComponents != rhs.pathComponents {
-                    return lhs.pathComponents.lexicographicallyPrecedes(rhs.pathComponents)
-                }
-                return lhs.url.absoluteString < rhs.url.absoluteString
-            }
+        entries.keys
+            .compactMap { fileRows(for: $0, relativeTo: root) }
+            .sorted(by: FileRows.precedes)
+    }
+
+    /// One document's group of ``rows(relativeTo:)`` — `nil` when it holds no
+    /// entry or an empty set. The per-file half of the full build, so a caller
+    /// that keeps the groups can rebuild exactly the documents a mutation
+    /// touched (`DiagnosticsModel`'s panel cache) and reach the same answer.
+    func fileRows(for url: URL, relativeTo root: URL) -> FileRows? {
+        let key = url.standardizedFileURL
+        guard let entry = entries[key] else { return nil }
+        let ordered: [Row]
+        switch entry.payload {
+        case .mapped(let diagnostics):
+            ordered = Diagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
+        case .positional(let diagnostics):
+            ordered = PositionalDiagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
+        }
+        guard !ordered.isEmpty else { return nil }
+        var seen = Set<Row>()
+        return FileRows(
+            url: key,
+            pathComponents: Self.pathComponents(of: key, relativeTo: root),
+            rows: ordered.filter { seen.insert($0).inserted }
+        )
     }
 
     /// Errors and warnings across every document, both kinds — the header's

@@ -270,7 +270,62 @@ final class TreeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(index.lookup, .empty)
     }
 
+    /// The table's trie splits and collapses as keys come and go, and its shape
+    /// is a function of the key set alone: past the leaf capacity, two indexes
+    /// reaching the same marks by different histories hold equal lookups, and
+    /// one whose marks are all withdrawn holds `.empty`.
+    func testTheTableIsShapedByItsKeysAloneWhateverTheHistory() {
+        let files = (0..<600).map { url("gen/d\($0 % 23)/f\($0).swift") }
+        var grown = TreeDiagnosticsIndex(root: TreeDiagnostics.Root(root))
+        for file in files { grown.record(.error, for: file) }
+        XCTAssertGreaterThan(grown.lookup.table.depth, 0, "the burst really split the root")
+        for file in files[..<300] { grown.record(.none, for: file) }
+
+        var direct = TreeDiagnosticsIndex(root: TreeDiagnostics.Root(root))
+        for file in files[300...].reversed() { direct.record(.error, for: file) }
+        XCTAssertEqual(grown.lookup, direct.lookup)
+
+        for file in files[300...] { grown.record(.none, for: file) }
+        XCTAssertEqual(grown.lookup.table.depth, 0, "the withdrawals collapsed it again")
+        XCTAssertEqual(grown.lookup, .empty)
+    }
+
     // MARK: - Cost
+
+    /// The tree holds every published lookup, so the first move after a
+    /// publication is a copy-on-write — of the trie nodes on the written keys'
+    /// paths and nothing else: at most a branch's children per level plus one
+    /// leaf per key, charged by the ledger apart from the steps. The depth
+    /// grows with the logarithm of the marked keys, so a push late in a burst
+    /// thirty-two times larger copies at most one more level per key — where a
+    /// flat table copies every key, and a fixed split a share growing with them.
+    func testAMoveAfterAPublicationCopiesOnlyTheWrittenPaths() {
+        func latePush(after fileCount: Int) -> (copied: Int, depth: Int, keys: Int) {
+            var index = TreeDiagnosticsIndex(root: TreeDiagnostics.Root(root))
+            var published = index.lookup
+            func push(_ number: Int) -> Int {
+                let before = index.copiedEntries
+                index.record(.error, for: url("gen/d\(number % 37)/f\(number).swift"))
+                published = index.lookup
+                index.notePublished()
+                return index.copiedEntries - before
+            }
+            for number in 0..<fileCount { _ = push(number) }
+            let copied = push(fileCount)
+            XCTAssertEqual(published, index.lookup)
+            return (copied, index.lookup.table.depth, fileCount + 1 + 37 + 2)
+        }
+        let small = latePush(after: 1_000)
+        let large = latePush(after: 32_000)
+        for burst in [small, large] {
+            let perPath = burst.depth * MarkTrie.fanout + MarkTrie.leafCapacity
+            XCTAssertGreaterThan(burst.copied, 0, "the write really copied the shared table")
+            XCTAssertLessThanOrEqual(burst.copied, perPath, "only the file's own key changed its mark")
+        }
+        XCTAssertLessThanOrEqual(large.depth, small.depth + 2)
+        XCTAssertLessThanOrEqual(large.copied, small.copied + 2 * MarkTrie.fanout + MarkTrie.leafCapacity)
+        XCTAssertLessThan(large.copied, large.keys / 32)
+    }
 
     func testProbeCountIsAtMostOneWhateverTheStoreHolds() {
         func probes(fileCount: Int) -> [Int] {

@@ -729,6 +729,119 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNotNil(entry(elsewhere))
     }
 
+    /// A removal leaves a tombstone, not only a one-time clear: a report the
+    /// server queued before the removal — or a stale one from a server never
+    /// told about it — arriving afterwards must not resurrect the path, at the
+    /// file or under a removed folder. The disk is asked only on a tombstone's
+    /// match, and a path that exists again takes reports again; the folder
+    /// change forgets every tombstone.
+    func testALateReportCannotResurrectARemovedPath() {
+        var existing: Set<String> = []
+        var probes: [String] = []
+        model = DiagnosticsModel(fileExists: { url in
+            probes.append(url.path)
+            return existing.contains(url.path)
+        })
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let underFolder = folder.appendingPathComponent("inner.swift")
+        let elsewhere = root.appendingPathComponent("Other/kept.swift")
+        let report = [positionalDiagnostic(line: 0, character: 0, message: "late")]
+
+        model.receive(positional(report))
+        model.noteItemRemoved(at: url)
+        model.noteItemRemoved(at: folder)
+        XCTAssertNil(entry())
+
+        model.receive(positional(report))
+        model.receive(positional(report, url: underFolder))
+        model.receive(positional(report, url: elsewhere))
+        XCTAssertNil(entry(), "the removed file stays removed")
+        XCTAssertNil(entry(underFolder), "so does a file under the removed folder")
+        XCTAssertNotNil(entry(elsewhere))
+        XCTAssertEqual(probes, [url.path, underFolder.path], "the disk is asked on a tombstone's match alone")
+
+        existing.insert(url.path)
+        model.receive(positional(report))
+        XCTAssertNotNil(entry(), "a path that exists again takes reports again")
+        probes.removeAll()
+        model.receive(positional(report))
+        XCTAssertEqual(probes, [], "and its exact tombstone was lifted")
+
+        model.prepareForFolderChange(root: root)
+        model.receive(positional(report, url: underFolder))
+        XCTAssertNotNil(entry(underFolder), "the folder change forgets every tombstone")
+    }
+
+    /// The default probe counts a file, not any item: a folder recreated at a
+    /// removed file's path does not lift its tombstone.
+    func testTheDefaultProbeAcceptsAFileButNotADirectory() throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DiagnosticsModelTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let path = scratch.appendingPathComponent("gone.swift")
+
+        XCTAssertFalse(DiagnosticsModel.isFile(path), "nothing there")
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
+        XCTAssertFalse(DiagnosticsModel.isFile(path), "a directory is not the file")
+        try FileManager.default.removeItem(at: path)
+        try Data().write(to: path)
+        XCTAssertTrue(DiagnosticsModel.isFile(path))
+    }
+
+    // MARK: - The panel's rows
+
+    /// The panel re-reads its rows on every publication, so a one-document
+    /// mutation rebuilds that document's group alone — and the incremental
+    /// answer is the store's own full build at every step: across a burst, a
+    /// shift, a replacement that empties a file, a bulk clear and a root change.
+    func testThePanelRowsRebuildOnlyTheTouchedFileAndMatchTheFullBuild() {
+        model.prepareForFolderChange(root: root)
+        XCTAssertEqual(model.rows(relativeTo: root), [])
+
+        func push(_ index: Int, severity: DiagnosticSeverity = .error) -> Int {
+            let file = root.appendingPathComponent("gen/d\(index % 7)/f\(index).swift")
+            model.receive(positional(
+                [positionalDiagnostic(line: index % 5, character: 0, severity: severity, message: "m\(index)")],
+                url: file
+            ))
+            let before = model.panelFileBuilds
+            XCTAssertEqual(model.rows(relativeTo: root), model.store.rows(relativeTo: root), "push \(index)")
+            return model.panelFileBuilds - before
+        }
+        let first = push(0)
+        for index in 1..<300 { _ = push(index) }
+        XCTAssertEqual(first, 1)
+        XCTAssertEqual(push(300), 1, "the three-hundred-and-first push builds its own file alone")
+        XCTAssertEqual(push(17, severity: .warning), 1, "a replacement too")
+
+        let before = model.panelFileBuilds
+        _ = model.rows(relativeTo: root)
+        XCTAssertEqual(model.panelFileBuilds, before, "an unchanged store builds nothing")
+
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 8, length: 3, line: 2, message: "m")], version: 1))
+        XCTAssertEqual(model.rows(relativeTo: root), model.store.rows(relativeTo: root))
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+        XCTAssertEqual(model.rows(relativeTo: root), model.store.rows(relativeTo: root), "a shift")
+        model.receive(positional([], url: root.appendingPathComponent("gen/d3/f3.swift")))
+        XCTAssertEqual(model.rows(relativeTo: root), model.store.rows(relativeTo: root), "an emptied file")
+
+        let other = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        XCTAssertEqual(model.rows(relativeTo: other), model.store.rows(relativeTo: other), "another root")
+        model.noteItemRemoved(at: root.appendingPathComponent("gen/d2", isDirectory: true))
+        XCTAssertEqual(model.rows(relativeTo: root), model.store.rows(relativeTo: root), "a removal")
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
+        XCTAssertEqual(model.rows(relativeTo: root), [], "a server's teardown")
+    }
+
     // MARK: - The positional lane
 
     private func positionalDiagnostic(
@@ -1056,6 +1169,22 @@ final class DiagnosticsModelTests: XCTestCase {
         let last = push(2_000)
         XCTAssertEqual(first, 4, "the file, its two folders and the root")
         XCTAssertEqual(last, first)
+
+        // The tree holds every published lookup, so each push's write is a
+        // copy-on-write — of the trie nodes on the file key's path, never of
+        // the whole table: a single dictionary would copy every marked key
+        // (2,040 by the end) on every push.
+        func copied(_ index: Int) -> Int {
+            let before = model.treeIndex?.copiedEntries ?? 0
+            _ = push(index)
+            return (model.treeIndex?.copiedEntries ?? 0) - before
+        }
+        let tableKeys = 2_001 + 37 + 2
+        let late = copied(2_001)
+        let depth = model.treeIndex?.lookup.table.depth ?? 0
+        XCTAssertGreaterThan(late, 0, "the write really copied the shared table")
+        XCTAssertLessThanOrEqual(late, depth * MarkTrie.fanout + MarkTrie.leafCapacity)
+        XCTAssertLessThan(late, tableKeys / 16)
         XCTAssertEqual(lookup.mark(for: root.appendingPathComponent("gen/d5", isDirectory: true)), .error)
 
         syncAtVersionOne()

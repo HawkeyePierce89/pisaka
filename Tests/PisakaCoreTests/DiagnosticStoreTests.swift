@@ -827,6 +827,28 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 1, warnings: 1))
     }
 
+    /// The panel's one-based line is total: a positional line is a number a
+    /// server sent, so `Int.max` must not trap the `+ 1`, and a negative one
+    /// reads as the first line, as `LSPPositionMap` clamps it.
+    func testTheDisplayLineIsOneBasedAndTotalOverAServersLine() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            positional: [
+                positional(utilURL, line: 7, message: "seven"),
+                positional(utilURL, line: Int.max, message: "max"),
+                positional(utilURL, line: -1, message: "negative"),
+            ]
+        )
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups[0].rows.map(\.displayLine), [1], "a mapped row's zero-based line, plus one")
+        let byMessage = Dictionary(uniqueKeysWithValues: groups[1].rows.map { ($0.message, $0.displayLine) })
+        XCTAssertEqual(byMessage, ["seven": 8, "max": Int.max, "negative": 1])
+    }
+
     /// An empty positional report contributes no group, like an empty mapped one.
     func testAnEmptyPositionalEntryContributesNoRowGroup() {
         var store = DiagnosticStore()

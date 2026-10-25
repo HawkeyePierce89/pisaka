@@ -67,10 +67,14 @@ import Foundation
 /// `didSet` against the opened folder's two spellings, which
 /// ``prepareForFolderChange(root:)`` resolves once. A mutation confined to one
 /// document — every push, every keystroke's shift, every replacement — moves
-/// that file's mark through ``TreeDiagnosticsIndex`` in time proportional to
-/// its depth; only the bulk clears (a server's teardown, a removal, the folder
-/// change) rebuild, because a rebuild per push is quadratic in exactly the
-/// workspace-wide burst this lookup exists for. It is published apart from
+/// that file's mark through ``TreeDiagnosticsIndex``, visiting only its
+/// ancestry; only the bulk clears (a server's teardown, a removal, the folder
+/// change) rebuild, because a rebuild per push re-derives every diagnosed
+/// file's key in exactly the workspace-wide burst this lookup exists for. The
+/// tree retains the snapshot it was handed, so a move that changes the
+/// published value copies what it writes through — the marks table is a
+/// persistent trie, so that is the written keys' paths, logarithmic in the
+/// marked keys, never the table. It is published apart from
 /// the store, by ``TreeDiagnosticsHolder``, because the store republishes on
 /// every keystroke's shift and the tree must not re-render with it: the holder
 /// assigns only a value that differs from the one it holds, and a shift that
@@ -125,7 +129,10 @@ public final class DiagnosticsModel: ObservableObject {
     /// Every document's current set, republished on every mutation so the three
     /// surfaces (overlay, gutter, panel) observe one truth.
     @Published public private(set) var store = DiagnosticStore() {
-        didSet { refreshTreeDiagnostics() }
+        didSet {
+            notePanelRowsChanged()
+            refreshTreeDiagnostics()
+        }
     }
 
     /// The project tree's lookup, published on its own and only when it
@@ -173,7 +180,48 @@ public final class DiagnosticsModel: ObservableObject {
     /// touches the document; never replayed after an invalidation.
     private var heldPushes: [URL: LSPDiagnosticEvent] = [:]
 
-    public init() {}
+    /// The paths the app removed or moved away since the folder opened, as
+    /// standardized components — ``noteItemRemoved(at:)``'s tombstones. A
+    /// positional report at or under one is accepted only if the file it names
+    /// exists again as a file (`fileExists`), so a report the server queued before the
+    /// removal, or a stale one from a server never told about it, cannot
+    /// resurrect the path. Cleared by the folder change; an exact tombstone
+    /// whose path exists again is lifted at the probe.
+    private var removedPaths: [[String]] = []
+
+    /// The existence probe behind the tombstones — the one file-system call
+    /// in this model, made only for a positional report at or under a removed
+    /// path. A seam so a test can answer it without a disk; the default is
+    /// ``isFile(_:)``, so a folder recreated at a removed file's path does not
+    /// count as the file coming back.
+    private let fileExists: (URL) -> Bool
+
+    /// The Problems panel's groups as last built for `root`, plus the
+    /// documents a one-document mutation has touched since. The store
+    /// republishes on every push and every keystroke's shift, and the panel
+    /// re-reads ``rows(relativeTo:)`` on each: rebuilding every file's rows —
+    /// sorting each set, standardizing each path — per publication is what a
+    /// workspace-wide server's per-file burst turns quadratic. So only the
+    /// touched documents are rebuilt and merged back in; a bulk clear drops
+    /// the cache whole.
+    private var panelRows: (root: URL, groups: [DiagnosticStore.FileRows])?
+    private var panelDirty: Set<URL> = []
+
+    /// Documents whose rows ``rows(relativeTo:)`` has built since this model
+    /// was made — the seam the "a push rebuilds only its own file's rows" rule
+    /// is pinned through, counted apart from the groups it returns.
+    private(set) var panelFileBuilds = 0
+
+    public init(fileExists: @escaping (URL) -> Bool = DiagnosticsModel.isFile) {
+        self.fileExists = fileExists
+    }
+
+    /// Whether something other than a directory exists at `url` — diagnostics
+    /// are about files, and a directory at a tombstoned path names none.
+    public nonisolated static func isFile(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
 
     // MARK: - The tree's lookup
 
@@ -183,6 +231,17 @@ public final class DiagnosticsModel: ObservableObject {
         treeTouch = url
         defer { treeTouch = nil }
         body(&store)
+    }
+
+    /// The store's `didSet`, for the panel: a one-document mutation marks that
+    /// document's group stale; anything else drops the cached groups.
+    private func notePanelRowsChanged() {
+        if let url = treeTouch {
+            panelDirty.insert(url.standardizedFileURL)
+        } else {
+            panelRows = nil
+            panelDirty.removeAll()
+        }
     }
 
     /// The store's `didSet`: one document's mutation records that file's new
@@ -197,6 +256,7 @@ public final class DiagnosticsModel: ObservableObject {
             treeIndex = TreeDiagnosticsIndex(store: store, root: treeRoot)
         }
         treeDiagnostics.update(treeIndex?.lookup ?? .empty)
+        treeIndex?.notePublished()
     }
 
     // MARK: - Sync bookkeeping (fed by LSPDocumentSyncController)
@@ -400,7 +460,7 @@ public final class DiagnosticsModel: ObservableObject {
                 )
             }
         case .positional(let url, let serverID, let root, let diagnostics):
-            guard syncs[url.standardizedFileURL] == nil else { return }
+            guard syncs[url.standardizedFileURL] == nil, !isRemovedAndGone(url) else { return }
             mutateStore(touching: url) {
                 $0.replace(
                     url: url,
@@ -467,7 +527,22 @@ public final class DiagnosticsModel: ObservableObject {
     /// exists (D46). Bookkeeping is the close's business
     /// (``noteDocumentClosed(url:)``), which the same call sites already reach.
     public func noteItemRemoved(at url: URL) {
+        removedPaths.append(url.standardizedFileURL.pathComponents)
         store.clear(under: url)
+    }
+
+    /// Whether `url` lies at or under a path the app removed and names no file
+    /// now. Compared lexically by whole component, exactly as the removal's own
+    /// clear compares, and the disk is asked only once that matches.
+    private func isRemovedAndGone(_ url: URL) -> Bool {
+        guard !removedPaths.isEmpty else { return false }
+        let components = url.standardizedFileURL.pathComponents
+        guard removedPaths.contains(where: {
+            components == $0 || CanonicalPath.relativeComponents(of: components, under: $0) != nil
+        }) else { return false }
+        guard fileExists(url) else { return true }
+        removedPaths.removeAll { $0 == components }
+        return false
     }
 
     /// The folder changed to `root`: record its two spellings for the tree's
@@ -494,6 +569,7 @@ public final class DiagnosticsModel: ObservableObject {
         syncs.removeAll()
         revisions.removeAll()
         heldPushes.removeAll()
+        removedPaths.removeAll()
         store.clearAll()
     }
 
@@ -525,9 +601,55 @@ public final class DiagnosticsModel: ObservableObject {
         store.worstSeverityPerLine(url: url, lineCount: lineCount, lineStarts: lineStarts)
     }
 
-    /// The Problems panel's rows, grouped by file in reading order.
+    /// The Problems panel's rows, grouped by file in reading order — the
+    /// store's ``DiagnosticStore/rows(relativeTo:)`` answer, kept incrementally:
+    /// the documents touched since the last read are rebuilt and merged into
+    /// the cached groups (see `panelRows`), and a different root or a bulk
+    /// mutation builds the whole list again.
     public func rows(relativeTo root: URL) -> [DiagnosticStore.FileRows] {
-        store.rows(relativeTo: root)
+        guard let cached = panelRows, cached.root == root else {
+            let groups = store.rows(relativeTo: root)
+            panelFileBuilds += store.entriesByURL.count
+            panelRows = (root, groups)
+            panelDirty.removeAll()
+            return groups
+        }
+        guard !panelDirty.isEmpty else { return cached.groups }
+        let dirty = panelDirty
+        panelDirty.removeAll()
+        panelFileBuilds += dirty.count
+        let kept = cached.groups.filter { !dirty.contains($0.url) }
+        let fresh = dirty
+            .compactMap { store.fileRows(for: $0, relativeTo: root) }
+            .sorted(by: DiagnosticStore.FileRows.precedes)
+        let groups = Self.merge(kept, fresh)
+        panelRows = (root, groups)
+        return groups
+    }
+
+    /// Two lists already in ``DiagnosticStore/FileRows/precedes(_:_:)`` order,
+    /// merged into one in that order.
+    private static func merge(
+        _ lhs: [DiagnosticStore.FileRows],
+        _ rhs: [DiagnosticStore.FileRows]
+    ) -> [DiagnosticStore.FileRows] {
+        guard !rhs.isEmpty else { return lhs }
+        var merged: [DiagnosticStore.FileRows] = []
+        merged.reserveCapacity(lhs.count + rhs.count)
+        var left = 0
+        var right = 0
+        while left < lhs.count, right < rhs.count {
+            if DiagnosticStore.FileRows.precedes(rhs[right], lhs[left]) {
+                merged.append(rhs[right])
+                right += 1
+            } else {
+                merged.append(lhs[left])
+                left += 1
+            }
+        }
+        merged.append(contentsOf: lhs[left...])
+        merged.append(contentsOf: rhs[right...])
+        return merged
     }
 
     /// Errors and warnings across every document — the panel header's numbers.

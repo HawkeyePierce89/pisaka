@@ -2852,9 +2852,15 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `ForEach` rides on: rows are keyed by their flattened fields (`Row`'s note),
     where duplicate ids are undefined behavior rather than a merge, while the
     entry itself keeps every diagnostic so hover, the overlay and `counts` still
-    see both.
+    see both. The full build is one `fileRows(for:relativeTo:)` per entry sorted
+    by `FileRows.precedes` (path components, ties by absolute URL), split that
+    way so `DiagnosticsModel`'s panel cache rebuilds a touched file through the
+    very same builder and order.
     A `Row` carries severity, message, the zero-based `line` (the server's start
-    line for a positional row) and a Hashable **reveal target**,
+    line for a positional row) — shown through `displayLine`, the one-based
+    number made total, since a positional line is a server's `Int` and
+    `line + 1` with `Int.max` in it would trap the app (a negative line reads
+    as the first, as `LSPPositionMap` clamps it) — and a Hashable **reveal target**,
     `RevealTarget.offsets(NSRange)` or `.position(LSPRange)`, because a closed
     file's row has no range until the file is open. `Row.rangeToReveal(in:)` is
     the pure, total answer against the text the file opened with: a position goes
@@ -2946,7 +2952,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     the server's next report about the closed file lands. `noteItemRemoved(at:)`
     is the case a close is not — the app deleted, renamed or moved the file or a
     folder above it — and clears every entry at or under the old path, both kinds,
-    leaving the bookkeeping to the close its call sites also reach (D46). A kept **mapped** set is
+    leaving the bookkeeping to the close its call sites also reach (D46). The
+    removal also leaves a **tombstone** — the old path's standardized components,
+    kept until the folder change — because a one-time clear is not enough: a
+    report the server queued before the removal, or a stale one from a server
+    nobody told about it (no `didChangeWatchedFiles` is sent), would otherwise
+    land positionally afterwards and resurrect the row and the tree mark. A
+    positional report at or under a tombstone, compared lexically by whole
+    component like the clear itself, is accepted only when the file it names
+    exists again as a file — the model's one file-system call, an injected
+    `fileExists` probe asked only on that match, whose default
+    (`DiagnosticsModel.isFile`) refuses a directory, so a folder recreated at a
+    removed file's path is not the file coming back — and an exact tombstone
+    whose path exists again is lifted there. A kept **mapped** set is
     dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
     that is gone, so the file shows nothing until the next push. The editor
     treats a first showing as a plain tab switch, which keeps a set, so the
@@ -2987,7 +3005,16 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     the very burst a workspace-wide server sends — measured at 3.8 s of main
     thread for 2,000 flagged files, and ~4 ms per keystroke after it — which is
     why the hot paths never rebuild; `treeRebuilds` and the index's `steps` are
-    the internal seams that pin it. The lookup is handed to
+    the internal seams that pin it. The tree retains the lookup it was handed, so
+    the first move after a publication is a copy-on-write; the table is a
+    persistent hash trie (`TreeDiagnostics.swift`, below) so that copy is the
+    trie nodes on the written keys' paths, never the whole marks table a single
+    dictionary would copy on every push of the burst — nor a share of it
+    growing with the table, which a fixed hash split still copied, keeping the
+    burst quadratic with a smaller constant. The index's `copiedEntries` seam
+    counts it, and a suite pins one push late in a 2,000-file burst within one
+    path's bound. After each hand-off the model calls `notePublished()`, which
+    marks every node shared again. The lookup is handed to
     `TreeDiagnosticsHolder`, a separate `@MainActor ObservableObject` the model
     owns, which assigns — and so publishes — **only a value that differs** from
     the one it holds. It is a second object rather than a second `@Published` on
@@ -2999,8 +3026,20 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     exists for
     exactly one caller: the sync controller pinning it synchronously before its
     hop — the generation-token rule, one layer up from the models it usually
-    guards. The read-only queries forward to the store unchanged; the views hold
-    no logic to be thin about.
+    guards. The read-only queries forward to the store unchanged, with one
+    exception: `rows(relativeTo:)` keeps the panel's groups between reads. The
+    panel re-reads it on every publication — every push, every keystroke's shift
+    — and a full build sorts every file's set and standardizes every path (about
+    95 ms for 5,000 files of ten diagnostics each), so a per-file burst or typing
+    in a flagged file with the panel open would pay it each time. The store's
+    `didSet` marks the one document `mutateStore(touching:)` names as stale and
+    drops the cache on any bulk mutation; a read rebuilds only the stale
+    documents through `DiagnosticStore.fileRows(for:relativeTo:)` and merges them
+    into the kept groups in `FileRows.precedes` order — the same order and the
+    same per-file builder the full build uses, so the two cannot disagree, which
+    a suite pins against the store's own answer. A different root rebuilds
+    whole. `panelFileBuilds` is the internal seam counting the files built. The
+    views hold no logic to be thin about.
 
   - `DiagnosticNavigationRule.swift` — *Next / Previous Problem*'s (⌘' / ⌘⇧')
     whole decision: `target(diagnostics:caret:direction:)` answers the offset to
@@ -3052,7 +3091,25 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     its depth plus one steps, whatever the store holds — and reports whether any
     key's mark changed; the model hands the holder a value only then. The
     tallies and file records are never published: the tree's copy shares only
-    the table. `TreeDiagnostics(store:root:)` is that index built over the whole
+    the table. That table is a `MarkTrie`: a hash trie of value nodes, each
+    level reading five more bits of the key's hash (32 children per branch),
+    a node being a branch exactly when more than 16 keys lie under it and the
+    hash still has bits, a leaf holding its keys in one dictionary otherwise. A
+    write splits an outgrown leaf and collapses a branch fallen back within the
+    capacity, so the **shape is a function of the key set alone** — what keeps
+    the synthesized equality a comparison of contents, and a table emptied by
+    withdrawals equal to `.empty`; a suite reaches the same marks by two
+    histories past the capacity and compares. A value the tree still holds
+    therefore shares every node a later move does not write, and the first
+    write after a publication copies each node on its path once — a branch's
+    children, a leaf's keys — which `copiedEntries` charges (one ledger entry
+    per node per publication), apart from `steps`, instead of the whole table
+    or a share proportional to it. The depth grows with the logarithm of the
+    marked keys; a suite pins one late push in a 1,000- and a 32,000-file burst
+    each within one path's bound, the larger at most two levels deeper — the
+    slope a fixed hash split (256 buckets, an earlier shape) failed, its copy
+    growing with every bucket's share of the table. The hash is the process's
+    own, so every lookup built in one run is shaped the same way. `TreeDiagnostics(store:root:)` is that index built over the whole
     store, so the two paths cannot disagree, which a suite pins step by step.
     **The spellings.** `TreeDiagnostics.Root` holds the opened folder's
     standardized components (as the tree spells its rows) and canonical ones (as a
@@ -3069,9 +3126,10 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     built for: a folder change that empties the store publishes the same value a
     model with no folder holds.
     **The cost bound.** `mark(for:)` standardizes the row URL, strips whichever
-    spelling it lies under, and reads the table once. `resolve(_:)` is the internal
-    seam returning the mark with its probe count, pinned at most one whether the
-    store holds ten diagnosed files or ten thousand.
+    spelling it lies under, and reads the one key — a descent of the trie, a
+    handful of levels and at most thirteen. `resolve(_:)` is the internal
+    seam returning the mark with its probe count (keys read), pinned at most one
+    whether the store holds ten diagnosed files or ten thousand.
     **The holder.** The lookup is published by `TreeDiagnosticsHolder`
     (`DiagnosticsModel.swift`, above), which assigns only on inequality; the tree
     observes it through a thin wrapper in `ContentView.swift`, so the window root

@@ -184,10 +184,9 @@ private struct ProblemRow: View {
                 .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(2)
             Spacer(minLength: metrics.scaled(ProblemsPanelLayout.rowGap))
-            // One-based for display: `Row.line` is zero-based buffer geometry,
-            // while the number shown beside a message is what the user reads in
-            // the gutter.
-            Text(":\(row.line + 1)")
+            // One-based for display, through Core's total conversion: a
+            // positional row's line is a server's number.
+            Text(":\(row.displayLine)")
                 .font(metrics.scaledFont(.subheadline, design: .monospaced))
                 .foregroundStyle(theme.color(.textSecondary))
         }
