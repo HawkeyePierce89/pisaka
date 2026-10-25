@@ -279,13 +279,13 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 **Files:**
 - Create: `Tests/PisakaAppTests/TreeChainRowLayoutTests.swift`
 
-- [ ] Build a real temporary project in which `a/b/c` holds two files. Open it, and pass a reveal request for one of those files so the chain row expands through Task 6's path. Render one window at scale 1 and one at 1.8: two renders in all, with every assertion sampled out of each bitmap.
-- [ ] Assert, by counting rows off the bitmap as the indent-guide and glyph-slot suites do:
+- [x] Build a real temporary project in which `a/b/c` holds two files. Open it, and pass a reveal request for one of those files so the chain row expands through Task 6's path. Render one window at scale 1 and one at 1.8: two renders in all, with every assertion sampled out of each bitmap.
+- [x] Assert, by counting rows off the bitmap as the indent-guide and glyph-slot suites do:
   - exactly four rows: the root, the chain, and the two files;
   - the chain row is exactly one scaled `rowHeight`;
   - each file's glyph sits exactly one scaled `treeIndentStep` right of the chain row's glyph;
   - one `hairline` guide runs beside the files on the chain row's chevron centre, with none for the inner segments.
-- [ ] Run the app-layer bundle. It must pass before Task 8.
+- [x] Run the app-layer bundle. It must pass before Task 8. (Pinned Xcode 26.3 absent: the app-layer bundle ran under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`; 496 app tests, 0 lint violations. The chain row's height is read as the distance between the tops of the root's and the chain's guides, and the indent off the chain's chevron and folder glyph, which are the root's own artwork; a mutation adding a file to `b` fails both renders.)
 
 ### Task 8: Verify acceptance criteria
 
