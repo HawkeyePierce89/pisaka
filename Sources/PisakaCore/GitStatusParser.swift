@@ -14,11 +14,19 @@ import Foundation
 /// - `u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>` — unmerged
 ///   (merge-conflict) entry: 10 fixed fields before the path
 /// - `? <path>` — untracked
-/// - `! <path>` — ignored (skipped)
+/// - `! <path>` — ignored: dropped by `parse`, carried separately by
+///   `parseSnapshot` (a directory record's trailing `/` stripped)
 /// - `# …` — header lines (skipped)
 ///
 /// The path is taken as the unsplit remainder of the line, so paths containing
 /// spaces survive intact.
+///
+/// Two entry points read the same grammar. `parse` answers the changed-file list
+/// alone, and its output does not depend on whether `!` records are present, so
+/// every caller that predates the snapshot reads exactly what it always did.
+/// `parseSnapshot` answers that same list plus the ignored paths beside it — never
+/// mixed into it, because an ignored path is not a local change and the Local
+/// Changes panel, the commit dialog and the revert all read the list.
 ///
 /// `hH` — the object name of the file in `HEAD` — is carried as
 /// `ChangedFile.headObject` for `1` and `2` records (for a copy, the source's,
@@ -27,8 +35,36 @@ import Foundation
 /// objects rather than one `HEAD` object.
 public enum GitStatusParser {
     public static func parse(_ output: String) -> [ChangedFile] {
-        output.split(separator: "\n", omittingEmptySubsequences: true)
-            .compactMap { parseLine(String($0)) }
+        parseSnapshot(output).changedFiles
+    }
+
+    /// The changed-file list `parse` answers, plus every `! <path>` record as a
+    /// repo-relative path in output order. git reports a wholly ignored directory
+    /// as one record ending in `/`; the slash is stripped so the list holds plain
+    /// paths, and a reader treats each one as a prefix of everything below it.
+    public static func parseSnapshot(_ output: String) -> GitStatusSnapshot {
+        var changedFiles: [ChangedFile] = []
+        var ignoredPaths: [String] = []
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.first == "!" {
+                if let path = parseIgnored(line) { ignoredPaths.append(path) }
+            } else if let file = parseLine(String(line)) {
+                changedFiles.append(file)
+            }
+        }
+        return GitStatusSnapshot(changedFiles: changedFiles, ignoredPaths: ignoredPaths)
+    }
+
+    /// `! <path>` — the path remainder, with a directory record's one trailing
+    /// `/` removed. A record with no path, or whose path is only the slash, is
+    /// dropped rather than producing an empty key that would read as the
+    /// repository root.
+    private static func parseIgnored(_ line: Substring) -> String? {
+        let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        var path = parts[1]
+        if path.hasSuffix("/") { path = path.dropLast() }
+        return path.isEmpty ? nil : String(path)
     }
 
     private static func parseLine(_ line: String) -> ChangedFile? {
@@ -43,7 +79,8 @@ public enum GitStatusParser {
         case "?":
             return parseSingle(line, status: .untracked)
         default:
-            // `!` ignored entries and `#` header lines are not local changes.
+            // `#` header lines are not local changes; `!` ignored entries never
+            // reach here (`parseSnapshot` routes them to `parseIgnored`).
             return nil
         }
     }
@@ -93,7 +130,7 @@ public enum GitStatusParser {
         return ChangedFile(path: path, status: .conflicted)
     }
 
-    /// `? <path>` / `! <path>` — record type then the path remainder.
+    /// `? <path>` — record type then the path remainder.
     private static func parseSingle(_ line: String, status: FileStatus) -> ChangedFile? {
         let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return nil }

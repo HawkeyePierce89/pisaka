@@ -58,15 +58,15 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Modify: `Sources/PisakaCore/GitServicing.swift`
 - Modify: `Tests/PisakaCoreTests/GitStatusParserTests.swift`
 
-- [ ] Introduce a status snapshot value: the changed-file list plus a separate list of ignored repo-relative paths. Add a parser entry point that produces it from porcelain v2 output. `! <path>` records go to the ignored list with the directory trailing slash removed. Paths with spaces survive, as for every other record. The existing list-returning `parse` keeps its exact output, so every current caller and test stays byte-for-byte the same.
-- [ ] Add a status-snapshot requirement to `GitServicing`, with a default in the protocol extension that wraps `changedFiles(root:)` and an empty ignored list. Document why it is defaulted: iOS and the stubs stay untouched.
-- [ ] Tests:
+- [x] Introduce a status snapshot value: the changed-file list plus a separate list of ignored repo-relative paths. Add a parser entry point that produces it from porcelain v2 output. `! <path>` records go to the ignored list with the directory trailing slash removed. Paths with spaces survive, as for every other record. The existing list-returning `parse` keeps its exact output, so every current caller and test stays byte-for-byte the same.
+- [x] Add a status-snapshot requirement to `GitServicing`, with a default in the protocol extension that wraps `changedFiles(root:)` and an empty ignored list. Document why it is defaulted: iOS and the stubs stay untouched.
+- [x] Tests:
   - `!` file records and `!` directory records are carried separately, with the slash stripped.
   - The changed-file list is identical with and without `!` lines interleaved.
   - Header lines are still skipped.
   - A path with spaces is preserved.
   - The default seam returns the wrapped `changedFiles` and no ignored paths.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: The row-state lookup (Core, pure)
 
