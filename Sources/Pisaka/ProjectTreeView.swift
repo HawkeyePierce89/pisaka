@@ -1100,7 +1100,9 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .accessibilityValue(
             isDrafted
                 ? ""
-                : TreeGitState.accessibilityValue(state: gitState, row: .folder(isExpanded: configuration.isExpanded))
+                : TreeGitState.accessibilityValue(
+                    state: gitState, mark: .none, row: .folder(isExpanded: configuration.isExpanded)
+                )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
@@ -1347,7 +1349,7 @@ private struct FileRowView: View {
         // name. `.contain` while a rename draft is open, as on a folder row, so
         // the field stays reachable as itself.
         .accessibilityElement(children: isDraftedRow ? .contain : .combine)
-        .accessibilityValue(isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, row: .file))
+        .accessibilityValue(isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, mark: .none, row: .file))
     }
 
     private var isDraftedRow: Bool {

@@ -384,10 +384,10 @@ everything known about its file. This plan keeps those reports.
 - Create: `Tests/PisakaCoreTests/TreeDiagnosticsTests.swift`
 - Modify: `Tests/PisakaCoreTests/TreeGitStatusTests.swift`
 
-- [ ] Add `TreeDiagnosticMark` (`error`, `warning`, `none`; Comparable so that error
+- [x] Add `TreeDiagnosticMark` (`error`, `warning`, `none`; Comparable so that error
   outranks warning, which outranks none), with its `severity` and `spokenName`
   accessors.
-- [ ] Add `TreeDiagnostics` (Equatable, Sendable, with an `.empty` value):
+- [x] Add `TreeDiagnostics` (Equatable, Sendable, with an `.empty` value):
   - it is built from the store and the root's two spellings;
   - for each entry of either kind, it takes the worst severity: error → `error`,
     warning → `warning`, information or hint only → nothing recorded;
@@ -399,12 +399,12 @@ everything known about its file. This plan keeps those reports.
     of the per-file worst severities;
   - the per-row query is a lexical key plus one dictionary read; an internal
     `resolve(_:)` returns the mark with a probe count.
-- [ ] `TreeGitState.accessibilityValue` takes the mark as a non-defaulted parameter and
+- [x] `TreeGitState.accessibilityValue` takes the mark as a non-defaulted parameter and
   composes as described in Decisions.
-- [ ] Update `ProjectTreeView`'s two `accessibilityValue` call sites (the folder row and
+- [x] Update `ProjectTreeView`'s two `accessibilityValue` call sites (the folder row and
   the file row) to pass `.none`, so the app target keeps compiling with no behaviour
   change. Task 8 replaces these arguments with each row's real mark.
-- [ ] Tests, one per rule:
+- [x] Tests, one per rule:
   - a file takes the worst of its own diagnostics, either kind;
   - a folder takes the worst of all its descendants, transitively, several levels deep;
   - error outranks warning;
@@ -419,8 +419,8 @@ everything known about its file. This plan keeps those reports.
     10,000;
   - the accessibility composition covers both row kinds and every combination of git
     word, diagnostics word and none.
-- [ ] Run `xcodegen generate`, `swift test` and build the macOS app target. Both must
-  pass before Task 6.
+- [x] Run `xcodegen generate`, `swift test` and build the macOS app target. Both must
+  pass before Task 6. (The pinned Xcode 26.3 is absent here; the macOS build ran with the installed Xcode and succeeded.)
 
 ### Task 6: The model publishes the lookup
 

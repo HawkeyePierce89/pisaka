@@ -266,6 +266,10 @@ public struct DiagnosticStore: Equatable, Sendable {
         entries[url.standardizedFileURL]
     }
 
+    /// Every entry, keyed by its standardized URL — what `TreeDiagnostics`
+    /// walks to build the tree's lookup.
+    var entriesByURL: [URL: Entry] { entries }
+
     /// Every diagnostic whose range contains `offset`, ordered by
     /// ``Diagnostic/orderingKey`` — hover's lookup (D34).
     ///

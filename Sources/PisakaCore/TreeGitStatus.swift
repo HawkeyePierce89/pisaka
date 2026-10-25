@@ -53,17 +53,17 @@ public enum TreeGitState: CaseIterable, Comparable, Hashable, Sendable {
         case folder(isExpanded: Bool)
     }
 
-    /// A row's accessibility value: for a file, the state's word or `""`; for a
-    /// folder, `"expanded"` / `"collapsed"`, followed by `", "` and the state's
-    /// word when there is one.
-    public static func accessibilityValue(state: TreeGitState, row: RowKind) -> String {
+    /// A row's accessibility value, its words joined by `", "`: for a file, the
+    /// git state's word and the diagnostic mark's words, each when there is
+    /// one, or `""` when neither is; for a folder, `"expanded"` /
+    /// `"collapsed"` first, then each of those that exists.
+    public static func accessibilityValue(state: TreeGitState, mark: TreeDiagnosticMark, row: RowKind) -> String {
+        let words = [state.spokenName, mark.spokenName].compactMap { $0 }
         switch row {
         case .file:
-            return state.spokenName ?? ""
+            return words.joined(separator: ", ")
         case .folder(let isExpanded):
-            let expansion = isExpanded ? "expanded" : "collapsed"
-            guard let word = state.spokenName else { return expansion }
-            return "\(expansion), \(word)"
+            return ([isExpanded ? "expanded" : "collapsed"] + words).joined(separator: ", ")
         }
     }
 }
