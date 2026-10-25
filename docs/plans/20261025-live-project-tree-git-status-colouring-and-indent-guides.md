@@ -142,29 +142,29 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Modify: `Tests/PisakaCoreTests/GitCLIArgumentSourceGatingTests.swift`
 - Modify: `Tests/PisakaAppTests/GitCLIServiceRepositoryTests.swift`
 
-- [ ] In `GitCLIService`, the snapshot method runs the one existing status command with `--ignored=matching` added. `core.quotePath=false`, `--porcelain=v2` and `-uall` stay, and the not-a-repository error mapping is unchanged. `changedFiles(root:)` returns the snapshot's changed-file list, so the argument array is spelled exactly once in the file.
-- [ ] Publish the lookup on `LocalChangesModel`:
+- [x] In `GitCLIService`, the snapshot method runs the one existing status command with `--ignored=matching` added. `core.quotePath=false`, `--porcelain=v2` and `-uall` stay, and the not-a-repository error mapping is unchanged. `changedFiles(root:)` returns the snapshot's changed-file list, so the argument array is spelled exactly once in the file.
+- [x] Publish the lookup on `LocalChangesModel`:
   - `refreshImpl` asks for the snapshot instead of the bare list and builds the lookup from the snapshot, the resolved repository root and the opened folder.
   - It publishes the lookup in the same guarded block, under the same `refreshGeneration` and root-generation checks, that publishes `changedFiles`.
   - The failure path resets the lookup to empty in the same catch block that empties `changedFiles` and clears `selected` and the revert selection, after the same `refreshGeneration` / `rootRequestGeneration` guard. A superseded failure returns at that guard and touches nothing.
   - A superseded successful refresh publishes neither.
   - Both folder-switch clears (`prepareForFolderChange` and the root-change branch of `refreshImpl`) reset it to empty synchronously, before any suspension.
   - `refresh` and `refreshForDiskChange` both funnel here, so the save, watcher, gated-operation, commit and folder-switch refreshes all carry the lookup with no new trigger.
-- [ ] Core tests, using the existing stub, extended with an ignored list served through the snapshot seam and reusing its gated `changedFiles`:
+- [x] Core tests, using the existing stub, extended with an ignored list served through the snapshot seam and reusing its gated `changedFiles`:
   - A successful refresh publishes the lookup.
   - Ignored paths never appear in `changedFiles`.
   - A superseded refresh, staged with the existing gate, does not overwrite a newer lookup.
   - A folder switch clears the lookup synchronously before the new root's refresh lands.
   - A failed refresh clears the lookup to empty, together with `changedFiles`.
   - A superseded failure clears nothing newer. Stage it with the gate: a refresh that will fail is held, a newer refresh succeeds and publishes, then the held one is released to fail. The newer lookup and `changedFiles` both survive.
-- [ ] Gating: add a rule to `GitCLIArgumentSourceGatingTests`, in its literal-keeping reading. Exactly one array literal spells `"--ignored=matching"`, that literal also spells `"status"`, and no other literal in the file spells `--ignored` in any form. List it in the suite's header inventory.
-- [ ] App-layer real-git tests in throwaway repositories. A snapshot reports each of these as ignored, and none of them appears among the changed files:
+- [x] Gating: add a rule to `GitCLIArgumentSourceGatingTests`, in its literal-keeping reading. Exactly one array literal spells `"--ignored=matching"`, that literal also spells `"status"`, and no other literal in the file spells `--ignored` in any form. List it in the suite's header inventory.
+- [x] App-layer real-git tests in throwaway repositories. A snapshot reports each of these as ignored, and none of them appears among the changed files:
   - an ignored directory from `.gitignore`, as one slash-stripped path;
   - a file ignored only through `.git/info/exclude`;
   - a file ignored only through an excludes file named by `core.excludesFile` in the repository's config, standing in for the global one.
 
   Also, a force-added tracked file inside an ignored directory, once modified, is reported as modified, and its sibling stays ignored.
-- [ ] Run `swift test` and the app-layer bundle. Both must pass before Task 5.
+- [x] Run `swift test` and the app-layer bundle. Both must pass before Task 5. (The pinned Xcode 26.3 is not installed on this machine; the app-layer bundle ran under the installed Xcode 27.1 after `xcodegen generate`: 484 tests, 0 failures.)
 
 ### Task 5: Painting the names in the tree
 
