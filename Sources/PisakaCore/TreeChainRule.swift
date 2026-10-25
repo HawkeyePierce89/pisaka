@@ -207,3 +207,48 @@ public struct TreeChain: Equatable {
         return answer
     }
 }
+
+/// One listing per directory per tree revision: the memo every node's load —
+/// the parent's chain probe included — lists through, so the listing read while
+/// probing a chain's tail is the one that tail's row shows when expanded, and
+/// the order in which a parent and an already-expanded child load never causes
+/// a second read within one revision.
+///
+/// **Successes only are remembered.** A failed listing is thrown to the caller
+/// and re-read on the next ask, which keeps the tree's collapse/re-expand retry
+/// exactly as it was. Asking under a different revision forgets everything
+/// first; `reset()` does the same for a project-root change. Keyed by
+/// `TreeChainRule.key(for:)`, the spelling `separated` uses, so the memo adds no
+/// canonicalisation site of its own.
+///
+/// The memo lists only when asked; it never lists on its own.
+public final class TreeListingMemo {
+    private let list: (URL) throws -> [DirectoryEntry]
+    private var revision: Int?
+    private var listings: [String: [DirectoryEntry]] = [:]
+
+    /// - Parameter list: the listing function a miss reads through.
+    public init(list: @escaping (URL) throws -> [DirectoryEntry]) {
+        self.list = list
+    }
+
+    /// The listing of `url` under `revision`: the remembered one when this
+    /// revision already read it, otherwise a fresh read, remembered on success.
+    public func listing(of url: URL, revision: Int) throws -> [DirectoryEntry] {
+        if self.revision != revision {
+            listings.removeAll()
+            self.revision = revision
+        }
+        let key = TreeChainRule.key(for: url)
+        if let remembered = listings[key] { return remembered }
+        let listing = try list(url)
+        listings[key] = listing
+        return listing
+    }
+
+    /// Forget every listing — a project-root change.
+    public func reset() {
+        listings.removeAll()
+        revision = nil
+    }
+}

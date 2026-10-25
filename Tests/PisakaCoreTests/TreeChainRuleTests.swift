@@ -238,6 +238,158 @@ final class TreeChainRuleTests: XCTestCase {
         XCTAssertFalse(row.leads(toDraftAnchor: root, renaming: tree.url("a")))
     }
 
+    // MARK: - Charged listings
+
+    /// The rule over the root's listing, every read going through `memo`.
+    private func rows(_ memo: TreeListingMemo, revision: Int, separated: Set<String> = [], tree: StubFileTree) throws -> [TreeRow] {
+        TreeChainRule.rows(
+            in: try memo.listing(of: tree.root, revision: revision),
+            separated: separated,
+            isSymbolicLink: { tree.symbolicLinkDestination(at: $0) != nil },
+            list: { try memo.listing(of: $0, revision: revision) }
+        )
+    }
+
+    /// The listings the probe read, the caller's own read of the root excluded.
+    private func probeListings(_ tree: StubFileTree) -> [String] {
+        Array(tree.listedPaths.dropFirst())
+    }
+
+    func testAParentWithNSubfoldersAndOneRunListsNPlusDMinusOneDirectories() throws {
+        let others = (1...4).map { "plain\($0)" }
+        let run = ["src", "src/main", "src/main/java", "src/main/java/com", "src/main/java/com/acme"]
+        let tree = tree(others.flatMap { ["\($0)/one.swift", "\($0)/two.swift"] } + [run.last! + "/one.swift", run.last! + "/two.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let answer = try rows(memo, revision: 0, tree: tree)
+
+        let subfolders = others.count + 1
+        XCTAssertEqual(answer.count, subfolders)
+        XCTAssertEqual(tree.listedPaths.first, "")
+        XCTAssertEqual(probeListings(tree).count, subfolders + run.count - 1)
+        XCTAssertEqual(Set(probeListings(tree)), Set(others + run))
+    }
+
+    func testTheCapHaltsADeepRunAtThirtyTwoListings() throws {
+        let components = (1...40).map { "d\($0)" }
+        let tree = tree([components.joined(separator: "/") + "/leaf.swift"])
+        _ = try rows(TreeListingMemo { try tree.contentsOfDirectory(at: $0) }, revision: 0, tree: tree)
+
+        let listed = probeListings(tree)
+        let expected = (1...32).map { components.prefix($0).joined(separator: "/") }
+        XCTAssertEqual(listed.count, 32)
+        XCTAssertEqual(Set(listed), Set(expected))
+        XCTAssertFalse(tree.listedPaths.contains(components.prefix(33).joined(separator: "/")))
+    }
+
+    func testTheMemoServesASecondAskAndARevisionChangeReadsOnceAgain() throws {
+        let tree = tree(["a/b/c/one.swift", "a/b/c/two.swift", "README.md"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let expected = ["", "a", "a/b", "a/b/c"]
+
+        // The parent probe, then the tail's own load as its expansion asks it.
+        let chain = try XCTUnwrap(try rows(memo, revision: 0, tree: tree).compactMap { row -> TreeChain? in
+            if case .chain(let chain) = row { return chain }
+            return nil
+        }.first)
+        let tailLoad = try memo.listing(of: chain.contentsDirectory, revision: 0)
+        XCTAssertEqual(tailLoad, chain.tailListing)
+        XCTAssertEqual(tree.listedPaths, expected)
+
+        // The same sequence again, same revision: nothing is read.
+        _ = try rows(memo, revision: 0, tree: tree)
+        _ = try memo.listing(of: chain.contentsDirectory, revision: 0)
+        XCTAssertEqual(tree.listedPaths, expected)
+
+        // A new revision reads each directory exactly once again.
+        _ = try rows(memo, revision: 1, tree: tree)
+        _ = try memo.listing(of: chain.contentsDirectory, revision: 1)
+        XCTAssertEqual(tree.listedPaths, expected + expected)
+    }
+
+    func testTheMemoIsKeyedByTheTreesSpelling() throws {
+        let tree = tree(["a/one.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        _ = try memo.listing(of: tree.url("a"), revision: 0)
+        _ = try memo.listing(of: URL(fileURLWithPath: root.path + "/x/../a/"), revision: 0)
+        XCTAssertEqual(tree.listedPaths, ["a"])
+    }
+
+    func testFailuresAreNotMemoized() throws {
+        let tree = tree(["a/one.swift"])
+        tree.unreadableDirectories = ["a"]
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+
+        XCTAssertThrowsError(try memo.listing(of: tree.url("a"), revision: 0))
+        XCTAssertThrowsError(try memo.listing(of: tree.url("a"), revision: 0))
+        XCTAssertEqual(tree.listedPaths, ["a", "a"])
+
+        tree.unreadableDirectories = []
+        XCTAssertEqual(names(try memo.listing(of: tree.url("a"), revision: 0)), ["one.swift"])
+        XCTAssertEqual(names(try memo.listing(of: tree.url("a"), revision: 0)), ["one.swift"])
+        XCTAssertEqual(tree.listedPaths, ["a", "a", "a"])
+    }
+
+    func testResetForgetsEveryListing() throws {
+        let tree = tree(["a/one.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        _ = try memo.listing(of: tree.url("a"), revision: 0)
+        memo.reset()
+        _ = try memo.listing(of: tree.url("a"), revision: 0)
+        XCTAssertEqual(tree.listedPaths, ["a", "a"])
+    }
+
+    func testTheModelsLinkQuestionPassesThroughToTheFileService() {
+        let tree = tree(["a/one.swift", "b/two.swift"])
+        tree.symlinks = ["a"]
+        let model = WorkspaceModel(fileService: tree)
+        XCTAssertTrue(model.isSymbolicLink(tree.url("a")))
+        XCTAssertFalse(model.isSymbolicLink(tree.url("b")))
+        XCTAssertTrue(tree.listedPaths.isEmpty)
+    }
+
+    // MARK: - Re-evaluation
+
+    func testALoneFolderAddedInTheTailExtendsTheChain() throws {
+        let tree = tree([])
+        tree.directories = ["a/b/c"]
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let before = try XCTUnwrap(onlyChain(try rows(memo, revision: 0, tree: tree)))
+        XCTAssertEqual(names(before.segments), ["a", "b", "c"])
+
+        tree.files = ["a/b/c/d/one.swift": "", "a/b/c/d/two.swift": ""]
+        let after = try XCTUnwrap(onlyChain(try rows(memo, revision: 1, tree: tree)))
+        XCTAssertEqual(names(after.segments), ["a", "b", "c", "d"])
+        XCTAssertEqual(TreeRow.chain(after).id, TreeRow.chain(before).id)
+        XCTAssertEqual(after.tailListing, try tree.contentsOfDirectory(at: tree.url("a/b/c/d")))
+    }
+
+    func testAFileAddedInAMiddleSegmentShortensTheChain() throws {
+        let tree = tree(["a/b/c/one.swift", "a/b/c/two.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let before = try XCTUnwrap(onlyChain(try rows(memo, revision: 0, tree: tree)))
+        XCTAssertEqual(names(before.segments), ["a", "b", "c"])
+
+        tree.files["a/b/notes.md"] = ""
+        let after = try XCTUnwrap(onlyChain(try rows(memo, revision: 1, tree: tree)))
+        XCTAssertEqual(names(after.segments), ["a", "b"])
+        XCTAssertEqual(TreeRow.chain(after).id, TreeRow.chain(before).id)
+        XCTAssertEqual(Set(names(after.tailListing) ?? []), ["c", "notes.md"])
+    }
+
+    func testARenameDraftOfTheOldTailLeadsNowhereAfterAnExtend() throws {
+        let tree = tree([])
+        tree.directories = ["a/b/c"]
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let anchor = tree.url("a/b")
+        let renamed = tree.url("a/b/c")
+        let before = try XCTUnwrap(onlyChain(try rows(memo, revision: 0, tree: tree)))
+        XCTAssertTrue(TreeRow.chain(before).leads(toDraftAnchor: anchor, renaming: renamed))
+
+        tree.directories = ["a/b/c/d"]
+        let after = try XCTUnwrap(onlyChain(try rows(memo, revision: 1, tree: tree)))
+        XCTAssertFalse(TreeRow.chain(after).leads(toDraftAnchor: anchor, renaming: renamed))
+    }
+
     // MARK: - The real listing
 
     /// The listing's own exclusions apply before the rule sees anything, so a

@@ -191,18 +191,18 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 - Modify: `Sources/PisakaCore/WorkspaceModel.swift`
 - Modify: `Tests/PisakaCoreTests/TreeChainRuleTests.swift`
 
-- [ ] Add `TreeListingMemo` as specified: a revision-scoped memo of successes only, keyed by `TreeChainRule.key(for:)`, with a `reset()` for a root change.
-- [ ] Add `WorkspaceModel.isSymbolicLink(_:)`, a pass-through to `fileService.symbolicLinkDestination(at:) != nil`. It is documented as the tree's link question and never a listing.
-- [ ] Charged tests, counted off `StubFileTree.listedPaths`, which is a seam separate from the cap:
+- [x] Add `TreeListingMemo` as specified: a revision-scoped memo of successes only, keyed by `TreeChainRule.key(for:)`, with a `reset()` for a root change.
+- [x] Add `WorkspaceModel.isSymbolicLink(_:)`, a pass-through to `fileService.symbolicLinkDestination(at:) != nil`. It is documented as the tree's link question and never a listing.
+- [x] Charged tests, counted off `StubFileTree.listedPaths`, which is a seam separate from the cap:
   - **N subfolders, one chain.** A parent with N subfolders, one heading a run of depth D whose tail holds two files, lists exactly `N + D − 1` directories, each exactly once by set equality.
   - **The cap halts a deep run.** A 40-deep run lists exactly 32 directories, and the 33rd is never listed.
   - **The memo serves a second ask.** A parent probe followed by the tail's own load, and the same sequence repeated in the same revision, add no listing. After a revision change, each directory is listed once again.
   - **Failures are not memoized.** A failed listing is retried on the next ask.
-- [ ] Re-evaluation tests, re-running the rule after mutating the stub:
+- [x] Re-evaluation tests, re-running the rule after mutating the stub:
   - **Extend:** a lone `d` added in the tail extends the chain, same `id`, and the tail listing is `d`'s.
   - **Shorten:** a file added in a middle segment shortens the chain to it, same `id`, and its listing holds the old tail and the file.
   - **Drafts after a reshape:** after the extend, a draft anchored at the old tail's rename no longer leads anywhere.
-- [ ] Run `swift test`. It must pass before Task 3.
+- [x] Run `swift test`. It must pass before Task 3.
 
 ### Task 3: The tree renders rows from the rule
 
