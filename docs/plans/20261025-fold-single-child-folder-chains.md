@@ -309,7 +309,7 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 
 ### Task 9: Update documentation
 
-- [ ] `core-workspace.md`: a full entry for `TreeChainRule.swift`, after `TreeRevealRule.swift`, covering:
+- [x] `core-workspace.md`: a full entry for `TreeChainRule.swift`, after `TreeRevealRule.swift`, covering:
   - the qualifying rule and the walk;
   - the root, link, cap (32) and separation boundaries;
   - the silent probe failure;
@@ -321,7 +321,7 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
   - the tests that pin each of these.
 
   The `WorkspaceModel` entry gains the link pass-through.
-- [ ] `app-window.md`, the `ProjectTreeView.swift` entry:
+- [x] `app-window.md`, the `ProjectTreeView.swift` entry:
   - the row kinds;
   - contents = tail, identity = head;
   - the per-segment colouring and the one dot;
@@ -331,6 +331,6 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
   - re-evaluation (extend, shorten, drafts);
   - reveal through chains;
   - the memo's place in every load.
-- [ ] `docs/FEATURES.md`: one line on chain rows and the per-row unfold. Change `README.md` only if it lists tree behaviour.
-- [ ] `CLAUDE.md`: add `TreeChainRule.swift` to the `core-workspace.md` index line and nothing more. Confirm the file stays under 60,000 characters (`LintConfigurationTests`).
-- [ ] Run `swift test`. The doc-pinning suites must pass.
+- [x] `docs/FEATURES.md`: one line on chain rows and the per-row unfold. Change `README.md` only if it lists tree behaviour. (README's tree mentions are the file operations only, not row display, so it is unchanged.)
+- [x] `CLAUDE.md`: add `TreeChainRule.swift` to the `core-workspace.md` index line and nothing more. Confirm the file stays under 60,000 characters (`LintConfigurationTests`).
+- [x] Run `swift test`. The doc-pinning suites must pass. (7094 Core tests, 0 failures; `CLAUDE.md` at 56,552 characters.)

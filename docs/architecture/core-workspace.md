@@ -661,6 +661,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `open` and `reloadFromDisk`, which already run there. Nothing hops, so no
     generation token is needed; a later asynchronous version owes one, under the
     generation-token invariant.
+
+    *The tree's link question.* `isSymbolicLink(_:)` is a pass-through to
+    `fileService.symbolicLinkDestination(at:) != nil` — one link query, never a
+    listing — asked by the project tree's `TreeChainRule` probe for each
+    directory entry it considers (see `TreeChainRule.swift` below). Pinned in
+    `TreeChainRuleTests.testTheModelsLinkQuestionPassesThroughToTheFileService`.
   - `ExternalChangeRule.swift` — the pure verdict behind the external-change
     check: `ExternalChangeRule.verdict(recorded:current:read:savedText:text:)`
     over the recorded stamp, the current one (`nil` = unknown, which means "read
@@ -804,6 +810,122 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the root and for the root itself (it is not inside itself). The app-side
     `TreeRevealRequest` carries the answer to the tree (`app-window.md`).
     Covered by `TreeRevealRuleTests`.
+  - `TreeChainRule.swift` — which rows the macOS project tree draws for one
+    folder's listing: a file, a plain folder, or a **chain**, a run of folders
+    each holding nothing but the next, drawn as one `a/b/c` row whose expansion
+    goes straight to the last folder's contents. Pure and Foundation-only:
+    `TreeChainRule.rows(in:separated:isSymbolicLink:list:)` takes the parent's
+    own listing (read by the caller), the set of folder keys the user asked to
+    see as separate folders, a link question and the listing function every
+    probe reads through, and answers `[TreeRow]` in the listing's order.
+    **The rule is applied to a listing's entries only**: the project root is
+    never one of them — the view builds the root node as itself — and that is
+    the whole of what keeps the root out of every chain.
+    **The walk.** A folder *qualifies* when it is not in `separated` and its
+    listing is exactly one entry that is a directory. For each directory entry
+    `d`: a symbolic link is a plain folder row and is never listed; a failed
+    listing is a plain folder row, nothing remembered for the failure, so the
+    row's own expansion retries as before; otherwise `d` is listed and the walk
+    appends the single child `e` while the last segment qualifies and the chain
+    is shorter than `maximumSegments`, checking `e` first — in `separated`:
+    stop before it; a symbolic link: append it as the **tail** without listing
+    it, its contents loading on expansion; its listing fails: stop before it,
+    so it becomes a plain row under the tail; otherwise append and list it. A
+    chain of one segment is a plain folder row. **The cap is 32**
+    (`maximumSegments`): the 32nd segment is still listed, so its listing is the
+    tail's contents and the rest of the run appears as that tail's children.
+    `offersShowAsOneRow` on the plain-folder case is true exactly when the
+    folder is separated **and** would otherwise qualify. **Every probe failure
+    is silent**: it shapes the answer and never throws out of the rule; only a
+    node's own contents read may beep, in the view.
+    **Symbolic links in today's listing.** `FileService.contentsOfDirectory`
+    reads `isDirectoryKey`, which does not follow links, so a symlinked
+    directory already lists as a *non-directory* entry and the app draws it as
+    a file row. A run whose next entry is a link therefore ends at the link's
+    parent, which does not qualify — its one entry is "a file" — and the link is
+    that row's child. The rule's own link check stays, through
+    `WorkspaceModel.isSymbolicLink(_:)`, as the defence for any listing that
+    does report a link as a directory (the test stub; a future listing change),
+    and it is what the Core link tests pin; it costs one link query per
+    directory entry probed, never a listing. Descending into symlinked
+    directories is out of scope.
+    **`TreeRow`** has three cases — `.file`, `.folder(_, offersShowAsOneRow:)`,
+    `.chain(TreeChain)` — and **`id` is the entry url, or the chain's head**, so
+    a folder keeps its identity as it turns from plain to chain and back, which
+    is what lets the view keep its `@State` (expansion above all) across a
+    reshape. `leads(toDraftAnchor:renaming:)` is the question a reload asks of
+    its rows for a draft anchored below the reloaded folder (`anchor` is the
+    folder the draft writes into, `renamed` the entry a rename names): a plain
+    entry leads when it is renamed, or when it is a folder holding the anchor
+    (today's test, a directory still required further down); a chain leads only
+    when the anchor is its tail or lies under it, or when the draft renames its
+    tail — a draft anchored on an inner segment is no longer drawn anywhere and
+    is dropped. Containment is `ScopedFileAccess.path(_:isWithin:)` over
+    standardized paths only, never resolved, for the reason `draftIsBelow(_:)`
+    records (`app-window.md`).
+    **`TreeChain` carries every address as data**, its segments head first (at
+    least two, a precondition) and the tail's handed-down listing (`nil` for an
+    unlisted link tail). The row stands for the head's subtree and shows the
+    tail's contents, so what is about the *row* addresses the head and what is
+    about its *contents* addresses the tail:
+
+    | Property | Target |
+    |---|---|
+    | `identity` (row id, expansion key, unfold key) | head |
+    | `contentsDirectory`, `createTarget`, `dropDestination` | tail |
+    | `renameTarget` | tail |
+    | `deleteTarget`, `dragSource` | head |
+    | `diagnosticMarkURL`, `spokenGitStateURL` | head |
+    | `gitStatusURLs` | each segment |
+
+    `label` is the segment names joined with `/`; the titles are
+    `Rename "<tail>"`, `Delete "<label>"`, and the two statics
+    `Show as Separate Folders` / `Show as One Row`. `renameSiblings` is the tail
+    alone — the listing of its parent segment, which the field excludes as it
+    excludes any renamed entry's own name — and `leadingSegments` are the ones a
+    rename field is drawn after. `remainderHead` (the second segment) is the
+    folder the view opens on first appearance when an expanded chain is shown
+    as separate folders. `revealURLs(underHeadRevealURL:)` spells each segment
+    the way `TreeRevealRule` does — the head's reveal url, then one name
+    appended per level — so a reveal request matches every segment.
+    `key(for:)` is `standardizedFileURL.path`, the url as the tree spells it and
+    never resolved: the one key of `separated` and of the memo, adding no
+    canonicalisation site of its own.
+    **`TreeListingMemo`** (same file) is the tree's **one listing per directory
+    per `treeRevision`**: a reference type made with a listing function and asked
+    `listing(of:revision:)`; a different revision forgets everything first, and
+    `reset()` does the same on a project-root change. **Successes only are
+    remembered** — a failure is thrown to the caller and re-read on the next
+    ask, which keeps the collapse/re-expand retry exactly as it was. Every node's
+    load, each parent's chain probe included, lists through it, so the listing
+    read while probing a chain's tail is the one the row shows when expanded,
+    and the order in which a parent and an already-expanded child load never
+    causes a second read within one revision. It lists only when asked: nothing
+    lists on the watcher callback, in the drop hover path, or on an unfold
+    toggle, which re-runs the rule against the memo.
+    Covered by `TreeChainRuleTests`, each case its own test over `StubFileTree`:
+    the qualifying run, the three stops (no entries, two entries, one file), a
+    chain of one, files beside a chain, the root never a segment, a link head
+    never listed, a link continuation as the unlisted tail, the 32-segment cap,
+    a separated head offering `Show as One Row` and a non-qualifying one not, a
+    separated continuation, an unreadable head, continuation and first
+    continuation, every address and title as data on one chain, the key's
+    spelling, and `leads` for the plain, tail, under-tail and inner-segment
+    anchors; over the real `FileService` in a temporary directory, a folder
+    holding `.git` and one subfolder qualifies because the listing's own
+    exclusions apply first. The **charged** tests count off
+    `StubFileTree.listedPaths`, a seam separate from the cap: a parent of N
+    subfolders, one heading a run of depth D, lists exactly `N + D − 1`
+    directories, each once by set equality; a 40-deep run lists exactly 32 and
+    never the 33rd; the memo serves a second ask in the same revision with no
+    listing and reads each once again after a revision change; failures are not
+    memoized; `reset()` forgets. Re-evaluation re-runs the rule after mutating
+    the stub: a lone folder added in the tail **extends** the chain (same `id`,
+    the new tail's listing), a file added in a middle segment **shortens** it to
+    that segment (same `id`, its listing holding the old tail and the file), and
+    after the extend a rename draft of the old tail leads nowhere. The unfold
+    sequence — `{a}`, `{a, b}`, then `a` removed — is three rule re-runs with no
+    new listing, the rule staying local to each folder.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one
