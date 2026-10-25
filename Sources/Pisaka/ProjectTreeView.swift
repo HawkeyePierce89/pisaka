@@ -111,6 +111,15 @@ struct ProjectTreeView: View {
     /// — or one rebuilt by a later re-expansion of its parent — is never
     /// re-expanded by a request already honoured or one that cannot be.
     @State private var completedRevealToken: Int?
+    /// The keys (`TreeChainRule.key(for:)`) of the folders the user asked to see
+    /// as separate folders, handed down the recursion as a value. Never written
+    /// to the session, cleared on a project-root change and never pruned: a key
+    /// whose folder is gone simply matches no row.
+    @State private var separatedFolders: Set<String> = []
+    /// The keys of folders whose node starts expanded the first time it appears
+    /// — the remainder of an expanded chain the user just unfolded. Each such
+    /// node removes its own key when it appears; cleared on a root change.
+    @State private var opensOnAppearance: Set<String> = []
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -225,10 +234,12 @@ struct ProjectTreeView: View {
                         // The root is built as itself, a single segment: it is
                         // never one of a listing's entries, so `TreeChainRule`
                         // never sees it and it heads no chain.
-                        shape: .folder(DirectoryEntry(url: root, isDirectory: true)),
+                        shape: .folder(DirectoryEntry(url: root, isDirectory: true), offersShowAsOneRow: false),
                         revealURL: root,
                         listingMemo: listings.memo(listingThrough: model),
-                        separated: [],
+                        separated: separatedFolders,
+                        opensOnAppearance: opensOnAppearance,
+                        onSeparation: apply,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
                         onNewFolder: onNewFolder,
@@ -273,7 +284,22 @@ struct ProjectTreeView: View {
             .onChange(of: model.projectRoot) { _ in
                 draft = nil
                 listings.memo(listingThrough: model).reset()
+                separatedFolders = []
+                opensOnAppearance = []
             }
+        }
+    }
+
+    /// The one change point of the unfold memory, reported by the rows.
+    private func apply(_ change: TreeSeparationChange) {
+        switch change {
+        case .separate(let head, let opening):
+            separatedFolders.insert(TreeChainRule.key(for: head))
+            if let opening { opensOnAppearance.insert(TreeChainRule.key(for: opening)) }
+        case .join(let folder):
+            separatedFolders.remove(TreeChainRule.key(for: folder))
+        case .appeared(let folder):
+            opensOnAppearance.remove(TreeChainRule.key(for: folder))
         }
     }
 
@@ -282,6 +308,21 @@ struct ProjectTreeView: View {
         guard let reveal, reveal.token != completedRevealToken else { return nil }
         return reveal
     }
+}
+
+/// A change to the tree's unfold memory, reported by a row through the one
+/// callback the recursion hands down. Nothing here lists: the rows re-run the
+/// rule against the listing memo.
+private enum TreeSeparationChange {
+    /// `Show as Separate Folders` on the chain headed at `head`; `opening` is
+    /// its remainder's head when the chain was expanded, so that node starts
+    /// expanded, and nil for a collapsed chain.
+    case separate(head: URL, opening: URL?)
+    /// `Show as One Row` on a separated folder.
+    case join(URL)
+    /// The node for `folder` appeared expanded, as recorded by `separate`, and
+    /// drops its key so a later appearance starts collapsed as usual.
+    case appeared(URL)
 }
 
 /// One Reveal in Project Tree request: the tab's file as the tree spells its
@@ -437,6 +478,11 @@ private struct DirectoryNodeView: View {
     /// The keys (`TreeChainRule.key(for:)`) of folders the user asked to see as
     /// separate folders, handed down as a value.
     let separated: Set<String>
+    /// The keys of folders whose node starts expanded on first appearance,
+    /// handed down as a value beside `separated`.
+    let opensOnAppearance: Set<String>
+    /// The one way a row changes either set (`TreeSeparationChange`).
+    let onSeparation: (TreeSeparationChange) -> Void
     let onOpenFile: (URL) -> Void
     let onNewFile: (URL, String) -> Void
     let onNewFolder: (URL, String) -> Void
@@ -501,6 +547,8 @@ private struct DirectoryNodeView: View {
         revealURL: URL,
         listingMemo: TreeListingMemo,
         separated: Set<String>,
+        opensOnAppearance: Set<String>,
+        onSeparation: @escaping (TreeSeparationChange) -> Void,
         onOpenFile: @escaping (URL) -> Void,
         onNewFile: @escaping (URL, String) -> Void,
         onNewFolder: @escaping (URL, String) -> Void,
@@ -528,6 +576,8 @@ private struct DirectoryNodeView: View {
         self.revealURL = revealURL
         self.listingMemo = listingMemo
         self.separated = separated
+        self.opensOnAppearance = opensOnAppearance
+        self.onSeparation = onSeparation
         self.onOpenFile = onOpenFile
         self.onNewFile = onNewFile
         self.onNewFolder = onNewFolder
@@ -604,6 +654,8 @@ private struct DirectoryNodeView: View {
                         revealURL: revealURL.appendingPathComponent(childShape.head.lastPathComponent),
                         listingMemo: listingMemo,
                         separated: separated,
+                        opensOnAppearance: opensOnAppearance,
+                        onSeparation: onSeparation,
                         onOpenFile: onOpenFile,
                         onNewFile: onNewFile,
                         onNewFolder: onNewFolder,
@@ -622,6 +674,7 @@ private struct DirectoryNodeView: View {
                         gitStatus: gitStatus,
                         diagnostics: diagnostics,
                         onRevealed: onRevealed,
+                        startsExpanded: opensOnAppearance.contains(TreeChainRule.key(for: childShape.head)),
                         siblings: childShape.renameSiblings ?? currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
@@ -737,6 +790,11 @@ private struct DirectoryNodeView: View {
         // A node seeded as expanded (the root) starts `isExpanded == true`, so
         // `onChange` never fires for it — load its children on first appearance.
         .onAppear {
+            // The remainder of an unfolded, expanded chain started expanded
+            // (`startsExpanded`); it spends its key now, once.
+            if opensOnAppearance.contains(TreeChainRule.key(for: shape.head)) {
+                onSeparation(.appeared(shape.head))
+            }
             expandIfRevealed()
             if isExpanded && children == nil {
                 loadChildren()
@@ -846,6 +904,20 @@ private struct DirectoryNodeView: View {
                     }
                 }
                 Button(shape.deleteTitle) { onDelete(shape.deleteTarget) }
+            }
+        }
+        // A view choice, not a file operation: no draft, no gate. Unfolding an
+        // expanded chain opens its remainder, so nothing on screen disappears;
+        // the head keeps its own expansion, its identity unchanged.
+        if let chain = shape.chain {
+            Section {
+                Button(TreeChain.showAsSeparateFoldersTitle) {
+                    onSeparation(.separate(head: chain.identity, opening: isExpanded ? chain.remainderHead : nil))
+                }
+            }
+        } else if shape.offersShowAsOneRow {
+            Section {
+                Button(TreeChain.showAsOneRowTitle) { onSeparation(.join(shape.head)) }
             }
         }
     }
@@ -1028,14 +1100,16 @@ private struct DirectoryNodeView: View {
 /// Equatable as a whole, chain listing included, so a node notices a reshape
 /// that kept its head — an extended or shortened chain — and reloads.
 private enum TreeNodeShape: Equatable {
-    case folder(DirectoryEntry)
+    /// One folder; `offersShowAsOneRow` is the rule's answer for a separated
+    /// folder that would otherwise head a chain.
+    case folder(DirectoryEntry, offersShowAsOneRow: Bool)
     case chain(TreeChain)
 
     /// The shape a directory row draws; nil for a file row.
     init?(_ row: TreeRow) {
         switch row {
         case .file: return nil
-        case .folder(let entry, _): self = .folder(entry)
+        case .folder(let entry, let offersShowAsOneRow): self = .folder(entry, offersShowAsOneRow: offersShowAsOneRow)
         case .chain(let chain): self = .chain(chain)
         }
     }
@@ -1043,7 +1117,7 @@ private enum TreeNodeShape: Equatable {
     /// The row's identity: the folder, or the chain's head.
     var head: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.identity
         }
     }
@@ -1051,7 +1125,7 @@ private enum TreeNodeShape: Equatable {
     /// What the row lists and expands to: the folder, or the chain's tail.
     var contentsDirectory: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.contentsDirectory
         }
     }
@@ -1062,10 +1136,17 @@ private enum TreeNodeShape: Equatable {
         return nil
     }
 
+    /// Whether the row's menu offers `Show as One Row`: a separated folder the
+    /// rule says would otherwise head a chain.
+    var offersShowAsOneRow: Bool {
+        if case .folder(_, let offers) = self { return offers }
+        return false
+    }
+
     /// The row's name: the folder's, or the segments joined with `/`.
     var label: String {
         switch self {
-        case .folder(let entry): return entry.name
+        case .folder(let entry, _): return entry.name
         case .chain(let chain): return chain.label
         }
     }
@@ -1073,7 +1154,7 @@ private enum TreeNodeShape: Equatable {
     /// What a drag of this row moves: the folder, or the chain's head.
     var dragSource: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.dragSource
         }
     }
@@ -1082,7 +1163,7 @@ private enum TreeNodeShape: Equatable {
     /// chain's tail.
     var dropDestination: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.dropDestination
         }
     }
@@ -1090,7 +1171,7 @@ private enum TreeNodeShape: Equatable {
     /// What Delete removes: the folder, or the chain's head.
     var deleteTarget: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.deleteTarget
         }
     }
@@ -1099,7 +1180,7 @@ private enum TreeNodeShape: Equatable {
     /// chain's head's.
     var diagnosticMarkURL: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.diagnosticMarkURL
         }
     }
@@ -1107,7 +1188,7 @@ private enum TreeNodeShape: Equatable {
     /// Whose git state the row speaks: the folder's, or the chain's head's.
     var spokenGitStateURL: URL {
         switch self {
-        case .folder(let entry): return entry.url
+        case .folder(let entry, _): return entry.url
         case .chain(let chain): return chain.spokenGitStateURL
         }
     }
@@ -1133,7 +1214,7 @@ private enum TreeNodeShape: Equatable {
     /// The entry a rename of this row names: the folder, or the chain's tail.
     var renameEntry: DirectoryEntry {
         switch self {
-        case .folder(let entry): return entry
+        case .folder(let entry, _): return entry
         case .chain(let chain): return chain.renameTarget
         }
     }

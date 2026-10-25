@@ -248,15 +248,15 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `Tests/PisakaCoreTests/TreeChainRuleTests.swift`
 
-- [ ] Add `separatedFolders` and the transient "open on first appearance" set to `ProjectTreeView` as specified: handed down as values with one toggle callback, both cleared on a root change, never persisted, never pruned.
+- [x] Add `separatedFolders` and the transient "open on first appearance" set to `ProjectTreeView` as specified: handed down as values with one toggle callback, both cleared on a root change, never persisted, never pruned.
   - A chain row's menu offers `Show as Separate Folders`.
   - A plain row with `offersShowAsOneRow` offers `Show as One Row`.
   - Unfolding an expanded chain records the second segment so the new node starts expanded.
-- [ ] Core tests for the unfold sequence the acceptance criteria walk. Each step is a rule re-run, asserted with no new listing in the same revision:
+- [x] Core tests for the unfold sequence the acceptance criteria walk. Each step is a rule re-run, asserted with no new listing in the same revision:
   - `separated = {a}` turns the chain into `a` (plain, `offersShowAsOneRow`) over the chain `b/…`;
   - `{a, b}` makes `b` plain over the rest;
   - removing `a` restores `a` as a plain row whose child `b` is still separated, because the rule is local to each folder.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 6.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 6. (Pinned Xcode 26.3 absent: the app-layer bundle ran under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`; 489 app tests, 7094 Core tests, 0 lint violations. The second segment is `TreeChain.remainderHead`, and the one callback carries a `TreeSeparationChange`: separate, join, or appeared.)
 
 ### Task 6: Reveal through a chain
 

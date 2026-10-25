@@ -166,6 +166,11 @@ public struct TreeChain: Equatable {
     public var tail: DirectoryEntry { segments[segments.count - 1] }
     /// Every segment but the tail — drawn as text before a rename field.
     public var leadingSegments: [DirectoryEntry] { Array(segments.dropLast()) }
+    /// The folder heading the row drawn under the head once the chain is shown
+    /// as separate folders — the second segment. Unfolding an *expanded* chain
+    /// opens it on first appearance, so nothing the user was looking at
+    /// disappears.
+    public var remainderHead: URL { segments[1].url }
 
     /// The row id, expansion key and unfold key.
     public var identity: URL { head.url }

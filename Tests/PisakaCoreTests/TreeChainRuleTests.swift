@@ -390,6 +390,63 @@ final class TreeChainRuleTests: XCTestCase {
         XCTAssertFalse(TreeRow.chain(after).leads(toDraftAnchor: anchor, renaming: renamed))
     }
 
+    // MARK: - Per-row unfold
+
+    /// The rule over `folder`'s listing, every read through `memo`.
+    private func rows(of folder: String, _ memo: TreeListingMemo, separated: Set<String>, tree: StubFileTree) throws -> [TreeRow] {
+        TreeChainRule.rows(
+            in: try memo.listing(of: tree.url(folder), revision: 0),
+            separated: separated,
+            isSymbolicLink: { tree.symbolicLinkDestination(at: $0) != nil },
+            list: { try memo.listing(of: $0, revision: 0) }
+        )
+    }
+
+    private func plain(_ tree: StubFileTree, _ path: String, offersShowAsOneRow: Bool) -> TreeRow {
+        .folder(DirectoryEntry(url: tree.url(path), isDirectory: true), offersShowAsOneRow: offersShowAsOneRow)
+    }
+
+    /// The acceptance walk: separate the head, then the next folder, then join
+    /// the head again. Every step is a rule re-run over the memo in one
+    /// revision, so after the first probe nothing is listed again.
+    func testTheUnfoldSequenceReRunsTheRuleWithNoNewListing() throws {
+        let tree = tree(["a/b/c/d/one.swift", "a/b/c/d/two.swift"])
+        let memo = TreeListingMemo { try tree.contentsOfDirectory(at: $0) }
+        let folded = try XCTUnwrap(onlyChain(try rows(of: "", memo, separated: [], tree: tree)))
+        XCTAssertEqual(names(folded.segments), ["a", "b", "c", "d"])
+        XCTAssertEqual(folded.remainderHead, tree.url("a/b"))
+        let listed = tree.listedPaths
+        XCTAssertEqual(listed, ["", "a", "a/b", "a/b/c", "a/b/c/d"])
+
+        // {a}: `a` plain, offering to join, over the chain `b/c/d`.
+        let headOnly: Set = [key(tree, "a")]
+        XCTAssertEqual(try rows(of: "", memo, separated: headOnly, tree: tree), [plain(tree, "a", offersShowAsOneRow: true)])
+        let remainder = try XCTUnwrap(onlyChain(try rows(of: "a", memo, separated: headOnly, tree: tree)))
+        XCTAssertEqual(names(remainder.segments), ["b", "c", "d"])
+        XCTAssertEqual(TreeRow.chain(remainder).id, folded.remainderHead)
+        XCTAssertEqual(tree.listedPaths, listed)
+
+        // {a, b}: `b` plain too, over the rest.
+        let both: Set = [key(tree, "a"), key(tree, "a/b")]
+        XCTAssertEqual(try rows(of: "", memo, separated: both, tree: tree), [plain(tree, "a", offersShowAsOneRow: true)])
+        XCTAssertEqual(try rows(of: "a", memo, separated: both, tree: tree), [plain(tree, "a/b", offersShowAsOneRow: true)])
+        XCTAssertEqual(names(try XCTUnwrap(onlyChain(try rows(of: "a/b", memo, separated: both, tree: tree))).segments), ["c", "d"])
+        XCTAssertEqual(tree.listedPaths, listed)
+
+        // {b}: `a` is a plain row again, because the rule is local to each
+        // folder and its one child is still separated; `b` still offers to join.
+        let innerOnly: Set = [key(tree, "a/b")]
+        XCTAssertEqual(try rows(of: "", memo, separated: innerOnly, tree: tree), [plain(tree, "a", offersShowAsOneRow: false)])
+        XCTAssertEqual(try rows(of: "a", memo, separated: innerOnly, tree: tree), [plain(tree, "a/b", offersShowAsOneRow: true)])
+        XCTAssertEqual(tree.listedPaths, listed)
+    }
+
+    func testATwoSegmentChainsRemainderIsItsTail() throws {
+        let tree = tree(["a/b/one.swift", "a/b/two.swift"])
+        let chain = try XCTUnwrap(onlyChain(try rows(tree)))
+        XCTAssertEqual(chain.remainderHead, chain.tail.url)
+    }
+
     // MARK: - The real listing
 
     /// The listing's own exclusions apply before the rule sees anything, so a
