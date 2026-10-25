@@ -2,7 +2,8 @@ import XCTest
 @testable import PisakaCore
 
 /// The chrome's per-feature Core answers beside `diagnosticRole(for:)`: the
-/// changed-file status (letter, word and role), the pull-request checks (the
+/// changed-file status (letter, word and role), the project tree's name
+/// colour, the pull-request checks (the
 /// summary's glyph, words and role; one job's bucket's words and role — the job
 /// row draws a dot, not a glyph) and the diff row
 /// wash and marker, and the problem catalog's three (difficulty, problem
@@ -37,6 +38,25 @@ final class ChromeRoleMappingTests: XCTestCase {
         let words = FileStatus.allCases.map(\.spokenName)
         XCTAssertEqual(Set(letters).count, letters.count, "\(letters)")
         XCTAssertEqual(Set(words).count, words.count, "\(words)")
+    }
+
+    // MARK: - Project-tree name
+
+    /// Every row state's name colour; `plain` answers no role, so the name
+    /// keeps its inherited foreground.
+    func testEveryTreeGitStateHasItsNameRole() {
+        let expected: [TreeGitState: ChromeColorRole?] = [
+            .conflict: .statusRed,
+            .modified: .statusYellow,
+            .added: .statusGreen,
+            .ignored: .textSecondary,
+            .plain: nil,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(TreeGitState.allCases))
+        for state in TreeGitState.allCases {
+            XCTAssertEqual(ChromeColorRole.treeNameRole(for: state), expected[state] ?? nil, "\(state)")
+        }
+        XCTAssertNil(ChromeColorRole.treeNameRole(for: .plain))
     }
 
     // MARK: - Checks

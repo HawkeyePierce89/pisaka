@@ -293,6 +293,10 @@ import XCTest
 ///   constructs one colour — the HEAD lines' plain code row — and paints no
 ///   ground of its own. A mark or a popover in a colour of its own compiles and
 ///   drifts from the status colours the Local Changes rows draw the same kinds in.
+/// - **The tree-name mapping is Core's one answer.** A project-tree row's name
+///   is coloured by its git state through one Core mapping, read by the tree
+///   alone; a second table in a view compiles, draws four plausible colours and
+///   disagrees with the Local Changes panel the first time either is touched.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -6080,6 +6084,64 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule fifty-one: the tree-name mapping is Core's one answer
+
+    /// The app files reading `ChromeColorRole.treeNameRole(for:)`: the project
+    /// tree alone, once its rows paint their names. Empty while no view reads
+    /// the mapping yet, so the set equality below holds from the day the
+    /// mapping lands.
+    private static let treeNameRoleReaders: Set<String> = []
+
+    /// Rule fifty-one. Which role a project-tree row's name is drawn in has one
+    /// answer in Core — `ChromeColorRole.treeNameRole(for:)` over the closed
+    /// `TreeGitState` — and rule seventeen's mapping is not it: that one colours
+    /// a changed file's *letter* by its `FileStatus`, this one a row's *name* by
+    /// a state already aggregated over a folder, and the two stay separate rules
+    /// with separate reader sets. Over stripped source:
+    ///
+    /// - no app file declares `func treeNameRole`;
+    /// - the app files spelling `treeNameRole(for:` equal `treeNameRoleReaders`;
+    /// - no gated file qualifies a row-state case as `TreeGitState.`, or spells
+    ///   `case` followed, on the same line, by `.ignored`.
+    ///
+    /// Stated limit: `.conflict`, `.modified`, `.added` and `.plain` are also
+    /// other types' case names the gated views legitimately switch over — the
+    /// merge regions, the diff kinds, the tree's own row-background state — so a
+    /// bare label naming one of those four is not matched; a name table must
+    /// name `.ignored`, or qualify a case, to be caught. Rule fifteen's other
+    /// limits apply as stated there.
+    func testTheTreeNameMappingIsCoresOneAnswer() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                code.contains("func treeNameRole"),
+                "\(name) declares its own treeNameRole — the tree-name colour is Core's one answer"
+            )
+            if Self.spellsCall("treeNameRole(for:", in: code) { readers.insert(name) }
+        }
+        XCTAssertEqual(
+            readers, Self.treeNameRoleReaders,
+            "the app files reading ChromeColorRole.treeNameRole(for:) must be exactly its known readers"
+        )
+
+        let labels = try NSRegularExpression(
+            pattern: "\\bcase\\b[^:\\n]*\\.ignored\\b"
+                + "|\\bTreeGitState\\.(conflict|modified|added|ignored|plain)\\b"
+        )
+        for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertNil(
+                labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+                """
+                \(url.lastPathComponent) spells a TreeGitState case label — a name-colour mapping in a view \
+                is a second table; read ChromeColorRole.treeNameRole(for:)
+                """
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -6182,7 +6244,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
-        49: "forty-nine", 50: "fifty", 65: "sixty-five", 66: "sixty-six",
+        49: "forty-nine", 50: "fifty", 51: "fifty-one", 65: "sixty-five", 66: "sixty-six",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

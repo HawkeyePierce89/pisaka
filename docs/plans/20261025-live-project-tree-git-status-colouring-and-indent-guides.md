@@ -107,7 +107,7 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Modify: `docs/architecture/core-theme.md`
 - Modify: `CLAUDE.md`
 
-- [ ] Beside the existing status mappings, add one exhaustive mapping from row state to an optional role: conflict → `statusRed`, modified → `statusYellow`, added → `statusGreen`, ignored → `textSecondary`, plain → no role, because the name keeps its inherited foreground. Its doc comment states that folder and file rows map identically and that no new role or palette value exists. The reference values, unchanged in `ChromePalette`, are:
+- [x] Beside the existing status mappings, add one exhaustive mapping from row state to an optional role: conflict → `statusRed`, modified → `statusYellow`, added → `statusGreen`, ignored → `textSecondary`, plain → no role, because the name keeps its inherited foreground. Its doc comment states that folder and file rows map identically and that no new role or palette value exists. The reference values, unchanged in `ChromePalette`, are:
 
   | state | role | dark | light |
   |---|---|---|---|
@@ -116,22 +116,22 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
   | added | `statusGreen` | `#7a9d6e` | `#4f8a3d` |
   | ignored | `textSecondary` | `#a0a3aa` | `#6e6e73` |
 
-- [ ] Tests: every state's answer pinned over `allCases`, and plain answering no role.
-- [ ] Add a new rule fifty-one to the theme gating suite for the tree-name mapping, with its own `// MARK: - Rule fifty-one: …` marker placed after rule fifty. Over comment- and literal-stripped source it asserts:
+- [x] Tests: every state's answer pinned over `allCases`, and plain answering no role.
+- [x] Add a new rule fifty-one to the theme gating suite for the tree-name mapping, with its own `// MARK: - Rule fifty-one: …` marker placed after rule fifty. Over comment- and literal-stripped source it asserts:
   - no app file declares its own tree-name mapping function;
   - the app files calling the Core mapping are exactly `ProjectTreeView.swift`, by set equality;
   - no gated file spells a row-state case label of the new enum.
 
   Rule seventeen, its doc comment and its reader set stay exactly as they are.
-- [ ] In the same task, move every restatement of the rule count, which the suite's self-checks pin across files:
+- [x] In the same task, move every restatement of the rule count, which the suite's self-checks pin across files:
   - add `51: "fifty-one"` to the suite's number-to-word table;
   - add a bolded bullet for rule fifty-one to the suite's header inventory, titled as its marker is and in the markers' order;
   - in `core-theme.md`, change the canonical list's opening to "The fifty-one rules, each invisible to the compiler:" and append item `51.` describing the rule;
   - in `CLAUDE.md`, change "and its fifty rules" to "and its fifty-one rules" in the chrome-theme invariant.
 
   The gated-file set is unchanged, so the gated-set size wording stays as it is.
-- [ ] Rule fifty-one only becomes satisfiable by set equality once `ProjectTreeView.swift` calls the mapping (Task 5). Until then, its reader-set clause expects the empty set, and Task 5 updates that expectation to `ProjectTreeView.swift`. Alternatively, land the clause with its final expectation in Task 5. Either way, the suite is green at the end of each task.
-- [ ] Run `swift test`. It must pass before Task 4.
+- [x] Rule fifty-one only becomes satisfiable by set equality once `ProjectTreeView.swift` calls the mapping (Task 5). Until then, its reader-set clause expects the empty set, and Task 5 updates that expectation to `ProjectTreeView.swift`. Alternatively, land the clause with its final expectation in Task 5. Either way, the suite is green at the end of each task.
+- [x] Run `swift test`. It must pass before Task 4.
 
 ### Task 4: One status command, and the model publishes the lookup
 
