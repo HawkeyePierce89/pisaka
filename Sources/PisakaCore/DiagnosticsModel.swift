@@ -63,9 +63,14 @@ import Foundation
 /// ## The tree's lookup
 ///
 /// The project tree reads one value of this model: ``TreeDiagnostics``, the
-/// worst severity at or below each row, rebuilt from the store on every store
-/// mutation (its `didSet`) against the opened folder's two spellings, which
-/// ``prepareForFolderChange(root:)`` resolves once. It is published apart from
+/// worst severity at or below each row, kept current from the store's
+/// `didSet` against the opened folder's two spellings, which
+/// ``prepareForFolderChange(root:)`` resolves once. A mutation confined to one
+/// document — every push, every keystroke's shift, every replacement — moves
+/// that file's mark through ``TreeDiagnosticsIndex`` in time proportional to
+/// its depth; only the bulk clears (a server's teardown, a removal, the folder
+/// change) rebuild, because a rebuild per push is quadratic in exactly the
+/// workspace-wide burst this lookup exists for. It is published apart from
 /// the store, by ``TreeDiagnosticsHolder``, because the store republishes on
 /// every keystroke's shift and the tree must not re-render with it: the holder
 /// assigns only a value that differs from the one it holds, and a shift that
@@ -120,9 +125,7 @@ public final class DiagnosticsModel: ObservableObject {
     /// Every document's current set, republished on every mutation so the three
     /// surfaces (overlay, gutter, panel) observe one truth.
     @Published public private(set) var store = DiagnosticStore() {
-        didSet {
-            treeDiagnostics.update(treeRoot.map { TreeDiagnostics(store: store, root: $0) } ?? .empty)
-        }
+        didSet { refreshTreeDiagnostics() }
     }
 
     /// The project tree's lookup, published on its own and only when it
@@ -132,6 +135,19 @@ public final class DiagnosticsModel: ObservableObject {
     /// The opened folder's two spellings, resolved once per folder change; `nil`
     /// until the first one, when the lookup stays empty.
     private var treeRoot: TreeDiagnostics.Root?
+
+    /// The lookup's incremental bookkeeping, `nil` with no folder open.
+    /// Internal so a test can read its step count.
+    private(set) var treeIndex: TreeDiagnosticsIndex?
+
+    /// The one document the store mutation in progress touches, set by
+    /// ``mutateStore(touching:_:)``; `nil` while any other mutation runs, which
+    /// is what sends the store's `didSet` to a full rebuild.
+    private var treeTouch: URL?
+
+    /// Full rebuilds of the tree's lookup so far — the seam the "one document's
+    /// mutation never rebuilds" rule is pinned through.
+    private(set) var treeRebuilds = 0
 
     /// Per-document sync records, keyed by standardized URL — cleared by
     /// `prepareForFolderChange(root:)`, per-document by `noteBufferReplaced(url:)`,
@@ -158,6 +174,30 @@ public final class DiagnosticsModel: ObservableObject {
     private var heldPushes: [URL: LSPDiagnosticEvent] = [:]
 
     public init() {}
+
+    // MARK: - The tree's lookup
+
+    /// Mutate the store where the change is confined to `url`'s entry, so the
+    /// tree's lookup is moved for that one file instead of rebuilt.
+    private func mutateStore(touching url: URL, _ body: (inout DiagnosticStore) -> Void) {
+        treeTouch = url
+        defer { treeTouch = nil }
+        body(&store)
+    }
+
+    /// The store's `didSet`: one document's mutation records that file's new
+    /// mark, anything else rebuilds; the holder hears only a changed lookup.
+    private func refreshTreeDiagnostics() {
+        guard let treeRoot else { return }
+        if let url = treeTouch, treeIndex != nil {
+            guard treeIndex?.record(TreeDiagnostics.mark(of: store.entry(for: url)), for: url) == true
+            else { return }
+        } else {
+            treeRebuilds += 1
+            treeIndex = TreeDiagnosticsIndex(store: store, root: treeRoot)
+        }
+        treeDiagnostics.update(treeIndex?.lookup ?? .empty)
+    }
 
     // MARK: - Sync bookkeeping (fed by LSPDocumentSyncController)
 
@@ -206,11 +246,13 @@ public final class DiagnosticsModel: ObservableObject {
            case .published(let heldURL, let serverID, let root, let heldVersion, let diagnostics) = held,
            revision == (revisions[key] ?? 0),
            heldVersion.map({ $0 == version }) ?? true {
-            store.replace(
-                url: heldURL,
-                serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
-                diagnostics: diagnostics
-            )
+            mutateStore(touching: heldURL) {
+                $0.replace(
+                    url: heldURL,
+                    serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
+                    diagnostics: diagnostics
+                )
+            }
         }
     }
 
@@ -259,7 +301,7 @@ public final class DiagnosticsModel: ObservableObject {
             editedRange: editedRange,
             changeInLength: delta
         )
-        store.apply(shift: shifted, to: url)
+        mutateStore(touching: url) { $0.apply(shift: shifted, to: url) }
     }
 
     /// The buffer behind `url` was replaced wholesale — tab switch,
@@ -273,7 +315,32 @@ public final class DiagnosticsModel: ObservableObject {
         revisions[key] = (revisions[key] ?? 0) + 1
         syncs[key] = nil
         heldPushes[key] = nil
-        store.clearMapped(url: url)
+        mutateStore(touching: url) { $0.clearMapped(url: url) }
+    }
+
+    /// An editor is about to show `url`'s buffer — a tab switch, which is also
+    /// how a reopened file first appears: drop a mapped set the document's
+    /// closed predecessor left behind, and nothing else.
+    ///
+    /// Such a set is recognised by having **no sync record**: a mapped entry is
+    /// only ever accepted against one, and every way a record goes either takes
+    /// the mapped set with it (``noteBufferReplaced(url:)``, the folder change)
+    /// or is the close (``noteDocumentClosed(url:)``), which keeps the set on
+    /// purpose. So a mapped set with no record describes the buffer of a tab
+    /// that has closed, and its offsets may name text the file no longer holds —
+    /// it changed on disk while closed, or the close discarded edits. The editor
+    /// treats a first showing as a plain tab switch, which keeps a set, so this
+    /// is the call that drops it. A document whose record survives — a tab
+    /// merely switched back to — keeps its set, as a plain switch must, and a
+    /// positional entry stays either way, as on every replacement.
+    ///
+    /// Only the entry goes — no revision bump, no hold dropped: with no record
+    /// there is no sync for a bump to condemn, and leaving the bookkeeping alone
+    /// is what makes the call safe on either side of the showing's own
+    /// immediate sync being scheduled.
+    public func noteDocumentShown(url: URL) {
+        guard syncs[url.standardizedFileURL] == nil, store.entry(for: url)?.mapped != nil else { return }
+        mutateStore(touching: url) { $0.clearMapped(url: url) }
     }
 
     // MARK: - The push channel
@@ -325,18 +392,22 @@ public final class DiagnosticsModel: ObservableObject {
                 return
             }
             heldPushes[key] = nil
-            store.replace(
-                url: url,
-                serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
-                diagnostics: diagnostics
-            )
+            mutateStore(touching: url) {
+                $0.replace(
+                    url: url,
+                    serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
+                    diagnostics: diagnostics
+                )
+            }
         case .positional(let url, let serverID, let root, let diagnostics):
             guard syncs[url.standardizedFileURL] == nil else { return }
-            store.replace(
-                url: url,
-                serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
-                positional: diagnostics
-            )
+            mutateStore(touching: url) {
+                $0.replace(
+                    url: url,
+                    serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
+                    positional: diagnostics
+                )
+            }
         case .cleared(.server(let serverID, let root)):
             store.clear(serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root))
             // The teardown condemns everything that server produced, whatever
@@ -367,8 +438,8 @@ public final class DiagnosticsModel: ObservableObject {
     /// The store entry is deliberately left alone: the file's problems are still
     /// the file's problems after its tab closes, and the Problems panel and the
     /// tree keep listing them. A kept **mapped** set is dropped when the file is
-    /// reopened (``noteBufferReplaced(url:)``), its offsets describing a buffer
-    /// that is being replaced.
+    /// shown again (``noteDocumentShown(url:)``), its offsets describing a
+    /// buffer that is gone.
     ///
     /// Reached two ways, and it needs both. `LSPWorkspace.didClose(url:)` emits
     /// `.cleared(.document)` only for a URI it still *held* — every teardown

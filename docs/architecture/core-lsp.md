@@ -2947,8 +2947,15 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     is the case a close is not — the app deleted, renamed or moved the file or a
     folder above it — and clears every entry at or under the old path, both kinds,
     leaving the bookkeeping to the close its call sites also reach (D46). A kept **mapped** set is
-    dropped on reopen by `noteBufferReplaced`, its offsets describing a buffer
-    that is being replaced, so the file shows nothing until the next push. The
+    dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
+    that is gone, so the file shows nothing until the next push. The editor
+    treats a first showing as a plain tab switch, which keeps a set, so the
+    content-replaced branch of `CodeEditorView.updateNSView` calls it on every
+    switch; it acts only on a mapped entry with **no sync record** — which can
+    only be a closed tab's, a mapped entry being accepted only against a record
+    and every other way a record goes taking the mapped set with it — and clears
+    that entry alone, bumping no revision, so it is safe on either side of the
+    showing's own immediate sync. The
     bookkeeping maps are then bounded by the open tabs rather than by every
     file the session ever opened, and a file reopened later is gated from zero
     instead of against the numbers of its previous life; the **store** is bounded
@@ -2971,8 +2978,16 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     as one. It only fires when the root actually
     changed, since re-opening the open folder leaves every tab in place with
     nothing that would repopulate an emptied store. **The tree's lookup**: the
-    store's `didSet` rebuilds a `TreeDiagnostics` from the store and the cached
-    `TreeDiagnostics.Root` (`.empty` with no root yet) and hands it to
+    store's `didSet` keeps a `TreeDiagnostics` current against the cached
+    `TreeDiagnostics.Root` (`.empty` with no root yet). A mutation confined to
+    one document — routed through `mutateStore(touching:)`: every push, every
+    keystroke's shift, every replacement — moves only that file's mark through
+    `TreeDiagnosticsIndex`; anything else (a server's teardown, a removal, the
+    folder change) rebuilds from the store. A rebuild per push was quadratic in
+    the very burst a workspace-wide server sends — measured at 3.8 s of main
+    thread for 2,000 flagged files, and ~4 ms per keystroke after it — which is
+    why the hot paths never rebuild; `treeRebuilds` and the index's `steps` are
+    the internal seams that pin it. The lookup is handed to
     `TreeDiagnosticsHolder`, a separate `@MainActor ObservableObject` the model
     owns, which assigns — and so publishes — **only a value that differs** from
     the one it holds. It is a second object rather than a second `@Published` on
@@ -3006,8 +3021,8 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     set, so a closed file's positional set is never a stop (D46).
 
   - `TreeDiagnostics.swift` — the project tree's view of the store: the worst
-    severity known at or below each row, built on every store change and asked
-    per row with no file-system call. A **reader**, and Foundation-only.
+    severity known at or below each row, kept current on every store change and
+    asked per row with no file-system call. A **reader**, and Foundation-only.
     **The marks.** `TreeDiagnosticMark` is closed — `none`, `warning`, `error`,
     declared weakest first so the synthesized `Comparable` makes `error` outrank
     `warning` outrank `none` and `max` is the aggregation. Information and hints
@@ -3026,10 +3041,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     positional lane already refuses a file outside the root, but a mapped entry
     for an open file outside it can exist). That relative key and **every
     ancestor up to and including the root's empty key** keep the strongest mark,
-    so a folder answers for everything beneath it, expanded or not. The climb
-    stops at the first ancestor already at least as strong, which cannot change
-    the answer, because every ancestor of a recorded key already holds at least
-    that key's mark. The build is linear in the diagnosed files times their depth.
+    so a folder answers for everything beneath it, expanded or not. A full build
+    is linear in the diagnosed files times their depth.
+    **The incremental index.** `TreeDiagnosticsIndex` keeps, per key, a
+    **tally** of the files at or below it whose worst mark is `error` and those
+    whose is `warning`, and reads the key's mark off it — a running maximum
+    cannot lower a folder when one file's mark falls, a count can. Each recorded
+    file remembers its mark and its ancestry's keys, so its relative key is
+    computed once. `record(_:for:)` moves one file's mark along its ancestry —
+    its depth plus one steps, whatever the store holds — and reports whether any
+    key's mark changed; the model hands the holder a value only then. The
+    tallies and file records are never published: the tree's copy shares only
+    the table. `TreeDiagnostics(store:root:)` is that index built over the whole
+    store, so the two paths cannot disagree, which a suite pins step by step.
     **The spellings.** `TreeDiagnostics.Root` holds the opened folder's
     standardized components (as the tree spells its rows) and canonical ones (as a
     server may spell what it reports, so a project opened through a symlink still
@@ -3985,8 +4009,9 @@ lane** rather than dropped.
   positional entry, which never described a buffer. Opening a file is a content
   replacement, so this is what keeps a closed file's record in the panel and the
   tree until the first mapped report replaces it. A **mapped** set kept from a
-  closed tab is dropped on reopen exactly as before: its offsets describe a
-  buffer being replaced, and the file shows nothing until the next push.
+  closed tab is dropped on reopen (`noteDocumentShown(url:)`, called on every tab
+  switch and acting only on a mapped entry with no sync record): its offsets
+  describe a buffer that is gone, and the file shows nothing until the next push.
 - **Editor surfaces see mapped entries only, by type.** The payload is an enum and
   every editor-facing reader — squiggles, gutter, hover, the edit shift, *Next /
   Previous Problem* — goes through `Entry.mapped`, `nil` for a positional entry. A

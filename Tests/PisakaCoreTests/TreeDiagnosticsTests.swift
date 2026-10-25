@@ -240,6 +240,36 @@ final class TreeDiagnosticsTests: XCTestCase {
         XCTAssertNotEqual(lookup(store), .empty)
     }
 
+    // MARK: - The incremental index
+
+    /// Recording one file at a time — raising, lowering and clearing marks,
+    /// two files holding one folder up — reaches exactly the lookup a full
+    /// build over the same final store reaches, after every step.
+    func testIncrementalRecordsMatchAFullBuildAfterEveryStep() {
+        let a = url("src/a.swift")
+        let b = url("src/b.swift")
+        let c = url("lib/deep/c.swift")
+        let outside = URL(fileURLWithPath: "/elsewhere/x.swift")
+        let steps: [(URL, DiagnosticSeverity?)] = [
+            (a, .warning), (b, .error), (c, .warning), (outside, .error),
+            (a, .error), (b, nil), (a, .warning), (c, .information),
+            (a, nil), (b, .warning), (c, .error), (b, nil), (c, nil),
+        ]
+        var store = DiagnosticStore()
+        var index = TreeDiagnosticsIndex(root: TreeDiagnostics.Root(root))
+        for (file, severity) in steps {
+            if let severity {
+                store.replace(url: file, serverKey: serverKey, positional: [positional(file, severity)])
+            } else {
+                store.clearMapped(url: file)
+                store.replace(url: file, serverKey: serverKey, diagnostics: [])
+            }
+            index.record(TreeDiagnostics.mark(of: store.entry(for: file)), for: file)
+            XCTAssertEqual(index.lookup, lookup(store), "\(file.lastPathComponent) → \(String(describing: severity))")
+        }
+        XCTAssertEqual(index.lookup, .empty)
+    }
+
     // MARK: - Cost
 
     func testProbeCountIsAtMostOneWhateverTheStoreHolds() {

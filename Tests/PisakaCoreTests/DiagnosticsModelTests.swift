@@ -857,6 +857,27 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(entry()?.positional?.map(\.message), ["closed"])
     }
 
+    /// A mapped set kept from a closed tab is dropped when the file is shown
+    /// again — its offsets describe a buffer that is gone — while a tab merely
+    /// switched back to keeps its set, and a positional entry stays either way.
+    func testShowingAReopenedFileDropsTheMappedSetItsClosedTabLeftBehind() {
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "kept")], version: 1))
+
+        model.noteDocumentShown(url: url)
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["kept"], "a switched-back tab keeps its set")
+
+        model.noteDocumentClosed(url: url)
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["kept"], "closing keeps the set")
+        model.noteDocumentShown(url: url)
+        XCTAssertNil(entry(), "the reopened file shows nothing until the next push")
+        XCTAssertEqual(model.currentRevision(for: url), 0, "no revision bump: a sync already scheduled still lands")
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "closed")]))
+        model.noteDocumentShown(url: url)
+        XCTAssertEqual(entry()?.positional?.map(\.message), ["closed"])
+    }
+
     /// The positional lane neither creates nor drops a hold: a mapped push
     /// waiting for its first record is still judged when that record lands.
     func testAPositionalReportLeavesAnExistingHoldUntouched() {
@@ -1013,6 +1034,47 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(published([diagnostic(at: 10, length: 3, line: 2, severity: .warning, message: "m")], version: 2))
         XCTAssertEqual(lookupPublishes, 1)
         XCTAssertEqual(lookup.mark(for: url), .warning)
+    }
+
+    /// Pushes and keystrokes touch one document each, so they move the lookup
+    /// for that file alone: across a workspace-sized burst and a shift the
+    /// lookup is never rebuilt after the folder change's own build, and each
+    /// push visits only its file's ancestry — counted apart from the table it
+    /// writes, whatever the store already holds.
+    func testOneDocumentsMutationMovesTheLookupWithoutARebuild() {
+        model.prepareForFolderChange(root: root)
+        XCTAssertEqual(model.treeRebuilds, 1)
+
+        func push(_ index: Int) -> Int {
+            let before = model.treeIndex?.steps ?? 0
+            let file = root.appendingPathComponent("gen/d\(index % 37)/f\(index).swift")
+            model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "e")], url: file))
+            return (model.treeIndex?.steps ?? 0) - before
+        }
+        let first = push(0)
+        for index in 1..<2_000 { _ = push(index) }
+        let last = push(2_000)
+        XCTAssertEqual(first, 4, "the file, its two folders and the root")
+        XCTAssertEqual(last, first)
+        XCTAssertEqual(lookup.mark(for: root.appendingPathComponent("gen/d5", isDirectory: true)), .error)
+
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 8, length: 3, line: 2, message: "m")], version: 1))
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+        XCTAssertEqual(model.treeRebuilds, 1)
+
+        // A bulk clear is the one mutation that rebuilds — and its answer is
+        // the same one the incremental moves would have reached.
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
+        XCTAssertEqual(model.treeRebuilds, 2)
+        XCTAssertEqual(lookup, .empty)
     }
 
     /// The folder change empties the lookup in its own turn — no hop between

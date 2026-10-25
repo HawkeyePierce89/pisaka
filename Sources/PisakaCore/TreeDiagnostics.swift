@@ -46,8 +46,9 @@ public enum TreeDiagnosticMark: CaseIterable, Comparable, Hashable, Sendable {
     }
 }
 
-/// The project tree's view of the diagnostic store: built on every store
-/// change, then asked per row with no file-system call.
+/// The project tree's view of the diagnostic store: kept current on every
+/// store change (by ``TreeDiagnosticsIndex``, one file at a time), then asked
+/// per row with no file-system call.
 ///
 /// **Built** from the store and the opened folder's two spellings, resolved
 /// once per folder change (``Root``), in time linear in the diagnosed files
@@ -90,8 +91,11 @@ public struct TreeDiagnostics: Equatable, Sendable {
         }
     }
 
-    private let spellings: [[String]]
-    private let marks: [String: TreeDiagnosticMark]
+    // `fileprivate(set)`: written only by ``TreeDiagnosticsIndex`` below, which
+    // keeps the spellings empty whenever the table is, so the synthesized
+    // equality still makes a lookup that marks nothing equal ``empty``.
+    fileprivate(set) var spellings: [[String]]
+    fileprivate(set) var marks: [String: TreeDiagnosticMark]
 
     /// The lookup with nothing in it: every row answers `none`. What the tree
     /// holds with no folder open and right after a folder change.
@@ -103,24 +107,13 @@ public struct TreeDiagnostics: Equatable, Sendable {
     }
 
     public init(store: DiagnosticStore, root: Root) {
-        var marks: [String: TreeDiagnosticMark] = [:]
-        for (url, entry) in store.entriesByURL {
-            guard let worst = entry.severities.max() else { continue }
-            let mark = TreeDiagnosticMark(worst)
-            guard mark != .none,
-                  var components = Self.key(for: url, spellings: root.spellings) else { continue }
-            while true {
-                let key = components.joined(separator: "/")
-                // Every ancestor of a recorded key already holds at least that
-                // key's mark, so the first one at least as strong ends the climb
-                // without changing the answer.
-                if let existing = marks[key], existing >= mark { break }
-                marks[key] = mark
-                if components.isEmpty { break }
-                components.removeLast()
-            }
-        }
-        self.init(spellings: marks.isEmpty ? [] : root.spellings, marks: marks)
+        self = TreeDiagnosticsIndex(store: store, root: root).lookup
+    }
+
+    /// The mark one store entry contributes: its worst severity, narrowed —
+    /// `none` for no entry, an all-clear one, or information and hints alone.
+    static func mark(of entry: DiagnosticStore.Entry?) -> TreeDiagnosticMark {
+        entry?.severities.max().map(TreeDiagnosticMark.init) ?? .none
     }
 
     /// The mark of the row at `url`.
@@ -138,7 +131,7 @@ public struct TreeDiagnostics: Equatable, Sendable {
     /// The root-relative components of `url`, or `nil` when it lies under
     /// none of the spellings — the root itself is the empty key. Lexical: the
     /// URL is standardized, never resolved.
-    private static func key(for url: URL, spellings: [[String]]) -> [String]? {
+    fileprivate static func key(for url: URL, spellings: [[String]]) -> [String]? {
         let components = url.standardizedFileURL.pathComponents
         for spelling in spellings {
             if components == spelling { return [] }
@@ -147,5 +140,112 @@ public struct TreeDiagnostics: Equatable, Sendable {
             }
         }
         return nil
+    }
+}
+
+/// The bookkeeping that keeps a ``TreeDiagnostics`` current one file at a
+/// time, so a store mutation touching one document costs that file's depth
+/// rather than a rebuild over every diagnosed file.
+///
+/// A rebuild per mutation is quadratic exactly where this feature lives: a
+/// server reporting on the whole workspace pushes once per file, and every
+/// keystroke in a flagged file shifts its set. So each key keeps a **tally** —
+/// how many files at or below it are worst-marked `error`, how many `warning`
+/// — and its mark is read off the tally: a file whose mark falls can lower a
+/// folder's only when no other file below still holds it up, which a running
+/// maximum cannot tell and a count can. Each recorded file remembers its own
+/// mark and the keys of its ancestry, so the root-relative key is computed
+/// once per file, not once per change.
+///
+/// ``lookup`` is the published value; only its table changes per record, and
+/// only when some key's mark does. Built by ``DiagnosticsModel`` and kept
+/// there: the bookkeeping is never published, so a copy the tree holds shares
+/// only the table.
+struct TreeDiagnosticsIndex {
+    private struct Tally {
+        var errors = 0
+        var warnings = 0
+
+        var mark: TreeDiagnosticMark {
+            errors > 0 ? .error : warnings > 0 ? .warning : .none
+        }
+
+        mutating func add(_ mark: TreeDiagnosticMark, _ delta: Int) {
+            switch mark {
+            case .error: errors += delta
+            case .warning: warnings += delta
+            case .none: break
+            }
+        }
+    }
+
+    private struct FileRecord {
+        let mark: TreeDiagnosticMark
+        /// The file's own key first, then each ancestor's, ending at the root's
+        /// empty key.
+        let keys: [String]
+    }
+
+    private(set) var lookup = TreeDiagnostics.empty
+    private let spellings: [[String]]
+    private var tallies: [String: Tally] = [:]
+    private var files: [URL: FileRecord] = [:]
+
+    /// Keys visited by ``record(_:for:)`` since this index was made — the seam
+    /// the per-change cost bound is pinned through, counted apart from the
+    /// table writes it pays for.
+    private(set) var steps = 0
+
+    init(root: TreeDiagnostics.Root) {
+        spellings = root.spellings
+    }
+
+    init(store: DiagnosticStore, root: TreeDiagnostics.Root) {
+        self.init(root: root)
+        for (url, entry) in store.entriesByURL {
+            record(TreeDiagnostics.mark(of: entry), for: url)
+        }
+    }
+
+    /// `url`'s worst mark is now `mark`: move its tally along its ancestry and
+    /// rewrite the marks that changed. Returns whether ``lookup`` changed.
+    /// A file under neither spelling contributes nothing.
+    @discardableResult
+    mutating func record(_ mark: TreeDiagnosticMark, for url: URL) -> Bool {
+        let fileKey = url.standardizedFileURL
+        let previous = files[fileKey]
+        let oldMark = previous?.mark ?? .none
+        guard oldMark != mark else { return false }
+        let keys: [String]
+        if let previous {
+            keys = previous.keys
+        } else {
+            guard var components = TreeDiagnostics.key(for: fileKey, spellings: spellings) else { return false }
+            var ancestry = [components.joined(separator: "/")]
+            while !components.isEmpty {
+                components.removeLast()
+                ancestry.append(components.joined(separator: "/"))
+            }
+            keys = ancestry
+        }
+        files[fileKey] = mark == .none ? nil : FileRecord(mark: mark, keys: keys)
+
+        var changed = false
+        for key in keys {
+            steps += 1
+            var tally = tallies[key] ?? Tally()
+            tally.add(oldMark, -1)
+            tally.add(mark, 1)
+            let newMark = tally.mark
+            tallies[key] = newMark == .none ? nil : tally
+            if (lookup.marks[key] ?? .none) != newMark {
+                lookup.marks[key] = newMark == .none ? nil : newMark
+                changed = true
+            }
+        }
+        if changed {
+            lookup.spellings = lookup.marks.isEmpty ? [] : spellings
+        }
+        return changed
     }
 }

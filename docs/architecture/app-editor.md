@@ -996,7 +996,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     buffer swapped, or this file rewritten off screen by Replace All /
     `reloadFromDisk` / merge apply, which `externalTextRevision` reports) calls
     `beginDiagnosticsBufferSwap(clearing:)` → `noteBufferReplaced(url:)` and
-    drops the replaced document's set outright (D32). The URL is handed in —
+    drops the replaced document's set outright (D32). The plain switch still
+    calls `settleDiagnosticsForSwap(of:survives:)` → `noteDocumentShown(url:)`, because
+    a **reopened** file's first showing reads as one: that drops only a mapped
+    set with no sync record — one a closed tab left behind (D46) — and leaves a
+    switched-back tab's set alone. The URL is handed in —
     the view's `fileURL`, i.e. the *incoming* file on a switch — because the
     coordinator's recorded URL still names the outgoing one there, and clearing
     it would destroy the innocent bystander's set while leaving the rewritten

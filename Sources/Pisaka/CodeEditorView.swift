@@ -827,9 +827,13 @@ struct CodeEditorView: NSViewRepresentable {
             // by Replace All / reload / merge apply; the recorded URL still
             // names the outgoing one until `syncBlame` re-records), and this
             // file itself when it is displayed.
-            if !diagnosticsSurvive {
-                context.coordinator.beginDiagnosticsBufferSwap(clearing: fileURL)
-            }
+            //
+            // The plain switch still drops a set the file's *closed* predecessor
+            // left behind: a reopened file is shown for the first time, which
+            // reads as a plain switch here, but that set describes a buffer
+            // that is gone (D46). The model recognises it by its missing sync
+            // record and leaves a merely switched-back tab's set alone.
+            context.coordinator.settleDiagnosticsForSwap(of: fileURL, survives: diagnosticsSurvive)
             // Whatever the *store* does with the outgoing set, the *paint* does
             // not survive the assignment below — TextKit drops every temporary
             // attribute over the replaced characters — so the overlay's cache
@@ -2731,6 +2735,20 @@ struct CodeEditorView: NSViewRepresentable {
         func beginDiagnosticsBufferSwap(clearing url: URL?) {
             guard let url else { return }
             diagnosticsModel?.noteBufferReplaced(url: url)
+            scheduleDiagnosticOverlaysRefresh()
+        }
+
+        /// `updateNSView`'s content-replaced branch: a genuine replacement drops
+        /// `url`'s set (`beginDiagnosticsBufferSwap`), while a plain switch —
+        /// `survives` — drops only a set a closed predecessor of the tab left
+        /// behind (`DiagnosticsModel.noteDocumentShown(url:)`).
+        func settleDiagnosticsForSwap(of url: URL?, survives: Bool) {
+            guard survives else {
+                beginDiagnosticsBufferSwap(clearing: url)
+                return
+            }
+            guard let url else { return }
+            diagnosticsModel?.noteDocumentShown(url: url)
             scheduleDiagnosticOverlaysRefresh()
         }
 
