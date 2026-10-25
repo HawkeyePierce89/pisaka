@@ -526,13 +526,74 @@ everything known about its file. This plan keeps those reports.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`.
-- [ ] Run the iOS build: the same command with `-destination 'generic/platform=iOS'`
-  and `build`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Walk the ticket's Core and app acceptance lists against the tests, and record
+- [x] Run `swift test`. (7049 tests, 0 failures.)
+- [x] Run `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`. (488 tests, 0 failures, `TEST SUCCEEDED`. The pinned Xcode 26.3 is absent here, so this ran on the installed Xcode 27.1. The run under the pinned Xcode is left to CI.)
+- [x] Run the iOS build: the same command with `-destination 'generic/platform=iOS'`
+  and `build`. (`BUILD SUCCEEDED` on the installed Xcode 27.1. The log's only "error:" line is that Xcode's CoreDevice plug-in load notice, not a compile error.)
+- [x] Run `swiftlint --strict` from the repository root. (SwiftLint 0.65.1: no violations, exit 0.)
+- [x] Walk the ticket's Core and app acceptance lists against the tests, and record
   which test covers each item.
+  - Workspace routing (`LSPDiagnosticsRoutingTests`):
+    - an unheld URI under the root arrives positional:
+      `testAPushForAnUnheldURIUnderTheRootArrivesPositional` and
+      `testAnEmptyReportForAnUnheldURIArrivesAsAnEmptyPositionalEvent`;
+    - another root is dropped: `testAnUnheldURIOutsideTheRootOrNotAFileIsDropped` and
+      `testAnUnheldPushAfterAFolderChangeIsDropped`;
+    - a held document is mapped as before, with the existing tests unchanged:
+      `testAPushForAnOpenDocumentReachesTheSinkWithBufferOffsets` and
+      `testAPushForAnotherServersDocumentIsDropped`;
+    - end to end: `testAnUnheldPushLandsInTheStoreAsPositionalAndShutdownClearsIt`.
+  - Model (`DiagnosticsModelTests`):
+    `testAPositionalReportIsAcceptedWithNoSyncRecordAndReplacesTheEntry`,
+    `testAPositionalReportIsDroppedWhenASyncRecordExists`,
+    `testAnEmptyPositionalReportInstallsAnEmptyEntry`,
+    `testALaterMappedReportReplacesAPositionalEntry`,
+    `testClosingTheLastTabOpensThePositionalLane` (sync record and revision dropped, so
+    the next mapped report is a first report), and
+    `testAServerClearAndAFolderChangeRemovePositionalEntries`. Also:
+    `testABufferReplacementKeepsAPositionalEntryAndDropsAMappedOne` and
+    `testAPositionalReportLeavesAnExistingHoldUntouched`.
+  - Editor queries see nothing of a positional entry:
+    `DiagnosticStoreTests.testEditorQueriesSeeNothingOfAPositionalEntry` and
+    `testAShiftDoesNotTouchAPositionalEntry`.
+  - Panel rows (`DiagnosticStoreTests`):
+    `testAClosedFilesRowsCarryTheServersLineAndCountInTheHeader`,
+    `testBothKindsOfTheSameDiagnosticsYieldTheSameRowOrder`,
+    `testByteIdenticalPositionalRowsCollapseToOne`, and the three `testTheRevealRange…`
+    tests.
+  - Tree lookup, one test per B1 rule (`TreeDiagnosticsTests`):
+    - `testAFileTakesTheWorstOfItsOwnDiagnosticsOfEitherKind`;
+    - `testAFolderTakesTheWorstOfAllItsDescendantsTransitively`;
+    - `testErrorOutranksWarning`;
+    - `testInformationAndHintsGiveNone`;
+    - `testAShiftThatKeepsTheWorstSeverityBuildsAnEqualLookup` (typing stability);
+    - `testADiagnosedFileOutsideTheRootContributesNothing`;
+    - `testAProjectOpenedThroughASymlinkMarksItsRowsThroughTheCanonicalSpelling`;
+    - `testProbeCountIsAtMostOneWhateverTheStoreHolds`;
+    - `testAnEmptyStoreOrTheEmptyLookupAnswersNoneEverywhere`.
+
+    Publishing: `DiagnosticsModelTests.testAKeystrokeShiftThatKeepsTheWorstSeverityDoesNotPublishTheLookup`
+    and the folder-change, server-clear and no-root lookup tests.
+  - Server settings:
+    `LSPProvisioningManifestTests.testThePythonEntryRunsNodeOnPyrightAndAsksForWorkspaceDiagnostics`
+    and `testServersThatReportUnaskedOrNeedNothingCarryNoConfiguration` (TypeScript and
+    sourcekit-lsp `nil`). gopls' and rust-analyzer's `nil` configuration is asserted in
+    `LSPGoplsProvisioningTests` and `LSPRustProvisioningTests`. The YAML tests are
+    unchanged.
+  - Chrome gating: `ChromeThemeSourceGatingTests` rule fifteen's reader set now equals
+    the three readers. The rule count, the number-to-word table and `core-theme.md`'s
+    list are unchanged. The `core-theme.md` wording is Task 10's.
+  - Repository-file suites (`LintConfigurationTests` on `CLAUDE.md` and the measured
+    lint ceilings, plus the gating suites): green in this run's `swift test`.
+  - App bundle: `TreeDiagnosticMarkTests.testRowsCarryTheirWorstSeverityAsADotOnTheGlyph`
+    covers the red and yellow dots on file and folder rows, none on clean rows, at
+    scale 1 and 1.8.
+  - Accessibility: headless SwiftUI builds no accessibility nodes, as recorded in
+    Decisions. The composition is covered in Core by
+    `TreeGitStatusTests.testAccessibilityValueComposesTheDiagnosticMark`.
+  - iOS layer untouched: `git diff master --stat -- Sources/Pisaka/iOS` is empty, and
+    the iOS build is green.
+  - Manual observations are listed under Post-Completion. They are not gates here.
 
 ### Task 10: Update documentation
 
