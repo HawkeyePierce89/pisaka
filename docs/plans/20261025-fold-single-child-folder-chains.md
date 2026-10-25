@@ -154,13 +154,13 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 - Create: `Sources/PisakaCore/TreeChainRule.swift`
 - Create: `Tests/PisakaCoreTests/TreeChainRuleTests.swift`
 
-- [ ] Add `TreeChainRule` with `maximumSegments = 32`, `key(for:)` (`standardizedFileURL.path`) and `rows(in:separated:isSymbolicLink:list:)`, implementing the walk exactly as "The walk, precisely" states. A failed listing during a probe is silent: it yields a plain row and never throws out of the rule.
-- [ ] Add `TreeRow`:
+- [x] Add `TreeChainRule` with `maximumSegments = 32`, `key(for:)` (`standardizedFileURL.path`) and `rows(in:separated:isSymbolicLink:list:)`, implementing the walk exactly as "The walk, precisely" states. A failed listing during a probe is silent: it yields a plain row and never throws out of the rule.
+- [x] Add `TreeRow`:
   - the three cases;
   - `id` as specified;
   - `offersShowAsOneRow` on the plain-folder case;
   - `leads(toDraftAnchor:renaming:)`, with the semantics in "Drafts after a reshape".
-- [ ] Add `TreeChain`:
+- [x] Add `TreeChain`:
   - its segments, ordered head first;
   - the tail's handed-down listing, `nil` for an unlisted link tail;
   - every row of the addressing table as a property;
@@ -168,7 +168,7 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
   - the three menu titles;
   - the rename siblings;
   - each segment's reveal spelling under a given head reveal url.
-- [ ] Tests over `StubFileTree`, each case its own test:
+- [x] Tests over `StubFileTree`, each case its own test:
   - a qualifying run becomes one chain;
   - the walk stops at a folder with no entries, at one with two or more entries, and at one whose single entry is a file;
   - a chain of one is a plain row;
@@ -181,8 +181,8 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
   - an unreadable head or continuation degrades to a plain row with no throw;
   - every addressing property and title, asserted as data on one returned chain;
   - `leads(toDraftAnchor:renaming:)` for the plain, tail, under-tail and inner-segment anchors.
-- [ ] One test over the real `FileService` in a temporary directory: a folder holding `.git` and one subfolder qualifies, because the listing's own exclusions apply first.
-- [ ] Run `swift test`. It must pass before Task 2.
+- [x] One test over the real `FileService` in a temporary directory: a folder holding `.git` and one subfolder qualifies, because the listing's own exclusions apply first.
+- [x] Run `swift test`. It must pass before Task 2.
 
 ### Task 2: One listing per directory per revision, charged (Core)
 
