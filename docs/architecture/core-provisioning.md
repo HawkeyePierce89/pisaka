@@ -169,7 +169,8 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     `tsserver.fallbackPath` as `initializationOptions` for the TypeScript one
     (`fallbackPath` rather than `path` so a project's own `node_modules/typescript`
     still wins — see D11), and `LSPDownloadableServer.configuration` — the YAML
-    server's settings object, `nil` for the other two — onto the description's
+    server's settings object and pyright's workspace-diagnostics setting, `nil`
+    for the TypeScript one — onto the description's
     D27 field. Pure path
     math that checks nothing on disk, so it is testable without a file system;
     `nil` for a manifest that does not describe the server, which keeps malformed
@@ -1217,8 +1218,8 @@ down as a decision instead of a silence: `LSPProvisioningManifestTests` names th
 destination and the reason, and a *second* package with no notice would fail the
 suite rather than slip in beside it.
 
-The YAML component carries **the layer's only
-`LSPServerDescription.configuration`** —
+The YAML component carries the first of **the layer's two
+`LSPServerDescription.configuration`s** (pyright's is the second, below) —
 `{"yaml": {"schemaStore": {"enable": true}, "completion": true, "hover": true},
 "http": {"proxyStrictSSL": true}}`, delivered by D27's two channels. The `yaml`
 settings are stated rather than left to upstream's default (which happens to be
@@ -1238,6 +1239,44 @@ validates against. `proxy` stays unstated on purpose — empty means `request-li
 keeps honouring `HTTPS_PROXY`/`HTTP_PROXY`, which is the user's environment to
 set. A pin bump must re-read that line in `settingsHandlers.js`: the whole
 argument rests on it.
+
+**pyright carries the second configuration, and it is one setting.**
+`{"python": {"analysis": {"diagnosticMode": "workspace", "autoSearchPaths": true}}}`
+tells pyright to report on the whole workspace, so a Python file no tab holds
+reaches the Problems panel and the project tree through the positional lane
+(`core-lsp.md`, D46) the way gopls' and rust-analyzer's reports do unasked. The
+shape is what the pinned 1.1.411 bundle actually reads, not what its documentation
+suggests:
+
+- **It never pulls.** Pisaka advertises `workspace.configuration: false`, and
+  pyright honours that, so the value reaches it only as the
+  `workspace/didChangeConfiguration` payload `LSPSession` pushes after
+  `initialized`. The per-section pull answer, should a later pin start pulling,
+  is built from the same object (section `python`), as the session already does
+  for YAML.
+- **It reads the payload by dotted path, as nested objects.** It stores the pushed
+  settings and reads `python.analysis` out of them, which is why the value nests
+  rather than spelling a `"python.analysis"` key.
+- **`autoSearchPaths` is stated, and it is not a preference.** Once an analysis
+  section is present at all, pyright sets `autoSearchPaths` to the section's value,
+  which is `false` when the key is absent, while with no section it defaults to
+  `true`. Naming `diagnosticMode` alone would therefore turn off the `src`-layout
+  import resolution every project has today. Every other key pyright reads from
+  that section falls back to the same value either way, so the handshake changes
+  nothing but the one setting.
+
+The TypeScript server's configuration stays `nil`, which is the statement that
+its handshake is byte-for-byte what it was. A pin bump must re-read pyright's
+configuration handling, as YAML's: both arguments rest on what the bundle does.
+
+**What the workspace setting analyses.** Pyright's built-in excludes **do** cover
+virtual environments: when the project's own configuration names no `exclude`,
+it auto-excludes `**/node_modules`, `**/__pycache__` and `**/.*`, plus any
+directory holding `bin/activate`, `Scripts/activate`, `pyvenv.cfg` or
+`conda-meta`. The limit is narrower than "environments are analysed": a project
+whose own pyright configuration lists its own `exclude` loses those defaults, so
+an environment directory that list does not name is analysed and reported too
+(Known limits).
 
 `rust-analyzer` is the odd row, in four ways that are each a decision rather than
 an accident:
@@ -1485,6 +1524,13 @@ checks at the end of the plan re-validate that the server actually answers.
 - **pyright without a Python interpreter analyses against bundled typeshed
   only.** Nothing here provisions Python itself; a project whose virtualenv
   pyright cannot find still answers, but knows nothing about installed packages.
+- **A project-level pyright `exclude` drops the environment defaults.** Workspace
+  diagnostics skip virtual environments through pyright's built-in excludes,
+  which apply only when the project's own configuration lists no `exclude`. A
+  project that lists one and does not name its environment directory gets that
+  directory analysed, and its findings listed in the Problems panel and marked
+  in the tree. Not worked around: the project's configuration is the user's to
+  write, and overriding it would change what pyright analyses everywhere else.
 - **macOS only.** iOS has no subprocess, so it installs nothing, registers
   nothing and shows neither the banner nor the Settings tab — the whole phase is
   behind `#if os(macOS)` on the app side, and the Core side is simply never

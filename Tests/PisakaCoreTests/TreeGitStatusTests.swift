@@ -261,18 +261,55 @@ final class TreeGitStatusTests: XCTestCase {
     }
 
     func testAccessibilityValueForBothRowKinds() {
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .modified, row: .file), "Modified")
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, row: .file), "")
+        XCTAssertEqual(TreeGitState.accessibilityValue(state: .modified, mark: .none, row: .file), "Modified")
+        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .file), "")
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .conflict, row: .folder(isExpanded: true)),
+            TreeGitState.accessibilityValue(state: .conflict, mark: .none, row: .folder(isExpanded: true)),
             "expanded, Conflicted"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .ignored, row: .folder(isExpanded: false)),
+            TreeGitState.accessibilityValue(state: .ignored, mark: .none, row: .folder(isExpanded: false)),
             "collapsed, Ignored"
         )
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, row: .folder(isExpanded: true)), "expanded")
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, row: .folder(isExpanded: false)), "collapsed")
+        XCTAssertEqual(
+            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: true)),
+            "expanded"
+        )
+        XCTAssertEqual(
+            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: false)),
+            "collapsed"
+        )
+    }
+
+    /// Every combination of git word, diagnostics word and neither, for both
+    /// row kinds: the git word first, the diagnostics word after it, a folder's
+    /// expansion word before both.
+    func testAccessibilityValueComposesTheDiagnosticMark() {
+        let file: [(TreeGitState, TreeDiagnosticMark, String)] = [
+            (.modified, .error, "Modified, has errors"),
+            (.added, .warning, "Added, has warnings"),
+            (.plain, .error, "has errors"),
+            (.plain, .warning, "has warnings"),
+            (.conflict, .none, "Conflicted"),
+            (.plain, .none, ""),
+        ]
+        for (state, mark, expected) in file {
+            XCTAssertEqual(TreeGitState.accessibilityValue(state: state, mark: mark, row: .file), expected)
+        }
+        let folder: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
+            (.modified, .error, true, "expanded, Modified, has errors"),
+            (.ignored, .warning, false, "collapsed, Ignored, has warnings"),
+            (.plain, .error, false, "collapsed, has errors"),
+            (.plain, .warning, true, "expanded, has warnings"),
+            (.added, .none, true, "expanded, Added"),
+            (.plain, .none, false, "collapsed"),
+        ]
+        for (state, mark, isExpanded, expected) in folder {
+            XCTAssertEqual(
+                TreeGitState.accessibilityValue(state: state, mark: mark, row: .folder(isExpanded: isExpanded)),
+                expected
+            )
+        }
     }
 
     func testStatusToChangeStateMappingIsTotal() {

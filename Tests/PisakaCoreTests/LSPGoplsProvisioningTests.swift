@@ -224,6 +224,10 @@ final class LSPGoplsProvisioningTests: XCTestCase {
             ["PATH": ScriptedGoDiscovery.searchPath],
             "gopls was registered without the PATH its `go` is on"
         )
+        XCTAssertNil(
+            harness.model.descriptions.first?.configuration,
+            "gopls reports on the workspace unasked; it takes no settings from this layer"
+        )
         XCTAssertEqual(harness.pushes.count, 1)
 
         // And nothing is built for it, whatever the consent says.

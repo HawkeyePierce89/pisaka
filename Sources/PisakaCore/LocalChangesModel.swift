@@ -573,8 +573,9 @@ public final class LocalChangesModel: ObservableObject {
     /// symlinked or `..`-laden spelling of the folder still yields the same
     /// prefix; a folder that is not under the root (which git's top-level
     /// answer rules out) yields `""` rather than a path climbing out of it.
-    /// `nonisolated` because it is pure, and `TreeGitStatus` builds its keys
-    /// through it off the main actor.
+    /// `TreeGitStatus` builds its keys through it on the main actor, inside this
+    /// model's refresh; it is `nonisolated` only because that lookup's
+    /// initialiser is non-isolated code, which may not call a main-actor method.
     nonisolated public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
         let folderComponents = CanonicalPath.canonical(folder).pathComponents
         let rootComponents = CanonicalPath.canonical(repositoryRoot).pathComponents

@@ -26,10 +26,12 @@ import Foundation
 /// * **What a server says unprompted** (D29). Every session carries a
 ///   notification stream with exactly one consumer — a main-actor task this
 ///   file owns beside the session and cancels with it. It decodes
-///   `textDocument/publishDiagnostics`, accepts a push only for a document
-///   that server currently holds at the version it was last given (D31), maps
-///   the entries onto buffer offsets against the text the server was told, and
-///   hands the result to ``onDiagnostics``. Every teardown path emits the
+///   `textDocument/publishDiagnostics`. A push for a document that server
+///   currently holds is accepted at the version it was last given (D31), its
+///   entries mapped onto buffer offsets against the text the server was told;
+///   a push for a document **no** server holds, under the current root, is
+///   forwarded with the server's own positions (D46). Either goes to
+///   ``onDiagnostics``. Every teardown path emits the
 ///   matching clear synchronously (D33), and the stream's own termination —
 ///   the externally-killed server — clears the key on the way out.
 ///
@@ -195,6 +197,15 @@ public final class LSPWorkspace {
     var willResumeShutdownWaiters: (@MainActor () -> Void)?
 
     private var currentRoot: URL?
+    /// `currentRoot`'s `(server, root)` key half, resolved once per folder change
+    /// so the positional lane (D46) matches a push's key with a string compare
+    /// rather than a symlink walk per notification.
+    private var currentRootKey: String?
+    /// `currentRoot`'s two lexical spellings as path components — standardized
+    /// (as the documents were told) and canonical (as `rootKey` spells it) —
+    /// resolved once per folder change, so "does this pushed URL lie under the
+    /// root?" is a component compare with no file-system call per push (D46).
+    private var currentRootSpellings: [[String]] = []
     /// The public ordering token, bumped only when the opened folder actually
     /// changes — `SymbolIndexModel.prepareForFolderChange`'s contract, so a caller
     /// can pin one token across both models.
@@ -270,6 +281,10 @@ public final class LSPWorkspace {
     public func prepareForFolderChange(root: URL?) -> Int {
         guard root != currentRoot else { return generation }
         currentRoot = root
+        currentRootKey = root.map(LSPWorkspace.rootKey(for:))
+        currentRootSpellings = root.map {
+            [$0.standardizedFileURL.pathComponents, CanonicalPath.canonical($0).pathComponents]
+        } ?? []
         generation += 1
         epoch += 1
         return generation
@@ -898,9 +913,10 @@ public final class LSPWorkspace {
         while let inFlight = flushes[uri] { _ = await inFlight.task.value }
 
         guard let state = documents.removeValue(forKey: uri) else { return }
-        // D33's per-document rule: the last tab on the file closed, and its set
-        // goes with it — emitted whether or not a session survives to be told
-        // (the editor's copy of the document is gone either way).
+        // D33's per-document rule, as D46 narrowed it: the last tab on the file
+        // closed, so the model drops the document's sync bookkeeping and keeps
+        // its set — emitted whether or not a session survives to be told (the
+        // editor's copy of the document is gone either way).
         onDiagnostics?(.cleared(.document(url: url)))
         guard let session = sessions[state.serverKey] else { return }
 
@@ -1401,12 +1417,16 @@ public final class LSPWorkspace {
     }
 
     /// Decode one notification and, when it survives D31's gates, hand the
-    /// mapped set to the sink. Every other method is ignored, as before.
+    /// mapped set to the sink — or, for a document no server holds, hand it to
+    /// the positional lane (D46, `routePositional`). Every other method is
+    /// ignored, as before.
     ///
-    /// The gates are a conjunction, and they run **cheapest first** because this
-    /// is the one entry point a server drives: the URI must be one **this**
-    /// `(server, root)` currently holds — a push for a closed file, a file
-    /// another server owns, or a file nobody opened is noise — then the push
+    /// The first question is membership, a dictionary lookup. A URI nobody holds
+    /// leaves here for the positional lane, which has gates of its own; a URI
+    /// another `(server, root)` holds is noise and is dropped, so one server
+    /// never answers for another's document. For a URI **this** key holds, D31's
+    /// gates are a conjunction, and they run **cheapest first** because this
+    /// is the one entry point a server drives: the push
     /// must name the folder this workspace currently serves (a straggler from an
     /// old project's server between that folder switch's two steps would
     /// otherwise be routed — and, finding the model's bookkeeping cleared,
@@ -1420,9 +1440,10 @@ public final class LSPWorkspace {
     /// to spend before the membership test are the expensive ones —
     /// `rootKey(for:)` resolves symlinks against the file system, and
     /// ``JSONValue/decoded(as:)`` re-encodes and re-parses the whole diagnostics
-    /// array — while the test that rejects those pushes is a dictionary lookup.
-    /// So the URI is read straight off the raw parameters and the array is
-    /// decoded only once the push is known to be for a document we hold, on the
+    /// array — while the membership test is a dictionary lookup. So the URI is
+    /// read straight off the raw parameters, the unheld pushes leave for a lane
+    /// whose gates read only values cached at the folder change, and the array
+    /// is decoded in either lane only once every cheaper gate has passed, on the
     /// main actor the editor also types on.
     ///
     /// A push that passes every gate is mapped against
@@ -1450,7 +1471,11 @@ public final class LSPWorkspace {
         // Re-standardizing through the very function that produced the keys
         // (`documentURI(for:)`) makes the two spellings converge on one entry.
         let uri = documents[rawURI] != nil ? rawURI : LSPWorkspace.documentURI(for: url)
-        guard let state = documents[uri], state.serverKey == key else { return }
+        guard let state = documents[uri] else {
+            routePositional(params, url: url, from: key)
+            return
+        }
+        guard state.serverKey == key else { return }
         guard let currentRoot,
               key.root == LSPWorkspace.rootKey(for: currentRoot) else { return }
         guard let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
@@ -1466,6 +1491,46 @@ public final class LSPWorkspace {
             root: key.root,
             version: push.version,
             diagnostics: diagnostics
+        ))
+    }
+
+    /// The second lane (D46): a push for a document no server holds — a closed
+    /// file a server reports on unasked — forwarded with the server's positions
+    /// verbatim, since there is no told text to map them against.
+    ///
+    /// Forwarded only when, cheapest first: the URL is a `file:` URL; the
+    /// pushing key still has a live session; the key names the folder this
+    /// workspace currently serves (the straggler gate, as in D31); and the URL
+    /// lies under that folder, compared lexically against the two spellings
+    /// cached at the folder change. Every one of those is a dictionary read or a
+    /// component compare — no file-system call — and the diagnostics array is
+    /// decoded only after all of them pass. The "under the root" gate keeps a
+    /// dependency file a server reports on (a toolchain header, a vendored
+    /// crate) off the panel and the tree at the source.
+    private func routePositional(_ params: JSONValue, url: URL, from key: ServerKey) {
+        guard url.isFileURL,
+              sessions[key] != nil,
+              let currentRootKey,
+              key.root == currentRootKey else { return }
+        let components = url.standardizedFileURL.pathComponents
+        guard let opened = currentRootSpellings.first,
+              let relative = currentRootSpellings.lazy.compactMap({
+                  CanonicalPath.relativeComponents(of: components, under: $0)
+              }).first
+        else { return }
+        guard let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
+        // Re-spelled under the root as it was opened, whichever spelling the
+        // server used: the store keys by spelling, and the tabs, the sync
+        // records and the tree all speak the opened one. A report spelled
+        // through the resolved symlink would otherwise file a second entry for
+        // the same file — never replaced by the mapped lane, and slipping past
+        // the model's "a buffer is open" check under its other name.
+        let respelled = URL(fileURLWithPath: NSString.path(withComponents: opened + relative))
+        onDiagnostics?(.positional(
+            url: respelled,
+            serverID: key.serverID,
+            root: key.root,
+            diagnostics: push.diagnostics.map { PositionalDiagnostic.make(from: $0, url: respelled) }
         ))
     }
 
@@ -1537,15 +1602,17 @@ public final class LSPWorkspace {
     var parkedShutdownCount: Int { shutdownWaiters.count }
 }
 
-/// What the diagnostics channel says, in one value: an accepted push, or the
-/// clear that follows a teardown (D33).
+/// What the diagnostics channel says, in one value: an accepted push (mapped
+/// for a held document, positional for one nobody holds), or the clear that
+/// follows a teardown (D33).
 ///
 /// This is the whole output side of the push channel — ``LSPWorkspace/onDiagnostics``'s
 /// payload. `published` carries the set already mapped onto buffer offsets
-/// against the text the server was told (D31); what happens to it next —
-/// accepted against sync bookkeeping or dropped (D32) — is downstream. The
-/// `serverID`/`root` pair mirrors `DiagnosticStore.ServerKey` so a clear can be
-/// keyed exactly as the store keys its provenance; `published` spells both
+/// against the text the server was told (D31); `positional` carries the
+/// server's positions for a document no buffer holds. What happens to either
+/// next — accepted against sync bookkeeping or dropped (D32) — is downstream.
+/// The `serverID`/`root` pair mirrors `DiagnosticStore.ServerKey` so a clear can
+/// be keyed exactly as the store keys its provenance; both push cases spell the
 /// halves out rather than carrying that store type so this file keeps speaking
 /// its own vocabulary.
 public enum LSPDiagnosticEvent: Equatable, Sendable {
@@ -1559,6 +1626,18 @@ public enum LSPDiagnosticEvent: Equatable, Sendable {
         version: Int?,
         diagnostics: [Diagnostic]
     )
+    /// The second lane: a push for a document the workspace does **not** hold —
+    /// a closed file a server reports on unasked. There is no buffer to map
+    /// against, so the diagnostics carry the server's own line and character
+    /// positions verbatim, and no version: with no sync there is nothing for one
+    /// to be compared with. The model accepts it only while no sync record
+    /// exists for the document, so an open buffer's mapped lane always wins.
+    case positional(
+        url: URL,
+        serverID: String,
+        root: String,
+        diagnostics: [PositionalDiagnostic]
+    )
     /// Something was torn down and its diagnostics go with it. One case with an
     /// explicit scope rather than two overloads of `.cleared` because Swift
     /// cannot pattern-match same-named cases against each other — the switch
@@ -1567,8 +1646,9 @@ public enum LSPDiagnosticEvent: Equatable, Sendable {
     /// - `server`: every diagnostic one `(server, root)` produced dies with it
     ///   — a death, a shutdown, an un-registration, the fourth-failure
     ///   unavailability, the externally-killed-server signal.
-    /// - `document`: one document left the editor (`didClose`) and its set goes
-    ///   with it.
+    /// - `document`: one document left the editor (`didClose`). Its sync
+    ///   bookkeeping goes with it; its set stays, because a server keeps
+    ///   reporting on a closed file through the positional lane (D46).
     case cleared(Cleared)
 
     /// The scope a ``cleared`` event names.

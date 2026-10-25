@@ -169,11 +169,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     destination of Go to Definition** (⌘-click / ⌃⌘J), which names a declaration's
     file and name range instead of a search hit: the two want the same three steps,
     and sharing them is what keeps a jump inside the file already being edited on
-    the same code path as one across the project. The **Problems panel is its
-    third caller** (D34's sibling surfaces): a row activation hands over
-    `(url, range)` and takes this exact path, so opening a diagnosed file and
-    revealing its squiggle cannot drift from how every other surface opens and
-    reveals.
+    the same code path as one across the project. The **Problems panel is no
+    longer its caller**: a closed file's row carries the server's position rather
+    than offsets (`core-lsp.md`, D46), which only becomes a range against the text
+    the file opens with, so a row activation goes to
+    `activateProblem(url:row:)` instead — `openFile(url:)`, then the opened tab's
+    text through Core's `DiagnosticStore.Row.rangeToReveal(in:)`, clamped, then
+    `reveal.reveal(fileID:range:)`. Its tail, `openAndReveal(url:range:)`, is the
+    one `activateUsage(_:)` now shares, so the two text-dependent activations
+    open and reveal identically; a file that did not open leaves no tab, and the
+    activation returns silently, never beeping and never trapping.
     The same `init()` additionally builds the **symbol index**: a
     `SymbolIndexModel` over the *same* `openBuffers` snapshot closure (so Find in
     Files and go-to-definition cannot disagree about what an open tab's text is) plus
@@ -323,13 +328,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     outlive it holding the model. Beside it, one `LSPDocumentSyncController` over the
     model and the workspace (full entry in `app-editor.md`). The folder switch
     registers with both in the same main-actor turn as every other collaborator:
-    `diagnostics.prepareForFolderChange()` + `lspDocumentSync.reset()` run
+    `diagnostics.prepareForFolderChange(root:)` + `lspDocumentSync.reset()` run
     synchronously beside the index's and workspace's tokens — no push routed from an
     old project's server can land, and no pending debounce flushes new-folder text at
-    an old project's still-live server. Only on a genuine *switch*, like the LSP
-    teardown it sits beside: re-opening the folder already open leaves every tab in
-    place, so nothing would re-sync afterwards and wiping the store there would blank
-    all three surfaces with nothing to repopulate them.
+    an old project's still-live server. Only on a genuine *switch*, or when the LSP
+    teardown it sits beside runs anyway: re-opening the folder already open leaves
+    every tab in place, so nothing would re-sync afterwards and wiping the store
+    there would blank every surface with nothing to repopulate them. Re-opening it
+    under another *spelling* (through a symlink) is no switch to the model but is
+    one to the workspace, whose root compare is by URL: its servers restart —
+    clearing their sets and re-syncing every tab — so the diagnostics model takes
+    the new spelling too, or the tree's lookup would key its rows by the old one
+    and mark none.
     **`syncOpenBuffersForDiagnostics(of:through:)` is the set-wide trigger the sync
     controller cannot supply itself**, and it has two callers. The controller's own
     trigger surface is per-buffer and view-driven (a tab open/switch through
@@ -355,7 +365,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Tab close rides `forgetIndexedBuffer(_:)`'s
     existing guard too: `lspDocumentSync.noteBufferClosed(url:)` cancels that tab's
     pending flush beside the index call, before the fire-and-forget `didClose` whose
-    document clear (D33) the model routes into its store — and
+    document clear (D33) drops the document's sync bookkeeping in the model while
+    the set stays (D46) — and
     `diagnostics.noteDocumentClosed(url:)` beside them, because that clear is emitted
     only for a URI the workspace still *held*: every teardown wipes its document
     table first, so a crash-then-close would leave the sync record and the buffer
@@ -429,7 +440,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     captured alongside the tab ids, before the removal, for the same
     dangling-symlink reason the ids are) and the three post-git resyncs — the revert
     loop, `resyncOpenTabs` and the merge-apply reload — wherever they force-close a
-    tab whose file the operation took away. Four `Find` menu items reach the focused editor through the responder
+    tab whose file the operation took away. **The same paths also call
+    `diagnostics.noteItemRemoved(at:)`** — `performMove` for the source and each
+    retargeted tab's old URL, `deleteItem` for the deleted item and each affected
+    tab's URL, the three resyncs for the file the operation deleted — because a
+    close keeps a file's diagnostics (D46) and a removal must not: the old path no
+    longer exists, so a kept set would stay listed, and counted, under a row that
+    opens nothing. Four `Find` menu items reach the focused editor through the responder
     chain rather than through any window-scoped state, because none of them
     carries state to survive a tab switch (each through
     `EditorCommandTarget.focusedEditor(in: NSApp.keyWindow)` — the one definition
@@ -540,8 +557,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     before that question has run (`FindUsagesModel.clearIfNaming`). `openFolder` calls
     `usages.prepareForFolderChange(root:)` in the same synchronous turn as
     `projectSearch.prepareForSearch` and the commit dialog's own registration, and
-    for the same reason. `activateUsage(_:)` opens through `activateSearchMatch`'s
-    steps but asks `UsageResult.revealRange(naming:in:)` against the buffer the
+    for the same reason. `activateUsage(_:)` opens through
+    `openAndReveal(url:range:)`, the tail it shares with the Problems panel's
+    `activateProblem(url:row:)`, and asks `UsageResult.revealRange(naming:in:)` against the buffer the
     click actually lands in: a row that no longer holds its identifier degrades to
     opening the file with nothing selected — never a crash on an out-of-bounds
     range, never a confident selection of a span that is now something else. A row

@@ -154,10 +154,12 @@ struct ContentView: View {
     /// commands share one implementation. Default no-op for previews/tests.
     var onTogglePanel: (BottomPanel) -> Void = { _ in }
     /// Invoked when a Problems-panel row is activated, opening (or re-selecting)
-    /// the file and revealing the diagnostic's range. Wired to the same
-    /// `PisakaApp.activateSearchMatch(url:range:)` a Find in Files activation and
-    /// Go to Definition use. Default no-op for previews/tests.
-    var onActivateProblem: (URL, NSRange) -> Void = { _, _ in }
+    /// the file and revealing the range the row's target maps onto in the
+    /// opened buffer. Takes the whole row rather than a `(url, range)` pair
+    /// because a closed file's row carries the server's position, which only
+    /// becomes a range once the file is open. Wired to
+    /// `PisakaApp.activateProblem(url:row:)`. Default no-op for previews/tests.
+    var onActivateProblem: (URL, DiagnosticStore.Row) -> Void = { _, _ in }
     /// The Find Usages panel's model — what ⌃⌘U asked and what came back.
     /// Owned by `PisakaApp` and threaded straight into `UsagesPanelView`, which
     /// observes it itself; deliberately **not** `@ObservedObject` and optional
@@ -270,6 +272,11 @@ struct ContentView: View {
     /// different files. Default no-op so previews/tests can construct the view
     /// without the app wiring.
     var onShowLocalHistory: (URL) -> Void = { _ in }
+    /// Invoked by the project tree's Refresh button after it re-reads the
+    /// listings, wired to `PisakaApp.refreshLocalChanges()` so the names' git
+    /// colours are re-read too. Default no-op so previews/tests can construct
+    /// the view without the app wiring.
+    var onRefreshGitStatus: () -> Void = {}
     /// Whether the commit dialog sheet is up. Owned by `PisakaApp` (which loads the
     /// model before raising it) and bound here; `.constant(false)` keeps the
     /// default-constructed view (previews/tests) without a sheet.
@@ -1017,22 +1024,26 @@ struct ContentView: View {
         ) {
             // Left zone: the project tree. (Local Changes is now a bottom dock
             // panel, so the old "Project ⇄ Changes" segmented toggle is gone.)
-            ProjectTreeView(
-                model: model,
-                onOpenFile: onOpenFile,
-                onOpenFolder: onOpenFolder,
-                mayBeginFileOperation: mayBeginFileOperation,
-                onNewFile: onNewFile,
-                onNewFolder: onNewFolder,
-                onRename: onRename,
-                onDelete: onDelete,
-                onRun: onRun,
-                onRunTest: onRunTest,
-                onShowLocalHistory: onShowLocalHistory,
-                onMove: onMove,
-                reveal: treeReveal,
-                gitStatus: localChanges.treeGitStatus
-            )
+            TreeDiagnosticsObserver(model: diagnostics) { treeDiagnostics in
+                ProjectTreeView(
+                    model: model,
+                    onOpenFile: onOpenFile,
+                    onOpenFolder: onOpenFolder,
+                    mayBeginFileOperation: mayBeginFileOperation,
+                    onNewFile: onNewFile,
+                    onNewFolder: onNewFolder,
+                    onRename: onRename,
+                    onDelete: onDelete,
+                    onRun: onRun,
+                    onRunTest: onRunTest,
+                    onShowLocalHistory: onShowLocalHistory,
+                    onMove: onMove,
+                    reveal: treeReveal,
+                    gitStatus: localChanges.treeGitStatus,
+                    diagnostics: treeDiagnostics,
+                    onRefreshGitStatus: onRefreshGitStatus
+                )
+            }
         } trailing: {
             switch settings.tabOrientation {
             case .vertical:
@@ -1801,6 +1812,35 @@ struct CaretReadoutObserver<Content: View>: View {
 
     var body: some View {
         content(model.readout(for: focusedFileID))
+    }
+}
+
+/// Observes the diagnostics model's tree lookup around the project tree alone,
+/// so a lookup change re-evaluates the tree and not the window root, and
+/// `ContentView` still observes nothing of `DiagnosticsModel`, whose store
+/// republishes on every keystroke's shift. The holder it observes assigns only
+/// on inequality (`TreeDiagnosticsHolder`), so a shift that keeps every worst
+/// severity re-evaluates nothing here either. Without a model (previews,
+/// tests) the tree receives `.empty`.
+struct TreeDiagnosticsObserver<Content: View>: View {
+    let model: DiagnosticsModel?
+    @ViewBuilder let content: (TreeDiagnostics) -> Content
+
+    var body: some View {
+        if let model {
+            Observed(holder: model.treeDiagnostics, content: content)
+        } else {
+            content(.empty)
+        }
+    }
+
+    private struct Observed: View {
+        @ObservedObject var holder: TreeDiagnosticsHolder
+        let content: (TreeDiagnostics) -> Content
+
+        var body: some View {
+            content(holder.lookup)
+        }
     }
 }
 

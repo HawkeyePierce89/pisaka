@@ -52,7 +52,7 @@ final class DiagnosticStoreTests: XCTestCase {
         let secondPush = [diagnostic(at: 8, line: 2)]
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: secondPush)
 
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics, secondPush)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped, secondPush)
     }
 
     /// The "all clear" push is an empty *entry*, not a missing one: provenance
@@ -62,20 +62,20 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [])
 
         let entry = store.entry(for: mainURL)
-        XCTAssertEqual(entry?.diagnostics, [])
+        XCTAssertEqual(entry?.mapped, [])
         XCTAssertEqual(entry?.serverKey, swiftKey)
     }
 
     // MARK: - Clearing
 
-    func testClearByURLRemovesOnlyThatDocument() {
+    func testMappedClearRemovesOnlyThatDocument() {
         var store = DiagnosticStore()
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
         store.replace(url: utilURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, line: 1)])
-        store.clear(url: mainURL)
+        store.clearMapped(url: mainURL)
 
         XCTAssertNil(store.entry(for: mainURL))
-        XCTAssertEqual(store.entry(for: utilURL)?.diagnostics.count, 1)
+        XCTAssertEqual(store.entry(for: utilURL)?.mapped?.count, 1)
     }
 
     func testClearByServerKeyLeavesAnotherServersDocumentsAlone() {
@@ -113,7 +113,7 @@ final class DiagnosticStoreTests: XCTestCase {
         store.apply(shift: shiftedSet, to: mainURL)
 
         let entry = store.entry(for: mainURL)
-        XCTAssertEqual(entry?.diagnostics, shiftedSet)
+        XCTAssertEqual(entry?.mapped, shiftedSet)
         XCTAssertEqual(entry?.serverKey, swiftKey)
     }
 
@@ -369,7 +369,11 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows[0].url, mainURL.standardizedFileURL)
         XCTAssertEqual(rows[0].pathComponents, ["Sources", "App", "main.swift"])
-        XCTAssertEqual(rows[0].rows.map(\.range.location), [0, 4], "within a file, orderingKey order")
+        XCTAssertEqual(
+            rows[0].rows.map(\.target),
+            [.offsets(NSRange(location: 0, length: 3)), .offsets(NSRange(location: 4, length: 3))],
+            "within a file, orderingKey order"
+        )
         XCTAssertEqual(rows[1].url, utilURL.standardizedFileURL)
         XCTAssertEqual(rows[1].pathComponents, ["Sources", "App", "util.swift"])
     }
@@ -413,7 +417,7 @@ final class DiagnosticStoreTests: XCTestCase {
         let row = groups[0].rows[0]
         XCTAssertEqual(row.severity, .error)
         XCTAssertEqual(row.message, "cannot find value")
-        XCTAssertEqual(row.range, NSRange(location: 4, length: 3))
+        XCTAssertEqual(row.target, .offsets(NSRange(location: 4, length: 3)))
         XCTAssertEqual(row.line, 1)
     }
 
@@ -462,11 +466,11 @@ final class DiagnosticStoreTests: XCTestCase {
         let groups = store.rows(relativeTo: rootURL)
         XCTAssertEqual(groups.count, 1)
         XCTAssertEqual(groups[0].rows.count, 3, "the exact duplicate collapses; distinct rows survive")
-        XCTAssertEqual(groups[0].rows.map(\.range.location), [4, 4, 8])
+        XCTAssertEqual(groups[0].rows.map(\.line), [1, 1, 2])
         XCTAssertEqual(groups[0].rows.map(\.message), ["m", "other", "m"])
 
         // The entry itself is untouched by the rendering rule.
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 4)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped?.count, 4)
         XCTAssertEqual(store.counts.errors, 4)
     }
 
@@ -495,7 +499,7 @@ final class DiagnosticStoreTests: XCTestCase {
 
         let groups = store.rows(relativeTo: rootURL)
         XCTAssertEqual(groups[0].rows.count, 1)
-        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 2)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped?.count, 2)
     }
 
     // MARK: - Counts
@@ -628,5 +632,352 @@ final class DiagnosticStoreTests: XCTestCase {
             store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
             [nil, nil, .warning]
         )
+    }
+
+    // MARK: - Positional entries
+
+    private func positional(
+        _ fileURL: URL = URL(fileURLWithPath: "/tmp/pkg/Sources/App/main.swift"),
+        line: Int,
+        character: Int = 0,
+        severity: DiagnosticSeverity = .error,
+        message: String = "p"
+    ) -> PositionalDiagnostic {
+        PositionalDiagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: line, character: character),
+                end: LSPPosition(line: line, character: character + 3)
+            ),
+            severity: severity,
+            message: message,
+            source: "test",
+            fileURL: fileURL
+        )
+    }
+
+    func testAPositionalEntryInstallsWithItsProvenanceAndNoMappedSet() {
+        var store = DiagnosticStore()
+        let set = [positional(line: 1), positional(line: 2, severity: .warning)]
+        store.replace(url: mainURL, serverKey: goKey, positional: set)
+
+        let entry = store.entry(for: mainURL)
+        XCTAssertEqual(entry?.positional, set)
+        XCTAssertNil(entry?.mapped, "a positional entry has no mapped set, by type")
+        XCTAssertEqual(entry?.serverKey, goKey)
+    }
+
+    func testAnEmptyPositionalReportInstallsAnEmptyEntry() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [])
+
+        let entry = store.entry(for: mainURL)
+        XCTAssertEqual(entry?.positional, [])
+        XCTAssertEqual(entry?.serverKey, goKey)
+    }
+
+    func testEitherKindReplacesTheOtherWholesale() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 0)])
+        let mapped = [diagnostic(at: 0, line: 0)]
+        store.replace(url: mainURL, serverKey: goKey, diagnostics: mapped)
+        XCTAssertEqual(store.entry(for: mainURL)?.mapped, mapped)
+
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 2)])
+        XCTAssertNil(store.entry(for: mainURL)?.mapped)
+        XCTAssertEqual(store.entry(for: mainURL)?.positional?.count, 1)
+    }
+
+    /// The editor queries read mapped sets only: a positional entry draws no
+    /// squiggle, answers no hover and marks no gutter line.
+    func testEditorQueriesSeeNothingOfAPositionalEntry() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [positional(line: 0), positional(line: 1, character: 1, severity: .warning)]
+        )
+
+        XCTAssertTrue(store.diagnostics(at: 0, in: mainURL).isEmpty)
+        XCTAssertTrue(store.diagnostics(at: 5, in: mainURL).isEmpty)
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
+            [nil, nil, nil]
+        )
+    }
+
+    func testAShiftDoesNotTouchAPositionalEntry() {
+        var store = DiagnosticStore()
+        let set = [positional(line: 1)]
+        store.replace(url: mainURL, serverKey: goKey, positional: set)
+
+        store.apply(shift: [diagnostic(at: 5, line: 1)], to: mainURL)
+
+        XCTAssertEqual(store.entry(for: mainURL)?.positional, set)
+        XCTAssertNil(store.entry(for: mainURL)?.mapped, "a shift must not turn a positional entry into a mapped one")
+    }
+
+    func testTheMappedClearLeavesAPositionalEntryAndRemovesAMappedOne() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: goKey, diagnostics: [diagnostic(utilURL, at: 0, line: 0)])
+
+        store.clearMapped(url: mainURL)
+        store.clearMapped(url: utilURL)
+
+        XCTAssertEqual(store.entry(for: mainURL)?.positional?.count, 1)
+        XCTAssertNil(store.entry(for: utilURL))
+    }
+
+    /// A removed file or folder takes every entry at or under its path, both
+    /// kinds, by whole component — a sibling whose name merely starts with the
+    /// removed one's keeps its entry.
+    func testTheRemovalClearTakesEveryEntryAtOrUnderThePath() {
+        var store = DiagnosticStore()
+        let sibling = URL(fileURLWithPath: "/tmp/pkg/Sources/AppExtra/x.swift")
+        let other = URL(fileURLWithPath: "/tmp/pkg/README.md")
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+        store.replace(url: utilURL, serverKey: goKey, positional: [positional(utilURL, line: 0)])
+        store.replace(url: sibling, serverKey: goKey, positional: [positional(sibling, line: 0)])
+        store.replace(url: other, serverKey: goKey, positional: [positional(other, line: 0)])
+
+        store.clear(under: URL(fileURLWithPath: "/tmp/pkg/Sources/App/main.swift"))
+        XCTAssertNil(store.entry(for: mainURL), "the file itself")
+        XCTAssertNotNil(store.entry(for: utilURL))
+
+        store.clear(under: URL(fileURLWithPath: "/tmp/pkg/Sources/App/", isDirectory: true))
+        XCTAssertNil(store.entry(for: utilURL), "a closed file under a removed folder")
+        XCTAssertNotNil(store.entry(for: sibling), "a name sharing the folder's prefix is not under it")
+        XCTAssertNotNil(store.entry(for: other))
+    }
+
+    func testTheServerClearRemovesPositionalEntries() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: swiftKey, positional: [positional(utilURL, line: 0)])
+
+        store.clear(serverKey: goKey)
+
+        XCTAssertNil(store.entry(for: mainURL))
+        XCTAssertEqual(store.entry(for: utilURL)?.serverKey, swiftKey, "another server's positional entry survives")
+    }
+
+    func testClearAllRemovesPositionalEntries() {
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])
+        store.replace(url: utilURL, serverKey: swiftKey, diagnostics: [diagnostic(utilURL, at: 0, line: 0)])
+
+        store.clearAll()
+
+        XCTAssertNil(store.entry(for: mainURL))
+        XCTAssertNil(store.entry(for: utilURL))
+    }
+
+    func testCountsSpanBothKindsAndExcludeInformationAndHints() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [
+                positional(line: 0, severity: .error),
+                positional(line: 1, severity: .error),
+                positional(line: 2, severity: .warning),
+                positional(line: 3, severity: .information),
+                positional(line: 4, severity: .hint),
+            ]
+        )
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            diagnostics: [
+                diagnostic(utilURL, at: 0, line: 0, severity: .error),
+                diagnostic(utilURL, at: 4, line: 1, severity: .warning),
+                diagnostic(utilURL, at: 8, line: 2, severity: .hint),
+            ]
+        )
+
+        XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 3, warnings: 2))
+    }
+
+    // MARK: - Rows for both kinds
+
+    /// A closed file's rows carry the server's own start line and its range as
+    /// the reveal target, and the header counts include them.
+    func testAClosedFilesRowsCarryTheServersLineAndCountInTheHeader() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            positional: [positional(utilURL, line: 7, character: 2, severity: .warning, message: "unused")]
+        )
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups.map(\.pathComponents), [
+            ["Sources", "App", "main.swift"],
+            ["Sources", "App", "util.swift"],
+        ], "a closed file lists beside an open one, in path order")
+        let row = groups[1].rows[0]
+        XCTAssertEqual(row.line, 7, "the server's zero-based start line")
+        XCTAssertEqual(row.severity, .warning)
+        XCTAssertEqual(row.message, "unused")
+        XCTAssertEqual(
+            row.target,
+            .position(LSPRange(start: LSPPosition(line: 7, character: 2), end: LSPPosition(line: 7, character: 5)))
+        )
+        XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 1, warnings: 1))
+    }
+
+    /// The panel's one-based line is total: a positional line is a number a
+    /// server sent, so `Int.max` must not trap the `+ 1`, and a negative one
+    /// reads as the first line, as `LSPPositionMap` clamps it.
+    func testTheDisplayLineIsOneBasedAndTotalOverAServersLine() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            positional: [
+                positional(utilURL, line: 7, message: "seven"),
+                positional(utilURL, line: Int.max, message: "max"),
+                positional(utilURL, line: -1, message: "negative"),
+            ]
+        )
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups[0].rows.map(\.displayLine), [1], "a mapped row's zero-based line, plus one")
+        let byMessage = Dictionary(uniqueKeysWithValues: groups[1].rows.map { ($0.message, $0.displayLine) })
+        XCTAssertEqual(byMessage, ["seven": 8, "max": Int.max, "negative": 1])
+    }
+
+    /// An empty positional report contributes no group, like an empty mapped one.
+    func testAnEmptyPositionalEntryContributesNoRowGroup() {
+        var store = DiagnosticStore()
+        store.replace(url: utilURL, serverKey: goKey, positional: [])
+        XCTAssertTrue(store.rows(relativeTo: rootURL).isEmpty)
+    }
+
+    /// Byte-identical positional rows collapse exactly as mapped ones do.
+    func testByteIdenticalPositionalRowsCollapseToOne() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [positional(line: 1), positional(line: 1), positional(line: 1, message: "other")]
+        )
+        XCTAssertEqual(store.rows(relativeTo: rootURL)[0].rows.map(\.message), ["other", "p"])
+    }
+
+    /// The same diagnostics, held as a positional set (file closed) and as a
+    /// mapped set (file open), list in the same order — including same-line
+    /// ties broken by column, then severity, then span — whatever order the
+    /// push arrived in.
+    func testBothKindsOfTheSameDiagnosticsYieldTheSameRowOrder() {
+        let text = "let alpha = 1\nlet beta = alpha + gamma\nprint(beta)\n" as NSString
+        func lsp(
+            _ line: Int, _ start: Int, _ endLine: Int, _ end: Int,
+            _ severity: LSPDiagnosticSeverity, _ message: String
+        ) -> LSPDiagnostic {
+            LSPDiagnostic(
+                range: LSPRange(
+                    start: LSPPosition(line: line, character: start),
+                    end: LSPPosition(line: endLine, character: end)
+                ),
+                severity: severity,
+                message: message
+            )
+        }
+        let pushed = [
+            lsp(2, 0, 2, 5, .information, "print"),
+            lsp(1, 19, 1, 24, .error, "gamma"),
+            lsp(1, 4, 1, 8, .warning, "beta-short"),
+            lsp(1, 4, 2, 3, .warning, "beta-multiline"),
+            lsp(1, 4, 1, 24, .error, "beta-error"),
+            lsp(1, 11, 1, 16, .hint, "alpha-use"),
+            lsp(0, 4, 0, 9, .warning, "alpha"),
+        ]
+        let lineStarts = LSPPositionMap.lineStarts(in: text)
+        var positionalStore = DiagnosticStore()
+        positionalStore.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            positional: pushed.map { PositionalDiagnostic.make(from: $0, url: mainURL) }
+        )
+        var mappedStore = DiagnosticStore()
+        mappedStore.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: pushed.compactMap {
+                Diagnostic.make(from: $0, in: text, lineStarts: lineStarts, url: mainURL)
+            }
+        )
+
+        let expected = ["alpha", "beta-error", "beta-short", "beta-multiline", "alpha-use", "gamma", "print"]
+        let positionalRows = positionalStore.rows(relativeTo: rootURL)[0].rows
+        let mappedRows = mappedStore.rows(relativeTo: rootURL)[0].rows
+        XCTAssertEqual(positionalRows.map(\.message), expected)
+        XCTAssertEqual(mappedRows.map(\.message), expected)
+        XCTAssertEqual(positionalRows.map(\.line), mappedRows.map(\.line))
+        XCTAssertEqual(positionalRows.map(\.severity), mappedRows.map(\.severity))
+    }
+
+    // MARK: - Reveal range
+
+    private func revealRow(
+        positional range: LSPRange
+    ) -> DiagnosticStore.Row {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [
+                PositionalDiagnostic(range: range, severity: .error, message: "m", source: nil, fileURL: mainURL),
+            ]
+        )
+        return store.rows(relativeTo: rootURL)[0].rows[0]
+    }
+
+    /// A positional row maps onto the buffer the file opened with.
+    func testTheRevealRangeMapsAPositionalRowOntoTheBuffer() {
+        let text = "aaa\nbbbbb\r\nccc" as NSString
+        let row = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 1, character: 1),
+            end: LSPPosition(line: 2, character: 2)
+        ))
+        XCTAssertEqual(row.rangeToReveal(in: text), NSRange(location: 5, length: 8))
+    }
+
+    /// A line past the end lands at the end of the buffer; a character past
+    /// its line lands at that line's end, before the separator.
+    func testTheRevealRangeClampsAPositionPastTheEnd() {
+        let text = "aaa\nbbbbb\r\nccc" as NSString
+        let pastTheEnd = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 40, character: 0),
+            end: LSPPosition(line: 41, character: 3)
+        ))
+        XCTAssertEqual(pastTheEnd.rangeToReveal(in: text), NSRange(location: text.length, length: 0))
+
+        let pastTheLine = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 1, character: 99),
+            end: LSPPosition(line: 1, character: 120)
+        ))
+        XCTAssertEqual(pastTheLine.rangeToReveal(in: text), NSRange(location: 9, length: 0), "the end of \"bbbbb\", before CRLF")
+    }
+
+    /// A mapped row's in-range range comes back unchanged; one the buffer no
+    /// longer reaches is clamped into it rather than trapping.
+    func testTheRevealRangeReturnsAnInRangeMappedRangeUnchangedAndClampsTheRest() {
+        let text = "aaa\nbbb\nccc" as NSString
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, length: 3, line: 1)])
+        let inRange = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(inRange.rangeToReveal(in: text), NSRange(location: 4, length: 3))
+
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 9, length: 10, line: 2)])
+        let overhanging = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(overhanging.rangeToReveal(in: text), NSRange(location: 9, length: 2))
+
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 50, length: 3, line: 9)])
+        let beyond = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(beyond.rangeToReveal(in: text), NSRange(location: text.length, length: 0))
     }
 }

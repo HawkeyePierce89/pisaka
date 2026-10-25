@@ -564,6 +564,16 @@ struct CodeEditorView: NSViewRepresentable {
         // through the second.
         context.coordinator.syncFolds(text: text, immediate: true)
         context.coordinator.syncFoldInputs(alreadyAsked: true)
+        // A freshly built editor is a first showing too — the last tab closed
+        // (or a viewer tab was selected) tore the previous one down, so a
+        // reopened file arrives here rather than through `updateNSView`'s
+        // plain-switch branch. Drop the mapped set its closed predecessor left
+        // behind before the seed below paints it (D46); the sync the reindex
+        // above scheduled has not landed a record yet, which is what lets the
+        // model tell that set apart.
+        if let fileURL {
+            context.coordinator.diagnosticsModel?.noteDocumentShown(url: fileURL)
+        }
         // Seed the underlines from whatever the store already holds (a fresh
         // sync has nothing yet, so this is usually a no-op).
         context.coordinator.refreshDiagnosticOverlays()
@@ -827,9 +837,13 @@ struct CodeEditorView: NSViewRepresentable {
             // by Replace All / reload / merge apply; the recorded URL still
             // names the outgoing one until `syncBlame` re-records), and this
             // file itself when it is displayed.
-            if !diagnosticsSurvive {
-                context.coordinator.beginDiagnosticsBufferSwap(clearing: fileURL)
-            }
+            //
+            // The plain switch still drops a set the file's *closed* predecessor
+            // left behind: a reopened file is shown for the first time, which
+            // reads as a plain switch here, but that set describes a buffer
+            // that is gone (D46). The model recognises it by its missing sync
+            // record and leaves a merely switched-back tab's set alone.
+            context.coordinator.settleDiagnosticsForSwap(of: fileURL, survives: diagnosticsSurvive)
             // Whatever the *store* does with the outgoing set, the *paint* does
             // not survive the assignment below — TextKit drops every temporary
             // attribute over the replaced characters — so the overlay's cache
@@ -2731,6 +2745,20 @@ struct CodeEditorView: NSViewRepresentable {
         func beginDiagnosticsBufferSwap(clearing url: URL?) {
             guard let url else { return }
             diagnosticsModel?.noteBufferReplaced(url: url)
+            scheduleDiagnosticOverlaysRefresh()
+        }
+
+        /// `updateNSView`'s content-replaced branch: a genuine replacement drops
+        /// `url`'s set (`beginDiagnosticsBufferSwap`), while a plain switch —
+        /// `survives` — drops only a set a closed predecessor of the tab left
+        /// behind (`DiagnosticsModel.noteDocumentShown(url:)`).
+        func settleDiagnosticsForSwap(of url: URL?, survives: Bool) {
+            guard survives else {
+                beginDiagnosticsBufferSwap(clearing: url)
+                return
+            }
+            guard let url else { return }
+            diagnosticsModel?.noteDocumentShown(url: url)
             scheduleDiagnosticOverlaysRefresh()
         }
 

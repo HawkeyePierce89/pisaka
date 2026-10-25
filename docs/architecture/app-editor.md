@@ -969,8 +969,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     otherwise leave every surface dark until the user happened to type or
     switch: a new **URL** (Save As giving an untitled buffer its first path; a
     project-tree rename/move retargeting through `applyRenamePlan` after the
-    move's `forgetIndexedBuffer` already `didClose`d the old URL and cleared its
-    diagnostics via D33), and a new **root** (`projectRoot`, compared against a
+    move's `forgetIndexedBuffer` already `didClose`d the old URL — dropping its
+    sync bookkeeping, D33 — and the move cleared its diagnostics through
+    `noteItemRemoved(at:)`, D46), and a new **root** (`projectRoot`, compared against a
     value seeded in `makeNSView` so a fresh view does not re-read as one) — the
     first Open Folder of a run carrying tabs, whose buffers were never synced
     because every earlier trigger ran with no root. Background retargeted tabs
@@ -995,7 +996,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     buffer swapped, or this file rewritten off screen by Replace All /
     `reloadFromDisk` / merge apply, which `externalTextRevision` reports) calls
     `beginDiagnosticsBufferSwap(clearing:)` → `noteBufferReplaced(url:)` and
-    drops the replaced document's set outright (D32). The URL is handed in —
+    drops the replaced document's set outright (D32). The plain switch still
+    calls `settleDiagnosticsForSwap(of:survives:)` → `noteDocumentShown(url:)`, because
+    a **reopened** file's first showing reads as one: that drops only a mapped
+    set with no sync record — one a closed tab left behind (D46) — and leaves a
+    switched-back tab's set alone. `makeNSView` makes the same call before its
+    seeding `refreshDiagnosticOverlays()`, because a reopened file also arrives
+    in a *freshly built* editor whenever the last tab's close (or a viewer tab's
+    selection) tore the previous one down. The URL is handed in —
     the view's `fileURL`, i.e. the *incoming* file on a switch — because the
     coordinator's recorded URL still names the outgoing one there, and clearing
     it would destroy the innocent bystander's set while leaving the rewritten
@@ -2043,8 +2051,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and its coordinator, beeping (`PlatformFeedback.warning()`) when nothing
     focused can answer or the answer is `false`. A move rather than an edit, so a
     read-only editor and a composition in flight are *not* refusals.
-    `goToProblem(_:)` reads `diagnosticsModel.store.entry(for:)` — already
-    shifted by `DiagnosticShift`, no server request — asks
+    `goToProblem(_:)` reads the entry's `mapped` set
+    (`diagnosticsModel.store.entry(for:)?.mapped`) — already shifted by
+    `DiagnosticShift`, no server request; a positional entry has none, so a
+    closed file's findings are never a stop (D46) — asks
     `DiagnosticNavigationRule.target` with the selection's start as the caret,
     and lands the caret through `revealRange(_:)`, the funnel the Problems row
     uses, so a problem inside a folded block unfolds by `FoldReveal`'s rule.

@@ -1611,7 +1611,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     /// Which chrome role a diagnostic severity is drawn in has one answer,
     /// `ChromeColorRole.diagnosticRole(for:)` in Core, read by the gutter's
-    /// severity dot and by the Problems panel's badges and row glyphs.
+    /// severity dot, by the Problems panel's badges and row glyphs, and by the
+    /// project tree's severity dot — which hands it the severity of Core's
+    /// `TreeDiagnosticMark`, so it spells no severity itself.
     ///
     /// The regression it prevents is a **second severity table reappearing in a
     /// view**: the mapping used to live in the ruler while the panel read the
@@ -1620,8 +1622,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// first time either side is touched. So, over stripped source:
     ///
     /// - no app file declares `func diagnosticRole` (the answer is Core's);
-    /// - the set of app files spelling `diagnosticRole(for:` equals the two known
-    ///   readers — a third reader is a deliberate edit here, not an accident;
+    /// - the set of app files spelling `diagnosticRole(for:` equals the three
+    ///   known readers — a fourth reader is a deliberate edit here, not an
+    ///   accident;
     /// - `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table
     ///   belongs to the squiggle under the text and to the code zone alone;
     /// - no gated file spells a severity **case label** — `case` followed, on
@@ -1647,6 +1650,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let severityReaders: Set<String> = [
         "LineNumberRulerView.swift",
         "ProblemsPanelView.swift",
+        "ProjectTreeView.swift",
     ]
 
     /// The glyph table the severity-label clause exempts, by file and
@@ -1671,7 +1675,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertEqual(
             readers, Self.severityReaders,
-            "the app files reading ChromeColorRole.diagnosticRole(for:) must be exactly its two known readers"
+            "the app files reading ChromeColorRole.diagnosticRole(for:) must be exactly its three known readers"
         )
 
         let panel = LSPSourceGatingTests.strippingCommentsAndStringLiterals(

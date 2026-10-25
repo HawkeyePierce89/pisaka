@@ -86,14 +86,35 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the project tree's git refresh, `file_length` 1967 →
+The most recent bump is removals clearing diagnostics, `file_length` 1976 →
+**1982** and `type_body_length` 1969 → **1975**: six lines in `PisakaApp`.
+`diagnostics.noteItemRemoved(at:)` after the tree's move and delete and after
+each of the three resyncs' deleted-file closes — a close keeps a file's
+diagnostics (D46), a removal must not leave them under a path that no longer
+exists — and the `serversRestart` flag that hands a folder re-opened under
+another spelling to the diagnostics model too (`app-shell.md`).
+
+The bump before it is the project tree's Refresh re-reading git state,
+`file_length` 1975 → **1976** and `type_body_length` 1968 → **1969**: one line
+in `PisakaApp`, the `onRefreshGitStatus` closure handed to `ContentView`, which
+calls the existing generation-pinned `refreshLocalChanges()` (`app-window.md`).
+
+The one before it is the Problems panel's closed-file activation,
+`file_length` 1971 → **1975** and `type_body_length` 1964 → **1968**: four
+lines net in `PisakaApp`. `activateProblem(url:row:)` opens the file and
+reveals the row's target mapped onto the buffer just opened, through an
+open-and-reveal tail it shares with `activateUsage`, whose own copy of that
+tail it replaced; the mapping itself is Core's
+`DiagnosticStore.Row.rangeToReveal(in:)` (`core-lsp.md`).
+
+The bump before that is the project tree's git refresh, `file_length` 1967 →
 **1971** and `type_body_length` 1960 → **1964**: four lines in `PisakaApp`,
 `refreshLocalChanges()` after the tree's create, move and delete and after a
 created LeetCode solution — the watcher drops this process's own writes, so
 without them the tree's git colours stay stale until an unrelated save
 (`app-shell.md`).
 
-The bump before it is the Local History restore's stamp refresh,
+The one before it is the Local History restore's stamp refresh,
 `file_length` 1966 → **1967** and `type_body_length` 1959 → **1960**: one line
 in `PisakaApp`, refreshing an already-open tab's disk stamp after the restore
 creates the empty file it lands in, so the guarded save does not read the

@@ -107,9 +107,10 @@ adds no write of any kind. Its only persisted input is the existing
     tone of the line numbers beside it). It is total over the closed
     `DiagnosticSeverity` set and deliberately **not** `SyntaxTheme`'s table: the
     squiggle under the text is the code zone and stays on
-    `SyntaxTheme.diagnosticColor(for:)` alone. Two surfaces read this one — the
-    gutter's severity dot and the Problems panel's header badges and row glyphs —
-    and neither keeps a table of its own. Both types already lived in Core, so
+    `SyntaxTheme.diagnosticColor(for:)` alone. Three surfaces read this one — the
+    gutter's severity dot, the Problems panel's header badges and row glyphs, and
+    the project tree's severity dot on a row's glyph — and none keeps a table of
+    its own. Both types already lived in Core, so
     the move cost nothing and let the Core gate see the mapping for the first
     time: `ChromeThemeTests` pins the four answers verbatim and that they are
     pairwise distinct roles, while the app bundle's `GutterFoldTests` keeps the
@@ -1169,8 +1170,9 @@ close glyph at a bare 8-point bold, which takes `.subheadline` bold so it
 matches the label beside it. All five moved.
 
 **One severity answer, and which surface reads which table.** Two tables, one
-per zone, and no third: the **chrome** marks — the gutter's severity dot and the
-Problems panel's badges and row glyphs — read
+per zone, and no third: the **chrome** marks — the gutter's severity dot, the
+Problems panel's badges and row glyphs, and the project tree's severity dot (added
+with the project-wide diagnostics, `app-window.md`) — read
 `ChromeColorRole.diagnosticRole(for:)` (the `ChromeColorRole.swift` entry
 above), and the **code** mark — the squiggle under the text — reads
 `SyntaxTheme.diagnosticColor(for:)`. Before this part the panel read
@@ -3419,7 +3421,9 @@ The fifty-one rules, each invisible to the compiler:
    colours and drifts from the gutter's the first time either is touched. Over
    stripped source: no app file declares `func diagnosticRole`; the set of app
    files spelling `diagnosticRole(for:` equals `{LineNumberRulerView.swift,
-   ProblemsPanelView.swift}`, the two known readers; and
+   ProblemsPanelView.swift, ProjectTreeView.swift}`, the three known readers —
+   the tree, the third, hands it the `severity` of Core's `TreeDiagnosticMark`
+   (`core-lsp.md`) and so spells no severity itself; and
    `ProblemsPanelView.swift` names no `SyntaxTheme`, whose severity table is the
    squiggle's and the code zone's alone; and — the clause that catches the table
    by its shape rather than its name, added in the review round because a local

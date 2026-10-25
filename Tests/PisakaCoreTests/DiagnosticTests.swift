@@ -153,6 +153,31 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual(mapped?.severity, .error)
     }
 
+    /// The positional factory carries the server's range verbatim and converts
+    /// severity exactly as the mapped factory does: unknown is `.error`.
+    func testThePositionalFactoryKeepsTheServerRangeAndConvertsSeverityAlike() {
+        let range = LSPRange(
+            start: LSPPosition(line: 40, character: 7),
+            end: LSPPosition(line: 41, character: 2)
+        )
+        let known = PositionalDiagnostic.make(
+            from: LSPDiagnostic(range: range, severity: .warning, source: "gopls", message: "unused"),
+            url: url
+        )
+        XCTAssertEqual(
+            known,
+            PositionalDiagnostic(range: range, severity: .warning, message: "unused", source: "gopls", fileURL: url)
+        )
+
+        let unknown = PositionalDiagnostic.make(
+            from: LSPDiagnostic(range: range, severity: LSPDiagnosticSeverity(rawValue: 17), message: "x"),
+            url: url
+        )
+        XCTAssertEqual(unknown.severity, .error)
+        let absent = PositionalDiagnostic.make(from: LSPDiagnostic(range: range, message: "x"), url: url)
+        XCTAssertEqual(absent.severity, .error)
+    }
+
     /// One malformed entry is dropped; its siblings survive — the same
     /// per-element rule `LSPHoverResponse` states.
     func testAMalformedEntryIsDroppedWithoutTakingThePushDown() throws {
@@ -322,18 +347,21 @@ final class DiagnosticTests: XCTestCase {
 
     // MARK: - Ordering key
 
+    /// A key filled the way a mapped diagnostic fills it: (line, offset) at
+    /// both ends.
     private func key(
         _ path: String,
         _ start: Int,
         _ severity: DiagnosticSeverity,
+        line: Int = 0,
         end: Int? = nil,
         message: String = "",
         source: String? = nil
     ) -> Diagnostic.OrderingKey {
         Diagnostic.OrderingKey(
             path: path,
-            startOffset: start,
-            endOffset: end ?? start,
+            start: (line, start),
+            end: (line, end ?? start),
             severity: severity,
             message: message,
             source: source
@@ -492,8 +520,64 @@ final class DiagnosticTests: XCTestCase {
         )
         XCTAssertEqual(
             diagnostic.orderingKey,
-            key("/tmp/pkg/Src/A.swift", 12, .warning, end: 15, message: "m")
+            key("/tmp/pkg/Src/A.swift", 12, .warning, line: 2, end: 15, message: "m")
         )
+    }
+
+    /// A positional diagnostic fills the key with the server's positions
+    /// verbatim — start and end line and character, not offsets.
+    func testThePositionalOrderingKeyCarriesTheServersPositions() {
+        let diagnostic = PositionalDiagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: 3, character: 7),
+                end: LSPPosition(line: 5, character: 2)
+            ),
+            severity: .error,
+            message: "m",
+            source: "gopls",
+            fileURL: URL(fileURLWithPath: "/tmp/pkg/Src/./a.go")
+        )
+        XCTAssertEqual(
+            diagnostic.orderingKey,
+            Diagnostic.OrderingKey(
+                path: "/tmp/pkg/Src/a.go",
+                start: (3, 7),
+                end: (5, 2),
+                severity: .error,
+                message: "m",
+                source: "gopls"
+            )
+        )
+    }
+
+    /// The one key's field order, pinned field by field: the start line
+    /// outranks the start column, the column outranks severity, severity
+    /// outranks the end line, and the end line outranks the end column.
+    func testTheOrderingKeyComparesLineThenColumnThenSeverityThenSpan() {
+        func positional(
+            _ start: (Int, Int),
+            _ end: (Int, Int),
+            _ severity: DiagnosticSeverity
+        ) -> Diagnostic.OrderingKey {
+            Diagnostic.OrderingKey(
+                path: "/a.go",
+                start: start,
+                end: end,
+                severity: severity,
+                message: "",
+                source: nil
+            )
+        }
+        // An earlier line wins over an earlier column on a later line.
+        XCTAssertLessThan(positional((1, 40), (1, 41), .hint), positional((2, 0), (2, 1), .error))
+        // On one line, an earlier column wins over a worse severity.
+        XCTAssertLessThan(positional((1, 3), (1, 4), .hint), positional((1, 4), (1, 5), .error))
+        // At one start, the worse severity wins over a shorter span.
+        XCTAssertLessThan(positional((1, 3), (9, 0), .error), positional((1, 3), (1, 4), .warning))
+        // At one start and severity, an earlier end line wins over a later
+        // end column on that earlier line.
+        XCTAssertLessThan(positional((1, 3), (2, 50), .error), positional((1, 3), (3, 0), .error))
+        XCTAssertLessThan(positional((1, 3), (2, 4), .error), positional((1, 3), (2, 5), .error))
     }
 
     // MARK: - Hover content (D34)

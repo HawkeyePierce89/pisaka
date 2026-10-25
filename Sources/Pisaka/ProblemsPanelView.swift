@@ -9,14 +9,15 @@ import PisakaCore
 /// (information and hint deliberately absent — the header answers "how much is
 /// broken", not "how much was said"), below it one group per diagnosed file in
 /// the store's stable reading order (`Diagnostic.orderingKey`: path, then
-/// buffer position, then severity worst-first, then span/message/source — a
-/// total order). Each
+/// start line and column, then severity worst-first, then span/message/source —
+/// one total order for open and closed files alike). Each
 /// row shows the severity icon
 /// in its severity's chrome role (`ChromeColorRole.diagnosticRole(for:)`), the
 /// message, and the one-based line;
-/// activating a row calls back with `(url, range)` so the app can open-or-reveal
-/// through the same `activateSearchMatch(url:range:)` entry point Find in Files
-/// and Go to Definition use. The view holds no domain logic — it observes
+/// activating a row calls back with `(url, row)` so the app can open the file
+/// and reveal the range the row's target maps onto in the buffer just opened
+/// (`DiagnosticStore.Row.rangeToReveal(in:)`) — a closed file's row carries the
+/// server's position, not offsets. The view holds no domain logic — it observes
 /// `DiagnosticsModel` and renders its published store, mirroring
 /// `LocalChangesView`/`CommitLogView`.
 ///
@@ -29,10 +30,11 @@ struct ProblemsPanelView: View {
     /// The current project root; the rows' paths are displayed relative to it.
     /// `nil` when no folder is open (and then no server can have reported).
     var projectRoot: URL?
-    /// Invoked when a row is activated, with the file and the diagnostic's
-    /// buffer range. Defaults to a no-op so previews/tests can construct the
-    /// view without the app wiring.
-    var onActivate: (URL, NSRange) -> Void = { _, _ in }
+    /// Invoked when a row is activated, with the file and the whole row: the
+    /// row's reveal target is mapped onto the buffer only after the file is
+    /// open, which the view cannot do. Defaults to a no-op so previews/tests can
+    /// construct the view without the app wiring.
+    var onActivate: (URL, DiagnosticStore.Row) -> Void = { _, _ in }
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -81,8 +83,11 @@ struct ProblemsPanelView: View {
         if groups.isEmpty {
             placeholder("No problems")
         } else {
+            // Lazy: the list is the project's, not the open tabs', and a
+            // workspace-wide server can report thousands of rows, rebuilt on
+            // every keystroke's shift while the panel shows.
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(groups, id: \.url) { group in
                         fileGroup(group)
                     }
@@ -110,7 +115,7 @@ struct ProblemsPanelView: View {
             .contentShape(Rectangle())
 
             ForEach(group.rows, id: \.self) { row in
-                ProblemRow(row: row, onActivate: { onActivate(group.url, row.range) })
+                ProblemRow(row: row, onActivate: { onActivate(group.url, row) })
             }
         }
     }
@@ -179,10 +184,9 @@ private struct ProblemRow: View {
                 .foregroundStyle(theme.color(.textPrimary))
                 .lineLimit(2)
             Spacer(minLength: metrics.scaled(ProblemsPanelLayout.rowGap))
-            // One-based for display: `Row.line` is zero-based buffer geometry,
-            // while the number shown beside a message is what the user reads in
-            // the gutter.
-            Text(":\(row.line + 1)")
+            // One-based for display, through Core's total conversion: a
+            // positional row's line is a server's number.
+            Text(":\(row.displayLine)")
                 .font(metrics.scaledFont(.subheadline, design: .monospaced))
                 .foregroundStyle(theme.color(.textSecondary))
         }

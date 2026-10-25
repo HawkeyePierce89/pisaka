@@ -283,7 +283,7 @@ public actor LSPSession {
     /// value for as long as the session lives. No server-specific code exists
     /// anywhere here; the value is data on the description.
     ///
-    /// With no configuration nothing changes for the five servers that ship
+    /// With no configuration nothing changes for the four servers that ship
     /// without one: the notification is not sent, and a pull is still answered
     /// `null` per item. The client capability `workspace.configuration` stays
     /// `false` for the same reason — a server that pulls does so regardless, and

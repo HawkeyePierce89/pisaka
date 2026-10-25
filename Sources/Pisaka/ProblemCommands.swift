@@ -52,15 +52,16 @@ struct ProblemNavigationItems: View {
 extension CodeEditorView.Coordinator {
     /// Move the caret to the next or previous diagnostic and show its popover.
     ///
-    /// Reads the store's entry for this file — already shifted across every
-    /// edit by `DiagnosticShift` — and asks no server anything. The caret lands
+    /// Reads the store's mapped set for this file — already shifted across
+    /// every edit by `DiagnosticShift` — and asks no server anything. A
+    /// positional entry has no mapped set, so it is never navigated to. The caret lands
     /// through the reveal funnel the Problems row uses (`revealRange(_:)`), so
     /// a problem inside a folded block unfolds by the reveal rule; the popover
     /// is presented afterwards, so the selection change's own dismissal has
     /// already run. `false` when there is no file, no editor, or no diagnostic.
     func goToProblem(_ direction: DiagnosticNavigationDirection) -> Bool {
         guard let textView, let fileURL,
-              let diagnostics = diagnosticsModel?.store.entry(for: fileURL)?.diagnostics,
+              let diagnostics = diagnosticsModel?.store.entry(for: fileURL)?.mapped,
               let target = DiagnosticNavigationRule.target(
                   diagnostics: diagnostics,
                   caret: textView.selectedRange().location,

@@ -117,9 +117,10 @@ extension ChromeColorRole {
     /// `SyntaxTheme.diagnosticColor(for:)` alone, so a chrome severity mark and
     /// the underline below it read from two tables on purpose.
     ///
-    /// This is the chrome's **one** answer, and two surfaces read it: the
-    /// gutter's severity dot (`LineNumberRulerView`) and the Problems panel's
-    /// header badges and row glyphs. Neither keeps a table of its own.
+    /// This is the chrome's **one** answer, and three surfaces read it: the
+    /// gutter's severity dot (`LineNumberRulerView`), the Problems panel's
+    /// header badges and row glyphs, and the project tree's severity dot. None
+    /// keeps a table of its own.
     ///
     /// The four answers are three status roles and one text role. *Information*
     /// takes `accent` — the chrome has exactly one blue, and a notice is the

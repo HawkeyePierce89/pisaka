@@ -945,7 +945,7 @@ struct PisakaApp: App {
                 },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
-                onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
+                onActivateProblem: { url, row in activateProblem(url: url, row: row) },
                 usages: usages,
                 onActivateUsage: { activateUsage($0) },
                 onFindUsages: { findUsages($0) },
@@ -982,6 +982,7 @@ struct PisakaApp: App {
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
                 onShowLocalHistory: { showLocalHistory(for: $0) },
+                onRefreshGitStatus: { refreshLocalChanges() },
                 isCommitDialogPresented: $isCommitDialogPresented,
                 onOpenCommitDialog: { openCommitDialog() },
                 onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
@@ -2456,7 +2457,8 @@ struct PisakaApp: App {
         // failure and a server shut down deliberately leaves no dead session for the
         // next request to count as a crash.
         let lspGenerationBefore = lspWorkspace.currentRequestGeneration
-        if lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore {
+        let serversRestart = lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore
+        if serversRestart {
             Task { @MainActor [lspDocumentSync, lspWorkspace, model] in
                 await lspWorkspace.shutdownAll()
                 // Diagnose the tabs this open just installed — *every* one of
@@ -2486,12 +2488,17 @@ struct PisakaApp: App {
         // next tab open/switch or settled keystroke re-syncs against whatever
         // serves the new root.
         //
-        // Only on a *switch*, like the LSP teardown just above: re-opening the
-        // folder already open leaves every tab in place, so no re-sync would
-        // follow — wiping the store there would blank all three surfaces with
-        // nothing to repopulate them until the next keystroke or tab switch.
-        if isSwitch {
-            diagnostics.prepareForFolderChange()
+        // Only on a *switch*, or when the LSP teardown just above runs anyway:
+        // re-opening the folder already open leaves every tab in place, so no
+        // re-sync would follow — wiping the store there would blank every
+        // surface with nothing to repopulate them until the next keystroke or
+        // tab switch. Re-opening it under another *spelling* (through a
+        // symlink, say) is not a switch to the model but is one to the
+        // workspace, which restarts its servers — clearing their sets and
+        // re-syncing every tab — so the model must take the new spelling too,
+        // or the tree's lookup would key its rows by the old one and mark none.
+        if isSwitch || serversRestart {
+            diagnostics.prepareForFolderChange(root: url)
             lspDocumentSync.reset()
         }
     }
@@ -3332,6 +3339,33 @@ struct PisakaApp: App {
         Task { await usages.find(request, root: root, request: generation) }
     }
 
+    /// Activate a Problems-panel row: open (or re-select) the file, then reveal
+    /// the range the row's target maps onto in the buffer the tab now holds.
+    ///
+    /// Shaped like `activateUsage(_:)` rather than routed through
+    /// `activateSearchMatch(url:range:)`, because a closed file's row carries
+    /// the server's position, not offsets — it only becomes a range against the
+    /// text the file just opened with, which Core's
+    /// `DiagnosticStore.Row.rangeToReveal(in:)` answers, clamped, so this never
+    /// beeps and never traps. A file that did not open (unreadable, gone)
+    /// leaves no tab and returns silently.
+    private func activateProblem(url: URL, row: DiagnosticStore.Row) {
+        openAndReveal(url: url) { row.rangeToReveal(in: $0) }
+    }
+
+    /// Open (or re-select) `url`, then reveal the range `range` answers against
+    /// the text the tab holds once it is open — the shared tail of the two
+    /// activations whose range depends on that text, a usages row and a
+    /// Problems row. No tab, or no range, reveals nothing and returns silently.
+    private func openAndReveal(url: URL, range: (NSString) -> NSRange?) {
+        openFile(url: url)
+        guard let id = model.fileID(forURL: url),
+              let text = model.openFiles.first(where: { $0.id == id })?.text,
+              let revealed = range(text as NSString)
+        else { return }
+        reveal.reveal(fileID: id, range: revealed)
+    }
+
     /// Open the file a usages row names and reveal the occurrence — when it is
     /// still there.
     ///
@@ -3385,14 +3419,7 @@ struct PisakaApp: App {
             viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
             return
         }
-        openFile(url: row.fileURL)
-        guard let id = model.fileID(forURL: row.fileURL),
-              let text = model.openFiles.first(where: { $0.id == id })?.text
-        else { return }
-        guard let range = row.revealRange(naming: usages.identifier, in: text as NSString) else {
-            return
-        }
-        reveal.reveal(fileID: id, range: range)
+        openAndReveal(url: row.fileURL) { row.revealRange(naming: usages.identifier, in: $0) }
     }
 
     /// Rename the symbol the editor resolved: ask, then write.
@@ -4264,6 +4291,7 @@ struct PisakaApp: App {
                     // so the next refresh can drop it: a buffer-sourced entry is
                     // exempt from that removal and would stay jumpable forever.
                     forgetIndexedBuffer(url)
+                    diagnostics.noteItemRemoved(at: url)
                 }
             }
         }
@@ -4777,6 +4805,7 @@ struct PisakaApp: App {
                 // being buffer-sourced, or the refresh can neither re-extract nor
                 // remove the file the branch switch took away.
                 forgetIndexedBuffer(url)
+                diagnostics.noteItemRemoved(at: url)
             }
         }
         if didPreserve { PlatformFeedback.warning() }
@@ -4952,6 +4981,7 @@ struct PisakaApp: App {
             model.close(id: id, force: true)
             // Resolved to the deleted side: same rule as the other resync paths.
             forgetIndexedBuffer(resolvedURL)
+            diagnostics.noteItemRemoved(at: resolvedURL)
         }
         return true
     }
@@ -5125,6 +5155,11 @@ struct PisakaApp: App {
             // removal — and the file would keep answering lookups under a name that
             // no longer exists, beside a second entry under the new one.
             retargetedURLs.forEach(forgetIndexedBuffer)
+            // A close keeps a file's diagnostics; a move is not a close — the old
+            // path is gone, so its entries (and those of every closed file under
+            // a moved folder) go with it rather than listing a file that is not
+            // there. The tabs' own spellings too, which a symlink may differ by.
+            ([source] + retargetedURLs).forEach(diagnostics.noteItemRemoved(at:))
             model.bumpTreeRevision()
             // The index still holds the entry filed under the old path; only the
             // refresh's removal pass drops it, and only this call reaches it.
@@ -5195,6 +5230,9 @@ struct PisakaApp: App {
             // exempt from the refresh's removal pass, so without this a deleted
             // file's symbols would stay jumpable for the rest of the session.
             affectedURLs.forEach(forgetIndexedBuffer)
+            // The move's reason: a deleted file's — or folder's — diagnostics
+            // describe nothing that exists any more, so they go now.
+            ([url] + affectedURLs).forEach(diagnostics.noteItemRemoved(at:))
             model.bumpTreeRevision()
             // Handing the entries back to disk is only half of it: what actually
             // drops the deleted files' symbols is the refresh's removal pass.
@@ -5386,7 +5424,8 @@ struct PisakaApp: App {
         // The sync controller rides the same guard: a closed tab's pending
         // debounced flush is cancelled, so nothing pushes a buffer no editor
         // holds. The server-side goodbye is the `didClose` below, which also
-        // emits the document clear (D33) the model routes into its store.
+        // emits the document clear (D33) — since D46 dropping only the
+        // document's sync bookkeeping in the model; the set stays.
         lspDocumentSync.noteBufferClosed(url: url)
         // ...and the model is told here rather than only through that clear,
         // because the workspace emits it solely for a URI it still holds: every
