@@ -264,15 +264,15 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `Tests/PisakaAppTests/TreeRevealRequestTests.swift`
 
-- [ ] Add `expands(anyOf:)` and `isUnreachable(belowChain:listing:)` to `TreeRevealRequest`, as specified.
-- [ ] A chain node expands once per token when any segment's reveal spelling is an ancestor. Its children's reveal spelling continues from the tail's. Its withdrawal check uses the chain variant against the tail's listing.
-- [ ] Tests, in the suite's existing style:
+- [x] Add `expands(anyOf:)` and `isUnreachable(belowChain:listing:)` to `TreeRevealRequest`, as specified.
+- [x] A chain node expands once per token when any segment's reveal spelling is an ancestor. Its children's reveal spelling continues from the tail's. Its withdrawal check uses the chain variant against the tail's listing.
+- [x] Tests, in the suite's existing style:
   - the request expands a chain named by any one segment (head, inner, tail), with and without a trailing slash;
   - the step below the tail is the next ancestor or the target;
   - a request whose target sits in an inner segment is unreachable;
   - a tail listing lacking the step is unreachable;
   - a tail listing spelled under a resolved parent still reaches the step.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 7.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 7. (Pinned Xcode 26.3 absent: the app-layer bundle ran under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`; 494 app tests, 7094 Core tests, 0 lint violations. The node asks `TreeNodeShape.revealURLs(underHead:)` for its segments; an inner segment whose step is not the next segment, or is the target, is unreachable.)
 
 ### Task 7: Hosted render — one row, one indent step
 

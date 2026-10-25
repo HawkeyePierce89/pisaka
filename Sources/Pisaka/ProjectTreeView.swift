@@ -341,6 +341,10 @@ private enum TreeSeparationChange {
 /// one listing name per level — never of its listed `url`, because a listing
 /// may spell its entries under a resolved parent (`/tmp` lists as
 /// `/private/tmp`) the request does not share.
+///
+/// A chain row stands for several folders, so it asks the chain variants: it
+/// expands when any segment is an ancestor, and its listing is its tail's,
+/// below which its children's reveal spelling continues.
 struct TreeRevealRequest: Equatable {
     let token: Int
     let target: URL
@@ -391,6 +395,28 @@ struct TreeRevealRequest: Equatable {
         guard let step = step(below: url) else { return false }
         let needsDirectory = Self.rowID(step) != Self.rowID(target)
         return !listing.contains { $0.name == step.lastPathComponent && $0.isDirectory == needsDirectory }
+    }
+
+    /// Whether the chain row whose segments are spelled `segments` (head first,
+    /// in reveal spelling) is one the request expands: any one segment naming
+    /// an ancestor is enough, since the row stands for all of them.
+    func expands(anyOf segments: [URL]) -> Bool {
+        segments.contains(where: expands)
+    }
+
+    /// `isUnreachable(below:listing:)` for a chain row: `listing` is the
+    /// **tail's**. An inner segment has no listing to ask — the chain itself
+    /// says that folder holds exactly the next segment, a directory — so a
+    /// request whose step below an inner segment is anything else (another
+    /// folder, or the target itself) can never continue and is unreachable.
+    /// Below the tail it is the plain check. A single segment is a plain folder.
+    func isUnreachable(belowChain segments: [URL], listing: [DirectoryEntry]) -> Bool {
+        guard let tail = segments.last else { return false }
+        for (inner, next) in zip(segments, segments.dropFirst()) {
+            guard let step = step(below: inner) else { continue }
+            if Self.rowID(step) != Self.rowID(next) || Self.rowID(step) == Self.rowID(target) { return true }
+        }
+        return isUnreachable(below: tail, listing: listing)
     }
 
     /// The scroll id a file row carries, so the tree can scroll to the target
@@ -605,6 +631,14 @@ private struct DirectoryNodeView: View {
     /// the tail for a chain — and the one a create writes into.
     private var contentsDirectory: URL { shape.contentsDirectory }
 
+    /// Every segment of this row as a reveal request spells it, head first
+    /// (`TreeNodeShape.revealURLs`); a plain folder's is its `revealURL` alone.
+    private var segmentRevealURLs: [URL] { shape.revealURLs(underHead: revealURL) }
+
+    /// The contents directory as a reveal request spells it — the tail's
+    /// reveal url, which every child's reveal spelling continues from.
+    private var contentsRevealURL: URL { segmentRevealURLs.last ?? revealURL }
+
     var body: some View {
         // Asked once per render, each of the head: the row stands for the
         // head's subtree, so its spoken state (and a plain folder's name
@@ -651,7 +685,7 @@ private struct DirectoryNodeView: View {
                     DirectoryNodeView(
                         model: model,
                         shape: childShape,
-                        revealURL: revealURL.appendingPathComponent(childShape.head.lastPathComponent),
+                        revealURL: contentsRevealURL.appendingPathComponent(childShape.head.lastPathComponent),
                         listingMemo: listingMemo,
                         separated: separated,
                         opensOnAppearance: opensOnAppearance,
@@ -947,10 +981,12 @@ private struct DirectoryNodeView: View {
         )
     }
 
-    /// Expand this node once for a reveal request naming it. Expansion goes
-    /// through the ordinary `onChange(of: isExpanded)` → `loadChildren()` path.
+    /// Expand this node once for a reveal request naming it — for a chain,
+    /// naming any one of its segments. Expansion goes through the ordinary
+    /// `onChange(of: isExpanded)` → `loadChildren()` path.
     private func expandIfRevealed() {
-        guard let reveal, reveal.token != honouredRevealToken, reveal.expands(revealURL) else { return }
+        guard let reveal, reveal.token != honouredRevealToken,
+              reveal.expands(anyOf: segmentRevealURLs) else { return }
         honouredRevealToken = reveal.token
         isExpanded = true
         // Already expanded with a listing in hand: no `loadChildren()` follows,
@@ -959,16 +995,18 @@ private struct DirectoryNodeView: View {
     }
 
     /// Withdraw the live reveal when this node's listing lacks the row it needs
-    /// here (`TreeRevealRequest.isUnreachable`).
+    /// here, or — for a chain — when the request turns off at an inner segment
+    /// (`TreeRevealRequest.isUnreachable(belowChain:listing:)`).
     private func withdrawRevealIfUnreachable() {
-        guard let reveal, let children, reveal.isUnreachable(below: revealURL, listing: children) else { return }
+        guard let reveal, let children,
+              reveal.isUnreachable(belowChain: segmentRevealURLs, listing: children) else { return }
         onRevealed(reveal.token, nil)
     }
 
     /// Tell the tree the reveal's target row is on screen. The row is matched
     /// in the request's spelling and scrolled to by its own scroll id.
     private func reportIfRevealed(_ entry: DirectoryEntry) {
-        guard let reveal, reveal.targets(revealURL.appendingPathComponent(entry.name)) else { return }
+        guard let reveal, reveal.targets(contentsRevealURL.appendingPathComponent(entry.name)) else { return }
         onRevealed(reveal.token, TreeRevealRequest.rowID(entry.url))
     }
 
@@ -1227,6 +1265,16 @@ private enum TreeNodeShape: Equatable {
         switch self {
         case .folder: return nil
         case .chain(let chain): return chain.renameSiblings
+        }
+    }
+
+    /// Each segment as a reveal request spells it, head first, under the head's
+    /// reveal url: that url alone for a folder, the chain's own spelling
+    /// (`TreeChain.revealURLs`) for a chain. The last is the tail's.
+    func revealURLs(underHead headRevealURL: URL) -> [URL] {
+        switch self {
+        case .folder: return [headRevealURL]
+        case .chain(let chain): return chain.revealURLs(underHeadRevealURL: headRevealURL)
         }
     }
 }
