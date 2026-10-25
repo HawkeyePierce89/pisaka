@@ -824,7 +824,9 @@ user sees it.
   their lines, and the server's next report (a fraction of a second after you
   pause) replaces the whole picture — including clearing everything on an
   all-clear. A closed file's findings show in the panel and the tree only — the
-  underline, the gutter and hover are for the open buffer — and a reopened file
+  underline, the gutter, hover and Next/Previous Problem are for the open buffer —
+  and deleting, renaming or moving a file or folder in the app drops the findings
+  listed under its old path; a reopened file
   gets its underlines back with the server's next report about it. Quitting or crashing a server
   clears everything it reported, and so does opening another folder.
   The project tree marks each file with a red dot when it has an error and a
@@ -835,8 +837,9 @@ user sees it.
   the open files this reaches depends on the server: gopls reports on the whole
   workspace (compiler diagnostics for every loaded package; its analyses may be
   limited to packages with open files); rust-analyzer reports on the whole
-  workspace from `cargo check` after a save, while its own native diagnostics
-  cover open files only; pyright is told to report on the whole workspace;
+  workspace from the `cargo check` it runs once the project has loaded (the app
+  does not tell it about saves, so that check is not re-run until the folder is
+  reopened), while its own native diagnostics cover open files only; pyright is told to report on the whole workspace;
   typescript-language-server, sourcekit-lsp and yaml-language-server report on
   open files only, so in those projects the closed-file rows are the files that
   have been open. Two limits: a closed file edited outside the app keeps its

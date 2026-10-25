@@ -665,10 +665,14 @@ final class DiagnosticsModelTests: XCTestCase {
             "no surviving record can admit a push for the closed document"
         )
 
-        // The hold is a first report's: the next record that lands at the
-        // document's (zero) revision admits it.
-        model.noteSynced(url: url, version: 1, revision: 0)
-        XCTAssertEqual(entry()?.mapped?.map(\.message), ["late"])
+        // Reopening the file replaces the buffer wholesale: the kept mapped set
+        // goes (its offsets describe the buffer being replaced) and so does the
+        // stale hold, so the reopened document's first record admits nothing
+        // from the closed one's life.
+        model.noteBufferReplaced(url: url)
+        XCTAssertNil(entry(), "the kept mapped set described the buffer being replaced")
+        model.noteSynced(url: url, version: 1, revision: model.currentRevision(for: url))
+        XCTAssertNil(entry(), "the closed document's late push is not admitted by the reopened one's record")
     }
 
     /// The close prune is reachable **without** a workspace event, because the
@@ -700,6 +704,29 @@ final class DiagnosticsModelTests: XCTestCase {
         // does fire) costs nothing.
         model.noteDocumentClosed(url: url)
         XCTAssertEqual(model.currentRevision(for: url), 0)
+    }
+
+    /// A removal is not a close: the app deleted or moved the file away, so
+    /// both kinds of entry at or under the old path go — a kept mapped set and
+    /// a closed file's positional one under a removed folder alike — while a
+    /// file elsewhere keeps its set.
+    func testARemovedItemTakesItsEntriesOfBothKinds() {
+        let closed = root.appendingPathComponent("Sources/App/closed.swift")
+        let elsewhere = root.appendingPathComponent("Other/kept.swift")
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "m")], version: 1))
+        model.noteDocumentClosed(url: url)
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "c")], url: closed))
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "e")], url: elsewhere))
+        XCTAssertNotNil(entry(), "closing kept the set")
+
+        model.noteItemRemoved(at: url)
+        XCTAssertNil(entry(), "the removed file's kept set")
+        XCTAssertNotNil(entry(closed))
+
+        model.noteItemRemoved(at: root.appendingPathComponent("Sources", isDirectory: true))
+        XCTAssertNil(entry(closed), "a closed file under the removed folder")
+        XCTAssertNotNil(entry(elsewhere))
     }
 
     // MARK: - The positional lane

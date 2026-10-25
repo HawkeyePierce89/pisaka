@@ -386,6 +386,19 @@ public final class DiagnosticsModel: ObservableObject {
         revisions[key] = nil
     }
 
+    /// The app removed or moved away the file or folder at `url` — a project-tree
+    /// delete, rename or move, or a git operation that deleted an open file —
+    /// so every entry at or under the old path goes, both kinds.
+    ///
+    /// A close keeps the set because the file is still there to have problems;
+    /// a removal is the case where it is not, and the app is the one that knows
+    /// it, so nothing waits for a server to report on a path that no longer
+    /// exists (D46). Bookkeeping is the close's business
+    /// (``noteDocumentClosed(url:)``), which the same call sites already reach.
+    public func noteItemRemoved(at url: URL) {
+        store.clear(under: url)
+    }
+
     /// The folder changed to `root`: record its two spellings for the tree's
     /// lookup, then clear everything — both kinds of entry — and
     /// invalidate every sync record, so no mapped push routed from an old

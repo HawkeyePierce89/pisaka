@@ -728,6 +728,28 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertNil(store.entry(for: utilURL))
     }
 
+    /// A removed file or folder takes every entry at or under its path, both
+    /// kinds, by whole component — a sibling whose name merely starts with the
+    /// removed one's keeps its entry.
+    func testTheRemovalClearTakesEveryEntryAtOrUnderThePath() {
+        var store = DiagnosticStore()
+        let sibling = URL(fileURLWithPath: "/tmp/pkg/Sources/AppExtra/x.swift")
+        let other = URL(fileURLWithPath: "/tmp/pkg/README.md")
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+        store.replace(url: utilURL, serverKey: goKey, positional: [positional(utilURL, line: 0)])
+        store.replace(url: sibling, serverKey: goKey, positional: [positional(sibling, line: 0)])
+        store.replace(url: other, serverKey: goKey, positional: [positional(other, line: 0)])
+
+        store.clear(under: URL(fileURLWithPath: "/tmp/pkg/Sources/App/main.swift"))
+        XCTAssertNil(store.entry(for: mainURL), "the file itself")
+        XCTAssertNotNil(store.entry(for: utilURL))
+
+        store.clear(under: URL(fileURLWithPath: "/tmp/pkg/Sources/App/", isDirectory: true))
+        XCTAssertNil(store.entry(for: utilURL), "a closed file under a removed folder")
+        XCTAssertNotNil(store.entry(for: sibling), "a name sharing the folder's prefix is not under it")
+        XCTAssertNotNil(store.entry(for: other))
+    }
+
     func testTheServerClearRemovesPositionalEntries() {
         var store = DiagnosticStore()
         store.replace(url: mainURL, serverKey: goKey, positional: [positional(line: 1)])

@@ -696,7 +696,7 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     error it might treat as fatal), `workspace/configuration` gets one value per
     requested item — this server's own section where its description names it, and
     `null`, "no setting", where it does not (D27) — and anything else gets
-    `MethodNotFound`. For the five servers whose description carries no
+    `MethodNotFound`. For the four servers whose description carries no
     configuration that is one `null` per item, byte-for-byte the answer this file
     gave before D27 existed. **Notifications are forwarded, never interpreted**
     (D29): since the diagnostics work, `handle(_:)`'s `.notification` case yields
@@ -769,8 +769,9 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     inside `initialize`, while `configuration` is a settings object **keyed by the
     section a server asks for** (`{"yaml": {…}}`) and answers the two channels a
     server may take settings on afterwards. `nil` for every server but the YAML
-    one, and `nil` is a statement rather than a default — it is what makes the
-    handshake of the other five byte-identical to what it was.
+    one and pyright (`core-provisioning.md`), and `nil` is a statement rather than
+    a default — it is what makes the handshake of the other four byte-identical to
+    what it was.
     `environment` is an **overlay and never a replacement** — the app merges it on
     top of the process environment rather than assigning it, so everything a server
     resolves out of `PATH`/`HOME`/`DEVELOPER_DIR` keeps working. It is empty for
@@ -2817,7 +2818,9 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `clearMapped(url:)` (a buffer replaced) removes the entry **only when it is
     mapped** — a positional entry never described a buffer, so a buffer's
     replacement cannot have made it stale;
-    `clear(serverKey:)` (D33's teardown clears) and
+    `clear(serverKey:)` (D33's teardown clears), `clear(under:)` (the app
+    removed or moved a file or folder away; every entry at or under the path, by
+    whole standardized component) and
     `clearAll()` (the folder changed) remove both kinds; and `apply(shift:to:)`
     installs a shifted set while keeping its provenance — onto a mapped entry
     only, since a shift is computed from offsets a positional entry does not
@@ -2940,7 +2943,10 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     sync record and the revision, and **keeps the set**, because the file's
     problems are still the file's problems and the panel and the tree keep
     listing them. With the record gone the document's positional lane opens, so
-    the server's next report about the closed file lands. A kept **mapped** set is
+    the server's next report about the closed file lands. `noteItemRemoved(at:)`
+    is the case a close is not — the app deleted, renamed or moved the file or a
+    folder above it — and clears every entry at or under the old path, both kinds,
+    leaving the bookkeeping to the close its call sites also reach (D46). A kept **mapped** set is
     dropped on reopen by `noteBufferReplaced`, its offsets describing a buffer
     that is being replaced, so the file shows nothing until the next push. The
     bookkeeping maps are then bounded by the open tabs rather than by every
@@ -3157,7 +3163,7 @@ edit.
 **D9 — The registry.** `LSPServerDescription` is
 `{ id, languages, launch, arguments, initializationOptions, configuration,
 environment }`, where `configuration` is the per-server settings object D27
-delivers (`nil` for all but the YAML server), `environment` is an overlay merged
+delivers (`nil` for all but the YAML server and pyright), `environment` is an overlay merged
 over the app's own (empty for all but gopls — D17) and `launch` is
 `.toolchainTool(name:)` (resolved by the app through `xcrun --find`, honouring
 `DEVELOPER_DIR`, cached per app run) or `.executable(path:)`. `LSPServerRegistry`
@@ -3594,7 +3600,9 @@ matches the preference for briefly missing over misplaced.
 and emitted on every teardown path — `noteDeath`, `shutdownAll`,
 `terminateNow`, `updateRegistry`'s removals, and both sites that retire a key into
 `unavailable` (a spent D7 budget, and a server disqualified for not speaking UTF-16,
-which never counts a failure at all) — plus per-document on `didClose(url:)`.
+which never counts a failure at all) — plus per-document on `didClose(url:)`,
+which since D46 drops only that document's bookkeeping (sync record, revision,
+hold) and keeps its set.
 Clearing is **at-least-once and idempotent**, never exactly-once: one crash can emit
 up to three clears for the same key (`noteDeath`, the fourth-failure retirement, and
 the consumer walking out of a finished stream), which is deliberate — every sink
@@ -3951,7 +3959,13 @@ lane** rather than dropped.
   reports on (a toolchain header, a vendored crate) off the panel and the tree at
   the source, so the panel needs no filter and never offers to open such a file.
   The straggler gate is the same as D31's: a push from an old project's server
-  after the folder change names the wrong root and is dropped.
+  after the folder change names the wrong root and is dropped. **The URL is
+  re-spelled under the root as it was opened** (the standardized spelling, from
+  the cached components), whichever spelling it matched: the store keys by
+  spelling and the tabs, the sync records and the tree speak the opened one, so a
+  server reporting through the resolved symlink would otherwise file a second
+  entry for the same file — never replaced by its mapped report, and slipping
+  past the model's open-buffer check under its other name.
 - **The model's half.** A positional report skips D32's gate and its hold, and
   replaces the entry wholesale under the same provenance. It is dropped only
   while a sync record exists for the document, because then a buffer is open and
@@ -3960,6 +3974,13 @@ lane** rather than dropped.
 - **Close keeps the set.** Closing the last tab drops the sync record, the
   revision and any hold, and no longer touches the store, so the file's problems
   stay listed after the close and its positional lane opens for the next report.
+- **A removal is not a close.** When the app itself deletes, renames or moves a
+  file or folder — the project tree's operations, or a git operation's resync
+  force-closing a tab whose file it deleted — `noteItemRemoved(at:)` clears every
+  entry at or under the old path, both kinds, by whole component. The app knows
+  the path no longer exists, so nothing waits for a server to report on it;
+  without this a deleted file would stay listed, and counted, under a path whose
+  row opens nothing.
 - **A replacement drops only a mapped entry.** `noteBufferReplaced(url:)` keeps a
   positional entry, which never described a buffer. Opening a file is a content
   replacement, so this is what keeps a closed file's record in the panel and the
@@ -3981,7 +4002,7 @@ expectation, not a contract this layer can enforce:
 | server | closed files |
 |---|---|
 | gopls | whole workspace (compiler diagnostics for every loaded package; analysis may be limited to packages with open files) |
-| rust-analyzer | whole workspace from `cargo check` on save; its own native diagnostics are open-files-only |
+| rust-analyzer | whole workspace from the `cargo check` it runs once the workspace has loaded; its own native diagnostics are open-files-only. Pisaka sends no `didSave` (D2), so the check is not re-run on a save |
 | pyright | whole workspace, through the setting (`core-provisioning.md`) |
 | typescript-language-server | open files only |
 | sourcekit-lsp | open files only |
@@ -3991,7 +4012,9 @@ expectation, not a contract this layer can enforce:
 `workspace/didChangeWatchedFiles`, so a closed file edited outside the app — in the
 terminal, by a checkout — keeps its mark until the server reports on it again,
 which happens only when that server watches the file system itself or re-checks on
-its own (rust-analyzer's `cargo check` on the next save). **Rejected:** a
+its own. rust-analyzer's `cargo check` does neither here: with no `didSave` sent
+(D2) it runs once, when the server starts, so its closed-file marks are as old as
+that start until the folder is reopened. **Rejected:** a
 positional entry for a held document. When a buffer is open its mapped lane is the
 only answerer, because two answers for one document would let a stale positional
 report overwrite a current mapped one.
@@ -4168,9 +4191,9 @@ report overwrite a current mapped one.
   re-syncs and repopulates.
 - **Diagnostics have no setting and no iOS surface.** Like hover (D25), they are
   either answered by a registered server or absent, and absence is expressed by
-  un-registration or consent, never by a second flag. The three surfaces —
-  squiggles, gutter markers, the Problems panel — are macOS-only; iOS has neither
-  servers nor a bottom dock.
+  un-registration or consent, never by a second flag. The four surfaces —
+  squiggles, gutter markers, the Problems panel and the project tree's severity
+  dot — are macOS-only; iOS has neither servers nor a bottom dock.
 - **A diagnostic's line number can disagree with the gutter by D1's amount** in a
   file delimited by NEL/LS/PS: the stored `line` counts LSP separators, the ruler
   numbers the editor's wider set. Nothing prints the two side by side without

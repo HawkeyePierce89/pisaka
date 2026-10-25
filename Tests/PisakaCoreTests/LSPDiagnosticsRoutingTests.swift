@@ -473,6 +473,42 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         )
     }
 
+    /// A project opened through a symlink: a server reporting a closed file
+    /// under the resolved folder is still under the root — the canonical
+    /// spelling cached at the folder change is what admits it — and the event
+    /// re-spells it under the folder as it was opened, the one spelling the
+    /// tabs, the sync records and the tree use, so one file never files two
+    /// entries.
+    func testAnUnheldPushSpelledThroughTheResolvedSymlinkArrivesUnderTheOpenedSpelling() async throws {
+        let fileManager = FileManager.default
+        let scratch = fileManager.temporaryDirectory
+            .appendingPathComponent("LSPDiagnosticsRoutingTests-\(UUID().uuidString)")
+        let real = scratch.appendingPathComponent("real")
+        try fileManager.createDirectory(at: real.appendingPathComponent("src"), withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: scratch) }
+        // On disk, so the open's own under-the-root check resolves it through
+        // the link rather than leaving a missing path unresolved.
+        try Data("a".utf8).write(to: real.appendingPathComponent("src/main.swift"))
+        let link = scratch.appendingPathComponent("link")
+        try fileManager.createSymbolicLink(at: link, withDestinationURL: real)
+        let resolved = CanonicalPath.canonical(link)
+        XCTAssertNotEqual(resolved.path, link.standardizedFileURL.path, "the fixture must spell the root two ways")
+
+        workspace.prepareForFolderChange(root: link)
+        _ = try await open(link.appendingPathComponent("src/main.swift"), text: "a")
+        try push(
+            to: harness.latest,
+            uri: LSPWorkspace.documentURI(for: resolved.appendingPathComponent("src/util.swift")),
+            version: nil,
+            [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "resolved")]
+        )
+        try await waitFor("the positional push") { !self.positionalEvents().isEmpty }
+
+        let opened = link.appendingPathComponent("src/util.swift").standardizedFileURL
+        XCTAssertEqual(positionalEvents().map { $0.url.standardizedFileURL }, [opened])
+        XCTAssertEqual(positionalEvents()[0].diagnostics.map { $0.fileURL.standardizedFileURL }, [opened])
+    }
+
     /// The folder switch's straggler shape on the second lane: between
     /// `prepareForFolderChange` and `shutdownAll()`, the old project's server
     /// is still filed and still pushing. A report from it — even one naming a

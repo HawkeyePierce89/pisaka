@@ -913,9 +913,10 @@ public final class LSPWorkspace {
         while let inFlight = flushes[uri] { _ = await inFlight.task.value }
 
         guard let state = documents.removeValue(forKey: uri) else { return }
-        // D33's per-document rule: the last tab on the file closed, and its set
-        // goes with it — emitted whether or not a session survives to be told
-        // (the editor's copy of the document is gone either way).
+        // D33's per-document rule, as D46 narrowed it: the last tab on the file
+        // closed, so the model drops the document's sync bookkeeping and keeps
+        // its set — emitted whether or not a session survives to be told (the
+        // editor's copy of the document is gone either way).
         onDiagnostics?(.cleared(.document(url: url)))
         guard let session = sessions[state.serverKey] else { return }
 
@@ -1512,15 +1513,24 @@ public final class LSPWorkspace {
               let currentRootKey,
               key.root == currentRootKey else { return }
         let components = url.standardizedFileURL.pathComponents
-        guard currentRootSpellings.contains(where: {
-            CanonicalPath.relativeComponents(of: components, under: $0) != nil
-        }) else { return }
+        guard let opened = currentRootSpellings.first,
+              let relative = currentRootSpellings.lazy.compactMap({
+                  CanonicalPath.relativeComponents(of: components, under: $0)
+              }).first
+        else { return }
         guard let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
+        // Re-spelled under the root as it was opened, whichever spelling the
+        // server used: the store keys by spelling, and the tabs, the sync
+        // records and the tree all speak the opened one. A report spelled
+        // through the resolved symlink would otherwise file a second entry for
+        // the same file — never replaced by the mapped lane, and slipping past
+        // the model's "a buffer is open" check under its other name.
+        let respelled = URL(fileURLWithPath: NSString.path(withComponents: opened + relative))
         onDiagnostics?(.positional(
-            url: url,
+            url: respelled,
             serverID: key.serverID,
             root: key.root,
-            diagnostics: push.diagnostics.map { PositionalDiagnostic.make(from: $0, url: url) }
+            diagnostics: push.diagnostics.map { PositionalDiagnostic.make(from: $0, url: respelled) }
         ))
     }
 

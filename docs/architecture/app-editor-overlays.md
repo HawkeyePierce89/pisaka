@@ -920,8 +920,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `ChromeColorRole.diagnosticRole(for:)`, Core's one answer, total over the
     closed severity set: `error` → `statusRed`, `warning` → `statusYellow`,
     `information` → `accent`, `hint` → `textSecondary`; clean lines draw nothing.
-    The ruler keeps no copy of it, and the Problems panel's header badges and row
-    glyphs are its second reader. Two of the four are not status roles, and
+    The ruler keeps no copy of it; the Problems panel's header badges and row
+    glyphs are its second reader and the project tree's severity dot its third. Two of the four are not status roles, and
     deliberately so: the chrome has exactly one blue — the accent — which is
     what a notice is drawn in, and a hint is a remark rather than a condition, so
     it takes the same tone as the line numbers beside it. The Core suite
@@ -1440,8 +1440,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the squiggle under the text must draw each severity identically wherever it
     is painted (the underline writer and the stroke in
     `BracketOverlayLayoutManager` are its two call sites, and its **only**
-    reader) and Core stays color-free by rule. The two other severity marks — the
-    gutter's dot and the Problems panel's badges and row glyphs — are chrome and
+    reader) and Core stays color-free by rule. The three other severity marks — the
+    gutter's dot, the Problems panel's badges and row glyphs and the project tree's
+    dot — are chrome and
     do not read this table at all: they read Core's one answer,
     `ChromeColorRole.diagnosticRole(for:)`, through the chrome palette, so the two
     tables are two on purpose and disagree outright (`core-theme.md`, rule

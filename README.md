@@ -12,7 +12,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   `sourcekit-lsp`, TypeScript/JavaScript, Python and YAML via servers the app
   offers to download once (checksum-pinned, removable in Preferences), Go via
   `gopls` and Rust via `rust-analyzer`. Errors and warnings appear as you
-  type — wavy underlines, gutter markers, a Problems panel — plus hover
+  type — wavy underlines, gutter markers, a project-wide Problems panel and
+  severity dots in the project tree — plus hover
   types, precise Go to Definition and project-wide **Rename** (Ctrl+Cmd+R);
   every language falls back to the built-in index silently, no alerts ever.
 - **Code intelligence with no setup at all** — a project-wide symbol index

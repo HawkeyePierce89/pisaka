@@ -83,8 +83,11 @@ struct ProblemsPanelView: View {
         if groups.isEmpty {
             placeholder("No problems")
         } else {
+            // Lazy: the list is the project's, not the open tabs', and a
+            // workspace-wide server can report thousands of rows, rebuilt on
+            // every keystroke's shift while the panel shows.
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(groups, id: \.url) { group in
                         fileGroup(group)
                     }

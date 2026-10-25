@@ -926,7 +926,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     they cannot stop agreeing; a file that did not open leaves no tab and the
     activation returns silently, never beeping and never trapping. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the
-    dock height does not jump when the last squiggle clears.
+    dock height does not jump when the last squiggle clears. The groups sit in a
+    `LazyVStack`: the list is the project's, a workspace-wide server can report
+    thousands of rows, and the store republishes on every keystroke's shift while
+    the panel shows, so only what is on screen is built.
     **On the chrome roles since part four (a)** (`core-theme.md`): the view and
     its row read `\.chromeTheme`. The header is a `panelHeaderHeight` strip
     inset by `panelHeaderPaddingX` that draws its own one-point `hairline` along

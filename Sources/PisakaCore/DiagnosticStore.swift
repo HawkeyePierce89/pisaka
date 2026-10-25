@@ -237,6 +237,22 @@ public struct DiagnosticStore: Equatable, Sendable {
         entries = entries.filter { $0.value.serverKey != serverKey }
     }
 
+    /// Forget every document at or under `url`, both kinds — the app removed
+    /// or moved that file or folder away, so whatever was known about the old
+    /// path describes a file that no longer exists there.
+    ///
+    /// Compared by whole standardized path component, lexically, like every
+    /// key here: a sibling whose name merely starts with the removed one's
+    /// survives.
+    public mutating func clear(under url: URL) {
+        let removed = url.standardizedFileURL.pathComponents
+        entries = entries.filter { key, _ in
+            let components = key.pathComponents
+            return components != removed
+                && CanonicalPath.relativeComponents(of: components, under: removed) == nil
+        }
+    }
+
     /// Forget everything — the folder changed; no answer survives the move.
     public mutating func clearAll() {
         entries.removeAll()
@@ -375,7 +391,7 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// breadcrumb's spelling of the same file.
     public func rows(relativeTo root: URL) -> [FileRows] {
         entries
-            .compactMap { url, entry -> (URL, [Row])? in
+            .compactMap { url, entry -> FileRows? in
                 let ordered: [Row]
                 switch entry.payload {
                 case .mapped(let diagnostics):
@@ -384,9 +400,6 @@ public struct DiagnosticStore: Equatable, Sendable {
                     ordered = PositionalDiagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
                 }
                 guard !ordered.isEmpty else { return nil }
-                return (url, ordered)
-            }
-            .map { url, ordered -> FileRows in
                 var seen = Set<Row>()
                 return FileRows(
                     url: url,

@@ -86,12 +86,20 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the project tree's Refresh re-reading git state,
+The most recent bump is removals clearing diagnostics, `file_length` 1976 →
+**1982** and `type_body_length` 1969 → **1975**: six lines in `PisakaApp`.
+`diagnostics.noteItemRemoved(at:)` after the tree's move and delete and after
+each of the three resyncs' deleted-file closes — a close keeps a file's
+diagnostics (D46), a removal must not leave them under a path that no longer
+exists — and the `serversRestart` flag that hands a folder re-opened under
+another spelling to the diagnostics model too (`app-shell.md`).
+
+The bump before it is the project tree's Refresh re-reading git state,
 `file_length` 1975 → **1976** and `type_body_length` 1968 → **1969**: one line
 in `PisakaApp`, the `onRefreshGitStatus` closure handed to `ContentView`, which
 calls the existing generation-pinned `refreshLocalChanges()` (`app-window.md`).
 
-The bump before it is the Problems panel's closed-file activation,
+The one before it is the Problems panel's closed-file activation,
 `file_length` 1971 → **1975** and `type_body_length` 1964 → **1968**: four
 lines net in `PisakaApp`. `activateProblem(url:row:)` opens the file and
 reveals the row's target mapped onto the buffer just opened, through an
