@@ -74,14 +74,14 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Create: `Sources/PisakaCore/TreeGitStatus.swift`
 - Create: `Tests/PisakaCoreTests/TreeGitStatusTests.swift`
 
-- [ ] Add the closed row-state enum, highest precedence first: conflict, modified, added, ignored, plain. Give it a spoken word for each non-plain state ("Conflicted", "Modified", "Added", "Ignored"). Add one pure function that composes a row's accessibility value: for a file, the state word or nothing; for a folder, the existing "expanded"/"collapsed" followed by the state word when there is one.
-- [ ] Add the lookup value (Equatable, Sendable, with an empty value that answers plain everywhere).
+- [x] Add the closed row-state enum, highest precedence first: conflict, modified, added, ignored, plain. Give it a spoken word for each non-plain state ("Conflicted", "Modified", "Added", "Ignored"). Add one pure function that composes a row's accessibility value: for a file, the state word or nothing; for a folder, the existing "expanded"/"collapsed" followed by the state word when there is one.
+- [x] Add the lookup value (Equatable, Sendable, with an empty value that answers plain everywhere).
   - It is built once from the snapshot, the repository root and the opened folder, in time linear in the records times their depth.
   - Change-state mapping: unmerged → conflict; modified, renamed (new path) and deleted → modified; added (copies included) and untracked → added.
   - Each recorded path and every one of its ancestors, up to and including the repository root's empty key, keeps the highest change state seen.
   - Ignored paths go into a set.
-- [ ] The query takes a row URL as the tree holds it. It converts the URL lexically to a repo-relative key against the root spellings resolved at build (see Decisions), reads the change table first, then checks the key and its ancestors against the ignored set, and otherwise answers plain. A URL outside every spelling answers plain. Expose the probe count through an internal seam so a test can pin the cost bound.
-- [ ] Tests, one per rule:
+- [x] The query takes a row URL as the tree holds it. It converts the URL lexically to a repo-relative key against the root spellings resolved at build (see Decisions), reads the change table first, then checks the key and its ancestors against the ignored set, and otherwise answers plain. A URL outside every spelling answers plain. Expose the probe count through an internal seam so a test can pin the cost bound.
+- [x] Tests, one per rule:
   - A file takes its own state.
   - A rename colours the new path, and the old path contributes nothing.
   - A deletion counts for its ancestors as modified, never conflict.
@@ -96,7 +96,7 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
   - A symlinked spelling of the opened folder matches through its canonical spelling.
   - The probe count stays at most the row's depth plus one, whether the lookup holds 10 records or 10,000.
   - The accessibility composition gives the right value for both row kinds.
-- [ ] Run `swift test`. It must pass before Task 3.
+- [x] Run `swift test`. It must pass before Task 3.
 
 ### Task 3: The state-to-role mapping, and gating it as Core's one answer (rule fifty-one)
 
