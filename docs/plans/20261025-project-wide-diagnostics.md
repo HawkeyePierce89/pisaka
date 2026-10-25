@@ -453,17 +453,17 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Sources/PisakaCore/LSPProvisioningManifest.swift`
 - Modify: `Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift`
 
-- [ ] `.python`'s configuration becomes
+- [x] `.python`'s configuration becomes
   `{"python": {"analysis": {"diagnosticMode": "workspace", "autoSearchPaths": true}}}`.
   The doc comment records the bundle facts from Decisions: no pull because the
   capability is advertised false, the nested read of the pushed payload, and why
   `autoSearchPaths` is stated. TypeScript stays `nil`, and the YAML value is unchanged.
-- [ ] Rename and rewrite the pyright description test so it pins that exact value:
+- [x] Rename and rewrite the pyright description test so it pins that exact value:
   - TypeScript's configuration is still `nil`; YAML's tests are unchanged;
   - the sourcekit-lsp, gopls and rust-analyzer descriptions still carry no
     configuration (add an assertion if none exists);
   - `LSPProvisioningModelTests` stays green.
-- [ ] Run `swift test`. It must pass before Task 8.
+- [x] Run `swift test`. It must pass before Task 8. (7049 tests, 0 failures; gopls' and rust-analyzer's nil configuration is pinned in their provisioning tests, where those descriptions are built.)
 
 ### Task 8: Painting the dot in the tree; Refresh; the comment fix
 

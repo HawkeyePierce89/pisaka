@@ -60,7 +60,7 @@ public struct LSPServerDescription: Equatable, Hashable, Sendable, Identifiable 
     /// out of it, section by section).
     ///
     /// `nil` for every server that needs none, which is all of them but the YAML
-    /// one — and `nil` is not merely a default here but the statement that the
+    /// one and pyright — and `nil` is not merely a default here but the statement that the
     /// handshake is byte-for-byte what it was: no notification is sent and every
     /// pulled section is still answered `null`.
     public let configuration: JSONValue?

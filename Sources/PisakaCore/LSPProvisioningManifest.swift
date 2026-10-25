@@ -764,8 +764,30 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// the section it asks for — `LSPServerDescription.configuration`, carried
     /// onto the description below and delivered by `LSPSession`.
     ///
-    /// `nil` for every server but the YAML one, which is the statement that their
-    /// handshakes are byte-for-byte what they were.
+    /// `nil` for the TypeScript server, which is the statement that its handshake
+    /// is byte-for-byte what it was.
+    ///
+    /// **pyright is told to report on the workspace**, so a Python file no tab
+    /// holds reaches the Problems panel and the project tree the way gopls' and
+    /// rust-analyzer's do unasked. These are facts about the pinned 1.1.411 bundle:
+    ///
+    /// - It never pulls: `workspace.configuration` is advertised `false`, and
+    ///   pyright honours that. So the value reaches it only as the
+    ///   `workspace/didChangeConfiguration` payload `LSPSession` pushes after
+    ///   `initialized`.
+    /// - It stores that payload and reads `python.analysis` out of it by dotted
+    ///   path — as **nested objects**, which is why the value below nests rather
+    ///   than spelling a `"python.analysis"` key.
+    /// - **`autoSearchPaths` is stated, not a preference.** Once an analysis
+    ///   section is present at all, pyright sets `autoSearchPaths` to the
+    ///   section's value — `false` when the key is absent — while with no section
+    ///   it defaults to `true`. Naming `diagnosticMode` alone would therefore turn
+    ///   off the `src`-layout import resolution every project has today. Every
+    ///   other key pyright reads from that section falls back to the same value
+    ///   either way, so the handshake changes nothing but the one setting.
+    ///
+    /// The per-section pull answer, should a later pin start pulling, is built
+    /// from the same object (section `python`), as the session already does.
     ///
     /// The YAML server pulls `workspace/configuration` for `yaml`, `http`,
     /// `[yaml]`, `editor` and `files` on `initialized`, **unconditionally** —
@@ -797,7 +819,16 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// `HTTP_PROXY` when it is empty, and a proxy is the user's environment to set.
     public var configuration: JSONValue? {
         switch self {
-        case .typescript, .python: return nil
+        case .typescript: return nil
+        case .python:
+            return .object([
+                "python": .object([
+                    "analysis": .object([
+                        "diagnosticMode": .string("workspace"),
+                        "autoSearchPaths": .bool(true),
+                    ]),
+                ]),
+            ])
         case .yaml:
             return .object([
                 "yaml": .object([

@@ -341,6 +341,10 @@ final class LSPRustProvisioningTests: XCTestCase {
             ["PATH": ScriptedRustDiscovery.searchPath],
             "rust-analyzer was registered without the PATH its `cargo` is on"
         )
+        XCTAssertNil(
+            harness.model.descriptions.first?.configuration,
+            "rust-analyzer reports on the workspace unasked; it takes no settings from this layer"
+        )
         XCTAssertEqual(harness.pushes.count, 1)
 
         // And nothing is downloaded for it, whatever the consent says.

@@ -638,7 +638,14 @@ final class LSPProvisioningManifestTests: XCTestCase {
         )
     }
 
-    func testThePythonEntryRunsNodeOnPyrightAndConfiguresNothing() throws {
+    /// pyright is told to report on the workspace, and told nothing else.
+    ///
+    /// The value nests because the pinned 1.1.411 bundle reads `python.analysis`
+    /// out of the pushed payload by dotted path. `autoSearchPaths` is in it because
+    /// pyright sets that key to the section's value — `false` when absent — as soon
+    /// as an analysis section exists at all, while with no section it defaults to
+    /// `true`; stating it keeps import resolution what it was.
+    func testThePythonEntryRunsNodeOnPyrightAndAsksForWorkspaceDiagnostics() throws {
         let description = try XCTUnwrap(LSPDownloadableServer.python.serverDescription(manifest: manifest, layout: layout))
         let base = "/tmp/pisaka-servers"
 
@@ -650,10 +657,38 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "--stdio",
         ])
         XCTAssertNil(description.initializationOptions)
-        XCTAssertNil(
+        XCTAssertEqual(
             description.configuration,
-            "pyright takes no settings from this layer; its handshake is what it was"
+            .object([
+                "python": .object([
+                    "analysis": .object([
+                        "diagnosticMode": .string("workspace"),
+                        "autoSearchPaths": .bool(true),
+                    ]),
+                ]),
+            ]),
+            """
+            pyright reads the pushed payload's `python.analysis` as nested objects; without \
+            `autoSearchPaths` the section's presence alone would turn it off
+            """
         )
+        XCTAssertEqual(
+            description.configuration?["python"]?["analysis"]?["diagnosticMode"],
+            .string("workspace"),
+            "without it pyright reports only on the documents a tab holds"
+        )
+        XCTAssertNil(LSPDownloadableServer.python.tsserverSubpath)
+    }
+
+    /// The servers this layer does not configure keep a handshake that is
+    /// byte-for-byte what it was: no `workspace/didChangeConfiguration` is sent.
+    /// gopls' and rust-analyzer's descriptions are pinned the same way where
+    /// their provisioning models build them.
+    func testServersThatReportUnaskedOrNeedNothingCarryNoConfiguration() throws {
+        let typescript = try XCTUnwrap(LSPDownloadableServer.typescript.serverDescription(manifest: manifest, layout: layout))
+        XCTAssertNil(typescript.configuration)
+        XCTAssertNil(LSPDownloadableServer.typescript.configuration)
+        XCTAssertNil(LSPServerDescription.sourcekitLSP.configuration)
     }
 
     /// Every entry point and executable a description names has to be inside the
