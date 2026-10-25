@@ -4010,7 +4010,8 @@ lane** rather than dropped.
   replacement, so this is what keeps a closed file's record in the panel and the
   tree until the first mapped report replaces it. A **mapped** set kept from a
   closed tab is dropped on reopen (`noteDocumentShown(url:)`, called on every tab
-  switch and acting only on a mapped entry with no sync record): its offsets
+  switch and on every freshly built editor, acting only on a mapped entry with no
+  sync record): its offsets
   describe a buffer that is gone, and the file shows nothing until the next push.
 - **Editor surfaces see mapped entries only, by type.** The payload is an enum and
   every editor-facing reader — squiggles, gutter, hover, the edit shift, *Next /

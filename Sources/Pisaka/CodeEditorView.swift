@@ -564,6 +564,16 @@ struct CodeEditorView: NSViewRepresentable {
         // through the second.
         context.coordinator.syncFolds(text: text, immediate: true)
         context.coordinator.syncFoldInputs(alreadyAsked: true)
+        // A freshly built editor is a first showing too — the last tab closed
+        // (or a viewer tab was selected) tore the previous one down, so a
+        // reopened file arrives here rather than through `updateNSView`'s
+        // plain-switch branch. Drop the mapped set its closed predecessor left
+        // behind before the seed below paints it (D46); the sync the reindex
+        // above scheduled has not landed a record yet, which is what lets the
+        // model tell that set apart.
+        if let fileURL {
+            context.coordinator.diagnosticsModel?.noteDocumentShown(url: fileURL)
+        }
         // Seed the underlines from whatever the store already holds (a fresh
         // sync has nothing yet, so this is usually a no-op).
         context.coordinator.refreshDiagnosticOverlays()

@@ -1000,7 +1000,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     calls `settleDiagnosticsForSwap(of:survives:)` → `noteDocumentShown(url:)`, because
     a **reopened** file's first showing reads as one: that drops only a mapped
     set with no sync record — one a closed tab left behind (D46) — and leaves a
-    switched-back tab's set alone. The URL is handed in —
+    switched-back tab's set alone. `makeNSView` makes the same call before its
+    seeding `refreshDiagnosticOverlays()`, because a reopened file also arrives
+    in a *freshly built* editor whenever the last tab's close (or a viewer tab's
+    selection) tore the previous one down. The URL is handed in —
     the view's `fileURL`, i.e. the *incoming* file on a switch — because the
     coordinator's recorded URL still names the outgoing one there, and clearing
     it would destroy the innocent bystander's set while leaving the rewritten
