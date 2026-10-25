@@ -95,8 +95,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 `docs/architecture/core-intelligence.md` — code intelligence (index, definition, completion):
   `Symbol.swift`, `FuzzyMatch.swift`, `SymbolIndex.swift`, `ProjectFileWalk.swift`, `SymbolIndexModel.swift`, `IdentifierScanner.swift`, `CompletionPopup.swift`, `LanguageKeywords.swift`, `CodeIntelligence.swift`, `SymbolIntelligenceProvider.swift`, `SyntaxContextVocabulary.swift`, `SyntaxContextScanner.swift`, `UsageResult.swift`, `TextualUsageScanner.swift`, `FindUsagesModel.swift`
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D45:
-  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `DocumentHighlight.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`, `DiagnosticNavigationRule.swift`
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D46:
+  `LSPMessage.swift`, `LSPFraming.swift`, `LSPProtocolTypes.swift`, `LSPPositionMap.swift`, `LSPTransport.swift`, `LSPWriteBudget.swift`, `LSPSession.swift`, `LSPServerDescription.swift`, `LSPWorkspace.swift`, `CompletionEditPlan.swift`, `RenameEditPlan.swift`, `HoverContent.swift`, `DocumentHighlight.swift`, `LSPIntelligenceProvider.swift`, `RoutingIntelligenceProvider.swift`, `CompletionNarrowingRule.swift`, `LSPServerFailureRecord.swift`, `LSPGoToolchain.swift`, `LSPGoplsProvisioning.swift`, `LSPRustToolchain.swift`, `LSPRustProvisioning.swift`, `Diagnostic.swift`, `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`, `DiagnosticNavigationRule.swift`, `TreeDiagnostics.swift`
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
   `SHA256.swift`, `LSPProvisioningManifest.swift`, `LSPInstallLayout.swift`, `LSPInstallEngine.swift`, `LSPProvisioning.swift`
@@ -217,12 +217,15 @@ because nothing else states them.
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
   behind a background walk. The project tree likewise reads git state only from
-  `LocalChangesModel`'s published lookup, raising no writer gate and blocked by none.
-- **Language servers** (`core-lsp.md`, D1–D10 + D17–D45): one server per `(server, root)`, started
+  `LocalChangesModel`'s published lookup, and diagnostics only from
+  `DiagnosticsModel`'s published `TreeDiagnostics` lookup, raising no writer gate and
+  blocked by none.
+- **Language servers** (`core-lsp.md`, D1–D10 + D17–D46): one server per `(server, root)`, started
   lazily and never twice; registration is dynamic, and un-registering one shuts its process
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
-  open/switch. Fallback to tree-sitter is per request and **silent, with no alert ever**, and
+  open/switch. Reports about files no tab holds land positionally (D46) and are shown by the
+  Problems panel and the project tree, never by the editor surfaces. Fallback to tree-sitter is per request and **silent, with no alert ever**, and
   four failures mark that `(server, root)` unavailable for the app run. A **reader**;
   `Process` lives only in `Sources/Pisaka` behind `LSPTransport`, which a gating suite
   asserts. **Three questions are exceptions to the silent fallback**: hover and rename have no

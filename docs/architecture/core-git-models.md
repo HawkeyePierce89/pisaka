@@ -213,8 +213,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the save, watcher, gated-operation, commit and folder-switch refreshes all
     carry it. The snapshot's ignored paths reach this value and nothing else —
     never `changedFiles`, so never the panel, the commit dialog or a revert.
-    `projectPrefix(folder:repositoryRoot:)` is `nonisolated` for the lookup's
-    sake, being pure. Tests (`LocalChangesModelTests`, the stub serving an
+    `projectPrefix(folder:repositoryRoot:)` is pure, and `TreeGitStatus` builds
+    its keys through it **on the main actor**, inside this model's refresh; it is
+    `nonisolated` only because that lookup's initialiser is non-isolated code,
+    which may not call a main-actor method. Tests (`LocalChangesModelTests`, the stub serving an
     ignored list through the snapshot seam and reusing its gated
     `changedFiles`): a refresh publishes the lookup; ignored paths never reach
     `changedFiles`; a superseded refresh, staged with the gate, does not
@@ -670,9 +672,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     deletion counts as `modified` for the folders it vanished from, never as
     `conflict`. `spokenName` is "Conflicted" / "Modified" / "Added" / "Ignored",
     `nil` for `plain`, which has nothing to say; the pure
-    `accessibilityValue(state:row:)` composes a row's value — a file's word or
-    `""`, a folder's "expanded" / "collapsed" followed by `", "` and the word when
-    there is one — so both row kinds speak the state alike. The colour is a
+    `accessibilityValue(state:mark:row:)` composes a row's value from the git
+    state's word and the diagnostic mark's words (`TreeDiagnosticMark`, "has
+    errors" / "has warnings", `core-lsp.md`), joined by `", "` — a file's words
+    that exist, or `""` when neither does; a folder's "expanded" / "collapsed"
+    first, then each word that exists — so both row kinds speak the state alike.
+    The mark parameter is non-defaulted, so no call site can forget it. The colour is a
     separate Core answer, `ChromeColorRole.treeNameRole(for:)` (`core-theme.md`).
     **`TreeGitStatus`** (`Equatable`, `Sendable`; `.empty` answers `plain`
     everywhere — outside a repository, before the first refresh and after a

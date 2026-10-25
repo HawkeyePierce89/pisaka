@@ -32,7 +32,9 @@ user sees it.
   so Swift, JS/TS, JSON, Markdown, images, archives, and other common types are
   recognizable at a glance. On macOS, inside a git repository, each name is
   coloured by its git state (conflicted red, modified yellow, added green,
-  gitignored dimmed; a folder takes the strongest change below it), and every
+  gitignored dimmed; a folder takes the strongest change below it), a file or
+  folder with an error or a warning at or below it carries a small red or yellow
+  dot on its glyph (see Diagnostics), and every
   expanded folder draws a hairline indent guide beside its children.
   Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
@@ -90,7 +92,9 @@ user sees it.
   writes only inside `.git`) is ignored, so the tree does not flicker. A Refresh
   button in the tree header is the manual counterpart — the watcher is the
   automatic path, the button is for when you want it right now (or on a network
-  volume, where the watcher may not fire).
+  volume, where the watcher may not fire). It re-reads the folder listings and
+  re-asks git, so after a `git commit` in a terminal the names' colours catch up
+  on the next press.
 - **Move an entry by dragging it** (macOS). Every row except the project root can
   be dragged, and every *folder* row is a drop target — the project root row
   included, which is how something is moved back to the top level. A file row is
@@ -799,24 +803,48 @@ user sees it.
   so even when the span is punctuation rather than an identifier — or with no
   type answer at all beneath it.
 - **Diagnostics** (macOS): with a language server running, its errors and warnings
-  appear in three places while you work — a wavy underline under the offending
-  code, a small severity dot in the gutter beside each affected line, and a
-  **Problems** panel in the bottom dock listing every open file's findings. The
+  appear while you work — a wavy underline under the offending
+  code, a small severity dot in the gutter beside each affected line, a
+  **Problems** panel in the bottom dock listing the project's findings, and a
+  severity dot on the project tree's rows. The
   panel toggles with "Show/Hide Problems" in the View menu, the ⚠ button on the
   bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Log,
   Local Changes, Usages and Pull Requests. Its header counts errors and warnings across all files; rows
   are grouped by file (path relative to the opened folder) showing severity icon,
   message and line number, ordered top-to-bottom through each file with the most
-  serious finding first where several share a position. Clicking a row opens (or
-  re-selects) that file and reveals the exact range — the same path Find in Files
-  and Go to Definition use — and resting the pointer on an underlined span shows
+  serious finding first where several share a position. The list covers **closed
+  files too**: what a server reports about a file no tab holds is listed with the
+  server's own line numbers, and closing a file keeps its rows. Clicking a row
+  opens (or re-selects) that file and reveals the range — for a closed file, the
+  server's position mapped onto the file as it opens, so a position past the end
+  lands at the end — and resting the pointer on an underlined span shows
   its message in the hover popover ("error: …"), above the type answer when there
   is one. Everything tracks your typing: fixing the flagged code removes its
   underline on the first keystroke while findings elsewhere stay anchored to
   their lines, and the server's next report (a fraction of a second after you
   pause) replaces the whole picture — including clearing everything on an
-  all-clear. Closing a file drops its rows; quitting or crashing a server clears
-  everything it reported. Because the reports arrive unasked, opening a file of a
+  all-clear. A closed file's findings show in the panel and the tree only — the
+  underline, the gutter and hover are for the open buffer — and a reopened file
+  gets its underlines back with the server's next report about it. Quitting or crashing a server
+  clears everything it reported, and so does opening another folder.
+  The project tree marks each file with a red dot when it has an error and a
+  yellow one when its worst finding is a warning (information and hints mark
+  nothing), and each folder with the worst mark below it, collapsed or not; the
+  dot sits on the row's glyph and grows with the interface zoom, and VoiceOver
+  reads "has errors" or "has warnings" after the row's git state. How far beyond
+  the open files this reaches depends on the server: gopls reports on the whole
+  workspace (compiler diagnostics for every loaded package; its analyses may be
+  limited to packages with open files); rust-analyzer reports on the whole
+  workspace from `cargo check` after a save, while its own native diagnostics
+  cover open files only; pyright is told to report on the whole workspace;
+  typescript-language-server, sourcekit-lsp and yaml-language-server report on
+  open files only, so in those projects the closed-file rows are the files that
+  have been open. Two limits: a closed file edited outside the app keeps its
+  mark until its server reports on it again (the app sends servers no
+  file-change notice), and a project whose own pyright configuration lists an
+  `exclude` loses pyright's built-in excludes — which otherwise skip virtual
+  environments, `node_modules`, `__pycache__` and dot-directories — so an
+  environment directory that list does not name is analysed and reported too. Because the reports arrive unasked, opening a file of a
   served language is itself what starts its server (where available or consented)
   — before diagnostics existed, a server started only when you asked for
   completion, Go to Definition or hover. Diagnostics need a server: files of languages without
@@ -1914,8 +1942,8 @@ and iPhone. The feature scope landed so far:
   tree's own create, rename, move and delete. A change made only inside `.git`
   from outside the app (a `git add` or `git commit` in a terminal, an edit to
   `.git/info/exclude` or the global excludes file) is not seen until the next
-  such refresh; the tree header's Refresh button re-reads the folder listings
-  only, while the Local Changes panel's refresh re-asks git.
+  such refresh, or until the tree header's Refresh button, which re-reads the
+  folder listings and re-asks git.
 - The project tree supports create, rename, and delete (via a row context menu)
   and, on macOS, a move by drag and drop. That drag is intra-tree only — its
   payload carries a private type identifier, so nothing can be dragged to or from

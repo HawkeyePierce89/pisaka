@@ -892,7 +892,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`core-theme.md`, rule ten's second half). The slots are separated by
     `hairline` rules the component draws; the file spells no `Divider()`.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
-    language servers currently hold, grouped by file. It observes `DiagnosticsModel`
+    language servers currently report about the project, grouped by file —
+    open files' mapped sets and **closed files' positional ones** alike
+    (`core-lsp.md`, D46), so it is the project's list rather than the open tabs'. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)
     and holds no domain logic: a header carries the error/warning counts from
     `model.counts` (information/hint deliberately absent — "how much is broken",
@@ -900,7 +902,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     as just "Problems"), below it one group per diagnosed file in
     `store.rows(relativeTo:)`'s stable order — file icon, relative path components,
     then rows of severity icon, message (two-line limited) and a one-based line
-    number. Rows key their `ForEach` by rendered content (`Row`'s `Hashable`), so
+    number (a closed file's row shows the server's start line plus one). Rows key their `ForEach` by rendered content (`Row`'s `Hashable`), so
     an insertion above must not shift identity onto another message — sound only
     because `rows(relativeTo:)` collapses byte-identical rows first, which is why
     two diagnostics differing in nothing the panel shows list once. The one-based
@@ -911,11 +913,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     same answer the gutter's severity dot reads — while the squiggle under the
     text is the code zone and reads `SyntaxTheme.diagnosticColor(for:)`; this file
     names no `SyntaxTheme` at all (`core-theme.md`, rule fifteen). Every size
-    runs through `\.interfaceMetrics` like its sibling panels. Activating a row calls back with `(url, range)`; the app wires that
-    straight to `activateSearchMatch(url:range:)` (`app-shell.md`), which already
-    opens-or-reselects the tab and reveals the range for Find in Files and Go to
-    Definition — the panel is that entry point's third caller, and inventing a
-    second open-and-reveal path for it would be how the two stop agreeing. An empty
+    runs through `\.interfaceMetrics` like its sibling panels. Activating a row
+    calls back with `(url, row)` — the whole `DiagnosticStore.Row`, not a range,
+    because a closed file's row carries the server's position, which only becomes
+    a range once the file is open. The app wires it to
+    `PisakaApp.activateProblem(url:row:)` (`app-shell.md`), shaped like
+    `activateUsage`: `openFile(url:)` opens or re-selects the tab, the opened
+    tab's text goes to Core's `Row.rangeToReveal(in:)` — the server's position
+    mapped onto the buffer just opened, clamped, or the mapped offsets clamped
+    into its length — and `reveal.reveal(fileID:range:)` lands the caret. The two
+    activations share one open-and-reveal tail, `openAndReveal(url:range:)`, so
+    they cannot stop agreeing; a file that did not open leaves no tab and the
+    activation returns silently, never beeping and never trapping. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the
     dock height does not jump when the last squiggle clears.
     **On the chrome roles since part four (a)** (`core-theme.md`): the view and
@@ -1350,7 +1359,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.help("Refresh project tree")`) whose action is
     `model.bumpTreeRevision()` — called *directly*, not through a callback
     threaded from `PisakaApp`, since this view already observes the model
-    and the bump needs no disk I/O. The header is absent from the
+    and the bump needs no disk I/O — **followed by `onRefreshGitStatus()`**, the
+    one callback it does take: the names' git colours are the other half of what
+    the button promises, and a git refresh is the app's to run. `ContentView`
+    threads it through and `PisakaApp` wires it to `refreshLocalChanges()`, which
+    pins its request generation synchronously, so a refresh superseded by a later
+    one publishes nothing; the default is a no-op so previews and tests construct
+    the view without the wiring. The header is absent from the
     `projectRoot == nil` placeholder so its whole pane stays the open-folder
     click target. So `treeRevision` — the single re-read trigger
     `DirectoryNodeView` observes — now has three sources: the app's own
@@ -1551,13 +1566,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
-    Core's `TreeGitState.accessibilityValue(state:row:)` — the expansion word,
-    then `", "` and the state's word when there is one (still `""` while a
+    Core's `TreeGitState.accessibilityValue(state:mark:row:)` — the expansion word,
+    then the state's word and the diagnostic mark's words, each when there is one,
+    joined by `", "` (still `""` while a
     rename draft is open); a file row becomes **one combined element** carrying
-    the state's word as its value, `""` when plain, and stays `.contain` while
+    those words as its value, `""` when plain and clean, and stays `.contain` while
     its rename draft is open, mirroring the folder row, so the field stays
-    reachable as itself. **The tree only reads git state**: no trigger, no
-    timer, no git call and no writer-gate interaction of its own — it redraws
+    reachable as itself. **The tree only reads git state**: no timer, no git
+    call and no writer-gate interaction of its own; its one trigger is the
+    Refresh button's `onRefreshGitStatus`, which asks the app — it redraws
     when the model publishes a new lookup, which every existing refresh does —
     the tree's own file operations included, which re-ask git themselves
     because the watcher drops this process's writes (`app-shell.md`).
@@ -1568,6 +1585,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     their names in `statusYellow`, an ignored file's in `textSecondary`, the
     glyph unchanged, and a plain row pixel-identical to the tree without git
     state.
+  - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
+    folder has an error or a warning at or below it carries a **6 pt dot** in
+    its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`
+    (`core-lsp.md`): `ProjectTreeView` takes it as a value, `diagnostics`,
+    **`.empty` by default**, beside `gitStatus` and for its reasons, and passes it
+    down the recursion the same way. Each folder and file row asks it **once per
+    render**, lexically, and the dot and the row's spoken words are drawn from
+    that one answer. The dot is the file-scope `treeDiagnosticDot(_:diameter:
+    resolving:)`: an `.overlay(alignment: .bottomTrailing)` on the glyph — so the
+    glyph's slot, and with it every name's alignment, is untouched — holding a
+    `Circle` `metrics.scaled(TreeRowLayout.diagnosticDotSize)` across (the new
+    `TreeRowLayout` token, 6, under half the 14 pt slot so the glyph still reads),
+    filled with `theme.color(ChromeColorRole.diagnosticRole(for: severity))` and
+    hidden from accessibility; with no severity the overlay is empty and the row
+    draws exactly as before. The severity is the mark's `severity`, handed
+    straight to Core's mapping, so the tree spells **no severity case label**
+    (chrome gating rule fifteen, which now names the tree as the role's third
+    reader, `core-theme.md`); there is no arithmetic on the token and no opacity.
+    The name colour, background, indent guide and glyph tone are untouched, and
+    the draft-hosting row keeps its glyph and therefore its dot. A folder's dot
+    stands for everything beneath it, expanded or not — a collapsed folder is
+    exactly where a closed file's problem needs pointing at. **Accessibility**:
+    the mark's words ("has errors", "has warnings") follow the git word in the
+    row's value, through the same Core composition above; headless SwiftUI builds
+    no accessibility nodes, so that composition is tested in Core
+    (`TreeGitStatusTests`). **Publishing without re-rendering per keystroke**:
+    `ContentView` still observes nothing of `DiagnosticsModel`, whose store
+    republishes on every keystroke's shift. The lookup reaches the tree through
+    `TreeDiagnosticsObserver`, a thin wrapper kept in `ContentView.swift` that
+    observes only the model's `TreeDiagnosticsHolder` — which assigns only on
+    inequality — around the tree alone, so a lookup change re-evaluates the tree
+    and not the window root, and a shift that keeps every worst severity
+    re-evaluates nothing; without a model (previews, tests) the tree receives
+    `.empty`. **A reader**: the dot, the lookup and the wrapper neither raise nor
+    consult the writer gate. `TreeDiagnosticMarkTests` (app bundle) renders one
+    project — an error file, a warning file, a clean file, a collapsed folder
+    holding a warning file, a collapsed clean folder — at scale 1 and 1.8, with
+    and without the lookup, and pins `statusRed` in the bottom-trailing quarter of
+    the error file's and the root folder's glyph slots, `statusYellow` for the
+    warning file and folder, the clean rows' slots identical to the render
+    without the lookup, and the dot's extent growing with the scale.
   - `ProjectTreeView.swift`, **indent guides** — while a folder is expanded, a
     private `TreeIndentGuide` draws one vertical `hairline` rule **behind its
     children block**. `FolderDisclosureStyle` wraps `configuration.content` in

@@ -92,6 +92,28 @@ no consent surface and no iOS UI: diagnostics are what a registered server alrea
 computes for a document it already holds, so absence of a server remains the one way
 to have none.
 
+**What project-wide diagnostics added (D46), and why it is a second lane rather than
+a wider first one.** Servers do not limit themselves to the documents they hold:
+gopls and rust-analyzer report on the whole workspace unasked, and pyright does once
+it is told to (its one setting, `core-provisioning.md`). Those reports used to be
+dropped at the membership gate, and closing a tab used to delete everything known
+about its file. They now land in a **second, positional lane**: a report for a
+document no server holds, under the current root, travels as
+`LSPDiagnosticEvent.positional` carrying the server's own line and character
+positions, because there is no told text to map them against, and the store keeps it
+as an entry of a **second kind**. The kind is a type and not a placeholder:
+every editor-facing reader (squiggles, gutter, hover, the edit shift, *Next / Previous
+Problem*) reads `DiagnosticStore.Entry.mapped`, which is `nil` for a positional
+entry, so none of them can see one. The Problems panel, the header counts and the
+project tree read severity and position, which both kinds carry. Closing the last
+tab now drops only the buffer's bookkeeping and keeps the file's set. A wholesale
+buffer replacement drops only a mapped entry, so a file being opened keeps its
+positional record until the first mapped report replaces it. One more Core file reads
+the store: `TreeDiagnostics.swift`, the project tree's pure "worst severity at or
+below this row" lookup, published by the model apart from the store so typing never
+re-renders the tree. Its entry is in the Diagnostics section below; the tree's dot is
+documented in `app-window.md`.
+
 **What rename and find usages added, and why one of them is a writer.** Two
 commands sit on everything above: **Find Usages** (⌃⌘U) lists every place the
 identifier under the caret is used, in a bottom-dock panel beside Problems, and
@@ -1163,10 +1185,19 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     `session.notifications` from the moment the session is filed under its key —
     before the first request goes out, because a real server may push diagnostics
     for the `didOpen` well before the flush that carried it returns. `route(_:from:)`
-    applies D31's gates as a conjunction, **cheapest first**: the URI
-    must be a document **this**
-    `(server, root)` currently holds (a closed file, another server's file, or an
-    unopened one is noise), then the push must name the folder this
+    first asks membership, a dictionary lookup. A URI **no** server holds leaves
+    for the positional lane, `routePositional(_:url:from:)` (D46), whose four
+    gates read only values `prepareForFolderChange(root:)` cached — the
+    current root's `rootKey` and its standardized and canonical path components —
+    so a workspace-wide check's flood of notifications for closed files costs a
+    dictionary read and a component compare each, never a file-system call: a
+    `file:` URL, a live session for the pushing key, that key's root equal to the
+    cached key, and the URL lying under one of the two cached spellings, and only
+    then the decode, emitted as `LSPDiagnosticEvent.positional` with the server's
+    positions verbatim. A URI **another** `(server, root)` holds is noise and is
+    dropped, so one server never answers for another's document. For a URI this
+    key holds, D31's gates run as a conjunction, **cheapest first**: the push must
+    name the folder this
     workspace currently serves — a straggler from an old project's server in the
     window between `prepareForFolderChange` and the `shutdownAll()` it schedules
     would otherwise be routed, and, finding the model's bookkeeping cleared,
@@ -1187,16 +1218,17 @@ painting are in `core-editor.md` and `app-editor-overlays.md`.
     `rootKey(for:)` resolves symlinks on the file system and `decoded(as:)`
     re-encodes and re-parses the whole diagnostics array, both on the main actor
     the editor types on. So the URI is read straight off the raw parameters
-    (`params["uri"]`) and the body is decoded only once the push is known to name
-    a document we hold. A push passing every gate is mapped
+    (`params["uri"]`) and the body is decoded, in either lane, only once every
+    cheaper gate has passed. A held-document push passing every gate is mapped
     against `documents[uri].text` —
     the text the *server was told*, not the live buffer; reconciling the editor's
     later edits is `DiagnosticShift`'s job downstream, never a remap here — one
     line-start scan per push, and the survivors go to the sink as an
     `LSPDiagnosticEvent.published`. Every other notification is dropped exactly
     as before. The output side is `var onDiagnostics: ((LSPDiagnosticEvent) ->
-    Void)?`, whose cases are `published(url:serverID:root:version:diagnostics:)`
-    and the clears — because a stale squiggle is only half the failure mode; the
+    Void)?`, whose cases are `published(url:serverID:root:version:diagnostics:)`,
+    `positional(url:serverID:root:diagnostics:)` (D46, no version: with no sync
+    there is nothing for one to be compared with) and the clears — because a stale squiggle is only half the failure mode; the
     other half is diagnostics outliving their server. So **every teardown path
     emits its key's clear** (D33): `noteDeath`, `shutdownAll()`,
     `terminateNow()`, `updateRegistry(_:)`'s removal branch on both its halves,
@@ -2638,20 +2670,29 @@ what the registry gets.
     (D23). Full entry in `app-editor.md`, beside `LSPGoToolchainService.swift`
     whose search order and discipline it follows.
 
-### Diagnostics (D29–D34)
+### Diagnostics (D29–D34, D46)
 
 Four Core files — three pure value/engine types and one observable model — that
-turn `publishDiagnostics` pushes into state three macOS surfaces can share, and a
-fifth, pure rule that only reads that state. They
+turn `publishDiagnostics` pushes into state the macOS surfaces can share, and two
+more pure files that only read that state: *Next / Previous Problem*'s rule and the
+project tree's lookup. They
 sit *beside* the request stack rather than under it: nothing above reads them to
 answer a question the editor asked, and the only thing they consume is the
 workspace's sink. The app-side half of the feature is documented where it lives:
 `LSPDocumentSyncController.swift` and the coordinator wiring in `app-editor.md`,
 the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
-`app-editor-overlays.md`, and `ProblemsPanelView.swift` in `app-window.md`.
+`app-editor-overlays.md`, and `ProblemsPanelView.swift` and the tree's dot in
+`ProjectTreeView.swift` in `app-window.md`.
 
   - `Diagnostic.swift` — the buffer-anchored value type, its severity vocabulary,
-    the wire→buffer mapping, the panel's ordering key, and hover's merged content.
+    the wire→buffer mapping, the panel's ordering key, and hover's merged content —
+    plus `PositionalDiagnostic`, the second kind (D46): the server's `LSPRange`
+    verbatim, severity, message, source and file URL, for a document no buffer
+    holds. It is a separate type rather than a `Diagnostic` with placeholder
+    offsets, because a report with no buffer behind it has no offsets to carry;
+    `make(from:url:)` converts severity through the same
+    `DiagnosticSeverity(lspValue:)` the mapped factory uses, so an absent or
+    unknown wire severity is `.error` in both kinds.
     Everything downstream of the mapping works in UTF-16 offsets and never sees an
     LSP position again; `line` counts lines by `LSPPositionMap.lineStarts(in:)`'s
     separators, so it can differ from the gutter's numbering only by D1's bounded
@@ -2675,11 +2716,17 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     one placement that cannot be clamped returns `nil`: unreachable through
     today's clamping rules, kept as a gate so a future change to them cannot hand
     TextKit an `NSRange` it traps on.
-    `OrderingKey` (path, then start offset, then most severe first at one
-    start — severity outranks every remaining field, so the worst complaint at a
-    position is always read first — then shorter span, then message and source
-    lexicographically among equals, absent source before any present one) is a **total**
-    order decided here rather than in the view, because two surfaces — the
+    `OrderingKey` (path, then start line, start column, then most severe first at
+    one start — severity outranks every remaining field, so the worst complaint at
+    a position is always read first — then end line, end column, then message and
+    source lexicographically among equals, absent source before any present one) is
+    **one total order for both kinds** (D46). A positional diagnostic fills the
+    position fields with the server's positions verbatim; a mapped one fills them
+    with (its `line`, start offset) and (its `line`, end offset). The two fillings
+    agree because keys are only ever compared within one file's entry, which is a
+    single kind, and within one buffer offsets order exactly as columns do — so the
+    same diagnostics in either kind produce the same row sequence, and hover's
+    order and the mapped panel order are what they were. It is decided here rather than in the view, because two surfaces — the
     Problems list and hover's merged messages — must agree on reading order
     without consulting each other, and a stable sort needs a key with no ties
     unless the diagnostics are equal. The tie-break fields are what make that
@@ -2693,7 +2740,8 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     Both call sites sit on a per-keystroke path — the panel's rows and counts
     re-evaluate on every `@Published` store mutation — and n is the findings in one
     file, which one unresolved import makes three digits. Decorate-sort-undecorate
-    builds each key once.
+    builds each key once; `PositionalDiagnostic` carries its own `orderingKey` and
+    `sortedByOrderingKey(_:)` over the same key, for the same reason.
     `DiagnosticRun` + `merged(_:)` is the editor overlay's value and its whole
     algorithm, in Core for the ordinary reason (pure, therefore unit-tested):
     freely-overlapping runs become the ascending non-overlapping form, each span
@@ -2753,12 +2801,27 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     public type rather than exposing workspace internals; URLs are standardized at
     the boundary, with the canonical probe left to `CanonicalPath` where display
     paths need it — same-file identity is decided once, not re-derived under every
-    key. Mutations are wholesale or scoped: `replace(url:serverKey:
-    diagnostics:)` is LSP semantics including the empty push (an "all clear" lands
-    as an empty entry so provenance survives for the next comparison),
-    `clear(url:)`, `clear(serverKey:)` (D33's teardown clears),
-    `clearAll()` (the folder changed), and `apply(shift:to:)` installing a shifted
-    set while keeping its provenance — refusing to mint an entry for a document
+    key. **An entry's payload is one of two kinds** (D46), an enum and not a flag:
+    `.mapped([Diagnostic])`, mapped onto a buffer the workspace holds, or
+    `.positional([PositionalDiagnostic])`, the server's positions for a document
+    no buffer holds. The optional `mapped` accessor is `nil` for a positional
+    entry, and it is the **only** accessor an editor-facing reader uses —
+    `diagnostics(at:in:)`, `worstSeverityPerLine`, the model's `diagnostics(in:)`
+    and `noteEdit` guard, *Next / Previous Problem* — so a positional set is
+    unreachable from them by type, not by a check someone must remember.
+    Mutations are wholesale or scoped: `replace(url:serverKey:
+    diagnostics:)` and its positional twin `replace(url:serverKey:positional:)`
+    are LSP semantics including the empty push (an "all clear" lands
+    as an empty entry so provenance survives for the next comparison), and either
+    replaces whatever kind was there;
+    `clearMapped(url:)` (a buffer replaced) removes the entry **only when it is
+    mapped** — a positional entry never described a buffer, so a buffer's
+    replacement cannot have made it stale;
+    `clear(serverKey:)` (D33's teardown clears) and
+    `clearAll()` (the folder changed) remove both kinds; and `apply(shift:to:)`
+    installs a shifted set while keeping its provenance — onto a mapped entry
+    only, since a shift is computed from offsets a positional entry does not
+    carry, and refusing to mint an entry for a document
     nothing was ever pushed about, because fabricated provenance is precisely what
     the gate below would then trust.
     Queries, all pure: `diagnostics(at:in:)` for hover (half-open containment,
@@ -2776,7 +2839,9 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     one-line diagnostic as a band as tall as every exotic separator above it.
     A diagnostic starting outside the requested window is skipped rather than
     clamped onto line 0, and inconsistent geometry degrades to all-`nil` at the
-    requested count, never a crash indexing past the array; `rows(relativeTo:)` grouping by file in
+    requested count, never a crash indexing past the array; `rows(relativeTo:)`
+    listing every entry with a non-empty set **of either kind** — a closed file's
+    positional set beside an open file's mapped one — grouping by file in
     `orderingKey` order with relative path components via `CanonicalPath`/
     `DisplayPath`'s two-probe order (absolute components for a file outside the
     root — the panel invents no `~` story the breadcrumb would disagree with) and
@@ -2784,9 +2849,22 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `ForEach` rides on: rows are keyed by their flattened fields (`Row`'s note),
     where duplicate ids are undefined behavior rather than a merge, while the
     entry itself keeps every diagnostic so hover, the overlay and `counts` still
-    see both;
-    and `counts`, errors and warnings only, because the header answers "how much
-    is broken", not "how much was said".
+    see both.
+    A `Row` carries severity, message, the zero-based `line` (the server's start
+    line for a positional row) and a Hashable **reveal target**,
+    `RevealTarget.offsets(NSRange)` or `.position(LSPRange)`, because a closed
+    file's row has no range until the file is open. `Row.rangeToReveal(in:)` is
+    the pure, total answer against the text the file opened with: a position goes
+    through `LSPPositionMap.range(for:in:)` with its clamping (a line past the end
+    lands at the end, a character past its line at that line's end), and offsets
+    are clamped into the text's length, which leaves an in-range range unchanged,
+    so activation never beeps and never traps. The name is not `revealRange`
+    on purpose: `FoldingSourceGatingTests`' reveal-funnel regex would read a call
+    to it from `PisakaApp` as a second funnel;
+    and `counts`, errors and warnings only, **across both kinds**, so the header
+    spans closed files too, because the header answers "how much is broken", not
+    "how much was said". `entriesByURL` is the internal walk `TreeDiagnostics`
+    builds from.
 
   - `DiagnosticsModel.swift` — the `@MainActor ObservableObject`
     (`SymbolIndexModel`'s precedent) that owns a store plus the sync/revision
@@ -2813,11 +2891,15 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     The skip covers both shapes of "nothing" — no entry at all (every plain-text
     file) and an **empty** entry, which is what an all-clear push installs and so
     the steady state of every file that currently compiles; shifting an empty set
-    can only produce an empty set), a
+    can only produce an empty set — and a positional entry is skipped by type,
+    since it has no `mapped` set), a
     wholesale buffer replacement (a `reloadFromDisk`, Replace All or merge apply,
-    on-screen or reported off-screen) through `noteBufferReplaced(url:)` (clear +
+    on-screen or reported off-screen, and the open of a file itself) through
+    `noteBufferReplaced(url:)` (clear the **mapped** set +
     bump + drop the sync record — the server no longer holds text anyone mapped a
-    push against); a plain tab switch is deliberately *not* one of these, so a
+    push against; a positional entry stays, so a file being opened keeps its
+    closed-file record in the panel and the tree until the first mapped report
+    replaces it, D46); a plain tab switch is deliberately *not* one of these, so a
     background document's set and sync record survive the view swap and its
     squiggles repaint from the store on switching back.
     **The hold-and-reconcile step** closes the one hole dropping leaves: the
@@ -2847,11 +2929,25 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,
-    here. `noteDocumentClosed(url:)` — the last tab on the file closed — takes the
-    document's *whole* record with it: the set, the hold, the sync record and the
-    revision. The two maps are then bounded by the open tabs rather than by every
+    here. **The positional lane** (D46): `receive(.positional)` skips the gate —
+    there is no sync to compare it with and no buffer it could be stale against —
+    and replaces the entry wholesale under the same `ServerKey` provenance, with
+    no hold. It is dropped only while a sync record **exists** for the document,
+    because then a buffer is open and the mapped lane is that document's one
+    answerer; an existing hold is left untouched, since a hold waits for a record
+    this push neither brings nor removes. `noteDocumentClosed(url:)` — the last tab
+    on the file closed — takes the document's *bookkeeping* with it: the hold, the
+    sync record and the revision, and **keeps the set**, because the file's
+    problems are still the file's problems and the panel and the tree keep
+    listing them. With the record gone the document's positional lane opens, so
+    the server's next report about the closed file lands. A kept **mapped** set is
+    dropped on reopen by `noteBufferReplaced`, its offsets describing a buffer
+    that is being replaced, so the file shows nothing until the next push. The
+    bookkeeping maps are then bounded by the open tabs rather than by every
     file the session ever opened, and a file reopened later is gated from zero
-    instead of against the numbers of its previous life. It is reached **two ways
+    instead of against the numbers of its previous life; the **store** is bounded
+    by what the servers report about the current folder, and emptied by a
+    server's teardown and by the folder change. It is reached **two ways
     and needs both**: `receive(.cleared(.document))`, which the workspace emits only
     for a URI it still *held* — every teardown wipes its document table first, so a
     crash-then-close emits nothing — and a direct call from the app's own "no tab
@@ -2860,11 +2956,25 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     map for files no server ever served (`noteEdit` mints a revision for any buffer
     that is typed in, served or not). Idempotent, so arriving both ways costs
     nothing. `prepareForFolderChange(root:)`
+    records the new root's two spellings for the tree's lookup (below), then
     clears bookkeeping along with the
-    store in the same main-actor turn as the workspace's own token, so no push
-    from an old project's server can pass — and only fires when the root actually
+    store — both kinds — in the same main-actor turn as the workspace's own token,
+    so no mapped push from an old project's server can pass; a positional push
+    needs no record, and the workspace forwards one only from a live session
+    serving the current root, so an old project's report never reaches the model
+    as one. It only fires when the root actually
     changed, since re-opening the open folder leaves every tab in place with
-    nothing that would repopulate an emptied store. `currentRevision(for:)`
+    nothing that would repopulate an emptied store. **The tree's lookup**: the
+    store's `didSet` rebuilds a `TreeDiagnostics` from the store and the cached
+    `TreeDiagnostics.Root` (`.empty` with no root yet) and hands it to
+    `TreeDiagnosticsHolder`, a separate `@MainActor ObservableObject` the model
+    owns, which assigns — and so publishes — **only a value that differs** from
+    the one it holds. It is a second object rather than a second `@Published` on
+    the model because observing the model means observing the store, which
+    republishes on every keystroke's shift; a shift that keeps every file's worst
+    severity builds an equal lookup and costs the tree nothing. The root is
+    recorded before the clear, so the clear's own rebuild publishes the empty
+    lookup synchronously in the folder change's turn. `currentRevision(for:)`
     exists for
     exactly one caller: the sync controller pinning it synchronously before its
     hop — the generation-token rule, one layer up from the models it usually
@@ -2886,7 +2996,56 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     strictness is what moves a caret already on a problem, which is where the
     previous press left it. No stops answers `nil`, which the app turns into a beep.
     The caret placement, the reveal and the popover are the app's
-    (`ProblemCommands.swift`, `app-editor.md`).
+    (`ProblemCommands.swift`, `app-editor.md`). It is handed the entry's `mapped`
+    set, so a closed file's positional set is never a stop (D46).
+
+  - `TreeDiagnostics.swift` — the project tree's view of the store: the worst
+    severity known at or below each row, built on every store change and asked
+    per row with no file-system call. A **reader**, and Foundation-only.
+    **The marks.** `TreeDiagnosticMark` is closed — `none`, `warning`, `error`,
+    declared weakest first so the synthesized `Comparable` makes `error` outrank
+    `warning` outrank `none` and `max` is the aggregation. Information and hints
+    give `none`: the mark answers "is something broken here", the header counts'
+    own rule, not "was anything said". It carries `severity` (`.error`,
+    `.warning`, `nil`), which is what the tree hands
+    `ChromeColorRole.diagnosticRole(for:)` so no view switches over a severity
+    (the theme's rule fifteen, `core-theme.md`), and `spokenName` ("has errors",
+    "has warnings", `nil`), which `TreeGitState.accessibilityValue(state:mark:row:)`
+    composes after the git word — a file row joins the words that exist with
+    ", " or says `""`; a folder row leads with its expansion word.
+    **Aggregation.** For each entry of **either kind** — a buffer's mapped set and
+    a closed file's positional one alike — the worst severity is taken; the
+    entry's standardized path is made relative to the first root spelling it lies
+    under, lexically, and an entry under neither contributes nothing (the
+    positional lane already refuses a file outside the root, but a mapped entry
+    for an open file outside it can exist). That relative key and **every
+    ancestor up to and including the root's empty key** keep the strongest mark,
+    so a folder answers for everything beneath it, expanded or not. The climb
+    stops at the first ancestor already at least as strong, which cannot change
+    the answer, because every ancestor of a recorded key already holds at least
+    that key's mark. The build is linear in the diagnosed files times their depth.
+    **The spellings.** `TreeDiagnostics.Root` holds the opened folder's
+    standardized components (as the tree spells its rows) and canonical ones (as a
+    server may spell what it reports, so a project opened through a symlink still
+    marks its rows). Resolving the canonical one is the type's **only**
+    file-system call, which is why it is a value of its own, built once per folder
+    change in `DiagnosticsModel.prepareForFolderChange(root:)` and never per build
+    or per row.
+    **Equality** is synthesized over the spellings and the table, and the table is
+    a pure function of each file's worst severity. A keystroke that shifts a
+    flagged file's offsets without changing its worst severity therefore builds
+    an equal lookup, which is what lets the holder skip publishing. A lookup that
+    marks nothing stores no spellings, so it *is* `.empty`, whatever folder it was
+    built for: a folder change that empties the store publishes the same value a
+    model with no folder holds.
+    **The cost bound.** `mark(for:)` standardizes the row URL, strips whichever
+    spelling it lies under, and reads the table once. `resolve(_:)` is the internal
+    seam returning the mark with its probe count, pinned at most one whether the
+    store holds ten diagnosed files or ten thousand.
+    **The holder.** The lookup is published by `TreeDiagnosticsHolder`
+    (`DiagnosticsModel.swift`, above), which assigns only on inequality; the tree
+    observes it through a thin wrapper in `ContentView.swift`, so the window root
+    still observes nothing of `DiagnosticsModel` (`app-window.md`).
 
 ## Decisions
 
@@ -3384,9 +3543,12 @@ superseded by the next keystroke for the same file) and immediately on tab
 mapped through `LSPPositionMap` against `documents[uri].text` at receipt, accepted
 only when the pushing key's root is the folder this workspace **currently** serves,
 the URI names a document that `(server, root)` currently holds, **and**
-its `version`, when present, equals the version last flushed for it; a push for a
-URI nobody holds open is ignored (the surfaces cover open documents only), and so
-is one whose URI does not parse as a URL — the round-trip to `URL` happens once,
+its `version`, when present, equals the version last flushed for it. A push for a
+URI another `(server, root)` holds is ignored, so one server never answers for
+another's document. A push for a URI **nobody** holds is the **positional case**:
+it is no longer ignored but leaves this decision for D46's lane, which forwards
+the server's positions unmapped, because there is no told text to map them against.
+A push whose URI does not parse as a URL is ignored in both lanes — the round-trip to `URL` happens once,
 here at the boundary, because everything downstream speaks `URL`. The
 live buffer is deliberately *not* consulted: the editor may already have moved on,
 and remapping against it here would guess. What happens instead is D32.
@@ -3770,6 +3932,70 @@ answer carries its provenance (`.server` / `.textual`) and is never a merge. The
 fallback is silent, with no alert. An exhausted scan budget is `nil`, and the
 editor paints nothing.
 
+**D46 — A report about a document no buffer holds is kept, positionally, and only
+the panel and the tree see it.** Servers report on files no tab holds, and those
+reports are the whole point of a project-wide list, so they are kept in a **second
+lane** rather than dropped.
+
+- **The lane's conditions.** The held-document lane in `route(_:from:)` is exactly
+  D31's. When the document lookup misses, the report is forwarded as
+  `LSPDiagnosticEvent.positional` only when, cheapest first: the URL is a `file:`
+  URL; the pushing key has a live session; the key's root equals the current
+  root's key; and the URL lies under the current root. The root's key and its two
+  lexical spellings (standardized and canonical components) are computed once in
+  `prepareForFolderChange(root:)`, so each check is a dictionary read or a
+  component compare, with no file-system call per push, and the params are decoded
+  only after every check passes. The positions travel verbatim — there is no told
+  text to map them against — and carry no version, since there is no sync for one
+  to be compared with. **"Under the root"** keeps a dependency file a server
+  reports on (a toolchain header, a vendored crate) off the panel and the tree at
+  the source, so the panel needs no filter and never offers to open such a file.
+  The straggler gate is the same as D31's: a push from an old project's server
+  after the folder change names the wrong root and is dropped.
+- **The model's half.** A positional report skips D32's gate and its hold, and
+  replaces the entry wholesale under the same provenance. It is dropped only
+  while a sync record exists for the document, because then a buffer is open and
+  the mapped lane is that document's one answerer; a later mapped report, synced
+  and accepted, replaces a positional entry.
+- **Close keeps the set.** Closing the last tab drops the sync record, the
+  revision and any hold, and no longer touches the store, so the file's problems
+  stay listed after the close and its positional lane opens for the next report.
+- **A replacement drops only a mapped entry.** `noteBufferReplaced(url:)` keeps a
+  positional entry, which never described a buffer. Opening a file is a content
+  replacement, so this is what keeps a closed file's record in the panel and the
+  tree until the first mapped report replaces it. A **mapped** set kept from a
+  closed tab is dropped on reopen exactly as before: its offsets describe a
+  buffer being replaced, and the file shows nothing until the next push.
+- **Editor surfaces see mapped entries only, by type.** The payload is an enum and
+  every editor-facing reader — squiggles, gutter, hover, the edit shift, *Next /
+  Previous Problem* — goes through `Entry.mapped`, `nil` for a positional entry. A
+  position is mapped onto a buffer only when a panel row is activated, against the
+  text the file just opened with (`Row.rangeToReveal(in:)`, clamped).
+- **Teardown is unchanged.** `.cleared(.server)` and the folder change remove both
+  kinds; a server's positional reports die with it exactly as its mapped ones do
+  (D33).
+
+What each server is expected to report about closed files — the design's
+expectation, not a contract this layer can enforce:
+
+| server | closed files |
+|---|---|
+| gopls | whole workspace (compiler diagnostics for every loaded package; analysis may be limited to packages with open files) |
+| rust-analyzer | whole workspace from `cargo check` on save; its own native diagnostics are open-files-only |
+| pyright | whole workspace, through the setting (`core-provisioning.md`) |
+| typescript-language-server | open files only |
+| sourcekit-lsp | open files only |
+| yaml-language-server | open files only |
+
+**Stated limit: a closed file's set is what its server said last.** Pisaka sends no
+`workspace/didChangeWatchedFiles`, so a closed file edited outside the app — in the
+terminal, by a checkout — keeps its mark until the server reports on it again,
+which happens only when that server watches the file system itself or re-checks on
+its own (rust-analyzer's `cargo check` on the next save). **Rejected:** a
+positional entry for a held document. When a buffer is open its mapped lane is the
+only answerer, because two answers for one document would let a stale positional
+report overwrite a current mapped one.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -3927,10 +4153,13 @@ editor paints nothing.
   has a project-level runner and no file-level one, so ⌘U works and the terminal
   panel is the answer for ⌘R. Pinned by `RunCommandTests` rather than left as an
   omission; the reasoning is in `core-services.md`.
-- **Diagnostics cover open documents only, and only what a server said last.**
-  A push for a URI no server holds is dropped (D31), so a file closed mid-typing
-  loses its squiggles until reopened; there is no project-wide problems list of
-  things no server was ever asked about. Between pushes the shown state is
+- **Diagnostics cover what a server said last, and closed files only as far as
+  the server reports on them.** A report about a document no buffer holds is kept
+  positionally (D46) and shown by the Problems panel and the tree, never by the
+  editor surfaces; which servers report on closed files at all is D46's table, so a
+  TypeScript, Swift or YAML project lists only the files that have been open. A
+  closed file edited outside the app keeps its mark until its server reports again
+  (D46's stated limit). Between pushes the shown state is
   maintained by shift-and-drop (D32), which is exact for edits outside a
   diagnostic and deliberately silent about the one it intersects — an underline
   vanishing under the caret until the next 400 ms sync's push lands is the design,

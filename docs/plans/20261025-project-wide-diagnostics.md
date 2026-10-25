@@ -597,7 +597,7 @@ everything known about its file. This plan keeps those reports.
 
 ### Task 10: Update documentation
 
-- [ ] `core-lsp.md`:
+- [x] `core-lsp.md`:
   - amend D31 with the positional case;
   - add **D46**, covering the second lane and its conditions, close-keeps-the-set, a
     replacement drops only a mapped entry, editor surfaces see mapped only, the
@@ -619,15 +619,15 @@ everything known about its file. This plan keeps those reports.
   | sourcekit-lsp | open files only |
   | yaml-language-server | open files only |
 
-- [ ] `core-provisioning.md`: the pyright setting beside the YAML precedent, with the
+- [x] `core-provisioning.md`: the pyright setting beside the YAML precedent, with the
   bundle facts and the corrected exclude limit.
-- [ ] `app-window.md`: the tree's dot, the accessibility words, the Refresh button's
+- [x] `app-window.md`: the tree's dot, the accessibility words, the Refresh button's
   second call, and the reader posture. The Problems panel's closed-file rows and their
   activation go where the panel is documented.
-- [ ] `core-theme.md`: rule fifteen's canonical-list item and the severity role's
+- [x] `core-theme.md`: rule fifteen's canonical-list item and the severity role's
   readers name the tree.
-- [ ] `core-git-models.md`: the `projectPrefix` wording, if restated there.
-- [ ] `CLAUDE.md`:
+- [x] `core-git-models.md`: the `projectPrefix` wording, if restated there.
+- [x] `CLAUDE.md`:
   - add `TreeDiagnostics.swift` to the `core-lsp.md` index line;
   - change "D1–D10 + D17–D45" to "D1–D10 + D17–D46" in both places;
   - correct the language-servers invariant with one clause: reports about files no tab
@@ -635,7 +635,7 @@ everything known about its file. This plan keeps those reports.
     editor surfaces;
   - name the tree's diagnostics lookup beside its git lookup in the readers invariant;
   - stay under 60,000 characters (now about 56,300).
-- [ ] `docs/FEATURES.md`'s Diagnostics paragraph:
+- [x] `docs/FEATURES.md`'s Diagnostics paragraph:
   - drop "every open file's findings";
   - describe closed-file rows and their activation, and the tree dots on files and
     folders;
@@ -643,8 +643,11 @@ everything known about its file. This plan keeps those reports.
     edit, and a project-level pyright `exclude` dropping the environment defaults.
 
   Also update the tree's Refresh sentence.
-- [ ] Run `swift test` again, because the doc-reading suites (`LintConfigurationTests`,
-  the gating suites) must stay green.
+- [x] Run `swift test` again, because the doc-reading suites (`LintConfigurationTests`,
+  the gating suites) must stay green. (7049 tests, 0 failures. `CLAUDE.md` is 56,529
+  characters. The Problems panel's activation also moved off `activateSearchMatch`, so
+  its mentions in `app-shell.md` and `core-folding.md`'s reveal-poster list were
+  corrected too.)
 
 ## Post-Completion
 
