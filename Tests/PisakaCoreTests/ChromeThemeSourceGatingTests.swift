@@ -6087,10 +6087,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule fifty-one: the tree-name mapping is Core's one answer
 
     /// The app files reading `ChromeColorRole.treeNameRole(for:)`: the project
-    /// tree alone, once its rows paint their names. Empty while no view reads
-    /// the mapping yet, so the set equality below holds from the day the
-    /// mapping lands.
-    private static let treeNameRoleReaders: Set<String> = []
+    /// tree alone, whose folder and file rows paint their names with it.
+    private static let treeNameRoleReaders: Set<String> = ["ProjectTreeView.swift"]
 
     /// Rule fifty-one. Which role a project-tree row's name is drawn in has one
     /// answer in Core — `ChromeColorRole.treeNameRole(for:)` over the closed

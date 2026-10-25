@@ -1030,7 +1030,8 @@ struct ContentView: View {
                 onRunTest: onRunTest,
                 onShowLocalHistory: onShowLocalHistory,
                 onMove: onMove,
-                reveal: treeReveal
+                reveal: treeReveal,
+                gitStatus: localChanges.treeGitStatus
             )
         } trailing: {
             switch settings.tabOrientation {

@@ -72,6 +72,12 @@ struct ProjectTreeView: View {
     /// the recursion beside the selection while it is live (see
     /// `TreeRevealRequest`).
     var reveal: TreeRevealRequest?
+    /// What git says about each row, as `LocalChangesModel` last published it:
+    /// the one source of the tree's git state, read as a value. Empty by
+    /// default — every row plain — so previews and tests construct the view
+    /// without a repository. The tree adds no git call, no trigger and no timer
+    /// of its own; it is redrawn when the model publishes a new lookup.
+    var gitStatus: TreeGitStatus = .empty
 
     /// The state a drag in flight carries, shared by every row: the source row
     /// and the memoized decision for the folder the pointer is over. Held here,
@@ -215,6 +221,7 @@ struct ProjectTreeView: View {
                         dragSession: dragSession,
                         selection: TreeSelection(model.selectedFile?.url),
                         reveal: liveReveal,
+                        gitStatus: gitStatus,
                         onRevealed: { token, target in
                             guard completedRevealToken != token else { return }
                             completedRevealToken = token
@@ -413,6 +420,9 @@ private struct DirectoryNodeView: View {
     let selection: TreeSelection
     /// The live reveal request, handed down beside `selection`, or nil.
     let reveal: TreeRevealRequest?
+    /// The tree's git lookup, handed down beside `selection`. Each row asks it
+    /// once — lexically, with no file-system call (see `TreeGitStatus`).
+    let gitStatus: TreeGitStatus
     /// Reported by the target file row once it is on screen, with the request's
     /// token and the row's scroll id; the tree then scrolls to it. A nil id
     /// withdraws a request this node's listing shows cannot be honoured.
@@ -458,6 +468,7 @@ private struct DirectoryNodeView: View {
         dragSession: TreeDragSession,
         selection: TreeSelection,
         reveal: TreeRevealRequest?,
+        gitStatus: TreeGitStatus,
         onRevealed: @escaping (Int, String?) -> Void,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
@@ -482,6 +493,7 @@ private struct DirectoryNodeView: View {
         self.dragSession = dragSession
         self.selection = selection
         self.reveal = reveal
+        self.gitStatus = gitStatus
         self.onRevealed = onRevealed
         self.isRoot = isRoot
         self.siblings = siblings
@@ -489,6 +501,9 @@ private struct DirectoryNodeView: View {
     }
 
     var body: some View {
+        // Asked once per render: the name's colour and the row's spoken state
+        // are both drawn from this one answer.
+        let gitState = gitStatus.state(for: url)
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == url {
                 Group {
@@ -541,6 +556,7 @@ private struct DirectoryNodeView: View {
                         dragSession: dragSession,
                         selection: selection,
                         reveal: reveal,
+                        gitStatus: gitStatus,
                         onRevealed: onRevealed,
                         siblings: currentChildrenNames
                     )
@@ -566,7 +582,8 @@ private struct DirectoryNodeView: View {
                         dragSession: dragSession,
                         draft: draft,
                         siblings: currentChildrenNames,
-                        isSelected: selection.contains(entry.url)
+                        isSelected: selection.contains(entry.url),
+                        gitState: gitStatus.state(for: entry.url)
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                     .id(TreeRevealRequest.rowID(entry.url))
@@ -602,7 +619,11 @@ private struct DirectoryNodeView: View {
                         onCancel: { draft = nil }
                     )
                 } else {
+                    // The name alone takes the git colour: the glyph stays
+                    // `textSecondary`, and the rename field above is not
+                    // recoloured.
                     Text(name)
+                        .treeNameForeground(ChromeColorRole.treeNameRole(for: gitState), resolving: theme.color)
                 }
             }
             .font(metrics.scaledFont(.body))
@@ -630,6 +651,7 @@ private struct DirectoryNodeView: View {
                     }
                     return false
                 }(),
+                gitState: gitState,
                 onMove: onMove
             ) {
                 // Grouped by `Section`s rather than separated by `Divider()`s: a menu
@@ -892,6 +914,8 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
     /// The tree-wide drag state (see `TreeDragSession`).
     let dragSession: TreeDragSession
     let isDrafted: Bool
+    /// The folder's git state, spoken after its expansion word.
+    let gitState: TreeGitState
     /// Reports an accepted drop; the same callback every row kind receives.
     let onMove: (URL, URL) -> Void
     /// The row's right-click menu items, built by `DirectoryNodeView`.
@@ -905,6 +929,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 isRoot: isRoot,
                 dragSession: dragSession,
                 isDrafted: isDrafted,
+                gitState: gitState,
                 onMove: onMove,
                 menu: menu
             )
@@ -929,6 +954,8 @@ private struct FolderDisclosureRow<Menu: View>: View {
     let isRoot: Bool
     let dragSession: TreeDragSession
     let isDrafted: Bool
+    /// The folder's git state — the strongest change below it, or ignored.
+    let gitState: TreeGitState
     let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
@@ -1029,7 +1056,13 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
         .accessibilityElement(children: isDrafted ? .contain : .combine)
         .accessibilityAddTraits(isDrafted ? [] : .isButton)
-        .accessibilityValue(isDrafted ? "" : (configuration.isExpanded ? "expanded" : "collapsed"))
+        // The expansion word, then the git state's word when there is one —
+        // Core's composition, so the two row kinds speak the state alike.
+        .accessibilityValue(
+            isDrafted
+                ? ""
+                : TreeGitState.accessibilityValue(state: gitState, row: .folder(isExpanded: configuration.isExpanded))
+        )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
 
@@ -1172,6 +1205,9 @@ private struct FileRowView: View {
     /// clicked: the tree introduces no selection gesture of its own, so the one
     /// row drawn as selected is the one the editor is showing.
     let isSelected: Bool
+    /// This file's git state, asked of the tree's lookup once by the folder
+    /// listing it. A selected row keeps it: the background is a separate answer.
+    let gitState: TreeGitState
 
     @State private var isHovering = false
 
@@ -1203,6 +1239,7 @@ private struct FileRowView: View {
                 )
             } else {
                 Text(entry.name)
+                    .treeNameForeground(ChromeColorRole.treeNameRole(for: gitState), resolving: theme.color)
             }
         }
         .font(metrics.scaledFont(.body))
@@ -1266,6 +1303,12 @@ private struct FileRowView: View {
                 Button("Local History") { onShowLocalHistory() }
             }
         }
+        // One element carrying the git state's word as its value, as a folder
+        // row carries its expansion; a plain file says nothing more than its
+        // name. `.contain` while a rename draft is open, as on a folder row, so
+        // the field stays reachable as itself.
+        .accessibilityElement(children: isDraftedRow ? .contain : .combine)
+        .accessibilityValue(isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, row: .file))
     }
 
     private var isDraftedRow: Bool {
@@ -1313,6 +1356,23 @@ private enum ProjectTreeDrag {
 }
 
 private extension View {
+    /// Draws a row's name in `role` — or leaves its foreground exactly as
+    /// inherited when there is none, which is what a plain row wants: outside a
+    /// repository the tree stays pixel-identical to the tree before git state.
+    ///
+    /// The theme arrives as `resolving`, for `TreeRowBackground`'s reason.
+    @ViewBuilder
+    func treeNameForeground(
+        _ role: ChromeColorRole?,
+        resolving: (ChromeColorRole) -> Color
+    ) -> some View {
+        if let role {
+            foregroundStyle(resolving(role))
+        } else {
+            self
+        }
+    }
+
     /// Gives this row the right-click menu `menuItems` builds — or leaves the
     /// row exactly as it is, which is what a *drafted* row wants.
     ///

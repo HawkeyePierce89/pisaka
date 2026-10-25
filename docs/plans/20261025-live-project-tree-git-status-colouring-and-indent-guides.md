@@ -173,17 +173,17 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 - Modify: `Sources/Pisaka/ContentView.swift`
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift` (rule fifty-one's reader set, if staged in Task 3)
 
-- [ ] `ProjectTreeView` takes the lookup as a value, empty by default, so previews and the existing app tests construct it unchanged. `ContentView` passes `localChanges`' published lookup. The value travels down the recursion beside `selection` to every folder and file row.
-- [ ] Each row asks the lookup for its state once.
+- [x] `ProjectTreeView` takes the lookup as a value, empty by default, so previews and the existing app tests construct it unchanged. `ContentView` passes `localChanges`' published lookup. The value travels down the recursion beside `selection` to every folder and file row.
+- [x] Each row asks the lookup for its state once.
   - Only the name text takes the mapped role through the injected theme. Plain applies no foreground at all.
   - The icon stays `textSecondary`, the chevron is unchanged, and the row background still comes from `TreeRowState` through `TreeRowBackground` exactly as today. A selected row keeps its status colour.
   - The inline rename field is not recoloured.
-- [ ] Accessibility:
+- [x] Accessibility:
   - A folder row's accessibility value becomes the Core composition: the expansion word plus the state word.
   - A file row becomes one combined element carrying the state word as its value when the state is not plain. It stays `.contain` while a rename draft is open, mirroring the folder row.
-- [ ] The tree adds no trigger, no timer, no git call and no writer-gate interaction.
-- [ ] Rule fifty-one's reader set is now exactly `ProjectTreeView.swift`. Keep `ChromeThemeSourceGatingTests` and `ZoomSourceGatingTests` green. No new chrome file is added, so the pinned sets are unchanged.
-- [ ] Run `swift test` and the app-layer bundle. Both must pass before Task 6.
+- [x] The tree adds no trigger, no timer, no git call and no writer-gate interaction.
+- [x] Rule fifty-one's reader set is now exactly `ProjectTreeView.swift`. Keep `ChromeThemeSourceGatingTests` and `ZoomSourceGatingTests` green. No new chrome file is added, so the pinned sets are unchanged.
+- [x] Run `swift test` and the app-layer bundle. Both must pass before Task 6. (The pinned Xcode 26.3 is not installed on this machine; the app-layer bundle ran under the installed Xcode after `xcodegen generate`: 484 tests, 0 failures. `swift test`: 6996 tests, 0 failures.)
 
 ### Task 6: Indent guides
 
