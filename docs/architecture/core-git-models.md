@@ -6,8 +6,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Changes view, mirroring `WorkspaceModel`'s shape. Injects `GitServicing` (repo
     access) and `FileServicing` (working copy) so the real services run in `Pisaka`
     and in-memory stubs in tests. Publishes `changedFiles`, `groupingMode`
-    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, and `projectPrefix` (the opened folder's
-    repository-relative path, set together with `root`). The `git`-touching
+    (`flat`/`byFolder`), `selected`, `errorMessage`, `root`, `projectPrefix` (the opened folder's
+    repository-relative path, set together with `root`), and `treeGitStatus`
+    (the project tree's lookup, published with `changedFiles`; see below). The `git`-touching
     entry points are `async` (the underlying `GitServicing` runs off the main
     thread): `refresh(root:) async`, `revert(_:) async -> [URL]`,
     `rows(for:) async -> [DiffRow]`, and `selectedRows() async -> [DiffRow]`;
@@ -37,7 +38,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the published state only if the token is still the latest — so a superseded
     refresh discards its result instead of clobbering a newer one. A *change of
     opened folder* (the raw requested root differs from `lastRequestedRoot`) also
-    clears `changedFiles`/`selected`/`revertSelection`/`errorMessage`
+    clears `changedFiles`/`selected`/`revertSelection`/`errorMessage`/`treeGitStatus`
     *synchronously at entry*, before the first `await`: the previous project's
     files belong to a different repo and must not stay actionable
     (selectable/revertable) during the query for the new repo's status. A
@@ -190,7 +191,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     on-disk steps and can fail between them, and a `checkout` writes the worktree
     before a late index-write failure), and a non-conforming failure changed
     nothing, so the model never reloads/closes
-    a tab the revert never touched. Pure Foundation — no `Process`/AppKit/SwiftUI.
+    a tab the revert never touched.
+    **It also publishes the project tree's git lookup**, `treeGitStatus`
+    (`TreeGitStatus`, below), built from the **same status run** as
+    `changedFiles`: `refreshImpl` asks `statusSnapshot(root:)` rather than the
+    bare `changedFiles(root:)`, takes the list from the snapshot, and builds the
+    lookup from the snapshot, the resolved repository root and the opened folder.
+    The lookup is published, cleared and superseded **with the list, never
+    apart from it**, so the tree and the panel never disagree. It is set in the
+    one block that publishes `changedFiles`, under the same `refreshGeneration`
+    and root-generation checks, so a superseded successful refresh publishes
+    neither. It is reset to `.empty` in the one failure block that empties
+    `changedFiles` and clears `selected` and the revert selection, after the same
+    `refreshGeneration` / `rootRequestGeneration` guard: a failed refresh shows
+    plain everywhere exactly as the panel shows an empty list, and a superseded
+    failure returns at that guard and clears nothing newer. Both folder-switch
+    clears — `prepareForFolderChange(root:)` and `refreshImpl`'s root-change
+    block — reset it synchronously, before any suspension, so the previous
+    project's colours never show over the new tree. No new trigger exists:
+    `refresh` and `refreshForDiskChange` both funnel through `refreshImpl`, so
+    the save, watcher, gated-operation, commit and folder-switch refreshes all
+    carry it. The snapshot's ignored paths reach this value and nothing else —
+    never `changedFiles`, so never the panel, the commit dialog or a revert.
+    `projectPrefix(folder:repositoryRoot:)` is `nonisolated` for the lookup's
+    sake, being pure. Tests (`LocalChangesModelTests`, the stub serving an
+    ignored list through the snapshot seam and reusing its gated
+    `changedFiles`): a refresh publishes the lookup; ignored paths never reach
+    `changedFiles`; a superseded refresh, staged with the gate, does not
+    overwrite a newer lookup; a folder switch clears it before the new root's
+    refresh lands; a failed refresh clears it together with `changedFiles`; and
+    a held refresh released to fail after a newer one published leaves the newer
+    lookup and list standing.
+    Pure Foundation — no `Process`/AppKit/SwiftUI.
   - `Commit.swift` — the Log view's value type + `git log` parser. `public struct
     Commit: Identifiable, Equatable` (`hash` (identity), `parents: [String]` —
     first parent first, empty for a root commit, 2+ for a merge — `author`, raw
@@ -624,6 +656,69 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     repository's name, a string-prefix sibling `app2` outside); the prefix
     itself is pinned in `LocalChangesModelTests`, including through a symlinked
     spelling of the folder.
+  - `TreeGitStatus.swift` — the macOS project tree's view of one `git status`
+    answer, built once per refresh and asked per row with **no file-system call
+    and no git call**. Two types.
+    **`TreeGitState`** is the closed row state, declared highest precedence
+    first: `conflict`, `modified`, `added`, `ignored`, `plain` — the order its
+    synthesized `Comparable` follows, so the aggregation compares states
+    directly and a lesser state is a stronger one. A record's status
+    maps to a change state through one exhaustive switch — unmerged → `conflict`;
+    modified, renamed and deleted → `modified`; added (copies included, the
+    parser already reading a copy as `.added`) and untracked → `added`. A rename
+    contributes through its **new path alone** (`oldPath` is never read), and a
+    deletion counts as `modified` for the folders it vanished from, never as
+    `conflict`. `spokenName` is "Conflicted" / "Modified" / "Added" / "Ignored",
+    `nil` for `plain`, which has nothing to say; the pure
+    `accessibilityValue(state:row:)` composes a row's value — a file's word or
+    `""`, a folder's "expanded" / "collapsed" followed by `", "` and the word when
+    there is one — so both row kinds speak the state alike. The colour is a
+    separate Core answer, `ChromeColorRole.treeNameRole(for:)` (`core-theme.md`).
+    **`TreeGitStatus`** (`Equatable`, `Sendable`; `.empty` answers `plain`
+    everywhere — outside a repository, before the first refresh and after a
+    failed one) is **built** from the snapshot, the repository root and the
+    opened folder, in time linear in the records times their depth:
+    - **Change states aggregate upward only.** Every changed path and each of its
+      ancestors, up to and including the repository root's empty key, keeps the
+      strongest change state recorded at or below it, so a folder answers for
+      everything beneath it whether or not it is expanded, and a wholly untracked
+      directory (which `-uall` reports file by file) is `added` with no record of
+      its own. The climb stops at the first ancestor already at least as strong,
+      which every further ancestor then is too.
+    - **Ignore spreads downward only.** Ignored paths go into a set and **never
+      aggregate upward**; a row is ignored when its key or one of its ancestors
+      is in the set, compared by whole components, so a directory record is a
+      prefix (`build` ignores `build/x`, never `build-tools`). Aggregating it
+      upward would dim a folder merely for holding `node_modules`.
+    - **A tracked change outranks ignore**, because the change table is read
+      before the ignored set: a force-added, modified file inside an ignored
+      directory shows `modified`, so does that directory, and the file's
+      unlisted siblings stay ignored.
+    - **The answer is git's alone** — `--ignored=matching`'s `!` records, every
+      ignore source git consults; the gitignore matcher is not touched.
+    **The spellings rule.** The tree spells rows under the opened folder as the
+    user spelled it, while git reports a resolved top level — which is why the
+    opened folder is an input at all. At build time the lookup resolves a small
+    set of root spellings, deduplicated, in order: the opened folder
+    standardized and canonical (each mapped to the folder's repo-relative prefix,
+    from `LocalChangesModel.projectPrefix`), then the repository root
+    standardized and canonical (prefix empty). A query standardizes the row URL
+    **lexically** and strips the first spelling it lies under through
+    `CanonicalPath.relativeComponents`, giving a repo-relative key; a URL under
+    none answers `plain`. Canonicalisation happens only at build, never per row,
+    and adds no new spelling of it. **The cost bound**: one dictionary read for
+    the row's change state, then on a miss at most one set read per ancestor
+    level — bounded by the row's depth, never by the number of records. The
+    internal `resolve(_:)` returns the probe count beside the answer, so
+    `TreeGitStatusTests` pins it at most depth plus one with 10 records and with
+    10,000. A **reader**: it raises no writer gate and no writer gate blocks it.
+    Tests, one per rule: own state, rename, deletion, transitive aggregation from
+    the flat list, strongest-below precedence, the untracked directory, ignore as
+    a whole-component prefix, ignore never upward, change outranks ignore, the
+    empty lookup, a URL outside every spelling, an opened subfolder's prefix,
+    lexical standardization, a symlinked folder spelling, the probe bound, the
+    spoken names, both accessibility compositions and the status mapping's
+    totality.
   - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
     `date(from:)` parses git's raw strict ISO-8601 `%aI` string
     (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`

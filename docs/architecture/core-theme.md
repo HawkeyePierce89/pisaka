@@ -39,8 +39,8 @@ described at the end of this document.
 the geometry tokens, the appearance resolution, the tree row's states and
 `diagnosticRole(for:)` — `ChromeRoleMappingTests` (`swift test`, since part four
 (b)) pins the per-feature answers beside it — the changed-file status's letter,
-word and role, the pull-request checks' glyph, words and role, and the diff
-wash and marker — verbatim over `allCases`, `ChromePaletteTests` (app
+word and role, the pull-request checks' glyph, words and role, the diff
+wash and marker, and the project tree's name role per git state — verbatim over `allCases`, `ChromePaletteTests` (app
 bundle) pins the values themselves, and `TreeRowBackgroundTests` (app bundle,
 since part five (g)) pins the project tree's state-to-role mapping and that it
 composes no alpha.
@@ -160,6 +160,15 @@ two new geometry tokens) and each with its readers pinned by a gating
     (`core-git-models.md`, `ChangeHunk.swift`). Its total answer over `allCases`
     is pinned in `ChangeHunkTests`; rule fifty pins its one reader,
     `LineNumberRulerView.swift`.
+    **The project tree's name colour added a sixth**, `treeNameRole(for:
+    TreeGitState) -> ChromeColorRole?` — conflict `statusRed`, modified
+    `statusYellow`, added `statusGreen`, ignored `textSecondary`, plain nil, so
+    a plain name keeps its inherited foreground and a tree outside a repository
+    draws exactly as before (`core-git-models.md`, `TreeGitStatus.swift`).
+    Folder and file rows map identically, and no new role or palette value
+    exists for it. Pinned over `allCases` in `ChromeRoleMappingTests`; rule
+    fifty-one pins its one reader, `ProjectTreeView.swift`, which draws only the
+    row's name in it (`app-window.md`).
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
@@ -712,7 +721,13 @@ full entry; what is **not** listed here has not been swept.
     a strength the palette now carries, so the mapping composes no alpha.
     `TreeRowBackgroundTests` pins the mapping and that it composes none, and the
     mapping takes the theme as a role-to-colour *function* so no view file names
-    the theme's type (rule five).
+    the theme's type (rule five). Since the git-status pass each row's *name* —
+    not its glyph, chevron or background — takes
+    `ChromeColorRole.treeNameRole(for:)` (`statusRed`, `statusYellow`,
+    `statusGreen`, `textSecondary`), and `plain` applies no foreground at all;
+    an expanded folder draws a `hairline` indent guide behind its children at
+    the scaled `hairlineWidth`, centred in the chevron column (rule fifty-one,
+    `app-window.md`).
 
 #### Part two — the editor pane's own chrome
 
@@ -3150,7 +3165,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The fifty rules, each invisible to the compiler:
+The fifty-one rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -4165,6 +4180,23 @@ The fifty rules, each invisible to the compiler:
     components' roles. A mark or a popover in a colour of its own compiles and
     drifts from the status colours the Local Changes rows draw the same kinds
     in. Matched against comment- and literal-stripped text.
+51. **The tree-name mapping is Core's one answer.** A project-tree row's name
+    is drawn in `ChromeColorRole.treeNameRole(for:)` of its `TreeGitState` —
+    conflict `statusRed`, modified `statusYellow`, added `statusGreen`,
+    ignored `textSecondary`, plain no role, so the name keeps its inherited
+    foreground. No app file declares `func treeNameRole`; the app files
+    spelling `treeNameRole(for:` equal the pinned `treeNameRoleReaders` — the
+    project tree alone; and no gated file qualifies a case as `TreeGitState.`
+    or spells a `case` label naming `.ignored` on its line. `.conflict`,
+    `.modified`, `.added` and `.plain` are other types' case names too (the
+    merge regions, the diff kinds, the tree's row-background state), so a bare
+    label naming one of those four is not matched — the stated limit, rule
+    seventeen's shape. Rule seventeen stays the changed-file *letter*'s rule,
+    with its own reader set; the two mappings are deliberately separate rules.
+    And `ContentView.swift` hands the tree `gitStatus:
+    localChanges.treeGitStatus`: the parameter defaults to an empty lookup, so
+    a dropped argument compiles and draws every row plain.
+    Matched against comment- and literal-stripped text.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

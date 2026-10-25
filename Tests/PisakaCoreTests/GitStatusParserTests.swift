@@ -251,4 +251,97 @@ final class GitStatusParserTests: XCTestCase {
         let file = ChangedFile(path: "Sources/x.swift", status: .modified)
         XCTAssertEqual(file.id, "Sources/x.swift")
     }
+
+    // MARK: - Status snapshot (`!` records carried separately)
+
+    func testSnapshotCarriesIgnoredFileAndDirectoryRecordsWithTheSlashStripped() {
+        let output = """
+        ! debug.log
+        ! build/
+        ! Sources/Generated/
+        """
+        let snapshot = GitStatusParser.parseSnapshot(output)
+        XCTAssertEqual(snapshot.ignoredPaths, ["debug.log", "build", "Sources/Generated"])
+        XCTAssertEqual(snapshot.changedFiles, [])
+    }
+
+    func testChangedFilesAreIdenticalWithAndWithoutInterleavedIgnoredRecords() {
+        let records = [
+            "1 .M N... 100644 100644 100644 a a Sources/app.swift",
+            "u UU N... 100644 100644 100644 100644 h1 h2 h3 merge/target.swift",
+            "2 R. N... 100644 100644 100644 c c R100 docs/new.md\tdocs/old.md",
+            "? scratch.tmp",
+        ]
+        let plain = records.joined(separator: "\n")
+        let interleaved = [
+            "! node_modules/",
+            records[0],
+            "! .DS_Store",
+            records[1],
+            records[2],
+            "! build/output.o",
+            records[3],
+            "! dist/",
+        ].joined(separator: "\n")
+
+        let expected = GitStatusParser.parse(plain)
+        XCTAssertEqual(expected.count, 4)
+        XCTAssertEqual(GitStatusParser.parse(interleaved), expected)
+        XCTAssertEqual(GitStatusParser.parseSnapshot(interleaved).changedFiles, expected)
+        XCTAssertEqual(GitStatusParser.parseSnapshot(plain), GitStatusSnapshot(changedFiles: expected, ignoredPaths: []))
+        XCTAssertEqual(
+            GitStatusParser.parseSnapshot(interleaved).ignoredPaths,
+            ["node_modules", ".DS_Store", "build/output.o", "dist"]
+        )
+    }
+
+    func testSnapshotSkipsHeaderLines() {
+        let output = """
+        # branch.oid abc123
+        # branch.head main
+        ! cache/
+        # branch.ab +0 -0
+        """
+        XCTAssertEqual(
+            GitStatusParser.parseSnapshot(output),
+            GitStatusSnapshot(changedFiles: [], ignoredPaths: ["cache"])
+        )
+    }
+
+    func testSnapshotPreservesIgnoredPathsWithSpaces() {
+        let output = """
+        ! my build dir/
+        ! notes and drafts.txt
+        """
+        XCTAssertEqual(
+            GitStatusParser.parseSnapshot(output).ignoredPaths,
+            ["my build dir", "notes and drafts.txt"]
+        )
+    }
+
+    func testIgnoredRecordWithoutAPathIsDropped() {
+        XCTAssertEqual(GitStatusParser.parseSnapshot("!\n! /").ignoredPaths, [])
+    }
+
+    func testDefaultSnapshotSeamWrapsChangedFilesWithNoIgnoredPaths() async throws {
+        let files = [
+            ChangedFile(path: "a.swift", status: .modified, headObject: "a"),
+            ChangedFile(path: "b.txt", status: .untracked),
+        ]
+        let service = ChangedFilesOnlyService(files: files)
+        let snapshot = try await service.statusSnapshot(root: URL(fileURLWithPath: "/repo"))
+        XCTAssertEqual(snapshot, GitStatusSnapshot(changedFiles: files, ignoredPaths: []))
+    }
+}
+
+/// A service implementing only the protocol's required methods, so
+/// `statusSnapshot(root:)` resolves to the protocol-extension default.
+private struct ChangedFilesOnlyService: GitServicing {
+    let files: [ChangedFile]
+
+    func repositoryRoot(for url: URL) async throws -> URL { url }
+    func changedFiles(root: URL) async throws -> [ChangedFile] { files }
+    func commits(filter: LogFilter, limit: Int, root: URL) async throws -> [Commit] { [] }
+    func headContents(of path: String, root: URL) async throws -> String? { nil }
+    func revert(_ file: ChangedFile, root: URL) async throws {}
 }

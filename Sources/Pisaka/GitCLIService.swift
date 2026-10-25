@@ -38,25 +38,41 @@ struct GitCLIService: GitServicing {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    /// The files differing from `HEAD` in the repository at `root`.
-    ///
-    /// Runs `git status --porcelain=v2 -uall` (stable, machine-readable output;
-    /// `-uall` lists every untracked file individually rather than collapsing a
-    /// directory) and hands stdout to `GitStatusParser.parse`.
+    /// The files differing from `HEAD` in the repository at `root` — the
+    /// snapshot's changed-file list, so the status command is spelled once
+    /// (`statusSnapshot(root:)`) and the ignored records it also carries never
+    /// reach a reader of this list.
     func changedFiles(root: URL) async throws -> [ChangedFile] {
+        try await statusSnapshot(root: root).changedFiles
+    }
+
+    /// The files differing from `HEAD` plus the paths git reports as ignored, from
+    /// one status run.
+    ///
+    /// Runs `git status --porcelain=v2 -uall --ignored=matching` (stable,
+    /// machine-readable output; `-uall` lists every untracked file individually
+    /// rather than collapsing a directory) and hands stdout to
+    /// `GitStatusParser.parseSnapshot`. `--ignored=matching` adds one `!` record
+    /// per path an ignore rule matches — a wholly ignored directory as the one
+    /// directory record, not its contents — from every source git consults
+    /// (`.gitignore`, `.git/info/exclude`, `core.excludesFile`), so the project
+    /// tree dims exactly what git ignores without a second command. The parser
+    /// carries those records in a separate list; the changed-file list is
+    /// byte-for-byte what the command without the flag produced.
+    func statusSnapshot(root: URL) async throws -> GitStatusSnapshot {
         // `-c core.quotePath=false` keeps non-ASCII paths (Cyrillic, CJK, emoji,
         // accented Latin) raw in the output. Git's default quotes them with
         // C-style octal escapes, which `GitStatusParser` does not unquote — the
         // escaped path would then fail both `git show HEAD:<path>` and the
         // working-copy read, so the diff would come up empty for such files.
         let result = try await run(
-            ["-c", "core.quotePath=false", "status", "--porcelain=v2", "-uall"],
+            ["-c", "core.quotePath=false", "status", "--porcelain=v2", "-uall", "--ignored=matching"],
             in: root
         )
         guard result.exitCode == 0 else {
             throw GitError.notARepository(stderr: result.stderr)
         }
-        return GitStatusParser.parse(result.stdout)
+        return GitStatusParser.parseSnapshot(result.stdout)
     }
 
     /// The commit history of the repository at `root`, most recent first.

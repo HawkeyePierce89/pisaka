@@ -778,7 +778,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`commits`/`references`/`commitChanges`/`fileContents`), and the conflict
     surface (`stage`/`stageRemoval`). It deliberately does **not** implement
     `blame(fileURL:)` — the annotation column is a macOS-gutter feature and iOS has
-    no gutter — inheriting the protocol extension's `[]` default. The
+    no gutter — inheriting the protocol extension's `[]` default. Nor does it
+    implement `statusSnapshot(root:)`: the default wraps its `changedFiles` with
+    no ignored paths, so `LocalChangesModel` still builds a `treeGitStatus` on
+    iOS, which nothing reads — the iOS tree draws no git state. The
     branch-switcher surface is likewise a
     direct libgit2 binding: `currentBranch` (via `git_repository_head` /
     `git_reference_*` — unborn/detached → `nil`), `checkout` (`git_checkout_tree` +

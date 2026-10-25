@@ -37,7 +37,15 @@ import PisakaCore
 ///   `nil` for a binary blob, an untracked file and a file outside any repository;
 /// - that base's read is bounded at `GutterChangeModel.maxSideBytes` *after* the
 ///   filters: exactly the cap reads back, one byte over is `nil`, and a blob under
-///   the cap that the checkout's CRLF conversion grows past it is `nil` too.
+///   the cap that the checkout's CRLF conversion grows past it is `nil` too;
+/// - the status snapshot's `--ignored=matching` reports what git ignores from
+///   each source it consults — a `.gitignore`d directory as one slash-stripped
+///   path, `.git/info/exclude`, and a `core.excludesFile` (set in the
+///   repository's config, standing in for the global one) — while none of it
+///   reaches the changed files, and a force-added tracked file inside an
+///   ignored directory still reports its edit while its sibling stays ignored;
+/// - that status command, run outside any repository, throws
+///   `GitError.notARepository` from both `statusSnapshot` and `changedFiles`.
 ///
 /// The repositories come from `ThrowawayRepository`, whose own git runs with
 /// the machine's configuration masked; the service under test inherits the
@@ -241,7 +249,96 @@ final class GitCLIServiceRepositoryTests: XCTestCase {
         XCTAssertNil(grown)
     }
 
+    // MARK: - Status snapshot
+
+    func testAnIgnoredDirectoryIsOneSlashStrippedPathAndNoChangedFile() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile(".gitignore", contents: "pisaka-build-out/\n", in: repo)
+        try write("pisaka-build-out/a.o", in: repo)
+        try write("pisaka-build-out/nested/b.o", in: repo)
+        try write("fresh.txt", in: repo)
+
+        let snapshot = try await GitCLIService().statusSnapshot(root: repo)
+
+        XCTAssertTrue(snapshot.ignoredPaths.contains("pisaka-build-out"), "\(snapshot.ignoredPaths)")
+        XCTAssertFalse(snapshot.ignoredPaths.contains { $0.hasPrefix("pisaka-build-out/") })
+        XCTAssertFalse(snapshot.changedFiles.contains { $0.path.hasPrefix("pisaka-build-out") })
+        XCTAssertTrue(snapshot.changedFiles.contains { $0.path == "fresh.txt" && $0.status == .untracked })
+        let changedFiles = try await GitCLIService().changedFiles(root: repo)
+        XCTAssertEqual(changedFiles, snapshot.changedFiles, "changedFiles is the snapshot's list")
+    }
+
+    func testAFileIgnoredThroughTheInfoExcludeIsReported() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("kept.txt", contents: "a\n", in: repo)
+        try Data("pisaka-info-excluded.txt\n".utf8)
+            .write(to: repo.appendingPathComponent(".git/info/exclude"))
+        try write("pisaka-info-excluded.txt", in: repo)
+
+        let snapshot = try await GitCLIService().statusSnapshot(root: repo)
+
+        XCTAssertTrue(snapshot.ignoredPaths.contains("pisaka-info-excluded.txt"), "\(snapshot.ignoredPaths)")
+        XCTAssertFalse(snapshot.changedFiles.contains { $0.path == "pisaka-info-excluded.txt" })
+    }
+
+    func testAFileIgnoredThroughTheExcludesFileIsReported() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile("kept.txt", contents: "a\n", in: repo)
+        let excludes = scratch.appendingPathComponent("excludes")
+        try Data("pisaka-globally-excluded.txt\n".utf8).write(to: excludes)
+        try git(["config", "core.excludesFile", excludes.path], in: repo)
+        try write("pisaka-globally-excluded.txt", in: repo)
+
+        let snapshot = try await GitCLIService().statusSnapshot(root: repo)
+
+        XCTAssertTrue(snapshot.ignoredPaths.contains("pisaka-globally-excluded.txt"), "\(snapshot.ignoredPaths)")
+        XCTAssertFalse(snapshot.changedFiles.contains { $0.path == "pisaka-globally-excluded.txt" })
+    }
+
+    func testAForceAddedFileInsideAnIgnoredDirectoryReportsItsEdit() async throws {
+        let repo = try makeRepository("repo")
+        try commitFile(".gitignore", contents: "pisaka-vendor/\n", in: repo)
+        try write("pisaka-vendor/kept.txt", in: repo)
+        try git(["add", "-f", "--", "pisaka-vendor/kept.txt"], in: repo)
+        try git(["commit", "-q", "-m", "force-add"], in: repo)
+        try write("pisaka-vendor/kept.txt", contents: "edited\n", in: repo)
+        try write("pisaka-vendor/sibling.txt", in: repo)
+
+        let service = GitCLIService()
+        let snapshot = try await service.statusSnapshot(root: repo)
+
+        XCTAssertTrue(snapshot.changedFiles.contains { $0.path == "pisaka-vendor/kept.txt" && $0.status == .modified })
+        XCTAssertFalse(snapshot.changedFiles.contains { $0.path == "pisaka-vendor/sibling.txt" })
+        XCTAssertFalse(snapshot.ignoredPaths.contains("pisaka-vendor/kept.txt"))
+        let repositoryRoot = try await service.repositoryRoot(for: repo)
+        let lookup = TreeGitStatus(snapshot: snapshot, repositoryRoot: repositoryRoot, openedFolder: repo)
+        XCTAssertEqual(lookup.state(for: repo.appendingPathComponent("pisaka-vendor/kept.txt")), .modified)
+        XCTAssertEqual(lookup.state(for: repo.appendingPathComponent("pisaka-vendor/sibling.txt")), .ignored)
+    }
+
+    func testTheStatusCommandOutsideAnyRepositoryThrowsNotARepository() async throws {
+        let outside = scratch.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let service = GitCLIService()
+
+        do {
+            _ = try await service.statusSnapshot(root: outside)
+            XCTFail("statusSnapshot answered for a folder outside any repository")
+        } catch GitError.notARepository {}
+        do {
+            _ = try await service.changedFiles(root: outside)
+            XCTFail("changedFiles answered for a folder outside any repository")
+        } catch GitError.notARepository {}
+    }
+
     // MARK: - Helpers
+
+    /// Writes an untracked file at `path` inside `repo`, creating its folders.
+    private func write(_ path: String, contents: String = "x\n", in repo: URL) throws {
+        let url = repo.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(contents.utf8).write(to: url)
+    }
 
     private var repository: ThrowawayRepository { ThrowawayRepository(scratch: scratch) }
 

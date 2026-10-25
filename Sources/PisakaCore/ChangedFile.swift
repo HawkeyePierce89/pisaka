@@ -75,3 +75,21 @@ public struct ChangedFile: Identifiable, Equatable {
     /// Stable identity from the repo-relative path.
     public var id: String { path }
 }
+
+/// One `git status` answer: the files differing from `HEAD`, and — beside them,
+/// never inside them — the repo-relative paths git reports as ignored.
+///
+/// `ignoredPaths` holds plain paths: a wholly ignored directory arrives as one
+/// entry with its trailing `/` already stripped (`GitStatusParser.parseSnapshot`),
+/// so it stands for itself and everything below it. `changedFiles` is exactly the
+/// list `changedFiles(root:)` answers, which is why a producer that cannot see
+/// ignored entries can still build an honest snapshot with an empty ignored list.
+public struct GitStatusSnapshot: Equatable {
+    public let changedFiles: [ChangedFile]
+    public let ignoredPaths: [String]
+
+    public init(changedFiles: [ChangedFile], ignoredPaths: [String]) {
+        self.changedFiles = changedFiles
+        self.ignoredPaths = ignoredPaths
+    }
+}

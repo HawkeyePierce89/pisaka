@@ -23,6 +23,18 @@ public protocol GitServicing {
     /// The files differing from `HEAD` in the repository at `root`.
     func changedFiles(root: URL) async throws -> [ChangedFile]
 
+    /// The files differing from `HEAD` in the repository at `root`, plus the
+    /// paths git reports as ignored, from **one** status run.
+    ///
+    /// `changedFiles` inside the snapshot is the same list `changedFiles(root:)`
+    /// answers; the ignored paths travel beside it so no reader of that list ever
+    /// sees one. Defaulted in a protocol extension to `changedFiles(root:)`
+    /// wrapped with an empty ignored list, so the iOS `LibGit2Service` and every
+    /// existing stub keep compiling and keep answering exactly what they answer
+    /// today — "nothing is known to be ignored" is honest for a producer that
+    /// never asked. The real `GitCLIService` overrides it.
+    func statusSnapshot(root: URL) async throws -> GitStatusSnapshot
+
     /// The commit history of the repository at `root`, most recent first, subject
     /// to `filter` and capped at `limit` commits.
     ///
@@ -327,6 +339,10 @@ public protocol GitServicing {
 /// optional tree-mutation methods. The real `Process`-backed `GitCLIService`
 /// overrides both.
 public extension GitServicing {
+    func statusSnapshot(root: URL) async throws -> GitStatusSnapshot {
+        GitStatusSnapshot(changedFiles: try await changedFiles(root: root), ignoredPaths: [])
+    }
+
     func headBlob(of path: String, root: URL) async throws -> Data? { nil }
 
     func headBlobSize(of path: String, root: URL) async throws -> Int? { nil }

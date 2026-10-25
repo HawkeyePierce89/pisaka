@@ -213,12 +213,15 @@ line_length:
 # bar itself living in `ExternalChangeBar.swift` and its Reload and Compare in
 # `DiskSyncController.swift`. Then 1967 with the Local History restore's stamp
 # refresh after its own create of the empty file, one line: without it the
-# guarded save reads that create as an external change. The number tracks the one file that
+# guarded save reads that create as an external change. Then 1971 with the
+# project tree's git refresh: four lines, `refreshLocalChanges()` after the
+# tree's create, move and delete and the created LeetCode solution, which the
+# watcher's `IgnoreSelf` would otherwise leave uncoloured in the tree. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1967
-  error: 1967
+  warning: 1971
+  error: 1971
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -278,10 +281,11 @@ file_length:
 # external-change detection's nine, the same nine `file_length` counts, every
 # one of them inside the struct body. Then to 1959 with the external-change
 # bar's three, the same three `file_length` counts. Then to 1960 with the
-# restore's stamp refresh, the same one `file_length` counts.
+# restore's stamp refresh, the same one `file_length` counts. Then to 1964 with
+# the project tree's git refresh, the same four `file_length` counts.
 type_body_length:
-  warning: 1960
-  error: 1960
+  warning: 1964
+  error: 1964
 
 function_body_length:
   warning: 140

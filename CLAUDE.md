@@ -111,7 +111,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `MergeRegion.swift` / `ThreeWayMerge.swift`, `MergeLineKind.swift`, `MergeDocument.swift`, `MergeModel.swift`, `LineDiff.swift`, `WordDiff.swift`, `TerminatedLines.swift`, `ChangeTree.swift`
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
-  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangeHunk.swift`, `GutterChangeModel.swift`, `ChangeNavigationRule.swift`, `HunkRevertPlan.swift`, `ChangedFileGroups.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
+  `LocalChangesModel.swift`, `LocalChangesInlineDiff.swift`, `ChangeHunk.swift`, `GutterChangeModel.swift`, `ChangeNavigationRule.swift`, `HunkRevertPlan.swift`, `ChangedFileGroups.swift`, `TreeGitStatus.swift`, `Commit.swift`, `CommitChangesParser.swift`, `CommitGraphLayout.swift`, `LogFilter.swift`, `LogFilterDraft.swift`, `RelativeCommitDate.swift`, `CommitLogModel.swift`, `BranchSwitcherModel.swift`
 
 `docs/architecture/core-commit.md` — the commit-dialog domain:
   `GitFileMode.swift`, `GitBlobText.swift`, `CommitDiffUnits.swift`, `UnifiedDiffDisplayRows.swift`, `PartialCommitBuilder.swift`, `CommitIdentity.swift`, `CommitContext.swift`, `CommitGate.swift`, `PushPlan.swift`, `CommitPlan.swift`, `CommitDialogModel.swift`
@@ -216,7 +216,8 @@ because nothing else states them.
 - **Readers do not take the writer gate**: the symbol index only *reads*, so it neither
   raises the gate nor is gated by it — a refresh landing mid-revert costs at worst one
   entry the next refresh corrects, while taking the gate would serialize the editor
-  behind a background walk.
+  behind a background walk. The project tree likewise reads git state only from
+  `LocalChangesModel`'s published lookup, raising no writer gate and blocked by none.
 - **Language servers** (`core-lsp.md`, D1–D10 + D17–D45): one server per `(server, root)`, started
   lazily and never twice; registration is dynamic, and un-registering one shuts its process
   down. Sync is request-driven — the live buffer travels with the request — except for the
@@ -321,7 +322,7 @@ because nothing else states them.
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
   `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-six, by set
-  equality) and its fifty rules, inventoried in that suite's own header and
+  equality) and its fifty-one rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces,

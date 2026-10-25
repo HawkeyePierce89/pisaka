@@ -163,6 +163,26 @@ extension ChromeColorRole {
         }
     }
 
+    /// A project-tree row's git state → the role its *name* is drawn in, or
+    /// `nil` for `plain`, whose name keeps the foreground it inherits — so a
+    /// tree outside a repository draws exactly as it did before git state was
+    /// shown. The chrome's **one** answer, read by the project tree alone.
+    ///
+    /// Folder and file rows map identically: a folder's state is already the
+    /// strongest one below it, so the colour needs no second rule. No new role
+    /// and no new palette value exist for this — the three change states land
+    /// on the status roles a changed file's letter does, and an ignored entry
+    /// is dimmed to `textSecondary`, the tone of a remark.
+    public static func treeNameRole(for state: TreeGitState) -> ChromeColorRole? {
+        switch state {
+        case .conflict: return .statusRed
+        case .modified: return .statusYellow
+        case .added: return .statusGreen
+        case .ignored: return .textSecondary
+        case .plain: return nil
+        }
+    }
+
     /// A pull request's checks summary → its glyph's role. One answer for the
     /// Pull Requests panel's rows and the bottom-bar indicator.
     public static func checksRole(for summary: GitHubChecksSummary) -> ChromeColorRole {

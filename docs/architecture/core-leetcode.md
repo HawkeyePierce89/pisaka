@@ -2016,7 +2016,15 @@ the limits the design carries.
     already gone — the tab open itself. **Opening a problem never changes the
     project root**: the file is opened via `WorkspaceModel.open(url:)` like any
     other, and the tree revision is bumped only when the file actually landed inside
-    the open project. **That failure also re-asks the statement question**, and is
+    the open project — by `openLeetCodeProblem` the moment `openProblem` answers
+    `.created`, together with `refreshLocalChanges()`, and ahead of both ways that
+    answer can end without a tab (the sheet closed mid-request, or the tab open
+    failed), so the file the disk now holds reaches the tree and Local Changes
+    either way, this process's write raising no watcher event. The symbol index is
+    told in the same place, through `notifyIndexOfProjectFileChanges()`: the stub
+    has symbols, and a withdrawn or failed open registers no buffer to carry them,
+    while on the usual path the debounced refresh lands after the tab opened and
+    declines to touch its buffer-sourced entry. **That failure also re-asks the statement question**, and is
     the app-side half of the model's ordering rule: `openProblem` published the
     statement it had in hand once the file existed, but the panel is global rather
     than keyed to a tab, and a tab that failed to open left the selection unchanged

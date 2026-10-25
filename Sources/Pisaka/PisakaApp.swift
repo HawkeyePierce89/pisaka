@@ -1751,6 +1751,24 @@ struct PisakaApp: App {
         }
         do {
             let outcome = try await leetCode.openProblem(input: input, language: language)
+            // A created file is on disk whether or not a tab follows — the
+            // cancellation check below and a failed tab open both decline to put
+            // one up — so the tree and Local Changes are told here, ahead of both.
+            // Only inside the opened project: the tree shows that project alone and
+            // git is asked of its root, so a file outside it has nothing to appear
+            // in. Then a reader's refresh, for `newFile(in:name:)`'s reason: the
+            // solution is untracked, and this process's write raises no watcher
+            // event. The index is told too, unlike after `newFile(in:name:)`: that
+            // file is empty, while this one is a stub with symbols of its own, and
+            // a withdrawn or failed open registers no buffer to carry them — so
+            // nothing would file them until some unrelated refresh. On the usual
+            // path the debounced refresh lands after the tab opened in this same
+            // turn, and a buffer-sourced entry is what it declines to touch.
+            if case .created(let solution) = outcome, let root = model.projectRoot, isInsideProject(solution.url, root: root) {
+                model.bumpTreeRevision()
+                refreshLocalChanges()
+                notifyIndexOfProjectFileChanges()
+            }
             // Cancelled means the user closed the sheet while this was in flight
             // (see `LeetCodeOpenProblemSheet.openTask`). The file may already have
             // been created — it is a file in a folder they set aside, and the
@@ -1761,7 +1779,7 @@ struct PisakaApp: App {
             switch outcome {
             case .created(let solution), .resumed(let solution):
                 leetCodeSheet = nil
-                openLeetCodeSolution(solution, wasCreated: outcome.wasCreated)
+                openLeetCodeSolution(solution)
                 onOpened()
                 return nil
             case .noSuchProblem:
@@ -1842,14 +1860,9 @@ struct PisakaApp: App {
     ///
     /// **Opening a problem never changes the project root** — the file is a tab
     /// like any other, and browsing the LeetCode folder as a project stays the
-    /// user's separate action. Which is also why the tree bump is conditional:
-    /// the tree only shows the opened project, so a file written outside it has
-    /// nothing to appear in.
-    ///
-    /// No `notifyIndexOfProjectFileChanges()` beside that bump, for the reason
-    /// `newFile(in:)` already states: the file is opened as a tab in this same
-    /// turn, and a buffer-sourced entry is exactly what the index's disk refresh
-    /// declines to touch.
+    /// user's separate action. What a *created* file owes the tree and Local
+    /// Changes is paid by `openLeetCodeProblem` before this runs, because it is
+    /// owed whether or not this open succeeds.
     ///
     /// **A failed open has to put the statement panel back**, which is why the
     /// catch path re-asks the question rather than only alerting: `openProblem`
@@ -1860,7 +1873,7 @@ struct PisakaApp: App {
     /// open. Asking for the *selected* tab is the whole restore: it clears the
     /// panel when that tab is not a solution file and republishes that tab's own
     /// statement when it is — out of the cache, so no second request.
-    private func openLeetCodeSolution(_ solution: LeetCodeSolution, wasCreated: Bool) {
+    private func openLeetCodeSolution(_ solution: LeetCodeSolution) {
         do {
             try model.open(url: solution.url)
         } catch {
@@ -1875,11 +1888,7 @@ struct PisakaApp: App {
                 title: "Can't open the solution file",
                 message: "The file for problem \(solution.problem.frontendID) was written to \(solution.url.path) but could not be opened."
             )
-            return
         }
-        guard wasCreated, let root = model.projectRoot, isInsideProject(solution.url, root: root)
-        else { return }
-        model.bumpTreeRevision()
     }
 
     /// Whether `url` sits inside the opened project — the tree-bump condition.
@@ -4987,6 +4996,10 @@ struct PisakaApp: App {
             try fileService.createFile(at: url)
             openFile(url: url)
             model.bumpTreeRevision()
+            // The watcher drops this process's own writes, so nothing else
+            // re-asks git: without this the new file stays uncoloured in the
+            // tree (and missing from Local Changes) until its first save.
+            refreshLocalChanges()
         } catch {
             refreshTreeAfterFailedCreate(componentCount: components.count)
             reportFileOperationFailure(error)
@@ -5116,6 +5129,10 @@ struct PisakaApp: App {
             // The index still holds the entry filed under the old path; only the
             // refresh's removal pass drops it, and only this call reaches it.
             notifyIndexOfProjectFileChanges()
+            // Re-ask git, for `newFile(in:name:)`'s reason: the moved name, both
+            // parent folders and an entry moved into or out of an ignored folder
+            // would otherwise keep their old colours.
+            refreshLocalChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -5182,6 +5199,9 @@ struct PisakaApp: App {
             // Handing the entries back to disk is only half of it: what actually
             // drops the deleted files' symbols is the refresh's removal pass.
             notifyIndexOfProjectFileChanges()
+            // Re-ask git, for `newFile(in:name:)`'s reason: a deleted tracked
+            // file's folders would otherwise not turn modified.
+            refreshLocalChanges()
         } catch {
             reportFileOperationFailure(error)
         }

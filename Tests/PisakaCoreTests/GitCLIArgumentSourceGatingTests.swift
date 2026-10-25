@@ -48,6 +48,13 @@ import XCTest
 /// - **Blame ignores whitespace and follows in-file moves, not copies**
 ///   (`testBlameIgnoresWhitespaceAndFollowsMovesWithinTheFile`): the one
 ///   `"blame"` array spells `"-w"` and `"-M"` and no `"-C"` in any form.
+/// - **One status command reports what git ignores**
+///   (`testTheOneStatusCommandReportsIgnoredPaths`): exactly one array literal
+///   spells `"--ignored=matching"`, that literal also spells `"status"`, and no
+///   other text in the file spells `--ignored` in any form. The status run is
+///   spelled once so `changedFiles` and the tree's snapshot cannot drift apart,
+///   and the one mode named is `matching` — `traditional` would list every file
+///   inside an ignored directory, and `no` would leave the tree nothing to dim.
 /// - **The project watcher refreshes Local Changes, ungated**
 ///   (`testTheProjectWatcherRefreshesLocalChangesUngated`): the one
 ///   `projectWatcher.start(` call in `Sources/Pisaka/PisakaApp.swift` hands a
@@ -243,6 +250,21 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
         XCTAssertFalse(
             blame.contains("\"-C"),
             "no -C: it is expensive and would attribute lines to commits in other files"
+        )
+    }
+
+    func testTheOneStatusCommandReportsIgnoredPaths() throws {
+        let code = try service()
+        let ignoring = arrayLiterals(in: code).filter { $0.contains("\"--ignored=matching\"") }
+        XCTAssertEqual(ignoring.count, 1, "one status command line carries --ignored=matching")
+        XCTAssertTrue(
+            ignoring.first?.contains("\"status\"") ?? false,
+            "the --ignored=matching array is the status command, so the snapshot and changedFiles share one run"
+        )
+        XCTAssertEqual(
+            occurrences(of: "--ignored", in: code), 1,
+            "no other literal spells --ignored in any form — a second mode or a second status run would "
+                + "let the tree's ignored set and the changed-file list come from different answers"
         )
     }
 

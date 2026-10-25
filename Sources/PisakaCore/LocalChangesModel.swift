@@ -26,6 +26,15 @@ public final class LocalChangesModel: ObservableObject {
     /// The files differing from `HEAD`, as of the last successful `refresh`.
     @Published public private(set) var changedFiles: [ChangedFile] = []
 
+    /// The project tree's git lookup, built from the same status snapshot as
+    /// `changedFiles` and published, cleared and superseded with it: set in the
+    /// one guarded block that publishes the list, reset to `.empty` in the one
+    /// guarded failure block that empties it, and reset synchronously by both
+    /// folder-switch clears. So the tree and the panel never disagree — a failed
+    /// refresh shows plain everywhere exactly as the panel shows an empty list.
+    /// The ignored paths the snapshot carries reach this value and nothing else.
+    @Published public private(set) var treeGitStatus: TreeGitStatus = .empty
+
     /// Whether the list is shown flat or grouped by folder.
     @Published public var groupingMode: GroupingMode = .flat
 
@@ -434,6 +443,7 @@ public final class LocalChangesModel: ObservableObject {
         lastRequestedRoot = root
         rootRequestGeneration += 1
         changedFiles = []
+        treeGitStatus = .empty
         selected = nil
         revertSelection = []
         errorMessage = nil
@@ -468,6 +478,7 @@ public final class LocalChangesModel: ObservableObject {
             // the slower `self.root = repoRoot` commit below.
             rootRequestGeneration += 1
             changedFiles = []
+            treeGitStatus = .empty
             selected = nil
             revertSelection = []
             errorMessage = nil
@@ -480,7 +491,10 @@ public final class LocalChangesModel: ObservableObject {
         let rootGeneration = rootRequestGeneration
         do {
             let repoRoot = try await gitService.repositoryRoot(for: root)
-            let files = try await gitService.changedFiles(root: repoRoot)
+            // One status run answers both the list and the tree's lookup; the
+            // snapshot keeps git's ignored records out of `files`.
+            let snapshot = try await gitService.statusSnapshot(root: repoRoot)
+            let files = snapshot.changedFiles
             // A newer refresh started and is the one that should win; discard this
             // now-stale result rather than overwriting the newer published state.
             // Also discard if the opened folder switched since this refresh began:
@@ -497,6 +511,7 @@ public final class LocalChangesModel: ObservableObject {
             projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
+            treeGitStatus = TreeGitStatus(snapshot: snapshot, repositoryRoot: repoRoot, openedFolder: root)
             if !(keepingRevertError && revertErrorStanding) {
                 errorMessage = nil
                 revertErrorStanding = false
@@ -537,6 +552,7 @@ public final class LocalChangesModel: ObservableObject {
             projectPrefix = ""
             publishedRootGeneration = rootGeneration
             changedFiles = []
+            treeGitStatus = .empty
             selected = nil
             // Clear the revert checkbox set too. A failure stores the *unresolved*
             // passed-in `root` (the repo top level couldn't be resolved), so a later
@@ -557,7 +573,9 @@ public final class LocalChangesModel: ObservableObject {
     /// symlinked or `..`-laden spelling of the folder still yields the same
     /// prefix; a folder that is not under the root (which git's top-level
     /// answer rules out) yields `""` rather than a path climbing out of it.
-    public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
+    /// `nonisolated` because it is pure, and `TreeGitStatus` builds its keys
+    /// through it off the main actor.
+    nonisolated public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
         let folderComponents = CanonicalPath.canonical(folder).pathComponents
         let rootComponents = CanonicalPath.canonical(repositoryRoot).pathComponents
         guard let below = CanonicalPath.relativeComponents(

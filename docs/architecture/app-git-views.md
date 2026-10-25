@@ -169,9 +169,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `removeUntracked` (pure syscalls) stays synchronous and `InterruptedRevert`/
     `RemoveFailure` are unchanged. `repositoryRoot(for:)`
     runs `git rev-parse --show-toplevel` (so the model normalizes a nested opened
-    folder to the repo top level before any other call). `changedFiles(root:)`
-    runs `git status --porcelain=v2 -uall` and feeds stdout to
-    `GitStatusParser.parse`; `headContents(of:root:)` runs `git show HEAD:<path>`
+    folder to the repo top level before any other call). **The status command
+    is spelled once**, in `statusSnapshot(root:)`: `git -c core.quotePath=false
+    status --porcelain=v2 -uall --ignored=matching`, its stdout fed to
+    `GitStatusParser.parseSnapshot`, with the not-a-repository error mapping
+    unchanged. `--ignored=matching` adds one `!` record per path an ignore rule
+    matches — a wholly ignored directory as that one directory record, not its
+    contents — from every source git consults (`.gitignore`,
+    `.git/info/exclude`, `core.excludesFile`), which is what lets the project
+    tree dim exactly what git ignores without a second command (`traditional`
+    would list every file under an ignored directory; `no` would leave nothing
+    to dim). `changedFiles(root:)` returns that snapshot's `changedFiles`, which
+    the parser keeps byte-for-byte what the command without the flag produced,
+    so the commit dialog's and the branch switcher's answers are unchanged and
+    the ignored records never reach them; `headContents(of:root:)` runs `git show HEAD:<path>`
     and maps a non-zero exit (missing object → new/untracked file) to `nil`
     rather than throwing. `revert(_:root:)` dispatches on `file.status`:
     `.modified`/`.deleted` → `git checkout HEAD -- <path>` (restores index +
@@ -484,7 +495,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     empty, with `--show-signature`/`log.showSignature=true` absent; the set of
     functions whose bodies carry `GIT_TERMINAL_PROMPT` equal to `{fetch, push, pull,
     commit, headText, checkout, createAndCheckout, restoreFromHead}` (the one place that set lives); exactly three `checkout` spellings,
-    every one with a `--`; blame's `-w`/`-M` with no `-C`; and that the one
+    every one with a `--`; blame's `-w`/`-M` with no `-C`; exactly one array
+    literal spelling `"--ignored=matching"`, that literal also spelling
+    `"status"`, and no other text in the file spelling `--ignored` in any form
+    (so the tree's ignored set and the changed-file list can only come from one
+    run); and that the one
     `projectWatcher.start(` callback in `PisakaApp.swift` asks the model's
     `refreshForDiskChange` and names no writer gate (`app-shell.md`). Whether those
     arguments do what is claimed is a fact about git itself, so
@@ -504,7 +519,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `eol=crlf`, answers `nil` for a binary blob, an untracked file and a file
     outside any repository, and is bounded at the gutter's cap after the filters
     (exactly the cap reads back; one byte over, or a blob the CRLF conversion
-    grows past it, is `nil`). Its repositories come from the bundle's shared
+    grows past it, is `nil`); and `statusSnapshot` reports as ignored — and
+    never among the changed files — a `.gitignore`d directory as one
+    slash-stripped path, a file ignored only through `.git/info/exclude`, and a
+    file ignored only through an excludes file named by the repository's
+    `core.excludesFile` (standing in for the global one), while a force-added
+    tracked file inside an ignored directory, once modified, is reported as
+    modified and its sibling stays ignored, and run outside any repository
+    throws `notARepository` from both it and `changedFiles`. Its repositories come from the bundle's shared
     `ThrowawayRepository`, which `GitChangeControllerRepositoryTests` uses too.
   - `CommitDialogView.swift` — the commit dialog: a modal **sheet** on
     the main window, laid out top to bottom as the design draws it — the

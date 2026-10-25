@@ -78,6 +78,17 @@ final class LocalChangesModelTests: XCTestCase {
             return result
         }
 
+        /// The ignored paths every status snapshot carries beside the changed
+        /// files.
+        var ignored: [String] = []
+
+        /// The snapshot seam, served through the gated `changedFiles` above so
+        /// every ordering test stages the model's one status read the same way.
+        func statusSnapshot(root: URL) async throws -> GitStatusSnapshot {
+            let files = try await changedFiles(root: root)
+            return GitStatusSnapshot(changedFiles: files, ignoredPaths: ignored)
+        }
+
         /// Release the gated `changedFiles` call at `index`, letting it return.
         func release(call index: Int) {
             gateContinuations.removeValue(forKey: index)?.resume()
@@ -2785,5 +2796,171 @@ final class LocalChangesModelTests: XCTestCase {
         await older.value
 
         XCTAssertEqual(model.listRevision, before + 1)
+    }
+
+    // MARK: - tree git status
+
+    /// The lookup a refresh of `root` with `files` and `ignored` should publish.
+    private func expectedLookup(
+        files: [ChangedFile], ignored: [String] = [], root: URL? = nil
+    ) -> TreeGitStatus {
+        let root = root ?? self.root
+        return TreeGitStatus(
+            snapshot: GitStatusSnapshot(changedFiles: files, ignoredPaths: ignored),
+            repositoryRoot: root,
+            openedFolder: root
+        )
+    }
+
+    func testRefreshPublishesTheTreeGitStatusLookup() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "src/a.swift", status: .modified)]
+        git.ignored = ["build"]
+        let model = makeModel(git: git)
+        XCTAssertEqual(model.treeGitStatus, .empty)
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.treeGitStatus, expectedLookup(files: git.files, ignored: ["build"]))
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("src")), .modified)
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("build/out.o")), .ignored)
+    }
+
+    func testTheLookupIsBuiltAgainstTheOpenedFolderAsTheUserSpelledIt() async {
+        // The folder was opened through a spelling git never reports (a link, in
+        // life): git resolves its own top level, and the tree's rows stay
+        // spelled under the folder as opened.
+        let git = StubGit()
+        let gitRoot = URL(fileURLWithPath: "/resolved/repo")
+        git.repoRoot = gitRoot
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        git.ignored = ["build"]
+        let model = makeModel(git: git)
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(
+            model.treeGitStatus,
+            TreeGitStatus(
+                snapshot: GitStatusSnapshot(changedFiles: git.files, ignoredPaths: ["build"]),
+                repositoryRoot: gitRoot,
+                openedFolder: root
+            )
+        )
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("a.swift")), .modified)
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("build/x.o")), .ignored)
+    }
+
+    func testIgnoredPathsNeverReachChangedFiles() async {
+        let git = StubGit()
+        let changed = ChangedFile(path: "a.swift", status: .untracked)
+        git.files = [changed]
+        git.ignored = ["build", "secrets.env"]
+        let model = makeModel(git: git)
+
+        await model.refresh(root: root)
+
+        XCTAssertEqual(model.changedFiles, [changed])
+        XCTAssertTrue(model.changedFiles.allSatisfy { !git.ignored.contains($0.path) })
+    }
+
+    func testASupersededRefreshDoesNotOverwriteANewerLookup() async {
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified)
+        let newer = ChangedFile(path: "newer.swift", status: .added)
+        git.resultsPerChangedFilesCall = [[older], [newer]]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+
+        let first = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(1, in: git)
+        let second = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(2, in: git)
+
+        git.release(call: 1)
+        await second.value
+        XCTAssertEqual(model.treeGitStatus, expectedLookup(files: [newer]))
+
+        git.release(call: 0)
+        await first.value
+        XCTAssertEqual(model.treeGitStatus, expectedLookup(files: [newer]))
+        XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("older.swift")), .plain)
+    }
+
+    func testAFolderSwitchClearsTheLookupBeforeTheNewRootsRefreshLands() async {
+        let git = StubGit()
+        let a = ChangedFile(path: "a.swift", status: .modified)
+        let b = ChangedFile(path: "b.swift", status: .added)
+        let repoA = URL(fileURLWithPath: "/repoA")
+        let repoB = URL(fileURLWithPath: "/repoB")
+        let repoC = URL(fileURLWithPath: "/repoC")
+        git.repoRoot = repoA
+        git.resultsPerChangedFilesCall = [[a], [b], [a]]
+        let model = makeModel(git: git)
+        await model.refresh(root: repoA)
+        XCTAssertNotEqual(model.treeGitStatus, .empty)
+
+        // The explicit folder-switch clear is synchronous.
+        model.prepareForFolderChange(root: repoB)
+        XCTAssertEqual(model.treeGitStatus, .empty)
+
+        git.repoRoot = repoB
+        await model.refresh(root: repoB)
+        XCTAssertEqual(model.treeGitStatus, expectedLookup(files: [b], root: repoB))
+
+        // The root-change branch of a refresh clears before its first suspension:
+        // the lookup is already empty while the new root's status is held.
+        git.gateChangedFiles = true
+        git.repoRoot = repoC
+        let task = Task { await model.refresh(root: repoC) }
+        await waitForGatedCalls(1, in: git)
+        XCTAssertEqual(model.treeGitStatus, .empty)
+
+        git.release(call: 2)
+        await task.value
+        XCTAssertEqual(model.treeGitStatus, expectedLookup(files: [a], root: repoC))
+    }
+
+    func testAFailedRefreshClearsTheLookupWithTheChangedFiles() async {
+        let git = StubGit()
+        git.files = [ChangedFile(path: "a.swift", status: .modified)]
+        git.ignored = ["build"]
+        let model = makeModel(git: git)
+        await model.refresh(root: root)
+        XCTAssertNotEqual(model.treeGitStatus, .empty)
+
+        git.error = StubError.boom
+        await model.refresh(root: root)
+
+        XCTAssertTrue(model.changedFiles.isEmpty)
+        XCTAssertEqual(model.treeGitStatus, .empty)
+    }
+
+    func testASupersededFailureClearsNoNewerLookup() async {
+        let git = StubGit()
+        let newer = ChangedFile(path: "newer.swift", status: .modified)
+        git.resultsPerChangedFilesCall = [[], [newer]]
+        git.ignored = ["build"]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+
+        // The refresh that will fail is held at the gate.
+        let held = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(1, in: git)
+        // A newer refresh succeeds and publishes.
+        let newerRefresh = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(2, in: git)
+        git.release(call: 1)
+        await newerRefresh.value
+        let published = expectedLookup(files: [newer], ignored: ["build"])
+        XCTAssertEqual(model.treeGitStatus, published)
+
+        // The held one is released to fail; being superseded it touches nothing.
+        git.error = StubError.boom
+        git.release(call: 0)
+        await held.value
+        XCTAssertEqual(model.treeGitStatus, published)
+        XCTAssertEqual(model.changedFiles, [newer])
+        XCTAssertNil(model.errorMessage)
     }
 }
