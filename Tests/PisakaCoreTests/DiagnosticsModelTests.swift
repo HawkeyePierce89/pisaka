@@ -617,12 +617,14 @@ final class DiagnosticsModelTests: XCTestCase {
 
     // MARK: - Clear routing
 
+    /// A document clear drops the bookkeeping and keeps the set — the file's
+    /// problems outlive its tab — while a server clear removes the set.
     func testClearEventsRouteIntoTheStoreByDocumentThenByServer() {
         syncAtVersionOne()
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "m")], version: 1))
 
         model.receive(.cleared(.document(url: url)))
-        XCTAssertNil(entry())
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["m"], "closing keeps the set")
 
         // Re-sync and re-publish, then tear the whole server down.
         syncAtVersionOne()
@@ -631,10 +633,12 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry())
     }
 
-    /// Closing a document drops its bookkeeping too, not just its set: the sync
+    /// Closing a document drops its bookkeeping and keeps its set: the sync
     /// record and the revision describe a buffer the editor no longer holds, so
     /// keeping them would both gate the file's next life against its previous
-    /// one and grow the two maps by every file the session ever opened.
+    /// one and grow the two maps by every file the session ever opened — while
+    /// the set is still the file's problems, which the panel and the tree keep
+    /// listing.
     func testClosingADocumentDropsItsSyncRecordAndRevision() {
         model.noteEdit(
             url: url,
@@ -649,14 +653,22 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNotNil(entry())
 
         model.receive(.cleared(.document(url: url)))
-        XCTAssertNil(entry())
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["m"], "closing keeps the set")
         XCTAssertEqual(model.currentRevision(for: url), 0, "a closed document is gated from zero again")
 
         // And the sync record is gone with it: a push naming the version the
         // *closed* document was last synced at finds no record to pass, so it is
-        // held rather than admitted.
+        // held as a first report rather than admitted.
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "late")], version: 1))
-        XCTAssertNil(entry(), "no surviving record can admit a push for the closed document")
+        XCTAssertEqual(
+            entry()?.mapped?.map(\.message), ["m"],
+            "no surviving record can admit a push for the closed document"
+        )
+
+        // The hold is a first report's: the next record that lands at the
+        // document's (zero) revision admits it.
+        model.noteSynced(url: url, version: 1, revision: 0)
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["late"])
     }
 
     /// The close prune is reachable **without** a workspace event, because the
@@ -688,6 +700,168 @@ final class DiagnosticsModelTests: XCTestCase {
         // does fire) costs nothing.
         model.noteDocumentClosed(url: url)
         XCTAssertEqual(model.currentRevision(for: url), 0)
+    }
+
+    // MARK: - The positional lane
+
+    private func positionalDiagnostic(
+        line: Int,
+        character: Int,
+        severity: DiagnosticSeverity = .error,
+        message: String
+    ) -> PositionalDiagnostic {
+        PositionalDiagnostic(
+            range: LSPRange(
+                start: LSPPosition(line: line, character: character),
+                end: LSPPosition(line: line, character: character + 3)
+            ),
+            severity: severity,
+            message: message,
+            source: serverID,
+            fileURL: url
+        )
+    }
+
+    private func positional(
+        _ entries: [PositionalDiagnostic],
+        url: URL? = nil,
+        serverID: String? = nil
+    ) -> LSPDiagnosticEvent {
+        .positional(
+            url: url ?? self.url,
+            serverID: serverID ?? self.serverID,
+            root: root.path,
+            diagnostics: entries
+        )
+    }
+
+    /// A report for a document no buffer holds needs no sync: it lands at once,
+    /// under the pushing server's provenance, and the next one replaces it
+    /// wholesale.
+    func testAPositionalReportIsAcceptedWithNoSyncRecordAndReplacesTheEntry() {
+        let first = [positionalDiagnostic(line: 2, character: 4, message: "first")]
+        model.receive(positional(first))
+        XCTAssertEqual(entry()?.positional, first)
+        XCTAssertNil(entry()?.mapped, "a positional entry is unreachable from the editor accessor")
+        XCTAssertEqual(entry()?.serverKey, serverKey)
+
+        let second = [
+            positionalDiagnostic(line: 0, character: 0, severity: .warning, message: "second"),
+            positionalDiagnostic(line: 5, character: 1, message: "third"),
+        ]
+        model.receive(positional(second))
+        XCTAssertEqual(entry()?.positional, second)
+    }
+
+    /// While a sync record exists a buffer is open, and the mapped lane is the
+    /// document's one answerer: a positional report would draw the server's
+    /// positions over offsets the editor is shifting.
+    func testAPositionalReportIsDroppedWhenASyncRecordExists() {
+        let mapped = [diagnostic(at: 0, length: 3, line: 0, message: "mapped")]
+        syncAtVersionOne()
+        model.receive(published(mapped, version: 1))
+
+        model.receive(positional([positionalDiagnostic(line: 1, character: 0, message: "positional")]))
+        XCTAssertEqual(entry()?.mapped, mapped)
+        XCTAssertNil(entry()?.positional)
+
+        // The record alone closes the lane, with no entry beside it.
+        model.noteSynced(url: otherURL, version: 1, revision: 0)
+        model.receive(positional([positionalDiagnostic(line: 1, character: 0, message: "other")], url: otherURL))
+        XCTAssertNil(entry(otherURL))
+    }
+
+    /// An all-clear report about a closed file installs an empty entry, so the
+    /// file's provenance survives exactly as an all-clear mapped push's does.
+    func testAnEmptyPositionalReportInstallsAnEmptyEntry() {
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "gone soon")]))
+        model.receive(positional([]))
+
+        XCTAssertEqual(entry()?.positional, [])
+        XCTAssertEqual(entry()?.serverKey, serverKey)
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 0, warnings: 0))
+    }
+
+    /// Opening the file: the replacement keeps the positional record, and the
+    /// first mapped report that passes the gate replaces it.
+    func testALaterMappedReportReplacesAPositionalEntry() {
+        model.receive(positional([positionalDiagnostic(line: 1, character: 0, message: "closed")]))
+        model.noteBufferReplaced(url: url)
+        XCTAssertEqual(entry()?.positional?.map(\.message), ["closed"])
+
+        let mapped = [diagnostic(at: 4, length: 3, line: 1, message: "open")]
+        model.noteSynced(url: url, version: 1, revision: model.currentRevision(for: url))
+        model.receive(published(mapped, version: 1))
+
+        XCTAssertEqual(entry()?.mapped, mapped)
+        XCTAssertNil(entry()?.positional)
+    }
+
+    /// A wholesale replacement condemns offsets, and a positional entry has
+    /// none: it stays, while a mapped one is still dropped.
+    func testABufferReplacementKeepsAPositionalEntryAndDropsAMappedOne() {
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "positional")]))
+        syncAtVersionOne(otherURL)
+        model.receive(published(
+            [diagnostic(otherURL, at: 0, length: 3, line: 0, message: "mapped")],
+            version: 1,
+            url: otherURL
+        ))
+
+        model.noteBufferReplaced(url: url)
+        model.noteBufferReplaced(url: otherURL)
+
+        XCTAssertEqual(entry()?.positional?.map(\.message), ["positional"])
+        XCTAssertNil(entry(otherURL))
+    }
+
+    /// Closing the last tab opens the document's positional lane: the record
+    /// that closed it is gone, so the server's next report about the closed
+    /// file lands — while a mapped report is held as a first report.
+    func testClosingTheLastTabOpensThePositionalLane() {
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "open")], version: 1))
+
+        model.noteDocumentClosed(url: url)
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["open"], "closing keeps the set")
+        XCTAssertEqual(model.currentRevision(for: url), 0)
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "closed")]))
+        XCTAssertEqual(entry()?.positional?.map(\.message), ["closed"])
+    }
+
+    /// The positional lane neither creates nor drops a hold: a mapped push
+    /// waiting for its first record is still judged when that record lands.
+    func testAPositionalReportLeavesAnExistingHoldUntouched() {
+        let mapped = [diagnostic(at: 0, length: 3, line: 0, message: "held")]
+        model.receive(published(mapped, version: 1))
+        XCTAssertNil(entry(), "no record yet, so the push is held")
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "positional")]))
+        XCTAssertEqual(entry()?.positional?.map(\.message), ["positional"])
+
+        syncAtVersionOne()
+        XCTAssertEqual(entry()?.mapped, mapped, "the hold survived the positional report")
+    }
+
+    /// Both teardowns remove positional entries: a server's clear takes only
+    /// its own, and the folder change takes everything.
+    func testAServerClearAndAFolderChangeRemovePositionalEntries() {
+        let goID = "gopls"
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "swift")]))
+        model.receive(positional(
+            [positionalDiagnostic(line: 0, character: 0, message: "go")],
+            url: otherURL,
+            serverID: goID
+        ))
+
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
+        XCTAssertNil(entry())
+        XCTAssertEqual(entry(otherURL)?.positional?.map(\.message), ["go"])
+
+        model.prepareForFolderChange()
+        XCTAssertNil(entry(otherURL))
+        XCTAssertTrue(model.store.rows(relativeTo: root).isEmpty)
     }
 
     // MARK: - Republishing
@@ -780,8 +954,11 @@ final class DiagnosticsModelTests: XCTestCase {
 
         XCTAssertEqual(model.diagnostics(in: url), set)
         XCTAssertEqual(model.diagnostics(in: otherURL).map(\.message), ["other"])
-        // A clear empties the query like it empties every other view surface.
+        // Closing keeps the set; a server clear empties the query like it
+        // empties every other view surface.
         model.receive(.cleared(.document(url: url)))
+        XCTAssertEqual(model.diagnostics(in: url), set)
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
         XCTAssertTrue(model.diagnostics(in: url).isEmpty)
     }
 

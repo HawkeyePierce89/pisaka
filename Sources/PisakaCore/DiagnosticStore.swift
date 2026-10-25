@@ -97,7 +97,7 @@ public struct DiagnosticStore: Equatable, Sendable {
 
     /// Where activating a panel ``Row`` lands, in the coordinates its kind
     /// carries: buffer offsets for a mapped diagnostic, the server's range for
-    /// a positional one. ``Row/revealRange(in:)`` turns either into a buffer
+    /// a positional one. ``Row/rangeToReveal(in:)`` turns either into a buffer
     /// range against the text the file opened with.
     public enum RevealTarget: Equatable, Hashable, Sendable {
         case offsets(NSRange)
@@ -150,7 +150,7 @@ public struct DiagnosticStore: Equatable, Sendable {
         /// describes; it is clamped into `text`'s length only so a buffer that
         /// changed underneath the row cannot hand TextKit a range it traps on,
         /// which leaves an in-range range unchanged.
-        public func revealRange(in text: NSString) -> NSRange {
+        public func rangeToReveal(in text: NSString) -> NSRange {
             switch target {
             case .position(let range):
                 return LSPPositionMap.range(for: range, in: text)

@@ -1537,15 +1537,17 @@ public final class LSPWorkspace {
     var parkedShutdownCount: Int { shutdownWaiters.count }
 }
 
-/// What the diagnostics channel says, in one value: an accepted push, or the
-/// clear that follows a teardown (D33).
+/// What the diagnostics channel says, in one value: an accepted push (mapped
+/// for a held document, positional for one nobody holds), or the clear that
+/// follows a teardown (D33).
 ///
 /// This is the whole output side of the push channel — ``LSPWorkspace/onDiagnostics``'s
 /// payload. `published` carries the set already mapped onto buffer offsets
-/// against the text the server was told (D31); what happens to it next —
-/// accepted against sync bookkeeping or dropped (D32) — is downstream. The
-/// `serverID`/`root` pair mirrors `DiagnosticStore.ServerKey` so a clear can be
-/// keyed exactly as the store keys its provenance; `published` spells both
+/// against the text the server was told (D31); `positional` carries the
+/// server's positions for a document no buffer holds. What happens to either
+/// next — accepted against sync bookkeeping or dropped (D32) — is downstream.
+/// The `serverID`/`root` pair mirrors `DiagnosticStore.ServerKey` so a clear can
+/// be keyed exactly as the store keys its provenance; both push cases spell the
 /// halves out rather than carrying that store type so this file keeps speaking
 /// its own vocabulary.
 public enum LSPDiagnosticEvent: Equatable, Sendable {
@@ -1558,6 +1560,18 @@ public enum LSPDiagnosticEvent: Equatable, Sendable {
         root: String,
         version: Int?,
         diagnostics: [Diagnostic]
+    )
+    /// The second lane: a push for a document the workspace does **not** hold —
+    /// a closed file a server reports on unasked. There is no buffer to map
+    /// against, so the diagnostics carry the server's own line and character
+    /// positions verbatim, and no version: with no sync there is nothing for one
+    /// to be compared with. The model accepts it only while no sync record
+    /// exists for the document, so an open buffer's mapped lane always wins.
+    case positional(
+        url: URL,
+        serverID: String,
+        root: String,
+        diagnostics: [PositionalDiagnostic]
     )
     /// Something was torn down and its diagnostics go with it. One case with an
     /// explicit scope rather than two overloads of `.cleared` because Swift

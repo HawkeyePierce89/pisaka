@@ -92,7 +92,7 @@ lines net in `PisakaApp`. `activateProblem(url:row:)` opens the file and
 reveals the row's target mapped onto the buffer just opened, through an
 open-and-reveal tail it shares with `activateUsage`, whose own copy of that
 tail it replaced; the mapping itself is Core's
-`DiagnosticStore.Row.revealRange(in:)` (`core-lsp.md`).
+`DiagnosticStore.Row.rangeToReveal(in:)` (`core-lsp.md`).
 
 The bump before it is the project tree's git refresh, `file_length` 1967 →
 **1971** and `type_body_length` 1960 → **1964**: four lines in `PisakaApp`,

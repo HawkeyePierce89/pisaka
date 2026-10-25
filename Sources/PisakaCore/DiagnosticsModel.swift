@@ -37,7 +37,28 @@ import Foundation
 /// against whatever server serves the new folder. Edits *after* an accepted
 /// push shift the stored set incrementally (`DiagnosticShift.updated`),
 /// dropping what the edit touched; a wholesale buffer replacement clears the
-/// document's set outright.
+/// document's mapped set outright.
+///
+/// ## The positional lane: documents no buffer holds
+///
+/// A server may report on a file no tab holds. That report arrives as
+/// `.positional`, carrying the server's own positions, and it skips the gate
+/// entirely — there is no sync to compare it with and no buffer it could be
+/// stale against — so it replaces the document's entry wholesale, with no hold.
+/// It is dropped only when a sync record *exists* for the document: then a
+/// buffer is open and the mapped lane is the document's one answerer. Closing
+/// the last tab drops the bookkeeping (sync record, revision, hold) and keeps
+/// whatever set the store holds, so the panel and the tree keep the file's
+/// problems after the close. A wholesale replacement drops only a mapped entry,
+/// which is what lets a file being opened keep its positional record until the
+/// first mapped report replaces it.
+///
+/// ## What bounds what
+///
+/// The bookkeeping — sync records, revisions, holds — is bounded by the open
+/// tabs: every one of them is dropped when the document's last tab closes.
+/// The store is not: it is bounded by what the servers report about the
+/// current folder, and emptied by a server's teardown and by the folder change.
 ///
 /// ## Pushes that beat their own sync (the hold-and-reconcile step)
 ///
@@ -91,7 +112,8 @@ public final class DiagnosticsModel: ObservableObject {
     /// Per-document sync records, keyed by standardized URL — cleared by
     /// `prepareForFolderChange()`, per-document by `noteBufferReplaced(url:)`,
     /// and dropped outright when the document's last tab closes
-    /// (``noteDocumentClosed(url:)``).
+    /// (``noteDocumentClosed(url:)``). A record's existence is also what closes
+    /// the positional lane for its document.
     private var syncs: [URL: SyncRecord] = [:]
     /// Per-document buffer revisions. Bumped by every edit and every wholesale
     /// replacement; compared by the gate against the revision pinned at sync
@@ -218,8 +240,10 @@ public final class DiagnosticsModel: ObservableObject {
 
     /// The buffer behind `url` was replaced wholesale — tab switch,
     /// `reloadFromDisk`, project Replace All, merge apply — so the document's
-    /// set is dropped outright and its sync record with it: the server no
-    /// longer holds text anyone mapped a push against (D32).
+    /// mapped set is dropped outright and its sync record with it: the server
+    /// no longer holds text anyone mapped a push against (D32). A positional
+    /// entry stays: it never described a buffer, so replacing one cannot have
+    /// made it stale, and the first mapped report replaces it.
     public func noteBufferReplaced(url: URL) {
         let key = url.standardizedFileURL
         revisions[key] = (revisions[key] ?? 0) + 1
@@ -241,9 +265,16 @@ public final class DiagnosticsModel: ObservableObject {
     /// flight. So is a version mismatch against a *current* record: with no
     /// keystroke to condemn it, the push is either a late replay (the
     /// reconcile's version half discards it) or the settling flush's own
-    /// publish arriving ahead of its report (the reconcile admits it). The
-    /// clears are applied as they come; each teardown path emits exactly one,
-    /// and a late duplicate after a folder change finds nothing to clear.
+    /// publish arriving ahead of its report (the reconcile admits it).
+    ///
+    /// A `positional` skips the gate: it is dropped when a sync record exists
+    /// for the document (a buffer is open, so the mapped lane answers), and
+    /// otherwise replaces the entry wholesale under the same provenance, with
+    /// no hold — and no existing hold is touched, since a hold waits for a
+    /// record this push neither brings nor removes.
+    ///
+    /// The clears are applied as they come; each teardown path emits exactly
+    /// one, and a late duplicate after a folder change finds nothing to clear.
     public func receive(_ event: LSPDiagnosticEvent) {
         switch event {
         case .published(let url, let serverID, let root, let version, let diagnostics):
@@ -275,6 +306,13 @@ public final class DiagnosticsModel: ObservableObject {
                 serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
                 diagnostics: diagnostics
             )
+        case .positional(let url, let serverID, let root, let diagnostics):
+            guard syncs[url.standardizedFileURL] == nil else { return }
+            store.replace(
+                url: url,
+                serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
+                positional: diagnostics
+            )
         case .cleared(.server(let serverID, let root)):
             store.clear(serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root))
             // The teardown condemns everything that server produced, whatever
@@ -290,7 +328,8 @@ public final class DiagnosticsModel: ObservableObject {
         }
     }
 
-    /// The document left the editor: forget its set and all of its bookkeeping.
+    /// The document left the editor: forget all of its bookkeeping, and keep
+    /// its set.
     ///
     /// Every record describing it is now about a life nobody is looking at —
     /// the sync record names a version of a document no workspace holds open,
@@ -298,7 +337,14 @@ public final class DiagnosticsModel: ObservableObject {
     /// is gone. Dropping all of it is what keeps the maps bounded by the *open*
     /// tabs rather than by every file the session ever touched, and it means a
     /// file reopened later is gated from zero instead of against its
-    /// predecessor's numbers.
+    /// predecessor's numbers. With the record gone, the document's positional
+    /// lane opens, so the server's next report about the closed file lands.
+    ///
+    /// The store entry is deliberately left alone: the file's problems are still
+    /// the file's problems after its tab closes, and the Problems panel and the
+    /// tree keep listing them. A kept **mapped** set is dropped when the file is
+    /// reopened (``noteBufferReplaced(url:)``), its offsets describing a buffer
+    /// that is being replaced.
     ///
     /// Reached two ways, and it needs both. `LSPWorkspace.didClose(url:)` emits
     /// `.cleared(.document)` only for a URI it still *held* — every teardown
@@ -311,19 +357,22 @@ public final class DiagnosticsModel: ObservableObject {
     /// close prunes it. Idempotent, so arriving both ways costs nothing.
     public func noteDocumentClosed(url: URL) {
         let key = url.standardizedFileURL
-        store.clearMapped(url: key)
         heldPushes[key] = nil
         syncs[key] = nil
         revisions[key] = nil
     }
 
-    /// The folder changed: clear everything and invalidate every sync record,
-    /// so no push routed from an old project's server can land (the gate does
-    /// the dropping; this method just removes anything it could have matched).
+    /// The folder changed: clear everything — both kinds of entry — and
+    /// invalidate every sync record, so no mapped push routed from an old
+    /// project's server can land (the gate does the dropping; this method just
+    /// removes anything it could have matched).
     ///
     /// There is deliberately no separate generation counter here: the *working*
     /// gate is the cleared bookkeeping itself — after this call no sync record
-    /// survives, so no push can pass until the controller records a fresh one.
+    /// survives, so no mapped push can pass until the controller records a
+    /// fresh one. A positional push needs no record, and the workspace forwards
+    /// one only from a live session serving the current root, so an old
+    /// project's report never reaches this model as one.
     ///
     /// Called in the same main-actor turn as
     /// `LSPWorkspace.prepareForFolderChange(root:)` — synchronously, before any

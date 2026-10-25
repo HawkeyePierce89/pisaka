@@ -317,20 +317,20 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Sources/PisakaCore/DiagnosticsModel.swift`
 - Modify: `Tests/PisakaCoreTests/DiagnosticsModelTests.swift`
 
-- [ ] Add `case positional(url:serverID:root:diagnostics: [PositionalDiagnostic])` to
+- [x] Add `case positional(url:serverID:root:diagnostics: [PositionalDiagnostic])` to
   `LSPDiagnosticEvent`, with a doc comment naming the second lane.
-- [ ] `receive(.positional)`:
+- [x] `receive(.positional)`:
   - dropped when a sync record exists for the document;
   - otherwise replaces the entry wholesale, with no gate and no hold, under the same
     `ServerKey` provenance;
   - existing holds are untouched.
-- [ ] `noteDocumentClosed(url:)` drops the sync record, revision and hold, and keeps the
+- [x] `noteDocumentClosed(url:)` drops the sync record, revision and hold, and keeps the
   store entry. `noteBufferReplaced(url:)` drops only a mapped entry.
   `.cleared(.server)` and `prepareForFolderChange` clear both kinds.
-- [ ] Rewrite the type's doc comment where it says the maps and the store are bounded
+- [x] Rewrite the type's doc comment where it says the maps and the store are bounded
   by the open tabs. The bookkeeping still is; the store is bounded by what the servers
   report about the current folder.
-- [ ] Tests:
+- [x] Tests:
   - a positional report is accepted with no sync record and replaces the entry;
   - a positional report is dropped when a sync record exists;
   - an empty positional report installs an empty entry;
@@ -340,7 +340,7 @@ everything known about its file. This plan keeps those reports.
     following mapped report for that URL is held as a first report, and
     `currentRevision` is zero;
   - server clear and folder change remove positional entries.
-- [ ] Run `swift test`. It must pass before Task 4.
+- [x] Run `swift test`. It must pass before Task 4. (Task 2's `Row.revealRange(in:)` tripped `FoldingSourceGatingTests`' reveal-funnel regex from `PisakaApp`; renamed to `Row.rangeToReveal(in:)`, a different name rather than a new exclusion. macOS app target also built with the installed Xcode, Xcode_26.3 being absent.)
 
 ### Task 4: The workspace forwards reports for unheld documents
 

@@ -899,7 +899,7 @@ final class DiagnosticStoreTests: XCTestCase {
             start: LSPPosition(line: 1, character: 1),
             end: LSPPosition(line: 2, character: 2)
         ))
-        XCTAssertEqual(row.revealRange(in: text), NSRange(location: 5, length: 8))
+        XCTAssertEqual(row.rangeToReveal(in: text), NSRange(location: 5, length: 8))
     }
 
     /// A line past the end lands at the end of the buffer; a character past
@@ -910,13 +910,13 @@ final class DiagnosticStoreTests: XCTestCase {
             start: LSPPosition(line: 40, character: 0),
             end: LSPPosition(line: 41, character: 3)
         ))
-        XCTAssertEqual(pastTheEnd.revealRange(in: text), NSRange(location: text.length, length: 0))
+        XCTAssertEqual(pastTheEnd.rangeToReveal(in: text), NSRange(location: text.length, length: 0))
 
         let pastTheLine = revealRow(positional: LSPRange(
             start: LSPPosition(line: 1, character: 99),
             end: LSPPosition(line: 1, character: 120)
         ))
-        XCTAssertEqual(pastTheLine.revealRange(in: text), NSRange(location: 9, length: 0), "the end of \"bbbbb\", before CRLF")
+        XCTAssertEqual(pastTheLine.rangeToReveal(in: text), NSRange(location: 9, length: 0), "the end of \"bbbbb\", before CRLF")
     }
 
     /// A mapped row's in-range range comes back unchanged; one the buffer no
@@ -926,14 +926,14 @@ final class DiagnosticStoreTests: XCTestCase {
         var store = DiagnosticStore()
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, length: 3, line: 1)])
         let inRange = store.rows(relativeTo: rootURL)[0].rows[0]
-        XCTAssertEqual(inRange.revealRange(in: text), NSRange(location: 4, length: 3))
+        XCTAssertEqual(inRange.rangeToReveal(in: text), NSRange(location: 4, length: 3))
 
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 9, length: 10, line: 2)])
         let overhanging = store.rows(relativeTo: rootURL)[0].rows[0]
-        XCTAssertEqual(overhanging.revealRange(in: text), NSRange(location: 9, length: 2))
+        XCTAssertEqual(overhanging.rangeToReveal(in: text), NSRange(location: 9, length: 2))
 
         store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 50, length: 3, line: 9)])
         let beyond = store.rows(relativeTo: rootURL)[0].rows[0]
-        XCTAssertEqual(beyond.revealRange(in: text), NSRange(location: text.length, length: 0))
+        XCTAssertEqual(beyond.rangeToReveal(in: text), NSRange(location: text.length, length: 0))
     }
 }

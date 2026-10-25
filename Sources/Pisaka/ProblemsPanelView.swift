@@ -16,7 +16,7 @@ import PisakaCore
 /// message, and the one-based line;
 /// activating a row calls back with `(url, row)` so the app can open the file
 /// and reveal the range the row's target maps onto in the buffer just opened
-/// (`DiagnosticStore.Row.revealRange(in:)`) — a closed file's row carries the
+/// (`DiagnosticStore.Row.rangeToReveal(in:)`) — a closed file's row carries the
 /// server's position, not offsets. The view holds no domain logic — it observes
 /// `DiagnosticsModel` and renders its published store, mirroring
 /// `LocalChangesView`/`CommitLogView`.

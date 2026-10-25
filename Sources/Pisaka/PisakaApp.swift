@@ -3339,11 +3339,11 @@ struct PisakaApp: App {
     /// `activateSearchMatch(url:range:)`, because a closed file's row carries
     /// the server's position, not offsets — it only becomes a range against the
     /// text the file just opened with, which Core's
-    /// `DiagnosticStore.Row.revealRange(in:)` answers, clamped, so this never
+    /// `DiagnosticStore.Row.rangeToReveal(in:)` answers, clamped, so this never
     /// beeps and never traps. A file that did not open (unreadable, gone)
     /// leaves no tab and returns silently.
     private func activateProblem(url: URL, row: DiagnosticStore.Row) {
-        openAndReveal(url: url) { row.revealRange(in: $0) }
+        openAndReveal(url: url) { row.rangeToReveal(in: $0) }
     }
 
     /// Open (or re-select) `url`, then reveal the range `range` answers against
