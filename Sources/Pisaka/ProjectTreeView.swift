@@ -30,7 +30,9 @@ import PisakaCore
 /// fallback for anything the watcher misses — a buffer overflow, a network
 /// volume, or simply not wanting to wait out the 1 s latency). The button calls
 /// `model.bumpTreeRevision()` directly rather than through a callback, since
-/// this view already observes the model and the bump needs no disk I/O.
+/// this view already observes the model and the bump needs no disk I/O; it then
+/// calls `onRefreshGitStatus`, because the names' colours are the other half of
+/// what the button promises and a git refresh is the app's to run.
 ///
 /// Both row kinds are full-width click targets: a file row opens the file, a
 /// directory row toggles its expansion (see `FolderDisclosureStyle`), and both
@@ -78,6 +80,17 @@ struct ProjectTreeView: View {
     /// without a repository. The tree adds no git call, no trigger and no timer
     /// of its own; it is redrawn when the model publishes a new lookup.
     var gitStatus: TreeGitStatus = .empty
+    /// The worst diagnostic severity at or below each row, as
+    /// `DiagnosticsModel` last published it: read as a value, beside
+    /// `gitStatus` and for its reasons. Empty by default — no row marked — so
+    /// previews and tests construct the view without a language server.
+    var diagnostics: TreeDiagnostics = .empty
+    /// Invoked by the header's Refresh button right after it bumps the tree's
+    /// revision, so a manual refresh re-reads git state as well as listings.
+    /// Wired to `PisakaApp.refreshLocalChanges()`, which pins its request
+    /// generation synchronously. Defaults to a no-op so previews and tests
+    /// construct the view without the app wiring.
+    var onRefreshGitStatus: () -> Void = {}
 
     /// The state a drag in flight carries, shared by every row: the source row
     /// and the memoized decision for the folder the pointer is over. Held here,
@@ -164,7 +177,9 @@ struct ProjectTreeView: View {
             Button {
                 // Re-read every expanded directory's cached listing. The watcher
                 // covers external changes automatically; this is the manual path.
+                // Then git state, which the names are coloured from.
                 model.bumpTreeRevision()
+                onRefreshGitStatus()
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(metrics.scaledFont(.body))
@@ -222,6 +237,7 @@ struct ProjectTreeView: View {
                         selection: TreeSelection(model.selectedFile?.url),
                         reveal: liveReveal,
                         gitStatus: gitStatus,
+                        diagnostics: diagnostics,
                         onRevealed: { token, target in
                             guard completedRevealToken != token else { return }
                             completedRevealToken = token
@@ -423,6 +439,9 @@ private struct DirectoryNodeView: View {
     /// The tree's git lookup, handed down beside `selection`. Each row asks it
     /// once — lexically, with no file-system call (see `TreeGitStatus`).
     let gitStatus: TreeGitStatus
+    /// The tree's diagnostic lookup, handed down beside `gitStatus` and asked
+    /// the same way: once per row, lexically (see `TreeDiagnostics`).
+    let diagnostics: TreeDiagnostics
     /// Reported by the target file row once it is on screen, with the request's
     /// token and the row's scroll id; the tree then scrolls to it. A nil id
     /// withdraws a request this node's listing shows cannot be honoured.
@@ -469,6 +488,7 @@ private struct DirectoryNodeView: View {
         selection: TreeSelection,
         reveal: TreeRevealRequest?,
         gitStatus: TreeGitStatus,
+        diagnostics: TreeDiagnostics,
         onRevealed: @escaping (Int, String?) -> Void,
         isRoot: Bool = false,
         startsExpanded: Bool = false,
@@ -494,6 +514,7 @@ private struct DirectoryNodeView: View {
         self.selection = selection
         self.reveal = reveal
         self.gitStatus = gitStatus
+        self.diagnostics = diagnostics
         self.onRevealed = onRevealed
         self.isRoot = isRoot
         self.siblings = siblings
@@ -502,8 +523,10 @@ private struct DirectoryNodeView: View {
 
     var body: some View {
         // Asked once per render: the name's colour and the row's spoken state
-        // are both drawn from this one answer.
+        // are both drawn from this one answer, and the glyph's dot and the
+        // spoken state from the other.
         let gitState = gitStatus.state(for: url)
+        let diagnosticMark = diagnostics.mark(for: url)
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == url {
                 Group {
@@ -557,6 +580,7 @@ private struct DirectoryNodeView: View {
                         selection: selection,
                         reveal: reveal,
                         gitStatus: gitStatus,
+                        diagnostics: diagnostics,
                         onRevealed: onRevealed,
                         siblings: currentChildrenNames
                     )
@@ -583,7 +607,8 @@ private struct DirectoryNodeView: View {
                         draft: draft,
                         siblings: currentChildrenNames,
                         isSelected: selection.contains(entry.url),
-                        gitState: gitStatus.state(for: entry.url)
+                        gitState: gitStatus.state(for: entry.url),
+                        diagnosticMark: diagnostics.mark(for: entry.url)
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                     .id(TreeRevealRequest.rowID(entry.url))
@@ -605,6 +630,9 @@ private struct DirectoryNodeView: View {
                 DesignGlyphImage(
                     FileGlyph.forFolder(expanded: isExpanded),
                     size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+                )
+                .treeDiagnosticDot(
+                    diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
                 )
                 if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
                     TreeNameFieldView(
@@ -652,6 +680,7 @@ private struct DirectoryNodeView: View {
                     return false
                 }(),
                 gitState: gitState,
+                diagnosticMark: diagnosticMark,
                 onMove: onMove
             ) {
                 // Grouped by `Section`s rather than separated by `Divider()`s: a menu
@@ -918,6 +947,8 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
     let isDrafted: Bool
     /// The folder's git state, spoken after its expansion word.
     let gitState: TreeGitState
+    /// The worst diagnostic at or below the folder, spoken after its git word.
+    let diagnosticMark: TreeDiagnosticMark
     /// Reports an accepted drop; the same callback every row kind receives.
     let onMove: (URL, URL) -> Void
     /// The row's right-click menu items, built by `DirectoryNodeView`.
@@ -932,6 +963,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 dragSession: dragSession,
                 isDrafted: isDrafted,
                 gitState: gitState,
+                diagnosticMark: diagnosticMark,
                 onMove: onMove,
                 menu: menu
             )
@@ -995,6 +1027,8 @@ private struct FolderDisclosureRow<Menu: View>: View {
     let isDrafted: Bool
     /// The folder's git state — the strongest change below it, or ignored.
     let gitState: TreeGitState
+    /// The folder's diagnostic mark — the worst severity below it.
+    let diagnosticMark: TreeDiagnosticMark
     let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
@@ -1095,13 +1129,14 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
         .accessibilityElement(children: isDrafted ? .contain : .combine)
         .accessibilityAddTraits(isDrafted ? [] : .isButton)
-        // The expansion word, then the git state's word when there is one —
-        // Core's composition, so the two row kinds speak the state alike.
+        // The expansion word, then the git state's and the diagnostics' words
+        // when there are any — Core's composition, so the two row kinds speak
+        // the state alike.
         .accessibilityValue(
             isDrafted
                 ? ""
                 : TreeGitState.accessibilityValue(
-                    state: gitState, mark: .none, row: .folder(isExpanded: configuration.isExpanded)
+                    state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded)
                 )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
@@ -1198,6 +1233,10 @@ enum TreeRowLayout {
     static let iconSize: Double = 14
     /// The folder row's gap between the chevron column and the label.
     static let chevronSpacing: Double = 4
+    /// The diameter of the severity dot a row's glyph carries in its
+    /// bottom-trailing corner when an error or a warning lies at or below the
+    /// row — under half the glyph's slot, so the glyph still reads.
+    static let diagnosticDotSize: Double = 6
 
     /// The empty chevron gutter a *file* row leads with — the folder row's
     /// chevron column plus its spacing, so a file's icon and a sibling folder's
@@ -1249,6 +1288,9 @@ private struct FileRowView: View {
     /// This file's git state, asked of the tree's lookup once by the folder
     /// listing it. A selected row keeps it: the background is a separate answer.
     let gitState: TreeGitState
+    /// This file's diagnostic mark, asked of the tree's lookup once by the
+    /// folder listing it, like `gitState`.
+    let diagnosticMark: TreeDiagnosticMark
 
     @State private var isHovering = false
 
@@ -1268,6 +1310,9 @@ private struct FileRowView: View {
             DesignGlyphImage(
                 FileGlyph.forFile(named: entry.name),
                 size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
+            )
+            .treeDiagnosticDot(
+                diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
             )
             if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
                 TreeNameFieldView(
@@ -1344,12 +1389,14 @@ private struct FileRowView: View {
                 Button("Local History") { onShowLocalHistory() }
             }
         }
-        // One element carrying the git state's word as its value, as a folder
-        // row carries its expansion; a plain file says nothing more than its
-        // name. `.contain` while a rename draft is open, as on a folder row, so
-        // the field stays reachable as itself.
+        // One element carrying the git state's and the diagnostics' words as its
+        // value, as a folder row carries its expansion; a plain, clean file says
+        // nothing more than its name. `.contain` while a rename draft is open, as
+        // on a folder row, so the field stays reachable as itself.
         .accessibilityElement(children: isDraftedRow ? .contain : .combine)
-        .accessibilityValue(isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, mark: .none, row: .file))
+        .accessibilityValue(
+            isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, mark: diagnosticMark, row: .file)
+        )
     }
 
     private var isDraftedRow: Bool {
@@ -1397,6 +1444,34 @@ private enum ProjectTreeDrag {
 }
 
 private extension View {
+    /// Puts the row's severity dot on its glyph: a circle `diameter` across in
+    /// the glyph's bottom-trailing corner, filled with the severity's one role
+    /// (`ChromeColorRole.diagnosticRole(for:)`) — or an empty overlay for a
+    /// row with no error or warning at or below it, which then draws exactly
+    /// as before.
+    ///
+    /// The severity is the mark's, handed straight to Core's mapping, so the
+    /// tree switches over no severity itself. An overlay, so the glyph's slot,
+    /// and with it every name's alignment, is untouched — and always installed,
+    /// so a mark appearing or clearing changes what it draws, never the glyph's
+    /// identity. Hidden from accessibility, because the row's value already
+    /// speaks the mark. The theme arrives as `resolving`, for
+    /// `TreeRowBackground`'s reason.
+    func treeDiagnosticDot(
+        _ mark: TreeDiagnosticMark,
+        diameter: Double,
+        resolving: (ChromeColorRole) -> Color
+    ) -> some View {
+        overlay(alignment: .bottomTrailing) {
+            if let severity = mark.severity {
+                Circle()
+                    .fill(resolving(ChromeColorRole.diagnosticRole(for: severity)))
+                    .frame(width: diameter, height: diameter)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
     /// Draws a row's name in `role` — or leaves its foreground exactly as
     /// inherited when there is none, which is what a plain row wants: outside a
     /// repository the tree stays pixel-identical to the tree before git state.

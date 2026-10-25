@@ -221,12 +221,15 @@ line_length:
 # `activateProblem(url:row:)` that reveals a row's target against the buffer
 # just opened and the open-and-reveal tail it now shares with `activateUsage`,
 # whose own copy of that tail it replaced; the mapping itself is Core's
-# `DiagnosticStore.Row.revealRange(in:)`. The number tracks the one file that
+# `DiagnosticStore.Row.revealRange(in:)`. Then 1976 with the project tree's
+# Refresh re-reading git state: one line, the `onRefreshGitStatus` closure
+# handed to `ContentView`, calling the existing `refreshLocalChanges()`. The
+# number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1975
-  error: 1975
+  warning: 1976
+  error: 1976
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -289,10 +292,11 @@ file_length:
 # restore's stamp refresh, the same one `file_length` counts. Then to 1964 with
 # the project tree's git refresh, the same four `file_length` counts. Then to
 # 1968 with the Problems panel's closed-file activation, the same four
-# `file_length` counts, all inside the struct body.
+# `file_length` counts, all inside the struct body. Then to 1969 with the
+# tree's Refresh re-reading git state, the same one `file_length` counts.
 type_body_length:
-  warning: 1968
-  error: 1968
+  warning: 1969
+  error: 1969
 
 function_body_length:
   warning: 140

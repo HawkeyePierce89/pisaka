@@ -475,10 +475,10 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Create: `Tests/PisakaAppTests/TreeDiagnosticMarkTests.swift`
 
-- [ ] Add `diagnosticDotSize: Double = 6` to `TreeRowLayout`. `ProjectTreeView` takes
+- [x] Add `diagnosticDotSize: Double = 6` to `TreeRowLayout`. `ProjectTreeView` takes
   `diagnostics: TreeDiagnostics = .empty` and passes it down the recursion beside
   `gitStatus`.
-- [ ] Each folder and file row asks for its mark once. When the mark's `severity` is
+- [x] Each folder and file row asks for its mark once. When the mark's `severity` is
   non-nil, the row's glyph gets a bottom-trailing overlay: a circle
   `metrics.scaled(TreeRowLayout.diagnosticDotSize)` across, filled with
   `theme.color(ChromeColorRole.diagnosticRole(for: severity))`, hidden from
@@ -486,20 +486,20 @@ everything known about its file. This plan keeps those reports.
   - The draft-hosting row keeps its glyph, and therefore its dot.
   - The name colour, background, indent guide and glyph tone are untouched.
   - No arithmetic on a token, no opacity, and no severity case label.
-- [ ] Replace the `.none` arguments Task 5 put at the two `accessibilityValue` call
+- [x] Replace the `.none` arguments Task 5 put at the two `accessibilityValue` call
   sites with each row's real mark.
-- [ ] `ContentView` feeds the lookup through the thin observing wrapper, kept in
+- [x] `ContentView` feeds the lookup through the thin observing wrapper, kept in
   `ContentView.swift`, and still does not observe `DiagnosticsModel`.
-- [ ] Refresh: add `onRefreshGitStatus`, called after `bumpTreeRevision()`; thread it
+- [x] Refresh: add `onRefreshGitStatus`, called after `bumpTreeRevision()`; thread it
   through `ContentView`; wire it in `PisakaApp` to `refreshLocalChanges()`.
-- [ ] Fix the `projectPrefix` comment: the lookup builds its keys on the main actor,
+- [x] Fix the `projectPrefix` comment: the lookup builds its keys on the main actor,
   inside the model's refresh, and the function is `nonisolated` only because the
   lookup's initialiser is non-isolated code.
-- [ ] Rule fifteen: the reader set becomes `LineNumberRulerView.swift`,
+- [x] Rule fifteen: the reader set becomes `LineNumberRulerView.swift`,
   `ProblemsPanelView.swift` and `ProjectTreeView.swift`. Update the assertion message
   and the doc comment to name the tree as the third reader. The rule count and the
   gated-file set are unchanged.
-- [ ] App test, with one window per scale and four renders in total. Build a project
+- [x] App test, with one window per scale and four renders in total. Build a project
   whose root holds:
   - an error file;
   - a warning file;
@@ -513,12 +513,16 @@ everything known about its file. This plan keeps those reports.
   - `statusYellow` appears for the warning file and the warning folder;
   - the clean rows' glyph slots are identical to the render without the lookup;
   - the dot's extent grows with the scale.
-- [ ] Keep `TreeGitStatusColourTests`, `TreeRowGlyphLayoutTests`,
+- [x] Keep `TreeGitStatusColourTests`, `TreeRowGlyphLayoutTests`,
   `TreeIndentGuideLayoutTests`, `ChromeThemeSourceGatingTests` and
   `ZoomSourceGatingTests` green. If an existing glyph-identity sample now overlaps a
   dot, give that fixture no diagnostics; do not move the dot.
-- [ ] Run `xcodegen generate`, `swift test` and the app-layer bundle. Both must pass
-  before Task 9.
+- [x] Run `xcodegen generate`, `swift test` and the app-layer bundle. Both must pass
+  before Task 9. (Core 7049 tests and app bundle 488 tests, 0 failures; the pinned Xcode 26.3 is
+  absent here, so the app bundle ran with the installed Xcode. The one `onRefreshGitStatus`
+  argument in `PisakaApp` raised the measured lint ceilings by one line, `file_length`
+  1975 → 1976 and `type_body_length` 1968 → 1969, recorded in `.swiftlint.yml`,
+  `LintConfigurationTests` and `style-lint.md`.)
 
 ### Task 9: Verify acceptance criteria
 

@@ -982,6 +982,7 @@ struct PisakaApp: App {
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
                 onShowLocalHistory: { showLocalHistory(for: $0) },
+                onRefreshGitStatus: { refreshLocalChanges() },
                 isCommitDialogPresented: $isCommitDialogPresented,
                 onOpenCommitDialog: { openCommitDialog() },
                 onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
