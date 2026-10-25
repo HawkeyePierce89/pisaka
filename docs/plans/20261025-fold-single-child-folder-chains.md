@@ -289,23 +289,23 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run the app-layer bundle, recording the deviation if the pinned Xcode 26.3 is still absent: `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`.
-- [ ] Run the macOS build with `-configuration Release`, and the iOS build with `-destination 'generic/platform=iOS'`, using the same derived-data path.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Walk the ticket's acceptance list against the tests and record where each item is covered:
-  - the folding rule's cases;
-  - addressing as data;
-  - the charged counts and the cap;
-  - extend and shorten;
-  - the draft drop;
-  - the unfold sequence;
-  - reveal through a chain;
-  - one row and one indent step;
-  - per-segment colours;
-  - the gating suites green.
+- [x] Run `swift test`. (7094 Core tests, 0 failures.)
+- [x] Run the app-layer bundle, recording the deviation if the pinned Xcode 26.3 is still absent: `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`. (Pinned Xcode 26.3 absent: ran under the installed Xcode 27.1 after `xcodegen generate`; 496 app tests, 0 failures.)
+- [x] Run the macOS build with `-configuration Release`, and the iOS build with `-destination 'generic/platform=iOS'`, using the same derived-data path. (Both `BUILD SUCCEEDED` under Xcode 27.1. The CoreDevice plug-in and CoreSimulator version messages it prints are this machine's toolchain noise, not build errors.)
+- [x] Run `swiftlint --strict` from the repository root. (SwiftLint 0.65.1, 0 violations.)
+- [x] Walk the ticket's acceptance list against the tests and record where each item is covered:
+  - the folding rule's cases: `TreeChainRuleTests` — `testAQualifyingRunBecomesOneChain`, `testTheWalkStopsAtAFolderWithNoEntries` / `…WithTwoEntries` / `…WhoseSingleEntryIsAFile`, `testAChainOfOneIsAPlainRow`, `testFilesStayFileRowsBesideAChain`, `testTheRootIsNeverASegment`, `testAHeadThatIsASymbolicLinkIsAPlainRowAndIsNeverListed`, `testALinkContinuationBecomesTheUnlistedTail`, `testARunDeeperThanTheCapEndsAtExactlyThirtyTwoSegments`, `testASeparatedHeadIsAPlainRowOfferingShowAsOneRow`, `testASeparatedFolderThatWouldNotQualifyDoesNotOfferShowAsOneRow`, `testASeparatedContinuationEndsTheChainBeforeIt`, `testAnUnreadableHeadDegradesToAPlainRow`, `testAnUnreadableContinuationEndsTheChainBeforeIt`, `testAnUnreadableFirstContinuationLeavesThePlainHead`, and over the real `FileService`, `testAFolderHoldingDotGitAndOneSubfolderQualifies`;
+  - addressing as data: `testEveryAddressAndTitleOfAChain`, `testTheKeyIsTheStandardizedSpelling`;
+  - the charged counts and the cap: `testAParentWithNSubfoldersAndOneRunListsNPlusDMinusOneDirectories`, `testTheCapHaltsADeepRunAtThirtyTwoListings`, `testTheMemoServesASecondAskAndARevisionChangeReadsOnceAgain`, `testTheMemoIsKeyedByTheTreesSpelling`, `testFailuresAreNotMemoized`, `testResetForgetsEveryListing`, `testTheModelsLinkQuestionPassesThroughToTheFileService` (all counted off `StubFileTree.listedPaths`, separate from the cap);
+  - extend and shorten: `testALoneFolderAddedInTheTailExtendsTheChain`, `testAFileAddedInAMiddleSegmentShortensTheChain`;
+  - the draft drop: `testARenameDraftOfTheOldTailLeadsNowhereAfterAnExtend`, plus `testAPlainEntryLeadsToADraftBelowItOrRenamingIt` and `testAChainLeadsOnlyToItsTailAndBelow`;
+  - the unfold sequence: `testTheUnfoldSequenceReRunsTheRuleWithNoNewListing`, `testATwoSegmentChainsRemainderIsItsTail`;
+  - reveal through a chain: `TreeRevealRequestTests` — `testAChainExpandsWhenAnyOneSegmentIsAnAncestor`, `testTheStepBelowTheTailIsTheNextAncestorOrTheTarget`, `testATargetInAnInnerSegmentIsUnreachable`, `testATailListingLackingTheStepIsUnreachable`, `testATailListingSpelledUnderAResolvedParentStillReachesTheStep`; and end to end, the reveal that expands the chain in `TreeChainRowLayoutTests`;
+  - one row and one indent step: `TreeChainRowLayoutTests` — `testAChainIsOneRowAndOneIndentStepAtScaleOne` / `…AtScaleOnePointEight`;
+  - per-segment colours: `TreeGitStatusColourTests.testAChainRowColoursEachSegmentByItsOwnStateAndItsSeparatorSecondary`;
+  - the gating suites green: `ChromeThemeSourceGatingTests`, `ZoomSourceGatingTests`, `FoldingSourceGatingTests` and `LintConfigurationTests` pass unchanged inside the 7094-test `swift test` run; `TreeIndentGuideLayoutTests`, `TreeRowGlyphLayoutTests`, `TreeDiagnosticMarkTests` and `TreeRowBackgroundTests` pass inside the 496-test app bundle.
 
-  State the symbolic-link deviation as written in "Symbolic links in practice".
+  State the symbolic-link deviation as written in "Symbolic links in practice". Today's listing reads `isDirectoryKey`, which does not follow links, so it reports a symlinked directory as a non-directory entry, and in the app it already shows as a file row. A run whose next entry is a link therefore ends at the link's parent, which does not qualify because its one entry is "a file", and the link is drawn as that row's child. The rule's own link check, through `WorkspaceModel.isSymbolicLink(_:)` → `symbolicLinkDestination`, defends against any listing that does report a link as a directory; it is what the Core link tests pin over `StubFileTree`. It costs one link query per directory entry probed, never a listing. Descending into symlinked directories stays out of scope.
 
 ### Task 9: Update documentation
 
