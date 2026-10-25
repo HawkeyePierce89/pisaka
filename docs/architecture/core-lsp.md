@@ -2859,7 +2859,7 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     which is the one that fires for *every* close and so also bounds the revision
     map for files no server ever served (`noteEdit` mints a revision for any buffer
     that is typed in, served or not). Idempotent, so arriving both ways costs
-    nothing. `prepareForFolderChange()`
+    nothing. `prepareForFolderChange(root:)`
     clears bookkeeping along with the
     store in the same main-actor turn as the workspace's own token, so no push
     from an old project's server can pass — and only fires when the root actually

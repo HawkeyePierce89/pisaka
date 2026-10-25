@@ -67,7 +67,10 @@ public enum TreeDiagnosticMark: CaseIterable, Comparable, Hashable, Sendable {
 /// Equality is synthesized over the spellings and the table, and the table is a
 /// pure function of each file's worst severity — so a keystroke that shifts a
 /// flagged file's offsets without changing its worst severity builds an equal
-/// lookup, which is what lets the publisher skip an unchanged value.
+/// lookup, which is what lets the publisher skip an unchanged value. A lookup
+/// that marks nothing *is* ``empty``, whatever folder it was built for: with no
+/// mark to find, the spellings answer nothing, so a folder change that empties
+/// the store publishes the same value a model with no folder holds.
 ///
 /// A **reader**: it neither raises the writer gate nor is gated by it.
 public struct TreeDiagnostics: Equatable, Sendable {
@@ -117,7 +120,7 @@ public struct TreeDiagnostics: Equatable, Sendable {
                 components.removeLast()
             }
         }
-        self.init(spellings: root.spellings, marks: marks)
+        self.init(spellings: marks.isEmpty ? [] : root.spellings, marks: marks)
     }
 
     /// The mark of the row at `url`.

@@ -323,7 +323,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     outlive it holding the model. Beside it, one `LSPDocumentSyncController` over the
     model and the workspace (full entry in `app-editor.md`). The folder switch
     registers with both in the same main-actor turn as every other collaborator:
-    `diagnostics.prepareForFolderChange()` + `lspDocumentSync.reset()` run
+    `diagnostics.prepareForFolderChange(root:)` + `lspDocumentSync.reset()` run
     synchronously beside the index's and workspace's tokens — no push routed from an
     old project's server can land, and no pending debounce flushes new-folder text at
     an old project's still-live server. Only on a genuine *switch*, like the LSP

@@ -225,6 +225,21 @@ final class TreeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(lookup(store).mark(for: root), .none)
     }
 
+    /// A lookup that marks nothing is `.empty` whatever folder it was built
+    /// for — information alone, an all-clear entry or nothing at all — so the
+    /// publisher sees no change between "no folder" and "a folder with nothing
+    /// to mark".
+    func testALookupThatMarksNothingEqualsTheEmptyLookup() {
+        let file = url("a.swift")
+        var store = DiagnosticStore()
+        XCTAssertEqual(lookup(store), .empty)
+        XCTAssertEqual(lookup(store, folder: URL(fileURLWithPath: "/elsewhere")), .empty)
+        store.replace(url: file, serverKey: serverKey, diagnostics: [mapped(file, .information)])
+        XCTAssertEqual(lookup(store), .empty)
+        store.replace(url: file, serverKey: serverKey, diagnostics: [mapped(file, .warning)])
+        XCTAssertNotEqual(lookup(store), .empty)
+    }
+
     // MARK: - Cost
 
     func testProbeCountIsAtMostOneWhateverTheStoreHolds() {

@@ -32,7 +32,7 @@ import Foundation
 /// replayed: a push computed against text the buffer has moved past is dropped
 /// outright, and the last keystroke has already scheduled one more sync whose
 /// push will have no edits after it. The same gate silently covers the folder
-/// switch — `prepareForFolderChange()` clears the bookkeeping along with the
+/// switch — `prepareForFolderChange(root:)` clears the bookkeeping along with the
 /// store, so no push can be accepted until the controller re-syncs the buffer
 /// against whatever server serves the new folder. Edits *after* an accepted
 /// push shift the stored set incrementally (`DiagnosticShift.updated`),
@@ -59,6 +59,18 @@ import Foundation
 /// tabs: every one of them is dropped when the document's last tab closes.
 /// The store is not: it is bounded by what the servers report about the
 /// current folder, and emptied by a server's teardown and by the folder change.
+///
+/// ## The tree's lookup
+///
+/// The project tree reads one value of this model: ``TreeDiagnostics``, the
+/// worst severity at or below each row, rebuilt from the store on every store
+/// mutation (its `didSet`) against the opened folder's two spellings, which
+/// ``prepareForFolderChange(root:)`` resolves once. It is published apart from
+/// the store, by ``TreeDiagnosticsHolder``, because the store republishes on
+/// every keystroke's shift and the tree must not re-render with it: the holder
+/// assigns only a value that differs from the one it holds, and a shift that
+/// keeps every file's worst severity builds an equal lookup. With no folder
+/// the lookup is ``TreeDiagnostics/empty``.
 ///
 /// ## Pushes that beat their own sync (the hold-and-reconcile step)
 ///
@@ -107,10 +119,22 @@ public final class DiagnosticsModel: ObservableObject {
 
     /// Every document's current set, republished on every mutation so the three
     /// surfaces (overlay, gutter, panel) observe one truth.
-    @Published public private(set) var store = DiagnosticStore()
+    @Published public private(set) var store = DiagnosticStore() {
+        didSet {
+            treeDiagnostics.update(treeRoot.map { TreeDiagnostics(store: store, root: $0) } ?? .empty)
+        }
+    }
+
+    /// The project tree's lookup, published on its own and only when it
+    /// changes — see "The tree's lookup" on the type.
+    public let treeDiagnostics = TreeDiagnosticsHolder()
+
+    /// The opened folder's two spellings, resolved once per folder change; `nil`
+    /// until the first one, when the lookup stays empty.
+    private var treeRoot: TreeDiagnostics.Root?
 
     /// Per-document sync records, keyed by standardized URL — cleared by
-    /// `prepareForFolderChange()`, per-document by `noteBufferReplaced(url:)`,
+    /// `prepareForFolderChange(root:)`, per-document by `noteBufferReplaced(url:)`,
     /// and dropped outright when the document's last tab closes
     /// (``noteDocumentClosed(url:)``). A record's existence is also what closes
     /// the positional lane for its document.
@@ -362,7 +386,8 @@ public final class DiagnosticsModel: ObservableObject {
         revisions[key] = nil
     }
 
-    /// The folder changed: clear everything — both kinds of entry — and
+    /// The folder changed to `root`: record its two spellings for the tree's
+    /// lookup, then clear everything — both kinds of entry — and
     /// invalidate every sync record, so no mapped push routed from an old
     /// project's server can land (the gate does the dropping; this method just
     /// removes anything it could have matched).
@@ -376,8 +401,12 @@ public final class DiagnosticsModel: ObservableObject {
     ///
     /// Called in the same main-actor turn as
     /// `LSPWorkspace.prepareForFolderChange(root:)` — synchronously, before any
-    /// hop, like every generation pin in this codebase.
-    public func prepareForFolderChange() {
+    /// hop, like every generation pin in this codebase. The root is recorded
+    /// before the store is emptied, so the clear's own rebuild publishes the
+    /// empty lookup in that same turn; resolving the canonical spelling is the
+    /// lookup's one file-system call, made here and never per build or per row.
+    public func prepareForFolderChange(root: URL) {
+        treeRoot = TreeDiagnostics.Root(root)
         syncs.removeAll()
         revisions.removeAll()
         heldPushes.removeAll()
@@ -420,5 +449,27 @@ public final class DiagnosticsModel: ObservableObject {
     /// Errors and warnings across every document — the panel header's numbers.
     public var counts: DiagnosticStore.Counts {
         store.counts
+    }
+}
+
+/// The holder the project tree observes for ``TreeDiagnostics``, owned by
+/// ``DiagnosticsModel`` and fed from its store's `didSet`.
+///
+/// A separate object, not a second `@Published` on the model, because
+/// observing the model means observing the store, which republishes on every
+/// keystroke's shift; this one emits only when the lookup actually changes.
+@MainActor
+public final class TreeDiagnosticsHolder: ObservableObject {
+    /// The current lookup — `.empty` until a folder is open and something in
+    /// it is an error or a warning.
+    @Published public private(set) var lookup: TreeDiagnostics = .empty
+
+    init() {}
+
+    /// Take `newLookup`, assigning — and so publishing — only when it differs
+    /// from the held value.
+    func update(_ newLookup: TreeDiagnostics) {
+        guard newLookup != lookup else { return }
+        lookup = newLookup
     }
 }

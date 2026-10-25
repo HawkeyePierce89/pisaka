@@ -317,7 +317,7 @@ final class DiagnosticsModelTests: XCTestCase {
             url: otherURL
         ))
 
-        model.prepareForFolderChange()
+        model.prepareForFolderChange(root: root)
 
         model.noteSynced(url: url, version: 1, revision: 0)
         XCTAssertNil(entry())
@@ -500,7 +500,7 @@ final class DiagnosticsModelTests: XCTestCase {
             changeInLength: edit.delta
         )
 
-        model.prepareForFolderChange()
+        model.prepareForFolderChange(root: root)
 
         XCTAssertEqual(model.currentRevision(for: url), 0)
         XCTAssertEqual(model.currentRevision(for: otherURL), 0)
@@ -598,7 +598,7 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "old project")], version: 1))
         model.noteSynced(url: otherURL, version: 3, revision: 0)
 
-        model.prepareForFolderChange()
+        model.prepareForFolderChange(root: root)
 
         XCTAssertNil(entry())
         XCTAssertTrue(model.store.rows(relativeTo: root).isEmpty)
@@ -859,7 +859,7 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry())
         XCTAssertEqual(entry(otherURL)?.positional?.map(\.message), ["go"])
 
-        model.prepareForFolderChange()
+        model.prepareForFolderChange(root: root)
         XCTAssertNil(entry(otherURL))
         XCTAssertTrue(model.store.rows(relativeTo: root).isEmpty)
     }
@@ -909,6 +909,126 @@ final class DiagnosticsModelTests: XCTestCase {
         type()
         XCTAssertEqual(publishes, 1, "a non-empty set is shifted and republished")
         XCTAssertEqual(entry()?.mapped?.count, 1)
+    }
+
+    // MARK: - The tree's lookup
+
+    private var lookup: TreeDiagnostics { model.treeDiagnostics.lookup }
+
+    /// The rows from the diagnosed file up to the root: the file, its two
+    /// folders and the root itself.
+    private var markedRows: [URL] {
+        [
+            url,
+            root.appendingPathComponent("Sources/App", isDirectory: true),
+            root.appendingPathComponent("Sources", isDirectory: true),
+            root,
+        ]
+    }
+
+    /// Both lanes publish: a positional report about a closed file marks it and
+    /// every folder above it, and the accepted mapped push that replaces it
+    /// re-marks them with its own worst severity.
+    func testAPositionalReportAndAnAcceptedMappedPushEachPublishALookupMarkingTheFileAndItsFolders() {
+        model.prepareForFolderChange(root: root)
+        XCTAssertEqual(lookup, .empty)
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, severity: .warning, message: "w")]))
+        for row in markedRows {
+            XCTAssertEqual(lookup.mark(for: row), .warning, row.path)
+        }
+
+        model.noteBufferReplaced(url: url)
+        model.noteSynced(url: url, version: 1, revision: model.currentRevision(for: url))
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, severity: .error, message: "e")], version: 1))
+        XCTAssertNotNil(entry()?.mapped)
+        for row in markedRows {
+            XCTAssertEqual(lookup.mark(for: row), .error, row.path)
+        }
+        XCTAssertEqual(lookup.mark(for: root.appendingPathComponent("Tests", isDirectory: true)), .none)
+    }
+
+    /// A keystroke shifts the stored set — the store republishes — but every
+    /// file keeps its worst severity, so the holder publishes nothing and the
+    /// tree does not re-render per keystroke.
+    func testAKeystrokeShiftThatKeepsTheWorstSeverityDoesNotPublishTheLookup() {
+        model.prepareForFolderChange(root: root)
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 8, length: 3, line: 2, message: "m")], version: 1))
+        let before = lookup
+        XCTAssertEqual(before.mark(for: url), .error)
+
+        var storePublishes = 0
+        var lookupPublishes = 0
+        let storeSubscription = model.objectWillChange.sink { _ in storePublishes += 1 }
+        let lookupSubscription = model.treeDiagnostics.objectWillChange.sink { _ in lookupPublishes += 1 }
+        defer {
+            storeSubscription.cancel()
+            lookupSubscription.cancel()
+        }
+
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+
+        XCTAssertEqual(entry()?.mapped?.map(\.range.location), [10], "the shift really moved the set")
+        XCTAssertEqual(storePublishes, 1)
+        XCTAssertEqual(lookupPublishes, 0)
+        XCTAssertEqual(lookup, before)
+
+        // ...while a change of worst severity does publish, once.
+        model.noteSynced(url: url, version: 2, revision: model.currentRevision(for: url))
+        model.receive(published([diagnostic(at: 10, length: 3, line: 2, severity: .warning, message: "m")], version: 2))
+        XCTAssertEqual(lookupPublishes, 1)
+        XCTAssertEqual(lookup.mark(for: url), .warning)
+    }
+
+    /// The folder change empties the lookup in its own turn — no hop between
+    /// the call and the empty value.
+    func testAFolderChangeResetsTheLookupToEmptySynchronously() {
+        model.prepareForFolderChange(root: root)
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "e")]))
+        XCTAssertEqual(lookup.mark(for: root), .error)
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/tmp/other", isDirectory: true))
+        XCTAssertEqual(lookup, .empty)
+        XCTAssertEqual(lookup.mark(for: url), .none)
+    }
+
+    /// A server's teardown removes what that server marked, and only that.
+    func testAServerClearRemovesItsMarks() {
+        let goID = "gopls"
+        let goFile = root.appendingPathComponent("cmd/main.go")
+        model.prepareForFolderChange(root: root)
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "swift")]))
+        model.receive(positional(
+            [positionalDiagnostic(line: 0, character: 0, severity: .warning, message: "go")],
+            url: goFile,
+            serverID: goID
+        ))
+        XCTAssertEqual(lookup.mark(for: root), .error)
+
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
+        XCTAssertEqual(lookup.mark(for: url), .none)
+        XCTAssertEqual(lookup.mark(for: root), .warning)
+        XCTAssertEqual(lookup.mark(for: goFile), .warning)
+
+        model.receive(.cleared(.server(serverID: goID, root: root.path)))
+        XCTAssertEqual(lookup, .empty)
+    }
+
+    /// With no folder recorded, the store still holds what arrives but the
+    /// lookup has no spellings to place it under: it stays empty.
+    func testWithNoRootTheLookupIsEmpty() {
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "e")]))
+        XCTAssertNotNil(entry())
+        XCTAssertEqual(lookup, .empty)
+        XCTAssertEqual(lookup.mark(for: root), .none)
     }
 
     // MARK: - Query forwarding

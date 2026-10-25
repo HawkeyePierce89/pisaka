@@ -2491,7 +2491,7 @@ struct PisakaApp: App {
         // follow — wiping the store there would blank all three surfaces with
         // nothing to repopulate them until the next keystroke or tab switch.
         if isSwitch {
-            diagnostics.prepareForFolderChange()
+            diagnostics.prepareForFolderChange(root: url)
             lspDocumentSync.reset()
         }
     }

@@ -430,14 +430,14 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Tests/PisakaCoreTests/DiagnosticsModelTests.swift` and the other callers of
   `prepareForFolderChange()`
 
-- [ ] `prepareForFolderChange(root:)` records the root and resolves its two spellings
+- [x] `prepareForFolderChange(root:)` records the root and resolves its two spellings
   once, then clears synchronously as today.
-- [ ] Add the main-actor holder object, owned by the model, that publishes the lookup
+- [x] Add the main-actor holder object, owned by the model, that publishes the lookup
   and assigns only on inequality. The store's `didSet` rebuilds the lookup and hands it
   to the holder. With no root, the lookup is `.empty`.
-- [ ] `PisakaApp` passes the new root at the existing call site, which only runs on a
+- [x] `PisakaApp` passes the new root at the existing call site, which only runs on a
   switch.
-- [ ] Tests:
+- [x] Tests:
   - an accepted mapped push and a positional report each publish a lookup marking the
     file and its folders;
   - a keystroke shift that keeps the worst severity does not change the holder's value;
@@ -445,7 +445,7 @@ everything known about its file. This plan keeps those reports.
   - a folder change resets the lookup to empty synchronously, before any hop;
   - a server clear removes its marks;
   - with no root, the lookup is empty.
-- [ ] Run `swift test` and build the macOS app target. Both must pass before Task 7.
+- [x] Run `swift test` and build the macOS app target. Both must pass before Task 7. (The pinned Xcode 26.3 is absent here; the macOS build ran with the installed Xcode and succeeded.)
 
 ### Task 7: pyright reports on the workspace
 
