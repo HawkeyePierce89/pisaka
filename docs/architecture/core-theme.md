@@ -167,8 +167,8 @@ two new geometry tokens) and each with its readers pinned by a gating
     draws exactly as before (`core-git-models.md`, `TreeGitStatus.swift`).
     Folder and file rows map identically, and no new role or palette value
     exists for it. Pinned over `allCases` in `ChromeRoleMappingTests`; rule
-    fifty-one pins its reader set, `ProjectTreeView.swift` once the tree paints
-    its names.
+    fifty-one pins its one reader, `ProjectTreeView.swift`, which draws only the
+    row's name in it (`app-window.md`).
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab

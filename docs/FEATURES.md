@@ -30,7 +30,11 @@ user sees it.
   three monochrome glyphs — code file, text file or database — and a folder
   shows an open or a closed folder; iPhone and iPad keep a per-type tinted icon
   so Swift, JS/TS, JSON, Markdown, images, archives, and other common types are
-  recognizable at a glance. Dotfiles are visible,
+  recognizable at a glance. On macOS, inside a git repository, each name is
+  coloured by its git state (conflicted red, modified yellow, added green,
+  gitignored dimmed; a folder takes the strongest change below it), and every
+  expanded folder draws a hairline indent guide beside its children.
+  Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
   delete; only the service entries `.git` and `.DS_Store` are hidden (and cannot
   be created or renamed to from the tree — a create path refuses them in any

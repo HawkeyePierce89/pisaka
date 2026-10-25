@@ -213,16 +213,16 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 
 ### Task 8: Update documentation
 
-- [ ] `core-git.md`: the parser's entry, now carrying the `!` records separately with the slash stripped, and the new snapshot value. The `GitServicing` entry: the new requirement and its default.
-- [ ] `core-git-models.md`:
+- [x] `core-git.md`: the parser's entry, now carrying the `!` records separately with the slash stripped, and the new snapshot value. The `GitServicing` entry: the new requirement and its default.
+- [x] `core-git-models.md`:
   - `LocalChangesModel`'s entry: the published lookup, its tokens, the clears on folder switch, and the failure block that clears it together with `changedFiles` under the same guards.
   - A full entry for `TreeGitStatus.swift`: states, precedence, the change-only upward aggregation, ignore by ancestry, change-outranks-ignore, the spellings rule and the cost bound.
-- [ ] `app-git-views.md`: `GitCLIService`'s status command and the new gating rule.
-- [ ] `app-window.md`: name colouring, accessibility values and indent guides for the tree.
-- [ ] `core-theme.md`: the new mapping beside the other status mappings. Rule fifty-one's canonical-list item was already added in Task 3; check that it still matches the final code.
-- [ ] `CLAUDE.md`:
+- [x] `app-git-views.md`: `GitCLIService`'s status command and the new gating rule.
+- [x] `app-window.md`: name colouring, accessibility values and indent guides for the tree.
+- [x] `core-theme.md`: the new mapping beside the other status mappings. Rule fifty-one's canonical-list item was already added in Task 3; check that it still matches the final code.
+- [x] `CLAUDE.md`:
   - add `TreeGitStatus.swift` to the `core-git-models.md` index line;
   - add a short sentence beside the existing readers invariant: the project tree reads git state only from the published lookup, raises no writer gate, and no writer gate blocks it;
   - the rule count was already moved to fifty-one in Task 3;
   - keep the file under the 60,000-character limit, which `LintConfigurationTests` enforces.
-- [ ] Leave `README.md` and `docs/FEATURES.md` alone unless the latter lists tree features; if it does, add one line for status colours and indent guides.
+- [x] Leave `README.md` and `docs/FEATURES.md` alone unless the latter lists tree features; if it does, add one line for status colours and indent guides.

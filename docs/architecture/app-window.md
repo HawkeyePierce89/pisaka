@@ -1530,6 +1530,57 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     non-directory, or no row would ever continue or complete the request. The
     listing is matched by entry name, for the resolved-parent reason above. Without that, a request whose row never appears would
     stay live and re-expand every rebuilt folder the user collapsed. The `"draft-row"` scroll id is unchanged.
+  - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
+    is drawn in its git state: conflict, modified, added, ignored or plain
+    (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
+    as a value, `gitStatus`, **`.empty` by default** so previews and the
+    existing app tests construct it unchanged; `ContentView` passes
+    `localChanges.treeGitStatus`, and the value travels down the recursion
+    beside `selection` to every folder and file row. Each row asks it **once
+    per render**, lexically — a folder its own url in `DirectoryNodeView`'s
+    body, a file through the folder listing it — and the name's colour and the
+    row's spoken state are both drawn from that one answer. Only the **name
+    text** takes `ChromeColorRole.treeNameRole(for:)` (`core-theme.md`) through
+    the injected theme, via the file-scope `treeNameForeground(_:resolving:)`,
+    which applies **no foreground at all** for `plain` (`nil`), so a tree outside
+    a repository stays pixel-identical to the tree before git state. The icon
+    stays `textSecondary`, the chevron is unchanged, the row background still
+    comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
+    its status colour (the background is a separate answer), and the inline
+    rename field is not recoloured. **Accessibility**: a folder row's value is
+    Core's `TreeGitState.accessibilityValue(state:row:)` — the expansion word,
+    then `", "` and the state's word when there is one (still `""` while a
+    rename draft is open); a file row becomes **one combined element** carrying
+    the state's word as its value, `""` when plain, and stays `.contain` while
+    its rename draft is open, mirroring the folder row, so the field stays
+    reachable as itself. **The tree only reads git state**: no trigger, no
+    timer, no git call and no writer-gate interaction of its own — it redraws
+    when the model publishes a new lookup, which every existing refresh does.
+    Chrome gating rule fifty-one pins `ProjectTreeView.swift` as the mapping's
+    only reader (`core-theme.md`).
+  - `ProjectTreeView.swift`, **indent guides** — while a folder is expanded, a
+    private `TreeIndentGuide` draws one vertical `hairline` rule **behind its
+    children block**. `FolderDisclosureStyle` wraps `configuration.content` in
+    one zero-spacing `VStack` and gives that stack the guide as a leading
+    `.background`, so the guide is *one* background spanning the whole block —
+    nested expanded blocks and an open create-draft included — rather than a
+    modifier each row would receive, and every row's own background paints over
+    it exactly as before. **Placed by layout, never by arithmetic on a token**
+    (chrome gating rule seven): the scaled `ChromeGeometry.rowPaddingX` as a
+    leading inset, then a frame exactly one scaled `TreeRowLayout.chevronWidth`
+    column wide with the scaled `ChromeGeometry.hairlineWidth` rule centred in
+    it — the chevron's own two measurements, so the guide sits on the centre of
+    the parent folder's chevron column at every interface scale. Nested folders
+    sit one indent step in, so their guides land one step deeper with nothing
+    here knowing about depth. A collapsed folder draws nothing, its content not
+    being rendered at all. Decoration only: `allowsHitTesting(false)`, hidden
+    from accessibility, no highlight and no setting. It adds no width to the
+    content, so `TreeRowGlyphLayoutTests` stayed green unchanged.
+    `TreeIndentGuideLayoutTests` (app bundle) renders a tree whose root is
+    expanded with a couple of children, once at scale 1 and once larger, and
+    finds a `hairline`-coloured column of the scaled width at the root chevron's
+    centre across the children rows' span, moving with the scale, and absent
+    from the root row itself.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,

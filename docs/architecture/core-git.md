@@ -150,6 +150,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is pinned by `GitCLIArgumentSourceGatingTests`, `app-git-views.md`), and **iOS is left at the
     protocol default** — the tail is macOS only, and libgit2 gains nothing from a
     fast-forward it has no caller for (`core-github.md`).
+    One more `async throws` method backs the project tree's git colouring:
+    `statusSnapshot(root:) -> GitStatusSnapshot`, the changed files **plus the
+    paths git reports as ignored, from one status run**. Its snapshot's
+    `changedFiles` is the same list `changedFiles(root:)` answers; the ignored
+    paths travel beside it, so no reader of that list — the Local Changes panel,
+    the commit dialog, the revert — ever sees one. It is defaulted in the
+    protocol extension to `changedFiles(root:)` wrapped with an **empty ignored
+    list**, which is an honest answer for a producer that never asked ("nothing
+    is known to be ignored"), so the iOS `LibGit2Service` and every existing stub
+    compile and answer exactly as before. `GitCLIService` overrides it and
+    derives its own `changedFiles(root:)` from it, so the status command is
+    spelled once (`app-git-views.md`). Its one caller is `LocalChangesModel`'s
+    refresh, which builds the tree's `TreeGitStatus` from it
+    (`core-git-models.md`).
   - `ChangedFile.swift` — `FileStatus` (`modified, added, deleted, renamed,
     untracked, conflicted` — a color-free semantic enum like `FileIconColor`;
     `.conflicted` is a file left in a merge-conflict state, surfaced with a "C"
@@ -177,12 +191,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     only cheap signal that the `HEAD` side moved while status, path and working
     copy did not. It joins the struct's equality, so a refresh that moves `HEAD`
     under the selected file re-binds a selection that compares unequal.
+    Beside them, **`GitStatusSnapshot`** — one status answer: `changedFiles`
+    (exactly the list `changedFiles(root:)` answers) and `ignoredPaths`, the
+    repo-relative paths git reports as ignored, held **beside the list and never
+    inside it**, because an ignored path is not a local change. The ignored paths
+    are plain: a wholly ignored directory is one entry with its trailing `/`
+    already stripped, standing for itself and everything below it. A producer
+    that cannot see ignored entries builds an honest snapshot with an empty list
+    (the `GitServicing` default).
   - `GitStatusParser.swift` — pure `static func parse(_ output: String) ->
-    [ChangedFile]` over `git status --porcelain=v2` output. Handles the `1`
+    [ChangedFile]` over `git status --porcelain=v2` output, plus
+    `static func parseSnapshot(_ output: String) -> GitStatusSnapshot` over the
+    same grammar. `parse` is `parseSnapshot(output).changedFiles`, and its output
+    **does not depend on whether `!` records are present** — every caller and
+    test that predates the snapshot reads byte-for-byte what it always did.
+    `parseSnapshot` routes each `! <path>` record to the separate ignored list,
+    in output order, with a directory record's one trailing `/` stripped (git's
+    `--ignored=matching` reports a wholly ignored directory as that one record);
+    a `!` record with no path, or whose path is only the slash, is dropped rather
+    than becoming an empty key that would read as the repository root. The path
+    is the unsplit remainder, so an ignored path with spaces survives too. Handles the `1`
     (ordinary), `2` (rename/copy — new and old paths TAB-separated), `u`
     (unmerged — `u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>`, 10 fixed
     fields before the path, mapped to `.conflicted`), and `?` (untracked) record
-    types, skipping `!` ignored / `#` header lines; maps the two-character `XY`
+    types, skipping `#` header lines (and, in `parse`'s answer, the `!` ignored
+    ones); maps the two-character `XY`
     field to a `FileStatus` (rename → `.renamed`; a *copy*, whose source is
     untouched, → `.added` of the new path with no `oldPath`, so a revert removes
     only the copy and never restores/`rm`s the source; then add/delete, else
