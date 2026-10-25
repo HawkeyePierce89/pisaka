@@ -205,11 +205,11 @@ Nothing new runs git. All of the git knowledge comes from the `git status --porc
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test`.
-- [ ] Run the app-layer bundle: `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test`
-- [ ] Run the iOS build. It must still compile through the protocol default: same command with `-destination 'generic/platform=iOS'` and `build`.
-- [ ] Run `swiftlint --strict` from the repository root.
-- [ ] Walk the ticket's acceptance list against the tests. Each Core rule has its own test, the parser, gating and real-git cases are covered, and no ignored path reaches `changedFiles`.
+- [x] Run `swift test`. (6996 tests, 0 failures.)
+- [x] Run the app-layer bundle: `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build test` (The pinned Xcode 26.3 is not installed on this machine; ran under the installed Xcode after `xcodegen generate`: 485 tests, 0 failures.)
+- [x] Run the iOS build. It must still compile through the protocol default: same command with `-destination 'generic/platform=iOS'` and `build`. (Installed Xcode, not the pinned one: BUILD SUCCEEDED.)
+- [x] Run `swiftlint --strict` from the repository root. (0 violations in 774 files.)
+- [x] Walk the ticket's acceptance list against the tests. Each Core rule has its own test, the parser, gating and real-git cases are covered, and no ignored path reaches `changedFiles`. (Walked: parser in `GitStatusParserTests`' snapshot cases; one test per lookup rule in `TreeGitStatusTests`; the role mapping in `ChromeRoleMappingTests`; publishing, supersession, folder-switch and failure clears in `LocalChangesModelTests`; gating in `GitCLIArgumentSourceGatingTests` and rule fifty-one in `ChromeThemeSourceGatingTests`; real-git ignored cases in `GitCLIServiceRepositoryTests`; the guide in `TreeIndentGuideLayoutTests`. Ignored paths are kept out of `changedFiles` in both the Core model test and the real-git tests.)
 
 ### Task 8: Update documentation
 
