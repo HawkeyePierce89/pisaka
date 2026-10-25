@@ -945,7 +945,7 @@ struct PisakaApp: App {
                 },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
-                onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
+                onActivateProblem: { url, row in activateProblem(url: url, row: row) },
                 usages: usages,
                 onActivateUsage: { activateUsage($0) },
                 onFindUsages: { findUsages($0) },
@@ -3332,6 +3332,33 @@ struct PisakaApp: App {
         Task { await usages.find(request, root: root, request: generation) }
     }
 
+    /// Activate a Problems-panel row: open (or re-select) the file, then reveal
+    /// the range the row's target maps onto in the buffer the tab now holds.
+    ///
+    /// Shaped like `activateUsage(_:)` rather than routed through
+    /// `activateSearchMatch(url:range:)`, because a closed file's row carries
+    /// the server's position, not offsets — it only becomes a range against the
+    /// text the file just opened with, which Core's
+    /// `DiagnosticStore.Row.revealRange(in:)` answers, clamped, so this never
+    /// beeps and never traps. A file that did not open (unreadable, gone)
+    /// leaves no tab and returns silently.
+    private func activateProblem(url: URL, row: DiagnosticStore.Row) {
+        openAndReveal(url: url) { row.revealRange(in: $0) }
+    }
+
+    /// Open (or re-select) `url`, then reveal the range `range` answers against
+    /// the text the tab holds once it is open — the shared tail of the two
+    /// activations whose range depends on that text, a usages row and a
+    /// Problems row. No tab, or no range, reveals nothing and returns silently.
+    private func openAndReveal(url: URL, range: (NSString) -> NSRange?) {
+        openFile(url: url)
+        guard let id = model.fileID(forURL: url),
+              let text = model.openFiles.first(where: { $0.id == id })?.text,
+              let revealed = range(text as NSString)
+        else { return }
+        reveal.reveal(fileID: id, range: revealed)
+    }
+
     /// Open the file a usages row names and reveal the occurrence — when it is
     /// still there.
     ///
@@ -3385,14 +3412,7 @@ struct PisakaApp: App {
             viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
             return
         }
-        openFile(url: row.fileURL)
-        guard let id = model.fileID(forURL: row.fileURL),
-              let text = model.openFiles.first(where: { $0.id == id })?.text
-        else { return }
-        guard let range = row.revealRange(naming: usages.identifier, in: text as NSString) else {
-            return
-        }
-        reveal.reveal(fileID: id, range: range)
+        openAndReveal(url: row.fileURL) { row.revealRange(naming: usages.identifier, in: $0) }
     }
 
     /// Rename the symbol the editor resolved: ask, then write.

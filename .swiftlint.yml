@@ -216,12 +216,17 @@ line_length:
 # guarded save reads that create as an external change. Then 1971 with the
 # project tree's git refresh: four lines, `refreshLocalChanges()` after the
 # tree's create, move and delete and the created LeetCode solution, which the
-# watcher's `IgnoreSelf` would otherwise leave uncoloured in the tree. The number tracks the one file that
+# watcher's `IgnoreSelf` would otherwise leave uncoloured in the tree. Then
+# 1975 with the Problems panel's closed-file activation: four lines net, the
+# `activateProblem(url:row:)` that reveals a row's target against the buffer
+# just opened and the open-and-reveal tail it now shares with `activateUsage`,
+# whose own copy of that tail it replaced; the mapping itself is Core's
+# `DiagnosticStore.Row.revealRange(in:)`. The number tracks the one file that
 # approaches it — measured, never rounded up for room — and is not a licence
 # to grow the others.
 file_length:
-  warning: 1971
-  error: 1971
+  warning: 1975
+  error: 1975
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -282,10 +287,12 @@ file_length:
 # one of them inside the struct body. Then to 1959 with the external-change
 # bar's three, the same three `file_length` counts. Then to 1960 with the
 # restore's stamp refresh, the same one `file_length` counts. Then to 1964 with
-# the project tree's git refresh, the same four `file_length` counts.
+# the project tree's git refresh, the same four `file_length` counts. Then to
+# 1968 with the Problems panel's closed-file activation, the same four
+# `file_length` counts, all inside the struct body.
 type_body_length:
-  warning: 1964
-  error: 1964
+  warning: 1968
+  error: 1968
 
 function_body_length:
   warning: 140

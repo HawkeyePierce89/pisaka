@@ -197,39 +197,52 @@ public extension Diagnostic {
 public extension Diagnostic {
     /// The panel's stable order, decided here rather than in the view because
     /// two surfaces (the Problems list and hover's merged messages) must agree
-    /// on it.
+    /// on it — and one key for **both** of the store's kinds, so a file's rows
+    /// read the same whether its set was mapped onto a buffer or is still the
+    /// server's positions.
     ///
-    /// The key is a **total** order — no two distinct diagnostics compare equal
-    /// — so a sort is stable regardless of the sort algorithm's own stability:
-    /// grouped by file path, then top-to-bottom through the buffer, then most
-    /// severe first at one start — severity outranks every remaining field, so
-    /// the worst complaint at a position is always the one read first — then
-    /// shorter span, message and source lexicographically among equals, which
-    /// is what keeps two same-position same-severity complaints from tying.
-    /// Every field
-    /// a diagnostic can differ in but `line` participates (`line` is derived
-    /// from the start offset by the mapping, never an independent fact), so two
-    /// keys compare equal only when the diagnostics do.
+    /// The key is a single **total** order — no two distinct diagnostics
+    /// compare equal — so a sort is stable regardless of the sort algorithm's
+    /// own stability. Its fields, in comparison order: file path, start line,
+    /// start column, severity worst-first, end line, end column, message,
+    /// source. Severity outranks the span, so the worst complaint at a position
+    /// is always the one read first; message and source break the ties two
+    /// same-position same-severity complaints would otherwise leave.
+    ///
+    /// The position fields are filled per kind:
+    /// - a ``PositionalDiagnostic`` puts the server's positions in verbatim;
+    /// - a mapped ``Diagnostic`` puts in (its `line`, start offset) as the start
+    ///   and (its `line`, end offset) as the end.
+    ///
+    /// The two fillings agree on order because keys are only ever compared
+    /// within one file's entry, which is a single kind, and within one buffer
+    /// offsets order exactly as (line, column) pairs do. Every field a
+    /// diagnostic can differ in participates, so two keys compare equal only
+    /// when the diagnostics do.
     struct OrderingKey: Equatable, Comparable {
         public let filePath: String
-        public let startOffset: Int
-        public let endOffset: Int
+        public let startLine: Int
+        public let startColumn: Int
         public let severity: DiagnosticSeverity
+        public let endLine: Int
+        public let endColumn: Int
         public let message: String
         public let source: String?
 
         public init(
             path: String,
-            startOffset: Int,
-            endOffset: Int,
+            start: (line: Int, column: Int),
+            end: (line: Int, column: Int),
             severity: DiagnosticSeverity,
             message: String,
             source: String?
         ) {
             self.filePath = path
-            self.startOffset = startOffset
-            self.endOffset = endOffset
+            self.startLine = start.line
+            self.startColumn = start.column
             self.severity = severity
+            self.endLine = end.line
+            self.endColumn = end.column
             self.message = message
             self.source = source
         }
@@ -237,8 +250,19 @@ public extension Diagnostic {
         init(_ diagnostic: Diagnostic) {
             self.init(
                 path: diagnostic.fileURL.standardizedFileURL.path,
-                startOffset: diagnostic.range.location,
-                endOffset: diagnostic.range.location + diagnostic.range.length,
+                start: (diagnostic.line, diagnostic.range.location),
+                end: (diagnostic.line, diagnostic.range.location + diagnostic.range.length),
+                severity: diagnostic.severity,
+                message: diagnostic.message,
+                source: diagnostic.source
+            )
+        }
+
+        init(_ diagnostic: PositionalDiagnostic) {
+            self.init(
+                path: diagnostic.fileURL.standardizedFileURL.path,
+                start: (diagnostic.range.start.line, diagnostic.range.start.character),
+                end: (diagnostic.range.end.line, diagnostic.range.end.character),
                 severity: diagnostic.severity,
                 message: diagnostic.message,
                 source: diagnostic.source
@@ -247,9 +271,11 @@ public extension Diagnostic {
 
         public static func < (lhs: OrderingKey, rhs: OrderingKey) -> Bool {
             if lhs.filePath != rhs.filePath { return lhs.filePath < rhs.filePath }
-            if lhs.startOffset != rhs.startOffset { return lhs.startOffset < rhs.startOffset }
+            if lhs.startLine != rhs.startLine { return lhs.startLine < rhs.startLine }
+            if lhs.startColumn != rhs.startColumn { return lhs.startColumn < rhs.startColumn }
             if lhs.severity != rhs.severity { return lhs.severity > rhs.severity }
-            if lhs.endOffset != rhs.endOffset { return lhs.endOffset < rhs.endOffset }
+            if lhs.endLine != rhs.endLine { return lhs.endLine < rhs.endLine }
+            if lhs.endColumn != rhs.endColumn { return lhs.endColumn < rhs.endColumn }
             if lhs.message != rhs.message { return lhs.message < rhs.message }
             // Spelled out rather than through `Optional`'s own Comparable
             // conformance: absent sorts before any present value, including the
@@ -280,6 +306,21 @@ public extension Diagnostic {
     /// the number of findings in one file, which an unresolved import makes
     /// three digits without trying.
     static func sortedByOrderingKey(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+        diagnostics
+            .map { (key: $0.orderingKey, diagnostic: $0) }
+            .sorted { $0.key < $1.key }
+            .map(\.diagnostic)
+    }
+}
+
+public extension PositionalDiagnostic {
+    /// Where this diagnostic sorts — the same ``Diagnostic/OrderingKey`` the
+    /// mapped kind uses, filled with the server's positions verbatim.
+    var orderingKey: Diagnostic.OrderingKey { Diagnostic.OrderingKey(self) }
+
+    /// `diagnostics` in ``orderingKey`` order, each key built exactly once —
+    /// the mapped kind's decorate-sort-undecorate, for the same reason.
+    static func sortedByOrderingKey(_ diagnostics: [PositionalDiagnostic]) -> [PositionalDiagnostic] {
         diagnostics
             .map { (key: $0.orderingKey, diagnostic: $0) }
             .sorted { $0.key < $1.key }

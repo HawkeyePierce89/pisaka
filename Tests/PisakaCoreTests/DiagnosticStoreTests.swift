@@ -369,7 +369,11 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows[0].url, mainURL.standardizedFileURL)
         XCTAssertEqual(rows[0].pathComponents, ["Sources", "App", "main.swift"])
-        XCTAssertEqual(rows[0].rows.map(\.range.location), [0, 4], "within a file, orderingKey order")
+        XCTAssertEqual(
+            rows[0].rows.map(\.target),
+            [.offsets(NSRange(location: 0, length: 3)), .offsets(NSRange(location: 4, length: 3))],
+            "within a file, orderingKey order"
+        )
         XCTAssertEqual(rows[1].url, utilURL.standardizedFileURL)
         XCTAssertEqual(rows[1].pathComponents, ["Sources", "App", "util.swift"])
     }
@@ -413,7 +417,7 @@ final class DiagnosticStoreTests: XCTestCase {
         let row = groups[0].rows[0]
         XCTAssertEqual(row.severity, .error)
         XCTAssertEqual(row.message, "cannot find value")
-        XCTAssertEqual(row.range, NSRange(location: 4, length: 3))
+        XCTAssertEqual(row.target, .offsets(NSRange(location: 4, length: 3)))
         XCTAssertEqual(row.line, 1)
     }
 
@@ -462,7 +466,7 @@ final class DiagnosticStoreTests: XCTestCase {
         let groups = store.rows(relativeTo: rootURL)
         XCTAssertEqual(groups.count, 1)
         XCTAssertEqual(groups[0].rows.count, 3, "the exact duplicate collapses; distinct rows survive")
-        XCTAssertEqual(groups[0].rows.map(\.range.location), [4, 4, 8])
+        XCTAssertEqual(groups[0].rows.map(\.line), [1, 1, 2])
         XCTAssertEqual(groups[0].rows.map(\.message), ["m", "other", "m"])
 
         // The entry itself is untouched by the rendering rule.
@@ -770,5 +774,166 @@ final class DiagnosticStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 3, warnings: 2))
+    }
+
+    // MARK: - Rows for both kinds
+
+    /// A closed file's rows carry the server's own start line and its range as
+    /// the reveal target, and the header counts include them.
+    func testAClosedFilesRowsCarryTheServersLineAndCountInTheHeader() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: utilURL,
+            serverKey: goKey,
+            positional: [positional(utilURL, line: 7, character: 2, severity: .warning, message: "unused")]
+        )
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups.map(\.pathComponents), [
+            ["Sources", "App", "main.swift"],
+            ["Sources", "App", "util.swift"],
+        ], "a closed file lists beside an open one, in path order")
+        let row = groups[1].rows[0]
+        XCTAssertEqual(row.line, 7, "the server's zero-based start line")
+        XCTAssertEqual(row.severity, .warning)
+        XCTAssertEqual(row.message, "unused")
+        XCTAssertEqual(
+            row.target,
+            .position(LSPRange(start: LSPPosition(line: 7, character: 2), end: LSPPosition(line: 7, character: 5)))
+        )
+        XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 1, warnings: 1))
+    }
+
+    /// An empty positional report contributes no group, like an empty mapped one.
+    func testAnEmptyPositionalEntryContributesNoRowGroup() {
+        var store = DiagnosticStore()
+        store.replace(url: utilURL, serverKey: goKey, positional: [])
+        XCTAssertTrue(store.rows(relativeTo: rootURL).isEmpty)
+    }
+
+    /// Byte-identical positional rows collapse exactly as mapped ones do.
+    func testByteIdenticalPositionalRowsCollapseToOne() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [positional(line: 1), positional(line: 1), positional(line: 1, message: "other")]
+        )
+        XCTAssertEqual(store.rows(relativeTo: rootURL)[0].rows.map(\.message), ["other", "p"])
+    }
+
+    /// The same diagnostics, held as a positional set (file closed) and as a
+    /// mapped set (file open), list in the same order — including same-line
+    /// ties broken by column, then severity, then span — whatever order the
+    /// push arrived in.
+    func testBothKindsOfTheSameDiagnosticsYieldTheSameRowOrder() {
+        let text = "let alpha = 1\nlet beta = alpha + gamma\nprint(beta)\n" as NSString
+        func lsp(
+            _ line: Int, _ start: Int, _ endLine: Int, _ end: Int,
+            _ severity: LSPDiagnosticSeverity, _ message: String
+        ) -> LSPDiagnostic {
+            LSPDiagnostic(
+                range: LSPRange(
+                    start: LSPPosition(line: line, character: start),
+                    end: LSPPosition(line: endLine, character: end)
+                ),
+                severity: severity,
+                message: message
+            )
+        }
+        let pushed = [
+            lsp(2, 0, 2, 5, .information, "print"),
+            lsp(1, 19, 1, 24, .error, "gamma"),
+            lsp(1, 4, 1, 8, .warning, "beta-short"),
+            lsp(1, 4, 2, 3, .warning, "beta-multiline"),
+            lsp(1, 4, 1, 24, .error, "beta-error"),
+            lsp(1, 11, 1, 16, .hint, "alpha-use"),
+            lsp(0, 4, 0, 9, .warning, "alpha"),
+        ]
+        let lineStarts = LSPPositionMap.lineStarts(in: text)
+        var positionalStore = DiagnosticStore()
+        positionalStore.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            positional: pushed.map { PositionalDiagnostic.make(from: $0, url: mainURL) }
+        )
+        var mappedStore = DiagnosticStore()
+        mappedStore.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: pushed.compactMap {
+                Diagnostic.make(from: $0, in: text, lineStarts: lineStarts, url: mainURL)
+            }
+        )
+
+        let expected = ["alpha", "beta-error", "beta-short", "beta-multiline", "alpha-use", "gamma", "print"]
+        let positionalRows = positionalStore.rows(relativeTo: rootURL)[0].rows
+        let mappedRows = mappedStore.rows(relativeTo: rootURL)[0].rows
+        XCTAssertEqual(positionalRows.map(\.message), expected)
+        XCTAssertEqual(mappedRows.map(\.message), expected)
+        XCTAssertEqual(positionalRows.map(\.line), mappedRows.map(\.line))
+        XCTAssertEqual(positionalRows.map(\.severity), mappedRows.map(\.severity))
+    }
+
+    // MARK: - Reveal range
+
+    private func revealRow(
+        positional range: LSPRange
+    ) -> DiagnosticStore.Row {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: goKey,
+            positional: [
+                PositionalDiagnostic(range: range, severity: .error, message: "m", source: nil, fileURL: mainURL),
+            ]
+        )
+        return store.rows(relativeTo: rootURL)[0].rows[0]
+    }
+
+    /// A positional row maps onto the buffer the file opened with.
+    func testTheRevealRangeMapsAPositionalRowOntoTheBuffer() {
+        let text = "aaa\nbbbbb\r\nccc" as NSString
+        let row = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 1, character: 1),
+            end: LSPPosition(line: 2, character: 2)
+        ))
+        XCTAssertEqual(row.revealRange(in: text), NSRange(location: 5, length: 8))
+    }
+
+    /// A line past the end lands at the end of the buffer; a character past
+    /// its line lands at that line's end, before the separator.
+    func testTheRevealRangeClampsAPositionPastTheEnd() {
+        let text = "aaa\nbbbbb\r\nccc" as NSString
+        let pastTheEnd = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 40, character: 0),
+            end: LSPPosition(line: 41, character: 3)
+        ))
+        XCTAssertEqual(pastTheEnd.revealRange(in: text), NSRange(location: text.length, length: 0))
+
+        let pastTheLine = revealRow(positional: LSPRange(
+            start: LSPPosition(line: 1, character: 99),
+            end: LSPPosition(line: 1, character: 120)
+        ))
+        XCTAssertEqual(pastTheLine.revealRange(in: text), NSRange(location: 9, length: 0), "the end of \"bbbbb\", before CRLF")
+    }
+
+    /// A mapped row's in-range range comes back unchanged; one the buffer no
+    /// longer reaches is clamped into it rather than trapping.
+    func testTheRevealRangeReturnsAnInRangeMappedRangeUnchangedAndClampsTheRest() {
+        let text = "aaa\nbbb\nccc" as NSString
+        var store = DiagnosticStore()
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, length: 3, line: 1)])
+        let inRange = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(inRange.revealRange(in: text), NSRange(location: 4, length: 3))
+
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 9, length: 10, line: 2)])
+        let overhanging = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(overhanging.revealRange(in: text), NSRange(location: 9, length: 2))
+
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 50, length: 3, line: 9)])
+        let beyond = store.rows(relativeTo: rootURL)[0].rows[0]
+        XCTAssertEqual(beyond.revealRange(in: text), NSRange(location: text.length, length: 0))
     }
 }

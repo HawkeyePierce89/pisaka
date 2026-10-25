@@ -154,10 +154,12 @@ struct ContentView: View {
     /// commands share one implementation. Default no-op for previews/tests.
     var onTogglePanel: (BottomPanel) -> Void = { _ in }
     /// Invoked when a Problems-panel row is activated, opening (or re-selecting)
-    /// the file and revealing the diagnostic's range. Wired to the same
-    /// `PisakaApp.activateSearchMatch(url:range:)` a Find in Files activation and
-    /// Go to Definition use. Default no-op for previews/tests.
-    var onActivateProblem: (URL, NSRange) -> Void = { _, _ in }
+    /// the file and revealing the range the row's target maps onto in the
+    /// opened buffer. Takes the whole row rather than a `(url, range)` pair
+    /// because a closed file's row carries the server's position, which only
+    /// becomes a range once the file is open. Wired to
+    /// `PisakaApp.activateProblem(url:row:)`. Default no-op for previews/tests.
+    var onActivateProblem: (URL, DiagnosticStore.Row) -> Void = { _, _ in }
     /// The Find Usages panel's model — what ⌃⌘U asked and what came back.
     /// Owned by `PisakaApp` and threaded straight into `UsagesPanelView`, which
     /// observes it itself; deliberately **not** `@ObservedObject` and optional

@@ -95,9 +95,19 @@ public struct DiagnosticStore: Equatable, Sendable {
         }
     }
 
+    /// Where activating a panel ``Row`` lands, in the coordinates its kind
+    /// carries: buffer offsets for a mapped diagnostic, the server's range for
+    /// a positional one. ``Row/revealRange(in:)`` turns either into a buffer
+    /// range against the text the file opened with.
+    public enum RevealTarget: Equatable, Hashable, Sendable {
+        case offsets(NSRange)
+        case position(LSPRange)
+    }
+
     /// One row of the Problems panel: a single diagnostic flattened to what the
-    /// list renders — severity icon, message, and the one-based line; `source`
-    /// is deliberately not carried, because nothing on screen shows it.
+    /// list renders — severity icon, message, and the one-based line — plus the
+    /// target activation reveals; `source` is deliberately not carried, because
+    /// nothing on screen shows it.
     ///
     /// `Hashable` so the SwiftUI list can key rows by **content** rather than by
     /// offset: an insertion above an earlier row must not shift every
@@ -110,16 +120,45 @@ public struct DiagnosticStore: Equatable, Sendable {
     public struct Row: Equatable, Hashable, Sendable {
         public let severity: DiagnosticSeverity
         public let message: String
-        /// The span in the buffer, for open-and-reveal.
-        public let range: NSRange
-        /// The zero-based line it starts on, as stored.
+        public let target: RevealTarget
+        /// The zero-based line it starts on: the stored line for a mapped
+        /// diagnostic, the server's start line for a positional one.
         public let line: Int
 
         init(_ diagnostic: Diagnostic) {
             severity = diagnostic.severity
             message = diagnostic.message
-            range = diagnostic.range
+            target = .offsets(diagnostic.range)
             line = diagnostic.line
+        }
+
+        init(_ diagnostic: PositionalDiagnostic) {
+            severity = diagnostic.severity
+            message = diagnostic.message
+            target = .position(diagnostic.range)
+            line = diagnostic.range.start.line
+        }
+
+        /// The buffer range to reveal for this row in `text` — the buffer the
+        /// file holds once activation has opened it. Total: it never traps and
+        /// never refuses.
+        ///
+        /// A positional target is mapped through
+        /// `LSPPositionMap.range(for:in:)` with its clamping, so a line past the
+        /// end lands at the end of the text and a character past its line at
+        /// that line's end. A mapped target was mapped against the buffer it
+        /// describes; it is clamped into `text`'s length only so a buffer that
+        /// changed underneath the row cannot hand TextKit a range it traps on,
+        /// which leaves an in-range range unchanged.
+        public func revealRange(in text: NSString) -> NSRange {
+            switch target {
+            case .position(let range):
+                return LSPPositionMap.range(for: range, in: text)
+            case .offsets(let range):
+                let location = min(max(0, range.location), text.length)
+                let length = min(max(0, range.length), text.length - location)
+                return NSRange(location: location, length: length)
+            }
         }
     }
 
@@ -310,18 +349,19 @@ public struct DiagnosticStore: Equatable, Sendable {
         return result
     }
 
-    /// The panel's rows: one `FileRows` per document with a non-empty mapped
-    /// set (the positional kind is not listed here yet), files ordered
-    /// by path, rows within a file by ``Diagnostic/orderingKey`` — the stable
-    /// reading order decided once on the value type.
+    /// The panel's rows: one `FileRows` per document with a non-empty set of
+    /// either kind — a closed file's positional set lists beside an open
+    /// file's mapped one — files ordered by path, rows within a file by
+    /// ``Diagnostic/orderingKey``, the one key both kinds share, so the stable
+    /// reading order is decided once on the value types.
     ///
     /// Byte-identical rows are collapsed here, deliberately: two diagnostics
-    /// that flatten to the same severity, message, span and line render — and
-    /// activate — identically, and the view keys its `ForEach` on exactly these
-    /// fields (`Row`'s note), where duplicate ids are undefined behavior rather
-    /// than a merge. The collapse is a *rendering* rule, not a store one: the
-    /// entry keeps every diagnostic, so the overlay, the gutter, hover and
-    /// ``counts`` all still see both.
+    /// that flatten to the same severity, message, target and line render —
+    /// and activate — identically, and the view keys its `ForEach` on exactly
+    /// these fields (`Row`'s note), where duplicate ids are undefined behavior
+    /// rather than a merge. The collapse is a *rendering* rule, not a store
+    /// one: the entry keeps every diagnostic, so the overlay, the gutter, hover
+    /// and ``counts`` all still see both.
     ///
     /// The relative path reuses `CanonicalPath`'s primitives through the same
     /// two-probe order `DisplayPath.relativeComponents(of:under:)` documents
@@ -331,19 +371,23 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// breadcrumb's spelling of the same file.
     public func rows(relativeTo root: URL) -> [FileRows] {
         entries
-            .compactMap { url, entry -> (URL, [Diagnostic])? in
-                guard let mapped = entry.mapped, !mapped.isEmpty else { return nil }
-                return (url, mapped)
+            .compactMap { url, entry -> (URL, [Row])? in
+                let ordered: [Row]
+                switch entry.payload {
+                case .mapped(let diagnostics):
+                    ordered = Diagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
+                case .positional(let diagnostics):
+                    ordered = PositionalDiagnostic.sortedByOrderingKey(diagnostics).map(Row.init)
+                }
+                guard !ordered.isEmpty else { return nil }
+                return (url, ordered)
             }
-            .map { url, diagnostics -> FileRows in
+            .map { url, ordered -> FileRows in
                 var seen = Set<Row>()
-                let rows = Diagnostic.sortedByOrderingKey(diagnostics)
-                    .map(Row.init)
-                    .filter { seen.insert($0).inserted }
                 return FileRows(
                     url: url,
                     pathComponents: Self.pathComponents(of: url, relativeTo: root),
-                    rows: rows
+                    rows: ordered.filter { seen.insert($0).inserted }
                 )
             }
             .sorted { lhs, rhs in

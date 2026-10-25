@@ -282,23 +282,23 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Modify: `Tests/PisakaCoreTests/DiagnosticStoreTests.swift`
 
-- [ ] Rework `OrderingKey` as in Decisions: path, then start line, start column,
+- [x] Rework `OrderingKey` as in Decisions: path, then start line, start column,
   severity worst-first, end line, end column, message, source. Positional diagnostics
   use the server's positions; mapped ones use (line, start offset) and (line, end
   offset). Rewrite its doc comment to state the single total order.
-- [ ] `Row` keeps `severity`, `message` and the zero-based `line`, and replaces `range`
+- [x] `Row` keeps `severity`, `message` and the zero-based `line`, and replaces `range`
   with a Hashable reveal target (offsets / `LSPRange`). Add an initializer for each
   kind.
   - `rows(relativeTo:)` sorts positional entries with the same key and collapses
     identical rows exactly as today.
   - Add the pure reveal-range helper: positional goes through
     `LSPPositionMap.range(for:in:)`; mapped is clamped to the text length.
-- [ ] `ProblemsPanelView`'s callback becomes `(URL, DiagnosticStore.Row)`, with the doc
+- [x] `ProblemsPanelView`'s callback becomes `(URL, DiagnosticStore.Row)`, with the doc
   comment updated. `ContentView.onActivateProblem` changes type to match.
-- [ ] `PisakaApp` gets an `activateProblem(url:row:)` shaped like `activateUsage`:
+- [x] `PisakaApp` gets an `activateProblem(url:row:)` shaped like `activateUsage`:
   `openFile(url:)`, then the tab's id and text, then the helper, then
   `reveal.reveal(fileID:range:)`. A missing tab returns silently.
-- [ ] Tests:
+- [x] Tests:
   - a closed file's rows carry the server's line;
   - a positional entry and a mapped entry describing the same diagnostics yield the
     same row order, including same-line ties broken by column, then severity, then
@@ -308,7 +308,7 @@ everything known about its file. This plan keeps those reports.
     to the end and a character past its line to the line's end, and returns an
     in-range mapped range unchanged;
   - header counts span closed files.
-- [ ] Run `swift test` and build the macOS app target. Both must pass before Task 3.
+- [x] Run `swift test` and build the macOS app target. Both must pass before Task 3. (Xcode_26.3 absent locally; built with the installed Xcode. PisakaApp grew four lines net, so the file_length / type_body_length ceilings moved to the measured 1975 / 1968, recorded in .swiftlint.yml, LintConfigurationTests and style-lint.md.)
 
 ### Task 3: The model's positional lane and the close-keeps-the-set lifecycle
 

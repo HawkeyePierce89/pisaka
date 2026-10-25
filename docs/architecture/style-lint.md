@@ -86,14 +86,22 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is the project tree's git refresh, `file_length` 1967 →
+The most recent bump is the Problems panel's closed-file activation,
+`file_length` 1971 → **1975** and `type_body_length` 1964 → **1968**: four
+lines net in `PisakaApp`. `activateProblem(url:row:)` opens the file and
+reveals the row's target mapped onto the buffer just opened, through an
+open-and-reveal tail it shares with `activateUsage`, whose own copy of that
+tail it replaced; the mapping itself is Core's
+`DiagnosticStore.Row.revealRange(in:)` (`core-lsp.md`).
+
+The bump before it is the project tree's git refresh, `file_length` 1967 →
 **1971** and `type_body_length` 1960 → **1964**: four lines in `PisakaApp`,
 `refreshLocalChanges()` after the tree's create, move and delete and after a
 created LeetCode solution — the watcher drops this process's own writes, so
 without them the tree's git colours stay stale until an unrelated save
 (`app-shell.md`).
 
-The bump before it is the Local History restore's stamp refresh,
+The bump before that is the Local History restore's stamp refresh,
 `file_length` 1966 → **1967** and `type_body_length` 1959 → **1960**: one line
 in `PisakaApp`, refreshing an already-open tab's disk stamp after the restore
 creates the empty file it lands in, so the guarded save does not read the
