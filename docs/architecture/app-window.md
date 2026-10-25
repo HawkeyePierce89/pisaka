@@ -1771,6 +1771,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a change that bumps no revision (an FSEvents overflow, a network volume)
     stays unseen there until the watcher's next event or the Refresh button —
     where before this a never-loaded folder read the disk on its first open.
+    **A second stated limit is the probe's cost**: a load reads not only its
+    contents directory but every non-link subfolder in it (the rule must see
+    each one's listing to know whether it heads a chain), synchronously on the
+    main thread, and the memo forgets on every revision while every expanded
+    node reloads on each bump. An expanded folder with N subfolders therefore
+    costs N + 1 directory reads per `treeRevision`, where before it cost one —
+    noticeable on a very wide folder (`node_modules`, `Pods`) kept open while
+    the watcher bumps the revision, or on a network volume — and the probe
+    reads folders the user never opened, so a root above a TCC-protected
+    folder (`~/Desktop`, `~/Documents`, `~/Downloads`) can raise the privacy
+    prompt when the root loads rather than when that folder is expanded. No
+    cap, no off-main-thread probe and no reuse of the previous revision's
+    shapes exists today; each would change what the rule answers or when, a
+    design decision deliberately not taken here.
     `TreeChainRowLayoutTests` (app bundle) builds a real project in which
     `a/b/c` holds two files, reveals one so the chain expands through the reveal
     path, and renders one window at scale 1 and one at 1.8: exactly four rows

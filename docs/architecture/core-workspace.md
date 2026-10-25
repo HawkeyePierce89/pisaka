@@ -903,7 +903,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and the order in which a parent and an already-expanded child load never
     causes a second read within one revision. It lists only when asked: nothing
     lists on the watcher callback, in the drop hover path, or on an unfold
-    toggle, which re-runs the rule against the memo.
+    toggle, which re-runs the rule against the memo. **Stated limit**: the
+    memo bounds reads *within* a revision, not across them — the rule lists
+    every non-link subfolder of a listing it is asked about, so a folder of N
+    subfolders costs N + 1 reads each time a revision change empties the memo
+    (the app half, and the privacy-prompt consequence of probing unopened
+    folders, are in `app-window.md`).
     Covered by `TreeChainRuleTests`, each case its own test over `StubFileTree`:
     the qualifying run, the three stops (no entries, two entries, one file), a
     chain of one, files beside a chain, the root never a segment, a link head
