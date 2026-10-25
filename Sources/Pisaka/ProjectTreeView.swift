@@ -551,19 +551,18 @@ private struct DirectoryNodeView: View {
         _isExpanded = State(initialValue: startsExpanded)
     }
 
-    /// The row's head: its identity, and what it is dragged, dropped onto,
-    /// deleted and decorated as.
-    private var url: URL { shape.head }
     /// The folder this row lists and expands to — the head for a plain folder,
     /// the tail for a chain — and the one a create writes into.
     private var contentsDirectory: URL { shape.contentsDirectory }
 
     var body: some View {
-        // Asked once per render: the name's colour and the row's spoken state
-        // are both drawn from this one answer, and the glyph's dot and the
-        // spoken state from the other.
-        let gitState = gitStatus.state(for: url)
-        let diagnosticMark = diagnostics.mark(for: url)
+        // Asked once per render, each of the head: the row stands for the
+        // head's subtree, so its spoken state (and a plain folder's name
+        // colour) is drawn from the one answer, and the glyph's one dot and
+        // the spoken state from the other. A chain's segment names are
+        // coloured per segment in `nameLabel(gitState:)`.
+        let gitState = gitStatus.state(for: shape.spokenGitStateURL)
+        let diagnosticMark = diagnostics.mark(for: shape.diagnosticMarkURL)
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == contentsDirectory {
                 Group {
@@ -667,7 +666,8 @@ private struct DirectoryNodeView: View {
                 // glyph in the tree. The helper hides it from accessibility: this
                 // label sits *inside* the row's combined accessibility element,
                 // and directory-ness is already carried by the row's button trait
-                // and its expanded/collapsed `accessibilityValue`.
+                // and its expanded/collapsed `accessibilityValue`. One dot, the
+                // head's, for a chain as for a plain folder.
                 DesignGlyphImage(
                     FileGlyph.forFolder(expanded: isExpanded),
                     size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
@@ -675,25 +675,7 @@ private struct DirectoryNodeView: View {
                 .treeDiagnosticDot(
                     diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
                 )
-                if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
-                    TreeNameFieldView(
-                        // The bound entry, not the optional re-read: see the
-                        // create row above.
-                        draft: .rename(entry: draftedEntry),
-                        siblings: siblings,
-                        onCommit: { newName in
-                            onRename(draftedEntry.url, newName)
-                            draft = nil
-                        },
-                        onCancel: { draft = nil }
-                    )
-                } else {
-                    // The name alone takes the git colour: the glyph stays
-                    // `textSecondary`, and the rename field above is not
-                    // recoloured.
-                    Text(shape.label)
-                        .treeNameForeground(ChromeColorRole.treeNameRole(for: gitState), resolving: theme.color)
-                }
+                nameLabel(gitState: gitState)
             }
             .font(metrics.scaledFont(.body))
             .lineLimit(1)
@@ -711,40 +693,16 @@ private struct DirectoryNodeView: View {
         // right-click target too.
         .disclosureGroupStyle(
             FolderDisclosureStyle(
-                url: url,
+                dragSource: shape.dragSource,
+                dropDestination: shape.dropDestination,
                 isRoot: isRoot,
                 dragSession: dragSession,
-                isDrafted: {
-                    if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
-                        return true
-                    }
-                    return false
-                }(),
+                isDrafted: isDrafted,
                 gitState: gitState,
                 diagnosticMark: diagnosticMark,
                 onMove: onMove
             ) {
-                // Grouped by `Section`s rather than separated by `Divider()`s: a menu
-                // renders the same separators between sections, and the dock's swept
-                // surfaces spell no `Divider()` at all.
-                Section {
-                    Button("New File") {
-                        if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: false) }
-                    }
-                    Button("New Folder") {
-                        if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: true) }
-                    }
-                }
-                if !isRoot {
-                    Section {
-                        Button("Rename") {
-                            if mayBeginFileOperation() {
-                                draft = .rename(entry: shape.renameEntry)
-                            }
-                        }
-                        Button("Delete") { onDelete(url) }
-                    }
-                }
+                folderMenu
             }
         )
         // Collapsing takes this node's whole subtree out of the hierarchy, not
@@ -798,6 +756,97 @@ private struct DirectoryNodeView: View {
         .onChange(of: separated) { _ in
             guard let children else { return }
             rows = childRows(for: children, revision: model.treeRevision)
+        }
+    }
+
+    /// Whether the open draft renames this row — a plain folder, or a chain's
+    /// tail, which is the entry a chain row's rename names.
+    private var isDrafted: Bool {
+        if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
+            return true
+        }
+        return false
+    }
+
+    /// The row's name, or the rename field standing in for it.
+    ///
+    /// A plain folder's name takes the head's git colour; a chain draws its
+    /// segments as one text (`segmentsText`), each name in its own segment's
+    /// colour. Either way the glyph stays `textSecondary`. A chain's rename
+    /// field replaces the tail's name only: the leading segments and their `/`
+    /// stay drawn before it, coloured as in the label.
+    @ViewBuilder
+    private func nameLabel(gitState: TreeGitState) -> some View {
+        if case .rename(let draftedEntry) = draft, draftedEntry.url == shape.renameEntry.url {
+            TreeNameFieldView(
+                // The bound entry, not the optional re-read: see the create row
+                // in the body.
+                draft: .rename(entry: draftedEntry),
+                siblings: siblings,
+                leading: shape.chain.map { segmentsText($0.leadingSegments, under: $0, trailingSeparator: true) },
+                onCommit: { newName in
+                    onRename(draftedEntry.url, newName)
+                    draft = nil
+                },
+                onCancel: { draft = nil }
+            )
+        } else if let chain = shape.chain {
+            segmentsText(chain.segments, under: chain, trailingSeparator: false)
+        } else {
+            Text(shape.label)
+                .treeNameForeground(ChromeColorRole.treeNameRole(for: gitState), resolving: theme.color)
+        }
+    }
+
+    /// `segments` of `chain` as **one** text — concatenated runs, so a long
+    /// label truncates in the middle as a whole rather than per segment. Each
+    /// name takes the role its own segment's git state answers (the chain's
+    /// per-segment git urls), or the inherited foreground when there is none;
+    /// each `/` is drawn in `textSecondary`.
+    private func segmentsText(_ segments: [DirectoryEntry], under chain: TreeChain, trailingSeparator: Bool) -> Text {
+        let separator = Text(verbatim: "/").foregroundStyle(theme.color(.textSecondary))
+        let stateURLs = Dictionary(uniqueKeysWithValues: zip(chain.segments.map(\.url), chain.gitStatusURLs))
+        var runs: [Text] = []
+        for (index, segment) in segments.enumerated() {
+            if index > 0 { runs.append(separator) }
+            let name = Text(verbatim: segment.name)
+            let state = gitStatus.state(for: stateURLs[segment.url] ?? segment.url)
+            if let role = ChromeColorRole.treeNameRole(for: state) {
+                runs.append(name.foregroundStyle(theme.color(role)))
+            } else {
+                runs.append(name)
+            }
+        }
+        if trailingSeparator { runs.append(separator) }
+        return runs.reduce(Text(verbatim: ""), +)
+    }
+
+    /// The row's right-click menu. Every title and every address is the
+    /// shape's — for a chain, `TreeChain`'s: a create opens under the tail,
+    /// a rename names the tail, a delete removes the head.
+    ///
+    /// Grouped by `Section`s rather than separated by `Divider()`s: a menu
+    /// renders the same separators between sections, and the dock's swept
+    /// surfaces spell no `Divider()` at all.
+    @ViewBuilder
+    private var folderMenu: some View {
+        Section {
+            Button("New File") {
+                if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: false) }
+            }
+            Button("New Folder") {
+                if mayBeginFileOperation() { draft = .create(parent: contentsDirectory, isFolder: true) }
+            }
+        }
+        if !isRoot {
+            Section {
+                Button(shape.renameTitle) {
+                    if mayBeginFileOperation() {
+                        draft = .rename(entry: shape.renameEntry)
+                    }
+                }
+                Button(shape.deleteTitle) { onDelete(shape.deleteTarget) }
+            }
         }
     }
 
@@ -1007,11 +1056,77 @@ private enum TreeNodeShape: Equatable {
         }
     }
 
+    /// The chain this row draws, or nil for a single folder.
+    var chain: TreeChain? {
+        if case .chain(let chain) = self { return chain }
+        return nil
+    }
+
     /// The row's name: the folder's, or the segments joined with `/`.
     var label: String {
         switch self {
         case .folder(let entry): return entry.name
         case .chain(let chain): return chain.label
+        }
+    }
+
+    /// What a drag of this row moves: the folder, or the chain's head.
+    var dragSource: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.dragSource
+        }
+    }
+
+    /// Where an entry dropped on this row moves into: the folder, or the
+    /// chain's tail.
+    var dropDestination: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.dropDestination
+        }
+    }
+
+    /// What Delete removes: the folder, or the chain's head.
+    var deleteTarget: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.deleteTarget
+        }
+    }
+
+    /// Whose diagnostic mark the row's one dot draws: the folder's, or the
+    /// chain's head's.
+    var diagnosticMarkURL: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.diagnosticMarkURL
+        }
+    }
+
+    /// Whose git state the row speaks: the folder's, or the chain's head's.
+    var spokenGitStateURL: URL {
+        switch self {
+        case .folder(let entry): return entry.url
+        case .chain(let chain): return chain.spokenGitStateURL
+        }
+    }
+
+    /// The Rename item's title: plain for a folder, the chain's own
+    /// (`Rename "<tail>"`) for a chain.
+    var renameTitle: String {
+        switch self {
+        case .folder: return "Rename"
+        case .chain(let chain): return chain.renameTitle
+        }
+    }
+
+    /// The Delete item's title: plain for a folder, the chain's own
+    /// (`Delete "<label>"`) for a chain.
+    var deleteTitle: String {
+        switch self {
+        case .folder: return "Delete"
+        case .chain(let chain): return chain.deleteTitle
         }
     }
 
@@ -1083,9 +1198,11 @@ private final class TreeListingSource: ObservableObject {
 /// label it would have excluded the chevron column and the row's own horizontal
 /// padding while the highlight covered them.
 private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
-    /// The folder this row draws: its drag payload and, as a drop target, the
-    /// destination a dropped entry moves into.
-    let url: URL
+    /// What a drag of this row moves — the folder, or a chain's head.
+    let dragSource: URL
+    /// Where an entry dropped on this row moves into — the folder, or a
+    /// chain's tail.
+    let dropDestination: URL
     /// The project root row, which drops accept but drags never start from.
     let isRoot: Bool
     /// The tree-wide drag state (see `TreeDragSession`).
@@ -1104,7 +1221,8 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
         VStack(alignment: .leading, spacing: 0) {
             FolderDisclosureRow(
                 configuration: configuration,
-                url: url,
+                dragSource: dragSource,
+                dropDestination: dropDestination,
                 isRoot: isRoot,
                 dragSession: dragSession,
                 isDrafted: isDrafted,
@@ -1164,8 +1282,12 @@ private struct TreeIndentGuide: View {
 /// whole expanded subtree.
 private struct FolderDisclosureRow<Menu: View>: View {
     let configuration: DisclosureGroupStyleConfiguration
-    /// The folder this row draws — dragged from, and dropped onto.
-    let url: URL
+    /// What a drag of this row moves: the folder, or a chain's head — the row
+    /// stands for the head's subtree.
+    let dragSource: URL
+    /// Where a drop onto this row moves the entry: the folder, or a chain's
+    /// tail — the folder whose contents the row shows.
+    let dropDestination: URL
     /// The project root row: a drop target, never a drag source. Moving the open
     /// folder itself is not an operation this tree has.
     let isRoot: Bool
@@ -1238,7 +1360,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // block, which is untouched: a drag and a click are distinct gestures, so
         // clicking a folder still toggles it and right-clicking still opens the
         // same menu over the same rectangle.
-        .projectTreeDragSource(isEnabled: !isRoot && !isDrafted, url: url, session: dragSession)
+        .projectTreeDragSource(isEnabled: !isRoot && !isDrafted, url: dragSource, session: dragSession)
         // Plain assignment, deliberately not `withAnimation`: animating the
         // insertion of a deep nested subtree is a regression this change does
         // not need.
@@ -1253,7 +1375,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .onDrop(
             of: isDrafted ? [] : [ProjectTreeDrag.contentType],
             delegate: TreeDropDelegate(
-                folder: url,
+                folder: dropDestination,
                 session: dragSession,
                 onMove: onMove,
                 isDropTarget: $isDropTarget

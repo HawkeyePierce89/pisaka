@@ -228,19 +228,19 @@ Deep package layouts like `src/main/java/com/acme` cost one click and one indent
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `Sources/Pisaka/ProjectTreeDraftField.swift` (only if the leading-segments prefix must be passed into the field's view)
 
-- [ ] Draw the chain label as "Drawing a chain row" states: per-segment roles, `textSecondary` separators, one middle truncation, one diagnostic dot (the head's), and the spoken value from the head's state and mark.
-- [ ] Split `FolderDisclosureStyle`/`FolderDisclosureRow`'s `url` into a drag source (head) and a drop destination (tail). The root still drags nothing.
-- [ ] Wire each menu item to the chain's own data:
+- [x] Draw the chain label as "Drawing a chain row" states: per-segment roles, `textSecondary` separators, one middle truncation, one diagnostic dot (the head's), and the spoken value from the head's state and mark.
+- [x] Split `FolderDisclosureStyle`/`FolderDisclosureRow`'s `url` into a drag source (head) and a drop destination (tail). The root still drags nothing.
+- [x] Wire each menu item to the chain's own data:
   - **New File / New Folder** open a create draft for the tail.
   - **Rename "c"** opens a rename draft for the tail, drawn after the leading segments, validated against the chain's rename siblings, and committed through `onRename(tail, name)`.
   - **Delete "a/b/c"** calls `onDelete(head)`.
   - **Plain folder rows** keep `Rename` / `Delete`.
   - Each title comes from the Core value.
-- [ ] `isDrafted` for a chain row is "the draft renames this row's tail".
-- [ ] Tests:
+- [x] `isDrafted` for a chain row is "the draft renames this row's tail".
+- [x] Tests:
   - `TreeGitStatusColourTests` gains one hosted render, a single window, of a two-segment chain whose segments carry different git states. It asserts each segment's name is drawn in its own role and the separator in `textSecondary`, sampled off that one bitmap.
   - `ChromeThemeSourceGatingTests` and `ZoomSourceGatingTests` stay green unchanged. No new file joins any gated set.
-- [ ] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 5.
+- [x] Run `swift test`, the app-layer bundle and `swiftlint --strict`. All must pass before Task 5. (Pinned Xcode 26.3 absent: the app-layer bundle ran under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`; 489 app tests, 7092 Core tests, 0 lint violations. The rename prefix is passed into `TreeNameFieldView` as an optional `leading` text.)
 
 ### Task 5: Per-row unfold
 

@@ -59,6 +59,11 @@ enum TreeEditDraft: Equatable {
 struct TreeNameFieldView: View {
     let draft: TreeEditDraft
     let siblings: [String]
+    /// Text drawn before a rename's field, inside the draft: a chain row's
+    /// leading segments and their `/`, so the field replaces the tail's name
+    /// only. Built — and coloured — by the row, which owns the tree's name
+    /// colours; nil for every other draft.
+    let leading: Text?
     let onCommit: (String) -> Void
     let onCancel: () -> Void
 
@@ -71,9 +76,16 @@ struct TreeNameFieldView: View {
     @State private var text: String
     @State private var issue: EntryPathIssue?
 
-    init(draft: TreeEditDraft, siblings: [String], onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(
+        draft: TreeEditDraft,
+        siblings: [String],
+        leading: Text? = nil,
+        onCommit: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.draft = draft
         self.siblings = siblings
+        self.leading = leading
         self.onCommit = onCommit
         self.onCancel = onCancel
 
@@ -190,7 +202,14 @@ struct TreeNameFieldView: View {
                 }
             }
         case .rename:
-            EmptyView()
+            // A rename sits inside the row that already draws its glyph, so
+            // its column is the row's leading text alone — a chain's leading
+            // segments, or nothing.
+            if let leading {
+                leading
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
     }
 
