@@ -2,8 +2,10 @@ import XCTest
 @testable import PisakaCore
 
 /// The workspace half of the diagnostics channel: which pushes survive D31's
-/// gates and reach the sink with buffer offsets, and which clears the teardown
-/// paths owe the model (D33) — including the externally-killed-server case,
+/// gates and reach the sink with buffer offsets, which pushes for a document no
+/// server holds take the positional lane with the server's own positions
+/// (D46), and which clears the teardown paths owe the model (D33) —
+/// including the externally-killed-server case,
 /// where the *stream's* termination is the signal and the consumer task speaks.
 ///
 /// Every case runs on `ScriptedLSPTransport`, so "the server crashed" is a
@@ -199,6 +201,15 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         }
     }
 
+    private func positionalEvents() -> [(url: URL, serverID: String, root: String, diagnostics: [PositionalDiagnostic])] {
+        events.compactMap {
+            if case .positional(let url, let serverID, let root, let diagnostics) = $0 {
+                return (url, serverID, root, diagnostics)
+            }
+            return nil
+        }
+    }
+
     private func clearedServerIDs() -> [String] {
         events.compactMap {
             if case .cleared(.server(let serverID, _)) = $0 { return serverID }
@@ -270,6 +281,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         }
         XCTAssertEqual(serverID, "sourcekit-lsp")
         XCTAssertEqual(pushedRoot, serverRoot)
+        XCTAssertTrue(positionalEvents().isEmpty, "a held document stays on the mapped lane")
     }
 
     func testANotificationNobodyRoutesIsIgnored() async throws {
@@ -313,6 +325,10 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "one server must not answer for another's document")
+        XCTAssertTrue(
+            positionalEvents().isEmpty,
+            "a document another server holds is not unheld: it never falls through to the positional lane"
+        )
     }
 
     /// The silent-drop paths in `route` (undecodable params, no `uri`, a URI
@@ -371,24 +387,116 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTAssertEqual(publishedEvents().count, countBefore, "a push for a version the server does not hold is noise")
     }
 
-    func testAPushForAnUnopenedURIIsDropped() async throws {
+    // MARK: - The positional lane (D46)
+
+    /// A URI under the current root that no server holds is a closed file the
+    /// server reports on unasked: it arrives as one positional event, carrying
+    /// the server's positions verbatim and the key's provenance.
+    func testAPushForAnUnheldURIUnderTheRootArrivesPositional() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "live")
         try await waitFor("the live push") { !self.publishedEvents().isEmpty }
+        let publishedBefore = publishedEvents().count
 
         try push(
             to: harness.latest,
             uri: LSPWorkspace.documentURI(for: utilFile),
             version: 1,
-            [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "m")]
+            [
+                (LSPPosition(line: 7, character: 3), LSPPosition(line: 9, character: 12), .error, "closed"),
+                (LSPPosition(line: 2, character: 0), LSPPosition(line: 2, character: 4), .warning, "also"),
+            ]
         )
-        let countBefore = publishedEvents().count
+        try await waitFor("the positional push") { !self.positionalEvents().isEmpty }
+
+        XCTAssertEqual(positionalEvents().count, 1)
+        XCTAssertEqual(publishedEvents().count, publishedBefore, "an unheld document is never mapped")
+        let received = positionalEvents()[0]
+        XCTAssertEqual(received.url.standardizedFileURL, utilFile.standardizedFileURL)
+        XCTAssertEqual(received.serverID, "sourcekit-lsp")
+        XCTAssertEqual(received.root, serverRoot)
+        XCTAssertEqual(received.diagnostics.map(\.range), [
+            LSPRange(start: LSPPosition(line: 7, character: 3), end: LSPPosition(line: 9, character: 12)),
+            LSPRange(start: LSPPosition(line: 2, character: 0), end: LSPPosition(line: 2, character: 4)),
+        ], "the server's positions, verbatim and in wire order")
+        XCTAssertEqual(received.diagnostics.map(\.severity), [.error, .warning])
+        XCTAssertEqual(received.diagnostics.map(\.message), ["closed", "also"])
+        XCTAssertEqual(
+            received.diagnostics.map { $0.fileURL.standardizedFileURL },
+            [utilFile.standardizedFileURL, utilFile.standardizedFileURL]
+        )
+    }
+
+    /// An empty report is the server saying "this file is clean now", and it
+    /// must arrive as such — an empty positional event, not a drop — or a
+    /// closed file's fixed errors would stay on the panel forever.
+    func testAnEmptyReportForAnUnheldURIArrivesAsAnEmptyPositionalEvent() async throws {
+        _ = try await open(mainFile, text: "a")
+        try push(to: harness.latest, uri: LSPWorkspace.documentURI(for: utilFile), version: nil, [])
+
+        try await waitFor("the empty positional push") { !self.positionalEvents().isEmpty }
+
+        XCTAssertEqual(positionalEvents().count, 1)
+        XCTAssertEqual(positionalEvents()[0].url.standardizedFileURL, utilFile.standardizedFileURL)
+        XCTAssertTrue(positionalEvents()[0].diagnostics.isEmpty)
+    }
+
+    /// A file outside the project root (a toolchain header, a dependency) and a
+    /// URI that names no file are both dropped at the source. The in-root push
+    /// sent *after* them is the rendezvous: the stream is ordered, so once it
+    /// has arrived the two before it have been routed — and dropped.
+    func testAnUnheldURIOutsideTheRootOrNotAFileIsDropped() async throws {
+        _ = try await open(mainFile, text: "a")
+        let outside = otherRoot.appendingPathComponent("dep.swift")
+        // A sibling whose name merely *starts* with the root's last component:
+        // the compare is by whole component, never by string prefix.
+        let prefixSibling = URL(fileURLWithPath: root.path + "Extra/x.swift")
+
+        for uri in [
+            LSPWorkspace.documentURI(for: outside),
+            LSPWorkspace.documentURI(for: prefixSibling),
+            "untitled:Untitled-1",
+        ] {
+            try push(to: harness.latest, uri: uri, version: nil, [
+                (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "outside"),
+            ])
+        }
+        try push(to: harness.latest, uri: LSPWorkspace.documentURI(for: utilFile), version: nil, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "inside"),
+        ])
+        try await waitFor("the in-root rendezvous") { !self.positionalEvents().isEmpty }
+
+        XCTAssertEqual(
+            positionalEvents().map { $0.url.standardizedFileURL },
+            [utilFile.standardizedFileURL],
+            "only the in-root file reaches the sink"
+        )
+    }
+
+    /// The folder switch's straggler shape on the second lane: between
+    /// `prepareForFolderChange` and `shutdownAll()`, the old project's server
+    /// is still filed and still pushing. A report from it — even one naming a
+    /// file under the *new* root — must not route, because its key names a
+    /// folder this workspace no longer serves.
+    func testAnUnheldPushAfterAFolderChangeIsDropped() async throws {
+        _ = try await open(mainFile, text: "a")
+        try push(to: harness.latest, uri: LSPWorkspace.documentURI(for: utilFile), version: nil, [])
+        try await waitFor("the pre-switch positional push") { !self.positionalEvents().isEmpty }
+        let countBefore = positionalEvents().count
+
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        for url in [utilFile, otherRoot.appendingPathComponent("new.swift")] {
+            try push(to: harness.latest, uri: LSPWorkspace.documentURI(for: url), version: nil, [
+                (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "straggler"),
+            ])
+        }
         try await settle()
 
         XCTAssertEqual(
-            publishedEvents().count,
+            positionalEvents().count,
             countBefore,
-            "the panel covers held documents only; a URI no server holds is dropped"
+            "an old root's server has nothing to say to this workspace, on either lane"
         )
     }
 
@@ -1031,6 +1139,37 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTAssertEqual(diagnostics.count, 1, "the landing report admits the held push")
         XCTAssertEqual(diagnostics.first?.message, "early")
         XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 1, warnings: 0))
+    }
+
+    /// The second lane at full composition, wired as `PisakaApp` composes it:
+    /// a push for a file no tab holds lands in the store as a positional entry
+    /// — on the panel's rows and in the counts, invisible to every editor
+    /// query — and D33's teardown clear empties it through the same wiring.
+    func testAnUnheldPushLandsInTheStoreAsPositionalAndShutdownClearsIt() async throws {
+        let model = DiagnosticsModel()
+        workspace.onDiagnostics = { [weak model] event in model?.receive(event) }
+
+        _ = try await open(mainFile, text: "a")
+        try push(to: harness.latest, uri: LSPWorkspace.documentURI(for: utilFile), version: nil, [
+            (LSPPosition(line: 4, character: 2), LSPPosition(line: 4, character: 6), .error, "closed"),
+        ])
+        try await waitFor("the positional entry in the store") {
+            model.store.entry(for: self.utilFile)?.positional != nil
+        }
+
+        let entry = try XCTUnwrap(model.store.entry(for: utilFile))
+        XCTAssertNil(entry.mapped, "editor surfaces cannot see a positional entry")
+        XCTAssertEqual(entry.serverKey, DiagnosticStore.ServerKey(serverID: "sourcekit-lsp", root: serverRoot))
+        XCTAssertEqual(entry.positional?.map(\.message), ["closed"])
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 1, warnings: 0))
+        let rows = model.rows(relativeTo: root)
+        XCTAssertEqual(rows.map { $0.url.standardizedFileURL }, [utilFile.standardizedFileURL])
+        XCTAssertEqual(rows.first?.rows.map(\.line), [4], "the server's line")
+
+        await workspace.shutdownAll()
+        XCTAssertNil(model.store.entry(for: utilFile))
+        XCTAssertTrue(model.rows(relativeTo: root).isEmpty)
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 0, warnings: 0))
     }
 
     private func publishedEntries(in model: DiagnosticsModel) -> [Diagnostic] {

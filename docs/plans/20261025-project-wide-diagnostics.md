@@ -348,9 +348,9 @@ everything known about its file. This plan keeps those reports.
 - Modify: `Sources/PisakaCore/LSPWorkspace.swift`
 - Modify: `Tests/PisakaCoreTests/LSPDiagnosticsRoutingTests.swift`
 
-- [ ] In `prepareForFolderChange(root:)`, cache the current root's canonical key and
+- [x] In `prepareForFolderChange(root:)`, cache the current root's canonical key and
   its two lexical spellings.
-- [ ] In `route`, when the document lookup misses, apply the positional checks from
+- [x] In `route`, when the document lookup misses, apply the positional checks from
   Decisions in this order:
   1. a file URL;
   2. a live session for the key;
@@ -361,7 +361,7 @@ everything known about its file. This plan keeps those reports.
   Then emit `.positional` with the server's positions verbatim. The held-document
   branch and its order are untouched. Update the type's and `route`'s doc comments: D31
   gains the positional case, and the new lane is cited as D46.
-- [ ] Tests:
+- [x] Tests:
   - rewrite `testAPushForAnUnopenedURIIsDropped` so that a URI under the current root
     that no server holds arrives as one `.positional` event with the server's
     positions;
@@ -372,7 +372,7 @@ everything known about its file. This plan keeps those reports.
   - an empty report for an unheld URI arrives as an empty positional event;
   - a full-composition test, workspace to model: an unheld push lands in the store as
     positional, then `shutdownAll()` clears it.
-- [ ] Run `swift test`. It must pass before Task 5.
+- [x] Run `swift test`. It must pass before Task 5.
 
 ### Task 5: The tree lookup (Core, pure)
 
