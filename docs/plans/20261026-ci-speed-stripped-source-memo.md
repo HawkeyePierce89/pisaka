@@ -171,13 +171,13 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] Run `swift test 2>&1 | tee /tmp/ci-speed-after.log`; it must pass. Record in Notes:
+- [x] Run `swift test 2>&1 | tee /tmp/ci-speed-after.log`; it must pass. Record in Notes:
   - the overall `Executed N tests` line; N equals Task 1's count plus the new tests in `SourceStripperContractTests` and `RepositorySourcesTests`;
   - the after-timings of the seven suites next to the before-timings. The five slowest together are expected well under a minute.
   - This is a recorded measurement, not an assertion.
-- [ ] Repeat the three hand-breaks from Task 1 exactly, and record that each failure message (text after `failed - `) is byte-identical to the baseline. Show one message in full in Notes. Restore each file with `git checkout --`, and confirm `git status` shows only this branch's intended changes.
-- [ ] Run `swiftlint --strict` (pinned 0.65.1, via `make lint`) from the repository root; it must be clean.
-- [ ] Confirm `ci.yml` has no `needs:` under `build-macos` or `build-ios`, and that `release.yml` is byte-identical to master.
+- [x] Repeat the three hand-breaks from Task 1 exactly, and record that each failure message (text after `failed - `) is byte-identical to the baseline. Show one message in full in Notes. Restore each file with `git checkout --`, and confirm `git status` shows only this branch's intended changes.
+- [x] Run `swiftlint --strict` (pinned 0.65.1, via `make lint`) from the repository root; it must be clean.
+- [x] Confirm `ci.yml` has no `needs:` under `build-macos` or `build-ios`, and that `release.yml` is byte-identical to master.
 
 ### Task 8: Update documentation
 
@@ -218,6 +218,19 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Remaining suites (Task 5): all eleven migrated. Sparkle keeps `try?` → empty at its `code(of:)`; ReleaseMetadata moves only its `Package.swift` read; WelcomeShortcutPin and GitCLIArgument keep `GitHubSourceGatingTests.strippingComments(…)` over `RepositorySources.raw`. LSPSourceGatingTests' private `read(_:)` lost its last caller and was removed. The grep turned up two files outside the nineteen that read a `Sources/` Swift file directly, `CodeZoneCheckboxRuleTests` (a raw read) and `LintConfigurationTests` (raw marker scan); only their reads moved to `RepositorySources.raw`. LintConfigurationTests keeps its own `contentsOfDirectory` walk because it skips hidden entries and also walks `Tests/`. Afterwards the only `FileManager.default.enumerator` outside the reader is ChromeTheme's walk of `docs/`, and every remaining `String(contentsOf:)` reads docs, licenses, YAML, plists, workflows, grammar.js, query files or fixtures. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.892 (97.190) seconds`, the same count as Task 3. `swiftlint --strict` (0.65.1) clean on the changed files.
 - CI jobs (Task 6): `needs: test` removed from `build-macos` and `build-ios`, with the reason in one comment above `build-macos:`. ReleaseWorkflowTests (69) and LintConfigurationTests (29) green with no edits, and DependencyPinTests green too. `git diff --exit-code master -- .github/workflows/release.yml` is empty. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.139 (96.435) seconds`.
 - After timings (Task 7).
+  - `swift test 2>&1 | tee /tmp/ci-speed-after.log` (same local arm64 machine): `Executed 7114 tests, with 0 failures (0 unexpected) in 96.657 (96.959) seconds` (was 270.003 s). 7114 = 7098 baseline + 10 `SourceStripperContractTests` + 6 `RepositorySourcesTests`.
+  - Per-suite, before → after (recorded measurement, not an assertion):
+    - `ChromeThemeSourceGatingTests`: 101.922 s → 34.727 s (75 tests)
+    - `MarkdownPreviewSourceGatingTests`: 40.098 s → 15.675 s (13 tests)
+    - `FoldingSourceGatingTests`: 41.586 s → 5.645 s (10 tests)
+    - `LeetCodeAccountSourceGatingTests`: 13.617 s → 3.329 s (9 tests)
+    - `ZoomSourceGatingTests`: 14.951 s → 1.904 s (10 tests)
+    - `MenuShortcutUniquenessTests`: 8.194 s → 8.164 s (8 tests)
+    - `GitHubSourceGatingTests`: 4.411 s → 1.254 s (19 tests)
+  - The five slowest before (ChromeTheme, Folding, Markdown, Zoom, LeetCode) together: 212.2 s → 61.3 s. That is not "well under a minute": ChromeTheme alone keeps ~35 s and Markdown ~16 s. The per-test cost left in those suites is their own scanning, not file I/O or stripping, which now happen once per file. MenuShortcutUniqueness did not change, so its cost is not in reading.
+  - Hand-breaks repeated exactly as in Task 1; each message after `failed - ` is byte-identical to the baseline. Folding in full: `FoldController.swift must not name autosave: folding is a reader, like the symbol index. It writes nothing — not the buffer, not the session, not the disk — so there is nothing for a writer gate to order it against.` Markdown: `MarkdownPreviewController.swift must not name localChanges: the preview is a reader, like the symbol index.` ChromeTheme: `a gated view must ask the palette for a role, never the system for a colour`, offender list `["TabStripView.swift: red"]`, same as before. Every file was restored with `git checkout --`, and `git status` was clean afterwards.
+  - `make lint` (SwiftLint 0.65.1, `--strict`): `Found 0 violations, 0 serious in 784 files`.
+  - `ci.yml` has no `needs:` key at all (build-macos, build-ios, test and lint all independent). `git diff --exit-code master -- .github/workflows/release.yml` is empty.
 - RELEASING.md finding (Task 8).
 
 ## Post-Completion
