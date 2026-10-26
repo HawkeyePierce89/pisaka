@@ -87,17 +87,17 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `Tests/PisakaCoreTests/TreeDiagnosticsTests.swift`
 - Modify: `docs/architecture/core-lsp.md`
 
-- [ ] Make `MarkTrie`'s read report the nodes its descent visited along with the value: a leaf answers 1, and each branch on the way adds one. The descent is the only place the count is produced. Then `resolve(_:)` returns that count instead of the literal `1`. A row outside both spellings still costs 0.
-- [ ] The bound uses `MarkTrie.depth`, which already exists (`TreeDiagnostics.swift`, added by #115 for the write-path tests). It is an internal, test-facing structural walk: 0 for a leaf, 1 plus the deepest child for a branch, so the deepest branch level plus one. It is separate from the read descent, which never calls it. This task reuses it unchanged; no new property is added. Extend its doc comment to say it also bounds a read's probe count.
-- [ ] Rewrite the type's "Asked" paragraph and the `resolve(_:)` doc comment. They now say the reported number is the trie nodes the descent visited, at most `depth + 1`.
-- [ ] Replace `testProbeCountIsAtMostOneWhateverTheStoreHolds` with a test over two stores. Each store also holds the existing `hit/x.swift` error, and each runs the same five lookups (hit, miss below the root `a/b/c/d.swift`, the folder, the root, outside `/elsewhere/x.swift`):
+- [x] Make `MarkTrie`'s read report the nodes its descent visited along with the value: a leaf answers 1, and each branch on the way adds one. The descent is the only place the count is produced. Then `resolve(_:)` returns that count instead of the literal `1`. A row outside both spellings still costs 0.
+- [x] The bound uses `MarkTrie.depth`, which already exists (`TreeDiagnostics.swift`, added by #115 for the write-path tests). It is an internal, test-facing structural walk: 0 for a leaf, 1 plus the deepest child for a branch, so the deepest branch level plus one. It is separate from the read descent, which never calls it. This task reuses it unchanged; no new property is added. Extend its doc comment to say it also bounds a read's probe count.
+- [x] Rewrite the type's "Asked" paragraph and the `resolve(_:)` doc comment. They now say the reported number is the trie nodes the descent visited, at most `depth + 1`.
+- [x] Replace `testProbeCountIsAtMostOneWhateverTheStoreHolds` with a test over two stores. Each store also holds the existing `hit/x.swift` error, and each runs the same five lookups (hit, miss below the root `a/b/c/d.swift`, the folder, the root, outside `/elsewhere/x.swift`):
   - **Small store:** three files in one folder (`gen/f0.swift` to `gen/f2.swift`). Its keys are three files, `gen`, `hit/x.swift`, `hit` and the root: 7, under `MarkTrie.leafCapacity` (16), so the root stays a single leaf and `table.depth == 0`. The test asserts that depth, so the premise is checked rather than assumed.
   - **Large store:** 10,000 files under `gen/d<i % 37>/`, so the root splits and `table.depth >= 1` (also asserted).
   - **Assertion 1:** every probe is at most `table.depth + 1` of its own store.
   - **Assertion 2:** the count varies with the key's depth in the trie. Every in-root probe in the small store equals 1, and every in-root probe in the large store is greater than 1. This is what makes assertion 1 non-vacuous.
   - **Assertion 3:** the outside URL costs 0 in both stores.
-- [ ] Update `core-lsp.md`'s "The cost bound" paragraph to match. The thirteen-level ceiling is `MarkTrie.maxLevel`, and the pinned bound is the actual `depth + 1`.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Update `core-lsp.md`'s "The cost bound" paragraph to match. The thirteen-level ceiling is `MarkTrie.maxLevel`, and the pinned bound is the actual `depth + 1`.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Folder tombstones are lifted and never duplicated (1.3)
 

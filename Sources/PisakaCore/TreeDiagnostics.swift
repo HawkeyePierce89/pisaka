@@ -63,8 +63,10 @@ public enum TreeDiagnosticMark: CaseIterable, Comparable, Hashable, Sendable {
 /// **Asked** with a row URL as the tree holds it: the URL is standardized and
 /// stripped of whichever spelling it lies under, giving the same relative key,
 /// then read from the table — one key read, whatever the store holds, its
-/// descent a handful of trie levels — and `resolve(_:)` reports the reads so a
-/// test can pin that.
+/// descent a handful of trie levels — and `resolve(_:)` reports the trie nodes
+/// that descent visited, at most the table's ``MarkTrie/depth`` plus one, so a
+/// test can pin it against the shape the store actually built: a lookup that
+/// scanned the table or read once per ancestor would visit more.
 ///
 /// The table is a persistent hash trie (``MarkTrie``), so a value the tree still
 /// holds shares every node a later move does not write: across a publication a
@@ -119,6 +121,13 @@ public struct TreeDiagnostics: Equatable, Sendable {
         table.value(forKey: key, hash: hash) ?? .none
     }
 
+    /// The mark stored under `key`, whose hash is `hash`, with the trie nodes
+    /// the read visited.
+    private func probedMark(atKey key: String, hash: Int) -> (mark: TreeDiagnosticMark, visited: Int) {
+        let read = table.probe(forKey: key, hash: hash)
+        return (read.value ?? .none, read.visited)
+    }
+
     public init(store: DiagnosticStore, root: Root) {
         self = TreeDiagnosticsIndex(store: store, root: root).lookup
     }
@@ -134,12 +143,16 @@ public struct TreeDiagnostics: Equatable, Sendable {
         resolve(url).mark
     }
 
-    /// The answer together with the number of table reads it took — the seam
-    /// the cost bound is pinned through.
+    /// The answer together with the trie nodes its one key read visited — at
+    /// most the table's ``MarkTrie/depth`` plus one, and 0 for a row under
+    /// neither spelling, which reads nothing. The seam the cost bound is pinned
+    /// through; the count is produced by the descent itself, never by a walk
+    /// of the shape it is checked against.
     func resolve(_ url: URL) -> (mark: TreeDiagnosticMark, probes: Int) {
         guard let key = Self.key(for: url, spellings: spellings) else { return (.none, 0) }
         let joined = key.joined(separator: "/")
-        return (mark(atKey: joined, hash: joined.hashValue), 1)
+        let read = probedMark(atKey: joined, hash: joined.hashValue)
+        return (read.mark, read.visited)
     }
 
     /// The root-relative components of `url`, or `nil` when it lies under
@@ -343,9 +356,17 @@ struct MarkTrie: Equatable, Sendable {
     }
 
     /// The value stored under `key`, whose hash is `hash`.
-    func value(forKey key: String, hash: Int, level: Int = 0) -> TreeDiagnosticMark? {
-        if children.isEmpty { return entries[key] }
-        return children[Self.slot(hash, level)].value(forKey: key, hash: hash, level: level + 1)
+    func value(forKey key: String, hash: Int) -> TreeDiagnosticMark? {
+        probe(forKey: key, hash: hash).value
+    }
+
+    /// The value stored under `key`, whose hash is `hash`, with the nodes the
+    /// descent visited: a leaf answers 1 and each branch on the way adds one.
+    /// The only place a read's cost is counted.
+    func probe(forKey key: String, hash: Int, level: Int = 0) -> (value: TreeDiagnosticMark?, visited: Int) {
+        if children.isEmpty { return (entries[key], 1) }
+        let below = children[Self.slot(hash, level)].probe(forKey: key, hash: hash, level: level + 1)
+        return (below.value, below.visited + 1)
     }
 
     /// Store `mark` under `key`, or remove the key when `mark` is `nil`,
@@ -407,7 +428,10 @@ struct MarkTrie: Equatable, Sendable {
     }
 
     /// The deepest level any node reaches — the seam a test reads to bound a
-    /// write's path by the trie's actual depth.
+    /// write's path by the trie's actual depth, and a read's: a descent visits
+    /// at most `depth + 1` nodes. A structural walk of its own, which the read
+    /// descent never calls, so the bound is computed apart from the count it
+    /// checks.
     var depth: Int {
         children.isEmpty ? 0 : 1 + (children.map(\.depth).max() ?? 0)
     }

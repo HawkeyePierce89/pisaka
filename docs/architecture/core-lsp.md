@@ -3126,10 +3126,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     built for: a folder change that empties the store publishes the same value a
     model with no folder holds.
     **The cost bound.** `mark(for:)` standardizes the row URL, strips whichever
-    spelling it lies under, and reads the one key — a descent of the trie, a
-    handful of levels and at most thirteen. `resolve(_:)` is the internal
-    seam returning the mark with its probe count (keys read), pinned at most one
-    whether the store holds ten diagnosed files or ten thousand.
+    spelling it lies under, and reads the one key — a single descent of the
+    trie, a handful of levels, never more than `MarkTrie.maxLevel` (thirteen)
+    branches deep. `resolve(_:)` is the internal seam returning the mark with
+    its probe count: the trie nodes that descent visited (a leaf answers 1, each
+    branch on the way adds one), counted by the descent alone; a row under
+    neither spelling costs 0. The test pins every probe at most the table's
+    actual `MarkTrie.depth + 1` — a structural walk the read never calls, so
+    the work is counted apart from the bound — over two stores: seven keys,
+    where the root stays one leaf (depth 0, asserted) and every read costs
+    exactly 1, and ten thousand files, where the root splits (depth ≥ 1,
+    asserted) and every read costs more than 1. The second half is what keeps
+    the bound non-vacuous; a lookup that scanned the table or read once per
+    ancestor would break it.
     **The holder.** The lookup is published by `TreeDiagnosticsHolder`
     (`DiagnosticsModel.swift`, above), which assigns only on inequality; the tree
     observes it through a thin wrapper in `ContentView.swift`, so the window root
