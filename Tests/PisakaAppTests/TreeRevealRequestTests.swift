@@ -8,7 +8,9 @@ import PisakaCore
 /// may not, and the two must still agree. A listing is matched by entry name
 /// and kind, because it may spell its entries under a resolved parent. Which directories a reveal expands is
 /// `TreeRevealRuleTests`' subject; this suite pins the row matching, the
-/// target's spelling and the token.
+/// target's spelling and the token, and the two chain questions a chain row
+/// asks: expanding when any segment is an ancestor, and an inner segment
+/// holding nothing but the next one.
 final class TreeRevealRequestTests: XCTestCase {
 
     private let root = URL(fileURLWithPath: "/tmp/project", isDirectory: true)
@@ -105,6 +107,86 @@ final class TreeRevealRequestTests: XCTestCase {
         XCTAssertFalse(reveal.isUnreachable(
             below: URL(fileURLWithPath: "/tmp/project/a"),
             listing: [DirectoryEntry(url: resolvedA.appendingPathComponent("main.swift"), isDirectory: false)]
+        ))
+    }
+
+    // MARK: - Through a chain row
+
+    /// The `a/b/c` chain's segments as its row spells them for a reveal, with or
+    /// without the trailing slash a listing gives a directory.
+    private func chainSegments(trailingSlash: Bool) -> [URL] {
+        ["a", "a/b", "a/b/c"].map { URL(fileURLWithPath: "/tmp/project/\($0)" + (trailingSlash ? "/" : "")) }
+    }
+
+    /// A chain row expands when the request names any one of its segments —
+    /// the head, an inner one, the tail — whatever the trailing slash.
+    func testAChainExpandsWhenAnyOneSegmentIsAnAncestor() throws {
+        let throughTail = try request(for: "a/b/c/main.swift")
+        let throughInner = try request(for: "a/b/main.swift")
+        let throughHead = try request(for: "a/main.swift")
+        for trailingSlash in [false, true] {
+            let segments = chainSegments(trailingSlash: trailingSlash)
+            XCTAssertTrue(throughTail.expands(anyOf: segments))
+            XCTAssertTrue(throughInner.expands(anyOf: segments))
+            XCTAssertTrue(throughHead.expands(anyOf: segments))
+            XCTAssertTrue(throughTail.expands(anyOf: [segments[2]]), "the tail alone")
+            XCTAssertTrue(throughInner.expands(anyOf: [segments[1]]), "an inner segment alone")
+        }
+        let elsewhere = try request(for: "z/main.swift")
+        XCTAssertFalse(elsewhere.expands(anyOf: chainSegments(trailingSlash: true)))
+        XCTAssertFalse(elsewhere.expands(anyOf: []))
+    }
+
+    /// Below the tail the request needs the next ancestor, or the target in the
+    /// deepest one — and a tail listing holding it reaches it.
+    func testTheStepBelowTheTailIsTheNextAncestorOrTheTarget() throws {
+        let deeper = try request(for: "a/b/c/d/main.swift")
+        let segments = chainSegments(trailingSlash: true)
+        XCTAssertEqual(deeper.step(below: segments[2]).map(TreeRevealRequest.rowID), "/tmp/project/a/b/c/d")
+        let listsD = [DirectoryEntry(url: URL(fileURLWithPath: "/tmp/project/a/b/c/d/"), isDirectory: true)]
+        XCTAssertFalse(deeper.isUnreachable(belowChain: segments, listing: listsD))
+
+        let inTail = try request(for: "a/b/c/main.swift")
+        XCTAssertEqual(inTail.step(below: segments[2]).map(TreeRevealRequest.rowID), "/tmp/project/a/b/c/main.swift")
+        let listsMain = [DirectoryEntry(url: URL(fileURLWithPath: "/tmp/project/a/b/c/main.swift"), isDirectory: false)]
+        XCTAssertFalse(inTail.isUnreachable(belowChain: segments, listing: listsMain))
+    }
+
+    /// The chain says each inner segment holds only the next one, so a target
+    /// sitting in an inner segment — or a request turning off there to another
+    /// folder — can never be reached, whatever the tail lists.
+    func testATargetInAnInnerSegmentIsUnreachable() throws {
+        let segments = chainSegments(trailingSlash: true)
+        let inHead = try request(for: "a/main.swift")
+        let inInner = try request(for: "a/b/main.swift")
+        let offToOther = try request(for: "a/b/other/main.swift")
+        let tailListing = [DirectoryEntry(url: URL(fileURLWithPath: "/tmp/project/a/b/c/x.swift"), isDirectory: false)]
+        XCTAssertTrue(inHead.isUnreachable(belowChain: segments, listing: tailListing))
+        XCTAssertTrue(inInner.isUnreachable(belowChain: segments, listing: tailListing))
+        XCTAssertTrue(offToOther.isUnreachable(belowChain: segments, listing: tailListing))
+    }
+
+    /// A tail listing without the step — a deleted file, an excluded entry —
+    /// makes the request unreachable, and a chain it does not expand never is.
+    func testATailListingLackingTheStepIsUnreachable() throws {
+        let segments = chainSegments(trailingSlash: false)
+        let reveal = try request(for: "a/b/c/main.swift")
+        let listsOther = [DirectoryEntry(url: URL(fileURLWithPath: "/tmp/project/a/b/c/other.swift"), isDirectory: false)]
+        XCTAssertTrue(reveal.isUnreachable(belowChain: segments, listing: listsOther))
+        XCTAssertTrue(reveal.isUnreachable(belowChain: segments, listing: []))
+
+        let elsewhere = try request(for: "z/main.swift")
+        XCTAssertFalse(elsewhere.isUnreachable(belowChain: segments, listing: []))
+    }
+
+    /// The tail's listing may spell its entries under a resolved parent, as any
+    /// listing may; they are matched by name, so the step is still reached.
+    func testATailListingSpelledUnderAResolvedParentStillReachesTheStep() throws {
+        let reveal = try request(for: "a/b/c/main.swift")
+        let resolved = URL(fileURLWithPath: "/private/tmp/project/a/b/c/main.swift")
+        XCTAssertFalse(reveal.isUnreachable(
+            belowChain: chainSegments(trailingSlash: true),
+            listing: [DirectoryEntry(url: resolved, isDirectory: false)]
         ))
     }
 

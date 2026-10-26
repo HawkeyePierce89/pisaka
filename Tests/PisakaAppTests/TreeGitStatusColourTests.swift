@@ -18,6 +18,11 @@ import PisakaCore
 /// `.empty` — and every sample read out of those two bitmaps. The name is the
 /// span right of the row's glyph slot; the glyph slot is the one the glyph
 /// layout suite pins.
+///
+/// **A chain row** (`TreeChainRule`) colours each segment's name by that
+/// segment's own state and draws every `/` in `textSecondary`: one more window,
+/// a root holding the run `a/b` whose two segments carry different states,
+/// every sample read out of that one bitmap.
 @MainActor
 final class TreeGitStatusColourTests: XCTestCase {
 
@@ -74,7 +79,73 @@ final class TreeGitStatusColourTests: XCTestCase {
                       "a plain row no longer draws pixel-identical to the tree without git state")
     }
 
+    func testAChainRowColoursEachSegmentByItsOwnStateAndItsSeparatorSecondary() throws {
+        // `a` holds only `b`, so the two draw as the one row `a/b`. A deletion
+        // recorded directly in `a` makes `a` modified (it vanished from there,
+        // so the listing is unchanged), and an untracked file in `b` makes `b`
+        // added — and `a` too, which the edit outranks.
+        let root = try makeProject(files: [])
+        let tail = root.appendingPathComponent("a/b", isDirectory: true)
+        try FileManager.default.createDirectory(at: tail, withIntermediateDirectories: true)
+        try Data("let x = 1\n".utf8).write(to: tail.appendingPathComponent("new.swift"))
+        let lookup = TreeGitStatus(
+            snapshot: GitStatusSnapshot(
+                changedFiles: [
+                    ChangedFile(path: "a/gone.swift", status: .deleted),
+                    ChangedFile(path: "a/b/new.swift", status: .untracked),
+                ],
+                ignoredPaths: []
+            ),
+            repositoryRoot: root,
+            openedFolder: root
+        )
+        XCTAssertEqual(lookup.state(for: root.appendingPathComponent("a")), .modified)
+        XCTAssertEqual(lookup.state(for: tail), .added)
+        let render = try render(root, gitStatus: lookup)
+
+        let metrics = InterfaceMetrics(scale: 1)
+        let rowHeight = metrics.scaled(ChromeGeometry.rowHeight)
+        let top = metrics.scaled(ChromeGeometry.sidebarHeaderHeight) + metrics.scaled(4)
+        let chainRow = (top + rowHeight)..<(top + 2 * rowHeight)
+        // Right of the chain row's glyph slot, one indent step in.
+        let nameStart = metrics.scaled(ChromeGeometry.treeIndentStep) + metrics.scaled(ChromeGeometry.rowPaddingX)
+            + metrics.scaled(TreeRowLayout.chevronWidth) + metrics.scaled(TreeRowLayout.chevronSpacing)
+            + metrics.scaled(TreeRowLayout.iconSize)
+        let name = nameStart..<render.bounds.width
+
+        let head = try XCTUnwrap(columns(of: .statusYellow, in: render, x: name, rows: chainRow),
+                                 "the head segment's name is not drawn in its own role, statusYellow")
+        let separator = try XCTUnwrap(columns(of: .textSecondary, in: render, x: name, rows: chainRow),
+                                      "the chain's separator is not drawn in textSecondary")
+        let tailName = try XCTUnwrap(columns(of: .statusGreen, in: render, x: name, rows: chainRow),
+                                     "the tail segment's name is not drawn in its own role, statusGreen")
+        // Left to right: `a`, then `/`, then `b` — each colour confined to its
+        // own run, so no segment took another's role.
+        XCTAssertLessThan(head.upperBound, separator.lowerBound, "the head's colour reaches past the separator")
+        XCTAssertLessThan(separator.upperBound, tailName.lowerBound, "the separator's colour reaches into the tail")
+    }
+
     // MARK: - Helpers
+
+    /// The horizontal extent of the pixels in `x` × `rows` painted `role`, or
+    /// nil for none. Reads the one bitmap.
+    private func columns(
+        of role: ChromeColorRole, in render: HostedRender, x: Range<CGFloat>, rows: Range<CGFloat>
+    ) -> ClosedRange<CGFloat>? {
+        let step = 1 / render.pixelScale
+        var low: CGFloat?
+        var high: CGFloat?
+        for px in stride(from: x.lowerBound, to: x.upperBound, by: step) {
+            for py in stride(from: rows.lowerBound, to: rows.upperBound, by: step)
+            where render.matches(role, atX: px, y: py) {
+                low = low ?? px
+                high = px
+                break
+            }
+        }
+        guard let low, let high else { return nil }
+        return low...high
+    }
 
     private func render(_ root: URL, gitStatus: TreeGitStatus) throws -> HostedRender {
         let model = WorkspaceModel()
@@ -121,12 +192,12 @@ final class TreeGitStatusColourTests: XCTestCase {
         return true
     }
 
-    /// A root folder holding three files, removed in teardown.
-    private func makeProject() throws -> URL {
+    /// A root folder holding `files`, removed in teardown.
+    private func makeProject(files: [String] = ["a.swift", "b.swift", "c.swift"]) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("TreeGitStatusColourTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        for name in ["a.swift", "b.swift", "c.swift"] {
+        for name in files {
             try Data("let x = 1\n".utf8).write(to: root.appendingPathComponent(name))
         }
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }

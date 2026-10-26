@@ -1173,7 +1173,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `onOpenFolder()` callback (wired `PisakaApp → ContentView → ProjectTreeView`,
     same shape as `onOpenFile`). Otherwise recursive rows from the root.
     Directories are `DisclosureGroup`s (`DirectoryNodeView`) that lazily load
-    children via `model.children(of:)` on expansion (with `@State`); files are
+    children via `model.children(of:)` on expansion (with `@State`), read
+    through the tree's one `TreeListingMemo` and drawn as `TreeChainRule`'s
+    rows — a folder or a single-child chain, see the chain entry below; files are
     clickable rows that call an `onOpenFile(url)` callback. Directory rows are
     drawn through a private `DisclosureGroupStyle` (`FolderDisclosureStyle` + its
     `FolderDisclosureRow`) that renders chevron and
@@ -1320,12 +1322,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     switch, or when the row that draws it leaves the hierarchy. That last
     condition has one reach, spelled by `draftIsBelow(_:)` and asked at
     three sites: collapsing a folder, an `ENOENT` on its reload, and a
-    *successful* reload that no longer lists the way down to the drafted
-    row (`draftedChild()` — the drafted entry itself when the draft is
-    anchored in that directory, otherwise the child folder its subtree
-    hangs from, which must still be a directory, since a folder replaced by
-    a file of the same name stops rendering its subtree without losing the
-    name). All three are the whole *subtree*, not the direct children: a
+    *successful* reload whose rows no longer offer the way down to the
+    drafted row (`draftHangingBelow()` asking each returned row
+    `TreeRow.leads(toDraftAnchor:renaming:)` — the drafted entry itself when
+    the draft is anchored in that directory, otherwise the child folder its
+    subtree hangs from, which must still be a directory, since a folder
+    replaced by a file of the same name stops rendering its subtree without
+    losing the name; for a chain row, only its tail or below). All three are the whole *subtree*, not the direct children: a
     draft left behind by a narrower rule would survive with nothing drawing
     it — no field to press Esc in, no mouse-down monitor (the region view
     went away with the row) — and a later re-expansion, or the path simply
@@ -1349,8 +1352,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     remain parameterless callbacks. The callbacks only *request* the
     operation: `PisakaApp` validates once more, performs the disk I/O and
     bumps `treeRevision`. `DirectoryNodeView` also observes `.onChange(of:
-    model.treeRevision)`: when currently expanded it re-reads
-    `children(of:)` so a created / renamed / deleted entry appears without
+    model.treeRevision)`: when currently expanded it re-reads its listing
+    (through the tree's `TreeListingMemo`, which reads `children(of:)` once per
+    revision — see the single-child chains entry) so a created / renamed /
+    deleted entry appears without
     reopening the folder; a collapsed node instead drops its cached children
     (`children = nil`) so its next expansion re-reads from disk — without
     this an already-loaded node targeted while collapsed would keep showing
@@ -1370,8 +1375,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     one publishes nothing; the default is a no-op so previews and tests construct
     the view without the wiring. The header is absent from the
     `projectRoot == nil` placeholder so its whole pane stays the open-folder
-    click target. So `treeRevision` — the single re-read trigger
-    `DirectoryNodeView` observes — now has three sources: the app's own
+    click target. So `treeRevision` — the single trigger on which
+    `DirectoryNodeView` reads the disk anew (a node also reloads when its parent
+    hands it a new shape and re-runs the chain rule when `separated` changes,
+    both through the memo and listing nothing new) — now has three sources: the app's own
     operations (the context-menu callbacks, Save As, a branch checkout), the
     FSEvents `ProjectWatcher` on macOS, and this button (the manual fallback
     for whatever the watcher misses — an FSEvents buffer overflow, a network
@@ -1550,7 +1557,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the wrong kind: an ancestor step must list as a directory and the target as a
     non-directory, or no row would ever continue or complete the request. The
     listing is matched by entry name, for the resolved-parent reason above. Without that, a request whose row never appears would
-    stay live and re-expand every rebuilt folder the user collapsed. The `"draft-row"` scroll id is unchanged.
+    stay live and re-expand every rebuilt folder the user collapsed. **A
+    chain row asks the chain variants**, `expands(anyOf:)` and
+    `isUnreachable(belowChain:listing:)`, over its segments' reveal spellings
+    (see the chain entry below). The `"draft-row"` scroll id is unchanged.
   - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
     is drawn in its git state: conflict, modified, added, ignored or plain
     (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
@@ -1652,10 +1662,153 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     finds a `hairline`-coloured column of the scaled width at the root chevron's
     centre across the children rows' span, moving with the scale, and absent
     from the root row itself.
+  - `ProjectTreeView.swift`, **single-child folder chains** — a run of folders
+    each holding nothing but the next (`src/main/java/com/acme`) is drawn as
+    **one row** labelled `a/b/c`, whose expansion goes straight to the last
+    folder's contents. Every decision is `TreeChainRule`'s (`core-workspace.md`);
+    the view maps the answer to rows and derives no address of its own.
+    **Row kinds.** A node's children are `TreeChainRule.rows` over its listing: a
+    file (`FileRowView`), a plain folder or a chain. The two directory kinds go
+    through **one** `ForEach` branch and one `DirectoryNodeView`, identified by
+    `TreeRow.id` — the head — and handed down as a private `TreeNodeShape`
+    (`.folder` or `.chain`), so a folder that turns into a chain or back keeps its
+    node and its `@State`, expansion above all. The root is built as itself, a
+    single-segment `.folder`; it is never one of a listing's entries, so it heads
+    no chain. **Identity is the head, contents are the tail**: the row lists,
+    expands to and creates into its contents directory, its children's reveal
+    spelling continues from the tail's, and every other address is read off
+    `TreeChain` — rename names the tail, Delete and the drag source address the
+    head, the drop destination is the tail (`FolderDisclosureStyle` /
+    `FolderDisclosureRow` carry `dragSource` and `dropDestination` separately;
+    the root still drags nothing), and the diagnostic dot and spoken git state
+    are the head's, the row standing for the head's subtree.
+    **Drawing.** The label is **one** `Text` of concatenated runs, so a long
+    chain truncates in the middle as a whole: each segment's name in
+    `ChromeColorRole.treeNameRole(for:)` of its *own* segment's git state (or the
+    inherited foreground when there is none), each `/` in `textSecondary`. The
+    glyph is the folder glyph with **one** diagnostic dot, the head's mark; the
+    accessibility element, value and drafted `.contain` are a plain folder's.
+    A chain's rename field replaces the tail's name only: the leading segments
+    and their `/` stay drawn before it, coloured as in the label, passed into
+    `TreeNameFieldView` as its optional `leading` text, and the field validates
+    against `TreeChain.renameSiblings`. A create draft opens under the row and
+    validates against the tail's listing. `isDrafted` is "the draft renames this
+    row's tail". Children are inset one `treeIndentStep` and the indent guide
+    hangs from the row's chevron exactly as for any folder; every size is
+    through `InterfaceMetrics` and every colour a role, so no file joins a gated
+    set.
+    **Menu.** New File / New Folder (into the tail); `Rename "<tail>"` and
+    `Delete "<label>"`, the titles being `TreeChain`'s; then `Show as Separate
+    Folders`. A plain folder keeps `Rename` / `Delete`, and a separated folder the
+    rule says would otherwise qualify (`offersShowAsOneRow`) adds `Show as One
+    Row`. The delete confirmation and the app callbacks are unchanged — they
+    receive the real url. The two view items are view choices, not file
+    operations: no draft, no gate.
+    **The unfold memory.** `separatedFolders: Set<String>` is `@State` on
+    `ProjectTreeView`, keyed by `TreeChainRule.key(for:)` and handed down as a
+    value beside `opensOnAppearance`, with one callback carrying a private
+    `TreeSeparationChange` — `separate(head:opening:)`, `join`, `appeared`.
+    `Show as Separate Folders` inserts the head only, so the row becomes `a` over
+    `b/c`, which offers the same item again; `Show as One Row` removes the folder.
+    Unfolding an **expanded** chain also records `TreeChain.remainderHead` (the
+    second segment) in the transient "open on first appearance" set: the new
+    node starts expanded and spends its key in `.onAppear`, so the row the user
+    was looking at stays expanded, while the head keeps its own expansion because
+    its identity is unchanged; a collapsed chain records nothing. **A stated
+    limit**: folders the user had opened *below* the tail are rebuilt under the
+    new remainder node and come back collapsed (the same holds for `Show as One
+    Row` on an open folder's descendants), since expansion is per-node `@State`
+    and nothing tree-wide records it. Neither set is
+    written to the session, both are cleared on a project-root change, and
+    neither is pruned — a key whose folder is gone matches no row. A `separated`
+    change re-runs the rule over the node's cached listing against the memo
+    alone (`rememberedListing(of:revision:)`) and lists nothing — joining
+    included, because the rule walks a separated head's run under every load
+    that draws it, and a probe that failed under that load is answered as the
+    same failure rather than retried (`core-workspace.md`). The memo answers
+    only for a load it still holds, so the handler first asks it for the
+    node's **own** listing: on a miss it takes the ordinary
+    `reloadOrForget()` instead. That is the project-root change — the tree's
+    `onChange(of: projectRoot)` resets the memo and clears `separated`, and
+    SwiftUI may run it *after* the new root node's `onAppear` load, which
+    would otherwise leave the `separated` re-run reading an empty memo and
+    drawing every top-level chain as a plain folder until the next bump.
+    **Re-evaluation needs no new trigger.** Every expanded node reloads on a
+    `treeRevision` bump, as before, through the memo, and a node also reloads
+    when the shape its parent hands it changes (`TreeNodeShape` is `Equatable`,
+    chain listing included) — the memo already holding that listing, since the
+    parent's probe read it. **Extend**: `a/b/c` gaining a lone `d` becomes
+    `a/b/c/d`, same head, still expanded, showing `d`'s listing. **Shorten**: a
+    file appearing in `b` makes the row `a/b`, still expanded, with `c` (now a
+    plain collapsed row) and the file as children. **Drafts after a reshape**:
+    the collapse and missing-directory checks ask `draftIsBelow` of the
+    **contents directory** — asking about the head would drop a chain row's own
+    rename draft, anchored inside the head, on collapse — and the reload check
+    asks each returned row `TreeRow.leads(toDraftAnchor:renaming:)`, so a draft
+    anchored on what became an inner segment is dropped — and so does the
+    `separated` handler, whose re-run can fold the anchor into a chain just the
+    same. `leads` answers reachability only, so a reshape can still hand a draft
+    to a node that is **collapsed** — a shortened chain's old tail, now a plain
+    collapsed row (or, collapsed itself, the shortened chain), or a folder under
+    an unfolded chain's tail — where nothing draws it; a collapsed node therefore
+    re-asserts the collapse rule (`dropDraftHiddenByCollapse()`, a draft below
+    its contents directory is dropped) when it appears and when a reload finds
+    it collapsed. The create-expands `onChange` compares against the contents
+    directory. `TreeDraftDismissRule` is untouched.
+    **Reveal through chains.** `TreeRevealRequest` gains two chain questions,
+    asked of the node's segments in reveal spelling
+    (`TreeNodeShape.revealURLs(underHead:)` → `TreeChain.revealURLs`): a chain
+    node expands once per token when `expands(anyOf:)` finds any segment —
+    head, inner or tail — among the ancestors, and withdraws the request when
+    `isUnreachable(belowChain:listing:)` holds against the **tail's** listing. An
+    inner segment has no listing to ask: the chain itself says that folder holds
+    exactly the next segment, so a request whose step below an inner segment is
+    anything else (another folder, or the target) is unreachable; below the tail
+    it is the plain check.
+    **The memo's place.** `ProjectTreeView` owns one `TreeListingMemo` for its
+    lifetime, through a private `TreeListingSource` (an `ObservableObject` with
+    nothing published, like `TreeDragSession`, because listing must invalidate
+    nothing; the memo is made on the first ask, its listing function being
+    `model.children(of:)`), and resets it on a project-root change with the
+    draft. **Every load lists through it**: `loadChildren()` reads the contents
+    directory under the current `treeRevision`, then asks the rule with
+    `model.isSymbolicLink` and the memo as the listing function, so each
+    directory is read at most once per revision whatever the probe order. Only
+    the node's own contents read may beep (unless the directory is missing);
+    probe failures are silent by the rule. Nothing lists outside a load. **A
+    stated limit** follows from the memo: a folder first opened later in the
+    same revision shows the listing its parent's probe read, not a fresh one, so
+    a change that bumps no revision (an FSEvents overflow, a network volume)
+    stays unseen there until the watcher's next event or the Refresh button —
+    where before this a never-loaded folder read the disk on its first open.
+    **A second stated limit is the probe's cost**: a load reads not only its
+    contents directory but every non-link subfolder in it (the rule must see
+    each one's listing to know whether it heads a chain), synchronously on the
+    main thread, and the memo forgets on every revision while every expanded
+    node reloads on each bump. An expanded folder with N subfolders therefore
+    costs N + 1 directory reads per `treeRevision`, where before it cost one —
+    noticeable on a very wide folder (`node_modules`, `Pods`) kept open while
+    the watcher bumps the revision, or on a network volume — and the probe
+    reads folders the user never opened, so a root above a TCC-protected
+    folder (`~/Desktop`, `~/Documents`, `~/Downloads`) can raise the privacy
+    prompt when the root loads rather than when that folder is expanded. No
+    cap, no off-main-thread probe and no reuse of the previous revision's
+    shapes exists today; each would change what the rule answers or when, a
+    design decision deliberately not taken here.
+    `TreeChainRowLayoutTests` (app bundle) builds a real project in which
+    `a/b/c` holds two files, reveals one so the chain expands through the reveal
+    path, and renders one window at scale 1 and one at 1.8: exactly four rows
+    (root, chain, two files), the chain one scaled `rowHeight`, each file's glyph
+    one scaled `treeIndentStep` right of the chain's, and one `hairline` guide on
+    the chain chevron's centre with none for the inner segments.
+    `TreeGitStatusColourTests.testAChainRowColoursEachSegmentByItsOwnStateAndItsSeparatorSecondary`
+    samples each segment's role and the separator's `textSecondary` off one
+    render; `TreeRevealRequestTests` pins the chain questions.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
-    red reason line), `TreeDraftDismissRegion` (the invisible mouse-down
+    red reason line; a rename's icon column is the optional `leading` text — a
+    chain row's leading segments, built and coloured by the row — or nothing), `TreeDraftDismissRegion` (the invisible mouse-down
     observer), `ProjectTreeDraftFieldRepresentable` (+ its `Coordinator`)
     and `CustomTextField`. The layer split gives this view no business
     logic: it collects the typed text, draws the invalid-input text and a
@@ -1755,7 +1908,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     draws an icon column of its own, so during a **rename** the row's icon
     and the row's padding around the field belong to the row, sit outside
     the rectangle, and a click on them cancels like any other click on the
-    row. Because the
+    row — except a chain rename's `leading` segments, which are drawn inside
+    the draft and so are "inside" like the field. Because the
     monitor is *local*, ⌘Tab away and ⌘Tab back preserves the draft: another
     app's clicks are never seen, and window resign-key is not a
     cancellation. Returning by *clicking* the window is the limit noted
@@ -1852,7 +2006,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     The reason line's inset is likewise construction rather than arithmetic:
     it is led by the *same* `iconColumn` view drawn hidden and collapsed to
     zero height, so it matches the field's lead exactly and stays zero for a
-    rename draft, which has no icon column at all.
+    rename draft, which has no icon column of that kind. A chain rename's
+    `leading` text is not twinned: its reason line starts at zero, under the
+    leading segments rather than under the field, with the row's full width to
+    wrap in.
     **The draft is in the chrome theme's gated set** (`core-theme.md`), although
     it is an editing affordance rather than a row: an inline draft *replaces* a
     tree row on screen and must read identically to the row it stands in for. So

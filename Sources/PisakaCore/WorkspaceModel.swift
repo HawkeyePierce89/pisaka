@@ -579,6 +579,13 @@ public final class WorkspaceModel: ObservableObject {
         try fileService.contentsOfDirectory(at: url)
     }
 
+    /// Whether `url` is a symbolic link — the project tree's link question for
+    /// `TreeChainRule`, a pass-through to the file service's link query. It is
+    /// never a listing, so asking it costs no directory read.
+    public func isSymbolicLink(_ url: URL) -> Bool {
+        fileService.symbolicLinkDestination(at: url) != nil
+    }
+
     /// The currently selected file, or `nil` when none is selected.
     public var selectedFile: OpenFile? {
         guard let selectedID else { return nil }

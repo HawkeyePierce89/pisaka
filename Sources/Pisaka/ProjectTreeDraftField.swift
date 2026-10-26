@@ -59,6 +59,11 @@ enum TreeEditDraft: Equatable {
 struct TreeNameFieldView: View {
     let draft: TreeEditDraft
     let siblings: [String]
+    /// Text drawn before a rename's field, inside the draft: a chain row's
+    /// leading segments and their `/`, so the field replaces the tail's name
+    /// only. Built — and coloured — by the row, which owns the tree's name
+    /// colours; nil for every other draft.
+    let leading: Text?
     let onCommit: (String) -> Void
     let onCancel: () -> Void
 
@@ -71,9 +76,16 @@ struct TreeNameFieldView: View {
     @State private var text: String
     @State private var issue: EntryPathIssue?
 
-    init(draft: TreeEditDraft, siblings: [String], onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(
+        draft: TreeEditDraft,
+        siblings: [String],
+        leading: Text? = nil,
+        onCommit: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.draft = draft
         self.siblings = siblings
+        self.leading = leading
         self.onCommit = onCommit
         self.onCancel = onCancel
 
@@ -87,7 +99,10 @@ struct TreeNameFieldView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: metrics.scaled(4)) {
+            // The gap is the create draft's, between its glyph and the field. A
+            // chain rename's column is its `a/b/` text, which the field must
+            // follow with no gap, or the path reads `a/b/  c`.
+            HStack(spacing: isCreate ? metrics.scaled(4) : 0) {
                 iconColumn
 
                 ProjectTreeDraftFieldRepresentable(
@@ -115,7 +130,10 @@ struct TreeNameFieldView: View {
                 // spacing between *subviews*, and a modified `EmptyView` is
                 // still a subview — a zero-width one. Leaving the hidden column
                 // in for a rename would therefore inset its reason line by that
-                // gap instead of the zero the field sits at.
+                // gap instead of the zero the field sits at. A chain rename's
+                // `leading` text is not twinned either: its reason line starts
+                // at zero, under the leading segments, rather than under the
+                // field.
                 HStack(alignment: .top, spacing: isCreate ? metrics.scaled(4) : 0) {
                     // The *same* icon column the field sits beside, drawn hidden
                     // and collapsed to zero height: the reason's inset is then
@@ -190,7 +208,14 @@ struct TreeNameFieldView: View {
                 }
             }
         case .rename:
-            EmptyView()
+            // A rename sits inside the row that already draws its glyph, so
+            // its column is the row's leading text alone — a chain's leading
+            // segments, or nothing.
+            if let leading {
+                leading
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
     }
 
