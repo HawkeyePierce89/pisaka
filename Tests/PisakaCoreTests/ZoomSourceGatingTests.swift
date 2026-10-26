@@ -63,7 +63,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
             guard !Self.interfaceScaleOwners.contains(name) else { continue }
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("interfaceScale", in: code) {
                 offenders.append(name)
             }
@@ -80,7 +80,7 @@ final class ZoomSourceGatingTests: XCTestCase {
                 try Self.swiftSources().first { $0.lastPathComponent == owner },
                 "\(owner) is gone — update interfaceScaleOwners"
             )
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertTrue(
                 LSPSourceGatingTests.containsToken("interfaceScale", in: code),
                 "\(owner) no longer names interfaceScale — it should not be an owner"
@@ -122,7 +122,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     func testTheInterfaceScaledRootsAreExactlyTheDocumentedSet() throws {
         var found: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if code.contains(".interfaceScaled(") { found.insert(url.lastPathComponent) }
         }
         XCTAssertEqual(found, Self.interfaceScaledRoots)
@@ -158,7 +158,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     func testTheSheetPresentersInjectTheScaleOnTheirContent() throws {
         var found: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if code.components(separatedBy: ".interfaceScaled(").count - 1 > 1 {
                 found.insert(url.lastPathComponent)
             }
@@ -217,7 +217,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     func testTheZoomSurfacesAreExactlyTheDocumentedSet() throws {
         var found: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if code.contains("ZoomSurfaceProviding") || code.contains("ZoomSurfaceMarker(kind:") {
                 found.insert(url.lastPathComponent)
             }
@@ -247,7 +247,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         var found: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if code.contains("CodeScrollView()") { found.insert(name) }
             // A code pane that constructs the stock scroll view is the regression;
             // `ZoomSurface.swift` declares the subclass and builds no pane.
@@ -287,7 +287,7 @@ final class ZoomSourceGatingTests: XCTestCase {
             try Self.swiftSources().first { $0.lastPathComponent == "HoverPanel.swift" },
             "HoverPanel.swift is gone — the hover popover's chrome rule has no home"
         )
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+        let code = try RepositorySources.stripped(url)
 
         XCTAssertTrue(
             code.contains("ignoresMouseEvents = true"),
@@ -307,7 +307,7 @@ final class ZoomSourceGatingTests: XCTestCase {
                 try Self.swiftSources().first { $0.lastPathComponent == file },
                 "\(file) is gone — update this test with the feature"
             )
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 LSPSourceGatingTests.containsToken("ZoomSurfaceProviding", in: code),
                 "\(file) declares a zoom surface the pointer can never reach"
@@ -326,7 +326,7 @@ final class ZoomSourceGatingTests: XCTestCase {
             try Self.swiftSources().first { $0.lastPathComponent == "CompletionPanel.swift" },
             "CompletionPanel.swift is missing"
         )
-        let completionCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(completionUrl))
+        let completionCode = try RepositorySources.stripped(completionUrl)
         XCTAssertFalse(
             completionCode.contains("ignoresMouseEvents = true"),
             "CompletionPanel must not set ignoresMouseEvents to true; it accepts clicks."
@@ -348,7 +348,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         // through that rule's `stepped(_:by:)` rather than a grid of its own.
         let sources = try Self.swiftSources()
         let settingsURL = try XCTUnwrap(sources.first { $0.lastPathComponent == "SettingsView.swift" })
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(settingsURL))
+        let code = try RepositorySources.stripped(settingsURL)
         let calls = ChromeThemeSourceGatingTests.callRanges("ChromeStepper(", in: code)
             .compactMap { Self.parenthesizedArguments(openingAt: code.index(before: $0.upperBound), in: code) }
         for (binding, rule) in [
@@ -366,7 +366,7 @@ final class ZoomSourceGatingTests: XCTestCase {
             }
         }
         let controlsURL = try XCTUnwrap(sources.first { $0.lastPathComponent == "ChromeControls.swift" })
-        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(controlsURL))
+        let controls = try RepositorySources.stripped(controlsURL)
         let stepper = try XCTUnwrap(
             ChromeThemeSourceGatingTests.matchedBody(after: "struct ChromeStepper", in: controls),
             "ChromeStepper is gone from ChromeControls.swift"
@@ -412,7 +412,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         var builders: Set<String> = []
         var swiftUISites: [String] = []
         for url in try Self.swiftSources() where !url.path.contains("/Sources/Pisaka/iOS/") {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("monospacedSystemFont", in: code) {
                 builders.insert(url.lastPathComponent)
             }
@@ -448,7 +448,7 @@ final class ZoomSourceGatingTests: XCTestCase {
             try Self.swiftSources().first { $0.lastPathComponent == "ChangeHunkPopover.swift" },
             "ChangeHunkPopover.swift is gone — update this test with the feature"
         )
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+        let code = try RepositorySources.stripped(url)
         let fonts = ChromeThemeSourceGatingTests.callRanges(".font(", in: code)
             .compactMap { Self.parenthesizedArguments(openingAt: code.index(before: $0.upperBound), in: code) }
         XCTAssertFalse(fonts.isEmpty, "ChangeHunkPopover.swift sets no font — its HEAD lines draw at the default size")
@@ -488,27 +488,15 @@ final class ZoomSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the sources
 
-    /// Every Swift file under `Sources/`, found relative to this file so the suite
-    /// needs no bundle and no Xcode build.
+    /// Every Swift file under `Sources/`, walked once per process by
+    /// `RepositorySources` relative to its own `#filePath`, so the suite needs no
+    /// bundle and no Xcode build.
     private static func swiftSources() throws -> [URL] {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // PisakaCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repository root
-            .appendingPathComponent("Sources")
-        let enumerator = try XCTUnwrap(
-            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
+        let urls = try XCTUnwrap(
+            RepositorySources.swiftFiles(under: "Sources"),
             "Sources/ is unreadable"
         )
-        let urls = enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
-            .sorted { $0.path < $1.path }
         XCTAssertFalse(urls.isEmpty, "found no Swift sources — the walk is broken, not the code")
         return urls
-    }
-
-    private static func read(_ url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
     }
 }

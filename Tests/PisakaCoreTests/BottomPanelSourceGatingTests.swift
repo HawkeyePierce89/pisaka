@@ -96,14 +96,10 @@ final class BottomPanelSourceGatingTests: XCTestCase {
 
     /// One file under `Sources/Pisaka/`, comment- and literal-stripped.
     private func appSource(named name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // PisakaCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repository root
-            .appendingPathComponent("Sources/Pisaka/\(name)")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let path = "Sources/Pisaka/\(name)"
+        let source = try RepositorySources.raw(at: path)
         XCTAssertFalse(source.isEmpty, "\(name) is unreadable — the walk is broken, not the code")
-        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+        return try RepositorySources.stripped(at: path)
     }
 
     /// The same code with **every** whitespace character removed, so a match is

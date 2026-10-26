@@ -197,18 +197,12 @@ final class DrawDirtyRectSourceGatingTests: XCTestCase {
 
     /// Every `.swift` file under `Sources/Pisaka/`, comment- and literal-stripped.
     private static func appSources() throws -> [AppSource] {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // PisakaCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repository root
-            .appendingPathComponent("Sources/Pisaka")
-            .standardizedFileURL
-        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        let root = RepositorySources.url("Sources/Pisaka").standardizedFileURL
+        let files = try XCTUnwrap(RepositorySources.swiftFiles(under: "Sources/Pisaka"))
         var sources: [AppSource] = []
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
-            let source = try String(contentsOf: url, encoding: .utf8)
+        for url in files {
             let path = String(url.standardizedFileURL.path.dropFirst(root.path.count + 1))
-            sources.append(AppSource(path: path, code: LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)))
+            sources.append(AppSource(path: path, code: try RepositorySources.stripped(url)))
         }
         XCTAssertGreaterThan(sources.count, 50, "Sources/Pisaka is unreadable — the walk is broken, not the code")
         return sources

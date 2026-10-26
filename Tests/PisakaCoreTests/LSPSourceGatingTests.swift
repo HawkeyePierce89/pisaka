@@ -161,8 +161,8 @@ final class LSPSourceGatingTests: XCTestCase {
     /// and no rendered bitmap can see a key binding. Matched on stripped text,
     /// because the bar's own doc comment names the modifier it refuses.
     func testTheConsentBarBindsNoKeyboardShortcut() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/LSPConsentBanner.swift")
-        let code = Self.strippingCommentsAndStringLiterals(try read(url))
+        let url = RepositorySources.url("Sources/Pisaka/LSPConsentBanner.swift")
+        let code = try RepositorySources.stripped(url)
         XCTAssertTrue(code.contains("struct LSPConsentBar"), "the consent bar moved; the rule checks nothing")
         XCTAssertFalse(
             code.contains("keyboardShortcut"),
@@ -182,8 +182,8 @@ final class LSPSourceGatingTests: XCTestCase {
             "Sources/Pisaka/LSPServerSettingsView.swift",
         ]
         for path in files {
-            let url = Self.repositoryRoot.appendingPathComponent(path)
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let url = RepositorySources.url(path)
+            let code = try RepositorySources.stripped(url)
             XCTAssertTrue(code.contains("LSPServerFailure"), "\(path) no longer handles the record; the rule checks nothing")
             for token in ["NSAlert", "UNUserNotificationCenter", "NSUserNotification"] {
                 XCTAssertFalse(
@@ -205,7 +205,7 @@ final class LSPSourceGatingTests: XCTestCase {
         XCTAssertFalse(files.isEmpty, "no Sources/PisakaCore files of this layer found — the sweep is broken")
 
         for url in files {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             for identifier in Self.forbiddenInCore {
                 XCTAssertFalse(
                     Self.containsToken(identifier, in: code),
@@ -218,7 +218,7 @@ final class LSPSourceGatingTests: XCTestCase {
 
     func testEveryCoreLSPFileImportsFoundationAndNothingElse() throws {
         for url in try coreLSPFiles() {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             let imports = code
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -252,7 +252,7 @@ final class LSPSourceGatingTests: XCTestCase {
         // differently on iOS, which is exactly the drift the transport seam exists
         // to prevent.
         for url in try coreLSPFiles() {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("#if os("),
                 "\(url.lastPathComponent) is platform-conditional; the seam is LSPTransport, not #if"
@@ -293,54 +293,36 @@ final class LSPSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the repository
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
-    private func read(_ url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
     /// This layer's files under `Sources/Pisaka`, at any depth — a future
     /// `Platform/` or `iOS/` file is swept without anyone remembering to add a
     /// directory here.
     private func appLSPFiles() throws -> [URL] {
         try files(
-            under: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka"),
+            under: "Sources/Pisaka",
             prefixedBy: Self.appFilePrefixes
         )
     }
 
     private func coreLSPFiles() throws -> [URL] {
         try files(
-            under: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore"),
+            under: "Sources/PisakaCore",
             prefixedBy: Self.coreFilePrefixes
         )
     }
 
-    private func files(under directory: URL, prefixedBy prefixes: [String]) throws -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+    private func files(under relativeDirectory: String, prefixedBy prefixes: [String]) throws -> [URL] {
+        guard let files = RepositorySources.swiftFiles(under: relativeDirectory) else {
+            XCTFail("cannot enumerate \(RepositorySources.url(relativeDirectory).path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { url in
-                url.pathExtension == "swift"
-                    && prefixes.contains { url.lastPathComponent.hasPrefix($0) }
-            }
-            .sorted { $0.path < $1.path }
+        return files.filter { url in prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
     }
 
     /// The file's lines with comments stripped and blanks dropped — what the
     /// `#if os(macOS)` wrapper assertion reads, so a file may open with as much
     /// documentation as it likes.
     private func significantLines(of url: URL) throws -> [String] {
-        Self.strippingCommentsAndStringLiterals(try read(url))
+        try RepositorySources.stripped(url)
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -372,8 +354,13 @@ final class LSPSourceGatingTests: XCTestCase {
     /// and string literals removed, newlines preserved so line-oriented assertions
     /// still work.
     ///
+    /// The one full stripper: `RepositorySources.stripped(_:)` serves its output
+    /// once per file per process to every suite that matches against code, and
+    /// `SourceStripperContractTests` pins that output construct by construct, so
+    /// any rewrite must reproduce it byte for byte.
+    ///
     /// Not a parser and does not need to be: it is exact on the constructs this
-    /// repository's LSP files actually contain. Where it is approximate it is so
+    /// repository's Swift files actually contain. Where it is approximate it is so
     /// in the *lenient* direction — the contents of a string interpolation are
     /// dropped along with the literal around them — which is the right way round
     /// for a check whose failure message asks a human to reword something.
@@ -386,28 +373,37 @@ final class LSPSourceGatingTests: XCTestCase {
             case multilineString
         }
 
+        // `Character` granularity is load-bearing, not incidental: `"\r\n"` is one
+        // `Character` that is not `"\n"`, and a quote carrying a combining mark is
+        // not `"\""`, so a UTF-8 or UTF-16 walk would change the output.
         let characters = Array(source)
         var result = ""
+        result.reserveCapacity(source.utf8.count)
         var state = State.code
         var index = 0
 
-        func matches(_ text: String, at position: Int) -> Bool {
-            let needle = Array(text)
+        let lineCommentOpen: [Character] = ["/", "/"]
+        let blockCommentOpen: [Character] = ["/", "*"]
+        let blockCommentClose: [Character] = ["*", "/"]
+        let multilineQuote: [Character] = ["\"", "\"", "\""]
+
+        // Compares in place: no array is allocated per character examined.
+        func matches(_ needle: [Character], at position: Int) -> Bool {
             guard position + needle.count <= characters.count else { return false }
-            return Array(characters[position..<(position + needle.count)]) == needle
+            return characters[position..<(position + needle.count)].elementsEqual(needle)
         }
 
         while index < characters.count {
             let character = characters[index]
             switch state {
             case .code:
-                if matches("//", at: index) {
+                if matches(lineCommentOpen, at: index) {
                     state = .lineComment
                     index += 2
-                } else if matches("/*", at: index) {
+                } else if matches(blockCommentOpen, at: index) {
                     state = .blockComment(depth: 1)
                     index += 2
-                } else if matches("\"\"\"", at: index) {
+                } else if matches(multilineQuote, at: index) {
                     state = .multilineString
                     index += 3
                 } else if character == "\"" {
@@ -424,10 +420,10 @@ final class LSPSourceGatingTests: XCTestCase {
                 }
                 index += 1
             case .blockComment(let depth):
-                if matches("/*", at: index) {
+                if matches(blockCommentOpen, at: index) {
                     state = .blockComment(depth: depth + 1)
                     index += 2
-                } else if matches("*/", at: index) {
+                } else if matches(blockCommentClose, at: index) {
                     state = depth == 1 ? .code : .blockComment(depth: depth - 1)
                     index += 2
                 } else {
@@ -451,7 +447,7 @@ final class LSPSourceGatingTests: XCTestCase {
                     index += 1
                 }
             case .multilineString:
-                if matches("\"\"\"", at: index) {
+                if matches(multilineQuote, at: index) {
                     state = .code
                     index += 3
                 } else {

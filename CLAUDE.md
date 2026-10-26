@@ -497,7 +497,9 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
 `ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc`,
-`DesignGlyphRecord` and `XcodePin`. A fake
+`DesignGlyphRecord`, `XcodePin` and `RepositorySources` — the once-per-process
+walk and raw/stripped text of repository Swift files the source-gating suites
+read through (non-Swift files are still read directly). A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
 writes into a `StubFileTree` must hop to the main actor first — two threads in one
 `Dictionary` is a corrupted hash table, not a flaky assertion.
@@ -535,12 +537,12 @@ DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -projec
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
-push to `master`: `swift test` first, then — only when it is green — the macOS
-job (which first refuses a `Package.resolved` the pinned Xcode's resolution
+push to `master` as four independent jobs, none with a `needs:` on another: `swift test`;
+the macOS job (which first refuses a `Package.resolved` the pinned Xcode's resolution
 rewrote — remedy in `DependencyPinTests`' doc comment — then runs the app-layer
-`PisakaAppTests` bundle, then an unsigned build) and an unsigned iOS build (device arch, `generic/platform=iOS`,
-covering libgit2 linking) in parallel, plus an independent `lint` job
-(pinned SwiftLint 0.65.1, `--strict`, no `needs:`) that refuses style
+`PisakaAppTests` bundle, then an unsigned build); an unsigned iOS build (device arch, `generic/platform=iOS`,
+covering libgit2 linking); and `lint`
+(pinned SwiftLint 0.65.1, `--strict`), which refuses style
 violations even when the pre-commit hook was bypassed or never installed. No
 signing, secrets, or simulator. The
 **macOS build is `-configuration Release`, the iOS one Debug**, on purpose: the

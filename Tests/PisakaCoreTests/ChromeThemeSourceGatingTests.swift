@@ -522,7 +522,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var offenders: [String] = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let forbidden = name == "ChromePalette.swift"
                 ? Self.forbiddenSemanticColors
                 : Self.forbiddenSemanticColors + Self.forbiddenHues
@@ -592,7 +592,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         var spellers: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let range = NSRange(code.startIndex..<code.endIndex, in: code)
             if hex.firstMatch(in: code, range: range) != nil {
                 spellers.insert(url.lastPathComponent)
@@ -651,7 +651,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testTheThemeIsInjectedAtTheInterfaceScaleRoots() throws {
         var found: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if Self.spellsCall(".chromeThemed(", in: code) { found.insert(url.lastPathComponent) }
         }
         // Read from `ZoomSourceGatingTests`' own declaration rather than copied:
@@ -670,7 +670,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var constructors: Set<String> = []
         var namers: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if Self.spellsCall("ChromeTheme(", in: code) { constructors.insert(url.lastPathComponent) }
             if LSPSourceGatingTests.containsToken("ChromeTheme", in: code) {
                 namers.insert(url.lastPathComponent)
@@ -739,9 +739,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let overlayFile = "BracketOverlayLayoutManager.swift"
 
     func testTheGutterFillGoesThroughItsOwnRule() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.rulerSource())
-        )
+        let code = try RepositorySources.stripped(Self.rulerSource())
         // Twice, exactly: the `static func` declaration and its one call. A third
         // is a second answer to the same question; a first-and-only is a seam
         // nobody calls.
@@ -770,9 +768,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
 
         // Second clause: the fold placeholder and the chevron spend their seams.
-        let overlay = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.overlayFile))
-        )
+        let overlay = try RepositorySources.stripped(Self.source(named: Self.overlayFile))
         let placeholderDraw = try XCTUnwrap(
             Self.matchedBody(after: "func paintFoldPlaceholders(", in: overlay),
             "paintFoldPlaceholders is gone or renamed — re-point this rule rather than losing it"
@@ -910,7 +906,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             try NSRegularExpression(pattern: "[0-9.]\\s*[*/+-]\\s*(CGFloat\\()?\\s*ChromeGeometry\\."),
         ]
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let range = NSRange(code.startIndex..<code.endIndex, in: code)
             for pattern in derivations {
                 XCTAssertNil(
@@ -946,7 +942,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var iconNamers: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if code.contains("struct TabFileIcon") { declarers.insert(name) }
             // Whitespace-free, so a re-wrapped spelling is the same spelling.
             if code.filter({ !$0.isWhitespace }).contains("file.url?.lastPathComponent??file.displayName") {
@@ -1017,7 +1013,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var setters: Set<String> = []
         var separatorSetters: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("titlebarAppearsTransparent", in: code) {
                 setters.insert(url.lastPathComponent)
             }
@@ -1048,7 +1044,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testTheSceneAttachesTheWindowChromeExactlyOnce() throws {
         var attachers: [String] = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let sites = Self.callCount("MainWindowChrome(", in: code)
             if sites > 0 {
                 attachers.append(contentsOf: Array(repeating: url.lastPathComponent, count: sites))
@@ -1062,10 +1058,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             """
         )
 
-        let scene = try Self.read(
+        let code = try RepositorySources.stripped(
             Self.document("Sources/Pisaka/PisakaApp.swift")
         )
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(scene)
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("MainWindowFrameAutosave", in: code),
             "the frame marker sits beside the chrome marker on the same line — neither may be lost"
@@ -1164,9 +1159,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let labelledBarWidgetFile = "PullRequestIndicatorView.swift"
 
     func testEveryBottomBarToggleCarriesATooltipAndALabel() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.windowRootFile))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: Self.windowRootFile))
         for declaration in ["func bottomBarButton(", "var completionToggleButton"] {
             let body = try XCTUnwrap(
                 Self.matchedBody(after: declaration, in: code),
@@ -1232,18 +1225,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     }
 
     func testTheWholeBarCarriesOneToolTipMechanismAndALabelPerWidget() throws {
-        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.windowRootFile))
-        )
+        let root = try RepositorySources.stripped(Self.source(named: Self.windowRootFile))
         let bar = try XCTUnwrap(
             Self.matchedBody(after: "struct BottomBar:", in: root),
             "BottomBar is gone or renamed — re-point this rule rather than losing it"
         )
         var bodies = [("\(Self.windowRootFile)'s BottomBar", bar)]
         for name in Self.barWidgetFiles + [Self.labelledBarWidgetFile] {
-            bodies.append((name, LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )))
+            bodies.append((name, try RepositorySources.stripped(Self.source(named: name))))
         }
         for (site, code) in bodies {
             XCTAssertTrue(
@@ -1269,9 +1258,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     func testEveryBottomBarWidgetHidesItsSymbolsAndSpeaksTheirState() throws {
         for name in Self.barWidgetFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             let symbols = Self.callCount("Image(systemName:", in: code)
             XCTAssertGreaterThan(
                 symbols + Self.callCount("DesignGlyphImage(", in: code), 0,
@@ -1294,9 +1281,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
-        let labelled = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.labelledBarWidgetFile))
-        )
+        let labelled = try RepositorySources.stripped(Self.source(named: Self.labelledBarWidgetFile))
         XCTAssertTrue(
             Self.spellsCall(".accessibilityLabel(", in: labelled),
             """
@@ -1391,9 +1376,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     func testEveryBottomBarLabelIsSingleLine() throws {
         for name in Self.barLabelFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             XCTAssertTrue(
                 Self.spellsCall(".lineLimit(1)", in: code),
                 """
@@ -1404,9 +1387,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
         for (name, builders) in Self.headerBuilderFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             for builder in builders {
                 let body = try XCTUnwrap(
                     Self.matchedBody(after: builder, in: code),
@@ -1460,7 +1441,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testTheDockTabRowIsConfiguredInOnePlace() throws {
         var namers: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("DockTabRow", in: code) {
                 namers.insert(url.lastPathComponent)
             }
@@ -1479,9 +1460,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "DockTabRow must be named only in its own file and in \(Self.windowRootFile)"
         )
 
-        let root = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.windowRootFile))
-        )
+        let root = try RepositorySources.stripped(Self.source(named: Self.windowRootFile))
         XCTAssertEqual(
             Self.callCount("DockTabRow(", in: root), 1,
             "\(Self.windowRootFile) must construct the dock's tab row exactly once"
@@ -1519,9 +1498,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static let dockCloseBuilder = "var closeButton"
 
     func testEveryDockTabAndTheCloseActionCarryAName() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.dockTabRowFile))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: Self.dockTabRowFile))
         let requirements = [
             (Self.dockTabBuilder, [".accessibilityLabel(", ".accessibilityValue(", ".accessibilityHidden(true)"]),
             (Self.dockCloseBuilder, [".help(", ".accessibilityLabel("]),
@@ -1584,9 +1561,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     func testTheDocksSweptSurfacesDrawTheirOwnRules() throws {
         for name in Self.dockRuleOwners {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             XCTAssertFalse(
                 Self.spellsCall("Divider(", in: code),
                 """
@@ -1595,9 +1570,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 """
             )
         }
-        let pane = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.appKitDockRuleOwner))
-        )
+        let pane = try RepositorySources.stripped(Self.source(named: Self.appKitDockRuleOwner))
         XCTAssertFalse(
             LSPSourceGatingTests.containsToken("NSBox", in: pane),
             """
@@ -1664,7 +1637,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func diagnosticRole"),
                 "\(name) declares its own diagnosticRole — the severity mapping is Core's one answer"
@@ -1678,9 +1651,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "the app files reading ChromeColorRole.diagnosticRole(for:) must be exactly its three known readers"
         )
 
-        let panel = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ProblemsPanelView.swift"))
-        )
+        let panel = try RepositorySources.stripped(Self.source(named: "ProblemsPanelView.swift"))
         XCTAssertFalse(
             LSPSourceGatingTests.containsToken("SyntaxTheme", in: panel),
             """
@@ -1695,7 +1666,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
-            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            var code = try RepositorySources.stripped(url)
             if name == Self.severityGlyphTable.file {
                 let declaration = Self.severityGlyphTable.declaration
                 let glyphs = try XCTUnwrap(
@@ -1772,9 +1743,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     func testAnIndicatorStripsBottomRuleIsDrawnBehindItsTabs() throws {
         for (file, declaration) in Self.indicatorStripFiles {
-            let whole = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: file))
-            )
+            let whole = try RepositorySources.stripped(Self.source(named: file))
             let name = declaration.map { "\(file)'s \($0)" } ?? file
             let code = try declaration.map {
                 try XCTUnwrap(
@@ -1909,7 +1878,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func changedFileRole"),
                 "\(name) declares its own changedFileRole — the status colour is Core's one answer"
@@ -1930,7 +1899,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 + "|\\bFileStatus\\.(modified|added|deleted|renamed|untracked|conflicted)\\b"
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertNil(
                 labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
                 """
@@ -1980,7 +1949,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func checksRole"),
                 "\(name) declares its own checksRole — the checks colour is Core's one answer"
@@ -1998,7 +1967,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 + "|\\b(GitHubChecksSummary|GitHubCheckBucket)\\.\(cases)\\b"
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertEqual(
                 labels.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code)),
                 Self.sharedSpellingCaseLabels[url.lastPathComponent, default: 0],
@@ -2055,7 +2024,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var textReaders: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if name != "ChromePalette.swift" {
                 for role in ["diffAddedBackground", "diffRemovedBackground"] {
                     XCTAssertFalse(
@@ -2093,9 +2062,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
         let sideEnum = try NSRegularExpression(pattern: "\\benum\\s+Side\\b")
         for name in Self.diffWashReaders.sorted() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             for alpha in ["withAlphaComponent(", ".opacity("] {
                 XCTAssertFalse(
                     Self.spellsCall(alpha, in: code),
@@ -2297,9 +2264,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     func testThePanelsControlsAreIdentifiableWithoutSight() throws {
         for (name, builders) in Self.panelControlBuilders {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             for builder in builders {
                 var body: String? = code
                 for step in builder.path {
@@ -2417,7 +2382,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testEverySpinnerConstructionSpeaksItsActivityOrNothing() throws {
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let markers = try XCTUnwrap(
                 Self.spinnerMarkers(in: code),
                 "\(name) constructs a ChromeSpinner whose call does not close"
@@ -2449,9 +2414,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// change in either direction reaches the schedule. Presence and absence
     /// only; which branch runs is not read.
     func testSpinnerTurnsOnReduceMotionAsItIsNow() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ChromeControls.swift"))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: "ChromeControls.swift"))
         let body = try XCTUnwrap(
             Self.matchedBody(after: "struct ChromeSpinner", in: code),
             "ChromeControls.swift declares no ChromeSpinner"
@@ -2604,9 +2567,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// match starts right after the parenthesis and its whitespace, so
     /// `minWidth:`, `idealWidth:` and `maxWidth:` never satisfy it.
     func testTheLogFilterBarStatesNoFixedWidthAndScrollsBelowItsFloor() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "LogFilterBar.swift"))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: "LogFilterBar.swift"))
         let fixedWidth = try NSRegularExpression(pattern: #"\.frame\(\s*width\s*:"#)
         XCTAssertNil(
             fixedWidth.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
@@ -2664,7 +2625,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var found: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let file = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             guard code.contains("NSCursor") else { continue }
 
             let declarations = try NSRegularExpression(pattern: "func ([A-Za-z0-9_]+)\\(")
@@ -2715,7 +2676,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
             if name == "ChromePalette.swift" { continue }
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("bgPopover", in: code) {
                 readers.insert(name)
             }
@@ -2727,7 +2688,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let presentsPopover = Self.spellsCall(".popover(", in: code) || LSPSourceGatingTests.containsToken("NSPanel", in: code)
             if presentsPopover {
                 XCTAssertTrue(
@@ -2739,7 +2700,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("NSVisualEffectView"),
                 "\(name) spells NSVisualEffectView — a popover surface is a flat bgPopover fill, not a material"
@@ -2828,7 +2789,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var actualDividerFiles: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
-            var code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            var code = try RepositorySources.stripped(url)
             if dividerPattern.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 actualDividerFiles.insert(name)
             }
@@ -2869,9 +2830,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
 
         for name in Self.menuSectionFiles {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             XCTAssertTrue(
                 code.contains("Section"),
                 "\(name) builds a Menu and must spell Section at least once — a menu's separator is a Section boundary"
@@ -2883,7 +2842,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var actualMenuFiles: Set<String> = []
         var actualMenuSectionFiles: Set<String> = []
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let range = NSRange(code.startIndex..., in: code)
             let hasSection = code.contains("Section")
             let hasMenu = menuPattern.firstMatch(in: code, range: range) != nil
@@ -2913,9 +2872,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let borderPattern = try NSRegularExpression(pattern: "layer[^\\n]*?\\.\\s*borderColor\\s*=")
         let backgroundPattern = try NSRegularExpression(pattern: "layer[^\\n]*?\\.\\s*backgroundColor\\s*=")
         for name in Self.layerColorOwners {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             let bodies = Self.matchedBodies(after: "performAsCurrentDrawingAppearance", in: code)
             XCTAssertFalse(
                 bodies.isEmpty,
@@ -2992,7 +2949,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testOneFieldShape() throws {
         let roundedBorderPattern = try NSRegularExpression(pattern: "\\.textFieldStyle\\s*\\(\\s*\\.roundedBorder")
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let range = NSRange(code.startIndex..., in: code)
             XCTAssertNil(
                 roundedBorderPattern.firstMatch(in: code, range: range),
@@ -3007,7 +2964,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var constructors: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if Self.spellsCall("ChromeThemedTextField(", in: code) || Self.spellsCall("ChromeControlBox(", in: code) {
                 constructors.insert(name)
             }
@@ -3020,7 +2977,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var toggleConstructors: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if Self.spellsCall("ChromeQueryToggle(", in: code) {
                 toggleConstructors.insert(name)
             }
@@ -3033,7 +2990,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             let name = url.lastPathComponent
             if name == "ChromeControls.swift" { continue }
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func toggle("),
                 "\(name) declares its own toggle builder — the query toggle is ChromeQueryToggle, one shape for both surfaces"
@@ -3054,7 +3011,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
         var pairs: [String: [String]] = [:]
         for url in try Self.swiftSources() where Self.sharedToggleConstructors.contains(url.lastPathComponent) {
-            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let code = GitHubSourceGatingTests.strippingComments(try RepositorySources.raw(url))
             let range = NSRange(code.startIndex..., in: code)
             pairs[url.lastPathComponent] = pattern.matches(in: code, range: range).compactMap { match in
                 guard let glyph = Range(match.range(at: 1), in: code),
@@ -3107,7 +3064,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var spokenOnly: [String: Int] = [:]
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             for arguments in Self.matchedArguments(after: "ChromeThemedTextField", in: code) {
                 let inside = String(arguments.dropFirst())
                 let first = Self.topLevelArguments(inside).first ?? ""
@@ -3129,9 +3086,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "the shared field's spoken-only callers (spokenName:) must be exactly the grid's cell editor"
         )
 
-        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(try Self.source(named: "ChromeControls.swift"))
-        )
+        let controls = try RepositorySources.stripped(Self.source(named: "ChromeControls.swift"))
         let field = try XCTUnwrap(
             Self.matchedBody(after: "struct ChromeThemedTextField", in: controls),
             "ChromeThemedTextField's declaration is gone or renamed — re-point this rule"
@@ -3150,9 +3105,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// a chrome measurement that does not follow the interface scale, and a
     /// code-zone measurement that does — and would have been caught by this rule.
     func testEachMeasurementFollowsItsOwnZone() throws {
-        let projectSearchCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ProjectSearchView.swift"))
-        )
+        let projectSearchCode = try RepositorySources.stripped(Self.source(named: "ProjectSearchView.swift"))
         let rowBody = try XCTUnwrap(
             Self.matchedBody(after: "private func row(", in: projectSearchCode),
             "ProjectSearchView.swift's private func row( is gone or renamed — re-point this rule rather than losing it"
@@ -3170,9 +3123,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The commit message box is counted in lines of the code font it draws
         // at: every frame in it names that line height, and none names the
         // interface metrics — a fixed point height followed no zone at all.
-        let commitDialogCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "CommitDialogView.swift"))
-        )
+        let commitDialogCode = try RepositorySources.stripped(Self.source(named: "CommitDialogView.swift"))
         let messageBoxBody = try XCTUnwrap(
             Self.matchedBody(after: "private var messageBox", in: commitDialogCode),
             "CommitDialogView.swift's private var messageBox is gone or renamed — re-point this rule rather than losing it"
@@ -3201,9 +3152,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // site is sized from the code font and never from the interface metrics:
         // the box and the context line's placeholder both come from
         // `CodeZoneCheckboxRule`, which takes the font size alone.
-        let unifiedDiffCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "CommitUnifiedDiffView.swift"))
-        )
+        let unifiedDiffCode = try RepositorySources.stripped(Self.source(named: "CommitUnifiedDiffView.swift"))
         let checkboxSite = try XCTUnwrap(
             Self.matchedBody(after: "private func checkbox(for", in: unifiedDiffCode),
             "CommitUnifiedDiffView.swift's private func checkbox(for is gone or renamed — re-point this rule rather than losing it"
@@ -3218,9 +3167,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
 
         for name in ["CompletionPanel.swift", "HoverPanel.swift"] {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             let lines = code.components(separatedBy: .newlines)
             let cornerLines = lines.filter { $0.contains("cornerRadius") }
             XCTAssertGreaterThan(
@@ -3282,7 +3229,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     private static func strippedGatedSources() throws -> [(name: String, code: String)] {
         try swiftSources()
             .filter { gatedFiles.contains($0.lastPathComponent) }
-            .map { ($0.lastPathComponent, LSPSourceGatingTests.strippingCommentsAndStringLiterals(try read($0))) }
+            .map { ($0.lastPathComponent, try RepositorySources.stripped($0)) }
     }
 
     /// Part five (b)'s ten files: the ones rules twenty-nine and thirty hold to
@@ -3329,7 +3276,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let assignment = try NSRegularExpression(pattern: "\\bbackgroundColor\\s*=(?!=)")
         var constructors: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if construction.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 constructors.insert(url.lastPathComponent)
             }
@@ -3339,18 +3286,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "the files constructing EscClosableWindow must be exactly the six secondary-window controllers"
         )
         for name in Self.escClosableWindowConstructors.sorted() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             XCTAssertNil(
                 assignment.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
                 "\(name) assigns backgroundColor — a secondary window's ground is EscClosableWindow's, set once in the subclass"
             )
         }
 
-        let window = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "EscClosableWindow.swift"))
-        )
+        let window = try RepositorySources.stripped(Self.source(named: "EscClosableWindow.swift"))
         let initBody = try XCTUnwrap(
             Self.matchedBody(after: "override init(", in: window),
             "EscClosableWindow's designated initializer is gone — re-point this rule rather than losing it"
@@ -3432,7 +3375,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var sawSyntaxTheme = false
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("mergeWashRole", in: code) { readers.insert(name) }
             if LSPSourceGatingTests.containsToken("currentLine", in: code) { currentLinePainters.insert(name) }
             if LSPSourceGatingTests.containsToken("bracketMatch", in: code) { bracketMatchPainters.insert(name) }
@@ -3745,7 +3688,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             }
         }
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             for (token, _) in Self.sharedControlCallers where LSPSourceGatingTests.containsToken(token, in: code) {
                 callers[token, default: []].insert(url.lastPathComponent)
             }
@@ -3815,7 +3758,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let call = try NSRegularExpression(pattern: "\\bCodePaneGround\\s*\\.\\s*apply\\s*\\(")
         var callers: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if call.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 callers.insert(url.lastPathComponent)
             }
@@ -3828,9 +3771,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var scanned = try Self.strippedGatedSources()
         scanned.append((
             "CodeEditorView.swift",
-            LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: "CodeEditorView.swift"))
-            )
+            try RepositorySources.stripped(Self.source(named: "CodeEditorView.swift"))
         ))
         var sawDefinition = false
         var counted: [String: Int] = [:]
@@ -3869,9 +3810,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
-        let merge = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "MergeView.swift"))
-        )
+        let merge = try RepositorySources.stripped(Self.source(named: "MergeView.swift"))
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("DiffDividerView", in: merge),
             "MergeView.swift no longer builds its dividers from DiffDividerView — the pane divider is one view"
@@ -3929,7 +3868,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var declaringFile: [String: String] = [:]
         let declaration = try NSRegularExpression(pattern: "\\b(?:class|struct|enum|actor)\\s+([A-Za-z_][A-Za-z0-9_]*)")
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             for match in declaration.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
                 guard let name = Range(match.range(at: 1), in: code) else { continue }
                 declaringFile[String(code[name])] = url.lastPathComponent
@@ -3997,7 +3936,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let declaration = try NSRegularExpression(pattern: "\\bfunc\\s+chromeColor\\b")
         var declaring: Set<String> = []
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if declaration.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil {
                 declaring.insert(url.lastPathComponent)
             }
@@ -4010,9 +3949,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let roots = ZoomSourceGatingTests.interfaceScaledRoots.intersection(Self.gatedFiles)
         XCTAssertFalse(roots.isEmpty)
         for name in roots.sorted() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: name))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: name))
             let region = try XCTUnwrap(
                 Self.rootStructDeclaration(in: code),
                 "\(name)'s root struct (the one applying .interfaceScaled() is not found — re-point this rule rather than losing it"
@@ -4049,9 +3986,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// its state as a value (its box is hidden); and the merge strip's two
     /// icon-only chevrons carry a name of their own.
     func testTheCommitDialogsRowsAndControls() throws {
-        let dialog = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "CommitDialogView.swift"))
-        )
+        let dialog = try RepositorySources.stripped(Self.source(named: "CommitDialogView.swift"))
         let row = try XCTUnwrap(
             Self.matchedBody(after: "struct CommitFileRow", in: dialog),
             "CommitFileRow is gone or renamed — re-point this rule rather than losing it"
@@ -4070,9 +4005,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
         // The detector is checked against the one table it must find, so it
         // cannot quietly stop recognizing a copy.
-        let tree = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ProjectTreeView.swift"))
-        )
+        let tree = try RepositorySources.stripped(Self.source(named: "ProjectTreeView.swift"))
         XCTAssertEqual(
             Self.rowStateSwitchesSpellingATreeRole(in: tree).count, 1,
             "the row-state switch detector no longer finds TreeRowBackground.role(for:)'s own table — "
@@ -4085,9 +4018,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
-        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ChromeControls.swift"))
-        )
+        let controls = try RepositorySources.stripped(Self.source(named: "ChromeControls.swift"))
         let checkbox = try XCTUnwrap(
             Self.matchedBody(after: "struct ChromeCheckbox", in: controls),
             "ChromeCheckbox is gone or renamed — re-point this rule rather than losing it"
@@ -4101,7 +4032,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Comments stripped, literals kept: the chevrons are found by their
         // symbol names, which are literals the usual scanner deletes.
         let merge = GitHubSourceGatingTests.strippingComments(
-            try Self.read(Self.source(named: "MergeView.swift"))
+            try RepositorySources.raw(Self.source(named: "MergeView.swift"))
         )
         let strip = try XCTUnwrap(
             Self.matchedBody(after: "private var statusStrip", in: merge),
@@ -4259,9 +4190,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testEveryChromeGlyphIsSizedInTheInterfaceZone() throws {
         var exempted: [String: Int] = [:]
         for exemption in Self.glyphSizeExemptions {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                try Self.read(Self.source(named: exemption.file))
-            )
+            let code = try RepositorySources.stripped(Self.source(named: exemption.file))
             let body = try XCTUnwrap(
                 Self.matchedBodyRange(after: exemption.declaration, in: code),
                 "\(exemption.file)'s \(exemption.declaration) is gone or renamed — re-point its exemption rather than losing it"
@@ -4339,9 +4268,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 }
             }
         }
-        let helper = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: Self.designGlyphHelperFile))
-        )
+        let helper = try RepositorySources.stripped(Self.source(named: Self.designGlyphHelperFile))
         let helperBody = try XCTUnwrap(
             Self.matchedBody(after: "struct DesignGlyphImage", in: helper),
             "DesignGlyphImage's declaration is gone or renamed — re-point this rule"
@@ -4756,7 +4683,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var callers: [String: Set<String>] = [:]
         var constructions: [String: [String: Int]] = [:]
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let name = url.lastPathComponent
             for (token, _) in Self.settingsShapeConstructions {
                 if LSPSourceGatingTests.containsToken(token, in: code) {
@@ -4806,7 +4733,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     func testTheMenuFieldHeightSizesTheMenuFieldsAlone() throws {
         var spellings: [String: Int] = [:]
         for url in try Self.swiftSources() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let count = code.components(separatedBy: "menuFieldHeight").count - 1
             if count > 0 { spellings[url.lastPathComponent] = count }
         }
@@ -4835,9 +4762,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// a `Label`), and the body matched after `label:` following the `Menu`'s
     /// content closure spells it too, hidden from accessibility there.
     func testTheMenuFieldsChevronIsPartOfItsMenusLabel() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(try Self.source(named: "ChromeControls.swift"))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: "ChromeControls.swift"))
         let field = try XCTUnwrap(
             Self.matchedBody(after: "struct ChromeMenuField", in: code),
             "struct ChromeMenuField is gone or renamed"
@@ -4934,7 +4859,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: [String: Set<String>] = [:]
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             for declaration in ["func difficultyRole", "func problemStatusRole", "func verdictRole"] {
                 XCTAssertFalse(
                     code.contains(declaration),
@@ -5006,7 +4931,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var found: [String: (labelled: Int, hidden: Int)] = [:]
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("ChromeSpinner", in: code) { spellers.insert(name) }
             let markers = try XCTUnwrap(
                 Self.spinnerMarkers(in: code),
@@ -5191,7 +5116,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var formatterDefinitions: Set<String> = []
         for url in sources {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             if app.contains(url), code.contains("ChromePalette.documentPageChrome(") { chromeSites.insert(name) }
             if code.range(of: #"func\s+cssHex\s*\("#, options: .regularExpression) != nil {
                 formatterDefinitions.insert(name)
@@ -5217,7 +5142,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let hex = try NSRegularExpression(pattern: "#[0-9A-Fa-f]{6}")
         var counts: [String: Int] = [:]
         for url in core {
-            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let code = GitHubSourceGatingTests.strippingComments(try RepositorySources.raw(url))
             let found = hex.numberOfMatches(in: code, range: NSRange(code.startIndex..., in: code))
             if found > 0 { counts[url.lastPathComponent] = found }
         }
@@ -5248,7 +5173,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
         XCTAssertFalse(app.isEmpty, "found no macOS app sources — the walk is broken, not the code")
         for url in app {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("Theme.resolved("),
                 """
@@ -5347,7 +5272,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for url in macOSApp {
             let name = url.lastPathComponent
             if Self.gatedFiles.contains(name) || Self.colorExemptions.contains(name) { continue }
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let paints = Self.iconFreeLines(of: code).contains { line in
                 let unlabelled = label.stringByReplacingMatches(
                     in: line, range: NSRange(line.startIndex..., in: line), withTemplate: ""
@@ -5483,7 +5408,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// .accent — its four chrome colours are roles".
     func testTheTerminalsExemptionSheltersItsTwoANSIArraysAndNothingElse() throws {
         let name = "TerminalTheme.swift"
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(Self.source(named: name)))
+        let code = try RepositorySources.stripped(Self.source(named: name))
 
         var arrays: [Range<String.Index>] = []
         for declaration in Self.terminalANSIDeclarations {
@@ -5591,9 +5516,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// only on a key window holding real first-responder focus, which
     /// `ChromeThemedTextFieldLayoutTests` does not reliably reach.
     func testTheSharedFieldSuppressesThePlatformsFocusRing() throws {
-        let controls = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(try Self.source(named: "ChromeControls.swift"))
-        )
+        let controls = try RepositorySources.stripped(Self.source(named: "ChromeControls.swift"))
         let field = try XCTUnwrap(
             Self.matchedBody(after: "struct ChromeThemedTextField", in: controls),
             "ChromeThemedTextField's declaration is gone or renamed — re-point this rule"
@@ -5677,7 +5600,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var helperLoads = 0
         for url in try Self.swiftSources()
         where url.path.contains("/Sources/Pisaka/") && !url.path.contains("/Sources/Pisaka/iOS/") {
-            let code = GitHubSourceGatingTests.strippingComments(try Self.read(url))
+            let code = GitHubSourceGatingTests.strippingComments(try RepositorySources.raw(url))
             let naming = Self.glyphLoadsNamingAGlyph(in: code)
             if url.lastPathComponent == Self.designGlyphHelperFile {
                 helperLoads = naming.count
@@ -5838,9 +5761,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// passed on, or a background added to another file that ends up under the
     /// title bar, passes.
     func testTheTabsFillStaysInsideTheStripAndTheGroundPaintsTheTitleBar() throws {
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "TabStripView.swift"))
-        )
+        let code = try RepositorySources.stripped(Self.source(named: "TabStripView.swift"))
         let reading = try XCTUnwrap(
             Self.groundRuleReading(of: code),
             "TabStripView.swift no longer declares \(Self.tabStripCellDeclaration) — re-point this rule rather than losing it"
@@ -5932,7 +5853,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var checked = 0
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
             checked += 1
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             for split in ["HSplitView", "VSplitView"] {
                 XCTAssertFalse(
                     LSPSourceGatingTests.containsToken(split, in: code),
@@ -6022,7 +5943,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func changeMarkerRole"),
                 "\(name) declares its own changeMarkerRole — the change-kind mapping is Core's one answer"
@@ -6036,9 +5957,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             "the app files reading ChromeColorRole.changeMarkerRole(for:) must be exactly the ruler's change column"
         )
 
-        let ruler = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "LineNumberRulerView.swift"))
-        )
+        let ruler = try RepositorySources.stripped(Self.source(named: "LineNumberRulerView.swift"))
         let marks = try XCTUnwrap(
             Self.matchedBody(after: "func drawChangeMarker(", in: ruler),
             "LineNumberRulerView.swift no longer declares drawChangeMarker( — re-point rule fifty"
@@ -6056,9 +5975,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             )
         }
 
-        let popover = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try Self.read(Self.source(named: "ChangeHunkPopover.swift"))
-        )
+        let popover = try RepositorySources.stripped(Self.source(named: "ChangeHunkPopover.swift"))
         XCTAssertFalse(
             LSPSourceGatingTests.containsToken("NSColor", in: popover),
             "ChangeHunkPopover.swift names NSColor — its chrome is coloured by the popover components' roles"
@@ -6119,7 +6036,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         var readers: Set<String> = []
         for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
             let name = url.lastPathComponent
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("func treeNameRole"),
                 "\(name) declares its own treeNameRole — the tree-name colour is Core's one answer"
@@ -6136,7 +6053,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 + "|\\bTreeGitState\\.(conflict|modified|added|ignored|plain)\\b"
         )
         for url in try Self.swiftSources() where Self.gatedFiles.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertNil(
                 labels.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
                 """
@@ -6147,7 +6064,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
 
         let contentView = try XCTUnwrap(try Self.swiftSources().first { $0.lastPathComponent == "ContentView.swift" })
-        let wiring = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(contentView))
+        let wiring = try RepositorySources.stripped(contentView)
         XCTAssertNotNil(
             wiring.range(of: #"\bgitStatus:\s*localChanges\.treeGitStatus\b"#, options: .regularExpression),
             "ContentView.swift no longer hands the tree localChanges.treeGitStatus — every row would draw plain"
@@ -6201,7 +6118,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         for url in try Self.swiftSources()
         where Self.gatedFiles.contains(url.lastPathComponent)
             && !Self.roleNamingExemptions.contains(url.lastPathComponent) {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            let code = try RepositorySources.stripped(url)
             let namesRole = ChromeColorRole.allCases.contains {
                 LSPSourceGatingTests.containsToken($0.rawValue, in: code)
             }
@@ -6234,7 +6151,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// checked against that, in the sentence that names it rather than anywhere
     /// in the file.
     static func declaredRuleCount() throws -> Int {
-        let source = try read(URL(fileURLWithPath: #filePath))
+        let source = try RepositorySources.raw(URL(fileURLWithPath: #filePath))
         let markers = try NSRegularExpression(pattern: "(?m)^\\s*// MARK: - Rule [a-z-]+:")
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
         let count = markers.numberOfMatches(in: source, range: range)
@@ -6314,7 +6231,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// normalized the same way — lower-cased, backticks and a trailing full stop
     /// dropped — and nothing else: a marker and its bullet are worded alike.
     func testTheSuitesHeaderInventoriesEveryRule() throws {
-        let source = try Self.read(URL(fileURLWithPath: #filePath))
+        let source = try RepositorySources.raw(URL(fileURLWithPath: #filePath))
         let opening = try XCTUnwrap(
             source.range(of: "/// What is checked, and why each rule is invisible to the compiler:"),
             "the header inventory's opening sentence is gone — re-point this check rather than losing it"
@@ -6361,7 +6278,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// equality, the `test…` names that paragraph spells: a rule switching
     /// scanners either way, or a renamed one, fails here.
     func testTheHeaderNamesEveryLiteralKeepingReading() throws {
-        let source = try Self.read(URL(fileURLWithPath: #filePath))
+        let source = try RepositorySources.raw(URL(fileURLWithPath: #filePath))
         let opening = try XCTUnwrap(
             source.range(of: "/// **The stated exceptions.**"),
             "the header's stated-exceptions paragraph is gone — re-point this check rather than losing it"
@@ -6375,7 +6292,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         let stated = Set(named.matches(in: paragraph, range: NSRange(paragraph.startIndex..., in: paragraph))
             .compactMap { Range($0.range(at: 1), in: paragraph).map { String(paragraph[$0]) } })
 
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+        let code = try RepositorySources.stripped(URL(fileURLWithPath: #filePath))
         let declaration = try NSRegularExpression(pattern: "(?m)^    func (test\\w+)\\(")
         let matches = declaration.matches(in: code, range: NSRange(code.startIndex..., in: code))
         var reading: Set<String> = []
@@ -6588,22 +6505,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the sources
 
-    /// Every Swift file under `Sources/`, found relative to this file so the
-    /// suite needs no bundle and no Xcode build.
+    /// Every Swift file under `Sources/`, walked once per process by
+    /// `RepositorySources` relative to its own `#filePath`, so the suite needs no
+    /// bundle and no Xcode build.
     private static func swiftSources() throws -> [URL] {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // PisakaCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repository root
-            .appendingPathComponent("Sources")
-        let enumerator = try XCTUnwrap(
-            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
+        let urls = try XCTUnwrap(
+            RepositorySources.swiftFiles(under: "Sources"),
             "Sources/ is unreadable"
         )
-        let urls = enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
-            .sorted { $0.path < $1.path }
         XCTAssertFalse(urls.isEmpty, "found no Swift sources — the walk is broken, not the code")
         return urls
     }

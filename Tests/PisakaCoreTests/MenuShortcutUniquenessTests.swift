@@ -47,11 +47,6 @@ import XCTest
 /// declaration and must not be read as one, which is what dropping comments buys.
 final class MenuShortcutUniquenessTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     /// One declaration: the key, the modifiers as written, and where.
     private struct Shortcut {
         let key: String
@@ -71,9 +66,8 @@ final class MenuShortcutUniquenessTests: XCTestCase {
     }
 
     private func declaredShortcuts() throws -> [Shortcut] {
-        let directory = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka")
-        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: "Sources/Pisaka") else {
+            XCTFail("cannot enumerate \(RepositorySources.url("Sources/Pisaka").path)")
             return []
         }
 
@@ -82,8 +76,8 @@ final class MenuShortcutUniquenessTests: XCTestCase {
         )
 
         var found: [Shortcut] = []
-        for url in enumerator.compactMap({ $0 as? URL }) where url.pathExtension == "swift" {
-            let source = try String(contentsOf: url, encoding: .utf8)
+        for url in files {
+            let source = try RepositorySources.raw(url)
             XCTAssertFalse(source.isEmpty, "\(url.lastPathComponent) is unreadable — the walk is broken")
             let code = GitHubSourceGatingTests.strippingComments(source)
             let range = NSRange(code.startIndex..., in: code)
@@ -207,8 +201,7 @@ final class MenuShortcutUniquenessTests: XCTestCase {
     /// comment-stripped text, so the doc comment naming the setting cannot keep
     /// this green after the assignment is deleted.
     func testAutomaticWindowTabbingIsTurnedOff() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/AppDelegate.swift")
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+        let code = try RepositorySources.stripped(at: "Sources/Pisaka/AppDelegate.swift")
         XCTAssertTrue(code.contains("func applicationWillFinishLaunching("),
                       "the assignment must run before any window exists")
         XCTAssertNotNil(code.range(

@@ -570,8 +570,7 @@ final class ReleaseMetadataTests: XCTestCase {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         )
 
-        let package = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try text(atRepositoryPath: "Package.swift"))
+        let package = try RepositorySources.stripped(at: "Package.swift")
         let pattern = try NSRegularExpression(pattern: #"\.macOS\(\s*\.v(\d+)(?:_(\d+))?\s*\)"#)
         let matches = pattern.matches(in: package, range: NSRange(package.startIndex..., in: package))
         XCTAssertEqual(matches.count, 1, "Package.swift must name exactly one .macOS(.vN) platform")

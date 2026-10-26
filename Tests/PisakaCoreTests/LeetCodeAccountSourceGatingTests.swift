@@ -107,11 +107,6 @@ import XCTest
 /// was put.
 final class LeetCodeAccountSourceGatingTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     private static let appTree = "Sources/Pisaka"
 
     // MARK: - Reading
@@ -120,24 +115,17 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
     /// `Sources/Pisaka` so a failure names `iOS/SettingsView_iOS.swift` rather
     /// than an absolute path, and so the two `SettingsView` files stay distinct.
     private func appFiles() throws -> [(name: String, code: String)] {
-        let directory = Self.repositoryRoot.appendingPathComponent(Self.appTree)
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
+        let directory = RepositorySources.url(Self.appTree)
+        guard let files = RepositorySources.swiftFiles(under: Self.appTree) else {
             XCTFail("cannot enumerate \(directory.path)")
             return []
         }
         let prefix = directory.standardizedFileURL.path + "/"
-        return try enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
+        return try files
             .map { url in
                 let path = url.standardizedFileURL.path
                 let name = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
-                let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-                    try String(contentsOf: url, encoding: .utf8)
-                )
+                let code = try RepositorySources.stripped(url)
                 return (name: name, code: code)
             }
     }
@@ -436,8 +424,7 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
     // MARK: - The model reads the store once, and asks attended twice
 
     private func modelCode() throws -> String {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore/LeetCodeModel.swift")
-        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+        try RepositorySources.stripped(at: "Sources/PisakaCore/LeetCodeModel.swift")
     }
 
     /// Rule 6. A new attended site compiles, runs and passes every behavioural
@@ -541,10 +528,7 @@ final class LeetCodeAccountSourceGatingTests: XCTestCase {
                 "\(root)'s `.task(id: leetCodeStatementKey)` must call the statement fetch exactly once."
             )
             let withLiterals = GitHubSourceGatingTests.strippingComments(
-                try String(
-                    contentsOf: Self.repositoryRoot.appendingPathComponent(Self.appTree).appendingPathComponent(root),
-                    encoding: .utf8
-                )
+                try RepositorySources.raw(at: Self.appTree + "/" + root)
             )
             let keyBody = try XCTUnwrap(
                 ChromeThemeSourceGatingTests.matchedBody(after: "var leetCodeStatementKey", in: withLiterals),

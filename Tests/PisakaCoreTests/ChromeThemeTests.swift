@@ -125,8 +125,8 @@ final class ChromeThemeTests: XCTestCase {
     /// fails this test, and the three chrome text sizes stay where they already
     /// live (pinned below).
     func testGeometryDeclaresExactlyTheseTokensAndNoFontSize() throws {
-        let source = try Self.readCoreSource("ChromeGeometry.swift")
-        let declared = Self.staticLetNames(in: source)
+        let code = try Self.readCoreCode("ChromeGeometry.swift")
+        let declared = Self.staticLetNames(in: code)
         XCTAssertEqual(declared, [
             "rowHeight", "rowPaddingX", "treeIndentStep", "cornerRadiusMax", "hairlineWidth",
             "tabStripHeight", "verticalTabRowHeight", "dockTabRowHeight", "sidebarHeaderHeight",
@@ -306,20 +306,15 @@ final class ChromeThemeTests: XCTestCase {
 
     // MARK: - Reading the source file
 
-    private static func readCoreSource(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // PisakaCoreTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // repository root
-            .appendingPathComponent("Sources/PisakaCore")
-            .appendingPathComponent(name)
-        return try String(contentsOf: url, encoding: .utf8)
+    /// A Core source file's comment- and literal-stripped text.
+    private static func readCoreCode(_ name: String) throws -> String {
+        try RepositorySources.stripped(at: "Sources/PisakaCore/" + name)
     }
 
-    /// The names of every `public static let` declared in `source`, in
+    /// The names of every `public static let` declared in `code`, in
     /// declaration order, read off comment-stripped text.
-    private static func staticLetNames(in source: String) -> [String] {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+    private static func staticLetNames(in code: String) -> [String] {
+        code
             .split(separator: "\n")
             .compactMap { line in
                 let words = line.split(whereSeparator: { $0 == " " || $0 == ":" })

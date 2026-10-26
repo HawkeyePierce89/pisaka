@@ -47,7 +47,7 @@ final class SparkleSourceGatingTests: XCTestCase {
     /// `import Sparkle` appears in exactly one file, and inside both gates.
     func testSparkleIsImportedOnlyByTheUpdaterAndOnlyOutsideDEBUG() throws {
         let importers = try appSourceFiles()
-            .filter { code(of: $0).contains { $0 == "import Sparkle" } }
+            .filter { try code(of: $0).contains { $0 == "import Sparkle" } }
             .map { $0.lastPathComponent }
             .sorted()
 
@@ -57,7 +57,7 @@ final class SparkleSourceGatingTests: XCTestCase {
             Found it in: \(importers).
             """)
 
-        let lines = code(of: try updaterURL())
+        let lines = try code(of: updaterURL())
         XCTAssertEqual(lines.first, "#if os(macOS)", """
             \(Self.updaterFile) must open with `#if os(macOS)`. Sparkle's manifest is macOS-only \
             and it is the one dependency carrying `destinationFilters: [macOS]`, so anything here \
@@ -88,8 +88,8 @@ final class SparkleSourceGatingTests: XCTestCase {
     /// updater in development builds — which is the failure being prevented.
     func testSparkleTypesAreReferencedOnlyInTheNonDEBUGBranch() throws {
         let all = try appSourceFiles()
-        let referencing = all
-            .filter { code(of: $0).contains { $0.contains(Self.sparkleTypePrefix) } }
+        let referencing = try all
+            .filter { try code(of: $0).contains { $0.contains(Self.sparkleTypePrefix) } }
             .map { $0.lastPathComponent }
             .sorted()
         XCTAssertEqual(referencing, [Self.updaterFile], """
@@ -101,7 +101,7 @@ final class SparkleSourceGatingTests: XCTestCase {
 
         // Walk the file's conditional-compilation nesting and record the branch
         // each `SPU…` reference is in.
-        let lines = code(of: try updaterURL())
+        let lines = try code(of: updaterURL())
         let stacks = try conditionStacks(of: lines)
         let offenders = zip(lines, stacks)
             .filter { $0.0.contains(Self.sparkleTypePrefix) && $0.1.contains(.debug) }
@@ -143,7 +143,7 @@ final class SparkleSourceGatingTests: XCTestCase {
 
         var withDebugBranches: [String] = []
         for url in candidates {
-            let lines = code(of: url)
+            let lines = try code(of: url)
             let stacks = try conditionStacks(of: lines, in: url.lastPathComponent)
             if stacks.contains(where: { $0.contains(.debug) }) {
                 withDebugBranches.append(url.lastPathComponent)
@@ -242,11 +242,7 @@ final class SparkleSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the app sources
 
-    private static let appSources = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-        .appendingPathComponent("Sources/Pisaka")
+    private static let appSources = RepositorySources.url("Sources/Pisaka")
 
     private func updaterURL() throws -> URL {
         let url = Self.appSources.appendingPathComponent(Self.updaterFile)
@@ -258,11 +254,9 @@ final class SparkleSourceGatingTests: XCTestCase {
     }
 
     private func appSourceFiles() throws -> [URL] {
-        let enumerator = try XCTUnwrap(
-            FileManager.default.enumerator(at: Self.appSources,
-                                           includingPropertiesForKeys: nil),
+        let files = try XCTUnwrap(
+            RepositorySources.swiftFiles(under: "Sources/Pisaka"),
             "cannot enumerate Sources/Pisaka")
-        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
         XCTAssertFalse(files.isEmpty, "found no Swift files under Sources/Pisaka")
         return files
     }
@@ -271,9 +265,8 @@ final class SparkleSourceGatingTests: XCTestCase {
     /// dropped, each line trimmed. See the type doc for why this is mandatory
     /// rather than tidy, and why the stripping itself is `LSPSourceGatingTests`'
     /// state machine rather than a second line-at-a-time one.
-    private func code(of url: URL) -> [String] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(text)
+    private func code(of url: URL) throws -> [String] {
+        try RepositorySources.stripped(url)
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

@@ -67,11 +67,7 @@ import XCTest
 ///   `LSPSourceGatingTests.strippingCommentsAndStringLiterals` — the callback's
 ///   own comment names the call it asks for.
 final class GitCLIArgumentSourceGatingTests: XCTestCase {
-    private static let serviceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-        .appendingPathComponent("Sources/Pisaka/GitCLIService.swift")
+    private static let serviceURL = RepositorySources.url("Sources/Pisaka/GitCLIService.swift")
 
     private static let appURL = serviceURL
         .deletingLastPathComponent()
@@ -79,7 +75,7 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
 
     /// The service with comments stripped and literals kept.
     private func service() throws -> String {
-        GitHubSourceGatingTests.strippingComments(try String(contentsOf: Self.serviceURL, encoding: .utf8))
+        GitHubSourceGatingTests.strippingComments(try RepositorySources.raw(Self.serviceURL))
     }
 
     private func occurrences(of needle: String, in text: String) -> Int {
@@ -281,9 +277,7 @@ final class GitCLIArgumentSourceGatingTests: XCTestCase {
     }
 
     func testTheProjectWatcherRefreshesLocalChangesUngated() throws {
-        let app = LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try String(contentsOf: Self.appURL, encoding: .utf8)
-        )
+        let app = try RepositorySources.stripped(Self.appURL)
         XCTAssertEqual(
             occurrences(of: "projectWatcher.start(", in: app), 1,
             "one watcher subscription — re-point this rule if that changes"
