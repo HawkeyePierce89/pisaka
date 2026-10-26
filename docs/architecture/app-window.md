@@ -1585,8 +1585,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
-    Core's `TreeGitState.accessibilityValue(state:mark:row:)` — the expansion word,
-    then the state's word and the diagnostic mark's words, each when there is one,
+    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)` — the
+    expansion word, then the test row's "Test", the state's word and the
+    diagnostic mark's words, each when there is one,
     joined by `", "` (still `""` while a
     rename draft is open); a file row becomes **one combined element** carrying
     those words as its value, `""` when plain and clean, and stays `.contain` while

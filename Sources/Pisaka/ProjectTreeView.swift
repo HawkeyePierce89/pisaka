@@ -1728,7 +1728,8 @@ private struct FolderDisclosureRow<Menu: View>: View {
             isDrafted
                 ? ""
                 : TreeGitState.accessibilityValue(
-                    state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded)
+                    state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded),
+                    isTestRow: false
                 )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
@@ -2140,7 +2141,9 @@ private struct FileRowView: View {
         // on a folder row, so the field stays reachable as itself.
         .accessibilityElement(children: isDraftedRow ? .contain : .combine)
         .accessibilityValue(
-            isDraftedRow ? "" : TreeGitState.accessibilityValue(state: gitState, mark: diagnosticMark, row: .file)
+            isDraftedRow
+                ? ""
+                : TreeGitState.accessibilityValue(state: gitState, mark: diagnosticMark, row: .file, isTestRow: false)
         )
     }
 

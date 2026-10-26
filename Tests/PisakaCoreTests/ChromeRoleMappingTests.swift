@@ -59,6 +59,13 @@ final class ChromeRoleMappingTests: XCTestCase {
         XCTAssertNil(ChromeColorRole.treeNameRole(for: .plain))
     }
 
+    /// A test row is washed in the palette's existing faint green, the added
+    /// diff line's role; any other row paints no wash at all.
+    func testTreeRowWashRoleAnswersBothWays() {
+        XCTAssertEqual(ChromeColorRole.treeRowWashRole(isTestRow: true), .diffAddedBackground)
+        XCTAssertNil(ChromeColorRole.treeRowWashRole(isTestRow: false))
+    }
+
     // MARK: - Checks
 
     func testEveryChecksSummaryHasItsGlyphWordsAndRole() {

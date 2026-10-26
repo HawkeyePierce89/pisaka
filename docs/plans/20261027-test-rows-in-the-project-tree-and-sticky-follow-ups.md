@@ -272,27 +272,27 @@ runner keep their current predicate and behaviour.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift` (call sites only, passing
   `isTestRow: false` until Task 3 wires the rule)
 
-- [ ] Give `TreeGitState.accessibilityValue` a required `isTestRow: Bool`
+- [x] Give `TreeGitState.accessibilityValue` a required `isTestRow: Bool`
   parameter, so no call site can silently omit it.
   - A folder's words are `expanded`/`collapsed`, then `Test`, then the git
     word, then the diagnostic words.
   - A file's words are `Test`, then the git word, then the diagnostic words.
   - Words are joined with `", "` as today. Update its doc comment.
-- [ ] Add `ChromeColorRole.treeRowWashRole(isTestRow:)` beside
+- [x] Add `ChromeColorRole.treeRowWashRole(isTestRow:)` beside
   `treeNameRole(for:)`.
   - It returns `.diffAddedBackground` for a test row and `nil` otherwise.
   - The doc comment states the reuse and its reason: the palette's faint green
     wash at its own alpha, no role added, and the role set closed against call
     sites.
-- [ ] Update the two existing call sites in `ProjectTreeView.swift` to pass
+- [x] Update the two existing call sites in `ProjectTreeView.swift` to pass
   `isTestRow: false` for now, so the build stays green.
-- [ ] Tests in `TreeGitStatusTests`:
+- [x] Tests in `TreeGitStatusTests`:
   - every position of `Test`: a file alone (`"Test"`), a file with git
     (`"Test, Modified"`), a file with git and diagnostics, and a folder
     expanded and collapsed with and without git and diagnostics;
   - a non-test row, whose value is unchanged from today.
-- [ ] Tests in `ChromeRoleMappingTests`: both answers of `treeRowWashRole`.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Tests in `ChromeRoleMappingTests`: both answers of `treeRowWashRole`.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: App — wire the rule to the rows through the one row-background site; gating rule fifty-two
 

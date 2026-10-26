@@ -170,6 +170,16 @@ two new geometry tokens) and each with its readers pinned by a gating
     exists for it. Pinned over `allCases` in `ChromeRoleMappingTests`; rule
     fifty-one pins its one reader, `ProjectTreeView.swift`, which draws only the
     row's name in it (`app-window.md`).
+    **The project tree's test rows added a seventh**, `treeRowWashRole(isTestRow:
+    Bool) -> ChromeColorRole?` — `diffAddedBackground` for a test row
+    (`TreeTestRule`, `core-workspace.md`), nil otherwise, so a row that is not a
+    test row paints no wash and draws exactly as before. A reuse, not a new role:
+    `diffAddedBackground` is already the palette's faint green wash at its own
+    alpha, so a test row is tinted as an added diff line is, and no role and no
+    palette value exists for it. It is a Core answer rather than a spelling in the
+    tree because rule nineteen keeps `diffAddedBackground` out of every app file
+    but the palette — the role set stays closed against call sites. Both answers
+    are pinned in `ChromeRoleMappingTests`.
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
