@@ -216,7 +216,16 @@ runner keep their current predicate and behaviour.
      `a_test.go`.
    - Also: the plan names rule thirteen as `chromeRowBackgrounds`' rule; in the
      suite it is rule thirty-five. That is the rule updated.
-8. **Part 3 findings.** List here every sentence corrected in the two sticky
+8. **Task 4: other tests inside `(slot, slot + 0.5]`.** Only
+   `testACappedCandidateJoinsExactlyOnceFullyUnderTheStack` pinned such a
+   value as not yet joined (`43.5`, `43.999`); it was updated and `43.4` added
+   as the nearest point still out. No other test in `TreeStickyRuleTests`
+   needed a change, and the whole Core suite passed unchanged otherwise. The
+   floored pass failed at `1e-6` with 1,314 assertions (the parent covered,
+   e.g. "b covered — c clicked at 67.0, H 66.0, landed 44.0") and passes at
+   `0.5`. The round trip became a shared helper both passes call, so the test
+   count stays 32.
+9. **Part 3 findings.** List here every sentence corrected in the two sticky
    entries, beyond the `a/f45` one.
 
 ## Implementation Steps
@@ -412,7 +421,7 @@ runner keep their current predicate and behaviour.
   entry's **Tolerance** paragraph, and any sentence restating the old `1e-6`
   reasoning)
 
-- [ ] Write the floored pass of
+- [x] Write the floored pass of
   `testAClickLeavesTheFolderAndItsInnermostAncestorsInSight` first.
   - Add a second pass over the `deep` fixture shifted by `+0.5` on every top
     and bottom (rows on the half-point grid).
@@ -422,7 +431,7 @@ runner keep their current predicate and behaviour.
   - Assert the pass is not vacuous: at least one floored landing differs from
     the exact one.
   - Run it, and confirm it fails at `slotTolerance = 1e-6`.
-- [ ] Change `TreeStickyRule.slotTolerance` to `0.5`.
+- [x] Change `TreeStickyRule.slotTolerance` to `0.5`.
   - Rewrite its doc comment. Keep the true half of the record: the raw
     `NSClipView` probe at backing scale 1 read `48.4`, `66.25` and `66.1` back
     unchanged through `scroll(to:)`. Add the measured half: SwiftUI's
@@ -438,7 +447,7 @@ runner keep their current predicate and behaviour.
   - Correct the type-level **Tolerance** paragraph the same way. Also correct
     the **Chain** paragraph wherever it claims the click lands exactly at the
     equality.
-- [ ] Update `testACappedCandidateJoinsExactlyOnceFullyUnderTheStack`.
+- [x] Update `testACappedCandidateJoinsExactlyOnceFullyUnderTheStack`.
   - With cap 2, `top: 43.5` and `43.999` now join (`[b, c]`), and `43.4` and
     `43` do not (`[a, b]`).
   - Rewrite its comments: the full chain's `≤` now allows the rounding's half
@@ -447,12 +456,12 @@ runner keep their current predicate and behaviour.
     `(slot, slot + 0.5]` as not yet joined, update it to the new boundary, and
     record each one in the execution notes.
   - `testMeasurementDriftChangesNoAnswer`'s last assertion stays as it is.
-- [ ] Correct the **Tolerance** paragraph of `core-workspace.md`'s
+- [x] Correct the **Tolerance** paragraph of `core-workspace.md`'s
   `TreeStickyRule.swift` entry: the same two halves of the record, the new
   value, its sizing, its cost, and the floored round-trip pass that pins it.
   `measurementTolerance`, the cap, the anchor arithmetic and the drawing stay
   unchanged.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: App — pin the scroll rounding the tolerance is sized against
 

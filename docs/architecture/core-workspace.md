@@ -995,15 +995,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     equality its real row lies exactly under the last copy, so left out it
     would show neither its row nor a copy — and then the **outermost** member
     is dropped and the candidate appended, repeatedly — so capping drops outer
-    rows first, a capped row joins exactly once its real row is fully under the
-    stack, and a copy is never drawn while its real row shows below it. The
-    equality is no corner case: the click anchor lands a capped folder's row
-    precisely there, and with `<` the folder directly above it — its parent,
-    when it is the parent's first row — ended up covered by the next copy out.
+    rows first, a capped row joins once its real row is fully under the stack
+    or no more than `slotTolerance` short of it, and a copy is never drawn
+    while more than that sliver of its real row shows below it. The equality is
+    no corner case: the click anchor aims a capped folder's row precisely
+    there, the scroll settles it within the tolerance of it, and with `<` the
+    folder directly above it — its parent, when it is the parent's first row —
+    ended up covered by the next copy out.
     `testAClickLeavesTheFolderAndItsInnermostAncestorsInSight` pins that by
-    round trip: every copy, at every offset of the deep fixture under every
-    cap, is scrolled to its anchor and the stack recomputed there, and neither
-    the folder nor any ancestor the cap leaves room for may be covered.
+    round trip, in two passes: every copy, at every offset of the deep fixture
+    under every cap, is scrolled to its anchor and the stack recomputed there,
+    and neither the folder nor any ancestor the cap leaves room for may be
+    covered. The first pass lands exactly; the second runs on the fixture
+    shifted by half a point (rows on the half-point grid, as at interface
+    scale 1) and **floors** each landing to a whole point, the backing pixel at
+    scale 1, asserting that at least one landing moved so the pass cannot be
+    vacuous.
     **Tolerance.** The edges are measured, not counted: at a fractional
     interface scale SwiftUI sums the scaled row heights in another order than
     the rule would, so a last child's bottom can come back one ulp past its
@@ -1014,17 +1021,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `measurementTolerance = 0.5` points across their boundary — far above the
     drift, far below the smallest row (19.2 at the interface scale's 0.8
     floor), so no two distinct rows blur. The full chain's `≤` is different: it
-    compares an edge with the scroll offset, which moves continuously, so a
-    0.5-point margin would join the candidate — and drop the outermost row —
-    while half a point of its real row still showed. It allows only
-    `slotTolerance = 1e-6`, the round-off of the click anchor's `y·(H − h)`:
-    AppKit keeps a programmatic scroll's fractional offset as asked rather than
-    snapping it to the backing pixel (an `NSClipView` probe at backing scale 1
-    read `48.4`, `66.25` and `66.1` back unchanged through `scroll(to:)`,
-    `setBoundsOrigin` and `constrainBoundsRect`), so the click lands within a
-    drift of the equality and nothing wider is needed. The free slots' `<`
-    stays strict: a drift there pins a copy exactly over its own row, the same
-    pixels.
+    compares an edge with the scroll offset, and allows `slotTolerance = 0.5`
+    points, sized to the **scroll's rounding**, not to the drift. The record
+    has two halves. The raw clip view keeps a programmatic offset as asked: an
+    `NSClipView` probe at backing scale 1 read `48.4`, `66.25` and `66.1` back
+    unchanged through `scroll(to:)`, `setBoundsOrigin` and
+    `constrainBoundsRect`. But the click goes through SwiftUI's
+    `ScrollViewProxy.scrollTo`, not the raw clip view, and that settled a
+    target of `1165.5` at `1165.0` at backing scale 1 — the backing pixel. With
+    rows on the half-point grid at interface scale 1, a click therefore lands
+    half a point short of the equality, and the former `1e-6` left the clicked
+    folder's parent out and its row covered. Half a point is half a backing
+    pixel at most for any scale ≥ 1, and far below the smallest row. Its cost,
+    stated: a candidate joins — and the outermost row drops — up to half a
+    point early, so at most a half-point sliver of its real row shows under
+    the copy in its slot, the right trade against a covered row after a click.
+    The floored round-trip pass above pins it: at `1e-6` it fails, the parent
+    covered. The free slots' `<` stays strict: a drift there pins a copy
+    exactly over its own row, the same pixels.
     **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom −
     rowHeight)`, reported relative to the viewport top as `Stack.Row.top` —
     negative, or above its nominal slot, while the end of its subtree pushes it
@@ -1069,8 +1083,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     giving caps of 1, 2, 3 and 4): nothing pins at offset 0 or while a real row
     is at or below its slot; one row, several rows outermost first, shuffled
     input, input indices; push-out and both slide-under orders; the cap
-    dropping the outermost first and a capped candidate joining only once fully
-    under the stack, not half a point or a hair short of it; `maximumRows` at and either side of exact multiples, and
+    dropping the outermost first and a capped candidate joining once fully
+    under the stack or within the rounding's half point of it (`43.5` and
+    `43.999` join at cap 2, `43.4` and `43` do not); the click round trip, exact
+    and floored to the whole point on the half-shifted fixture; `maximumRows` at and either side of exact multiples, and
     `0` below three rows; a collapsed ancestor, the root and an expanded empty
     folder never pinning; one-ulp drift in every tolerant comparison
     changing no answer (each part failing with the tolerance at 0); a chain as
