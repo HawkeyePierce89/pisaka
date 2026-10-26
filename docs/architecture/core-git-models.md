@@ -214,13 +214,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     carry it. The snapshot's ignored paths reach this value and nothing else —
     never `changedFiles`, so never the panel, the commit dialog or a revert.
     `projectPrefix(folder:repositoryRoot:)` is pure, and `TreeGitStatus` builds
-    its keys through it **on the main actor**, inside this model's refresh; it is
-    `nonisolated` only because that lookup's initialiser is non-isolated code,
-    which may not call a main-actor method. Tests (`LocalChangesModelTests`, the stub serving an
+    its keys through it **off the main actor**, inside the model's one
+    `nonisolated static` step (`statusAndLookup`) that awaits the status run and
+    builds the lookup beside it, returning both — built on the main actor it
+    measured 186 ms for a 50 000-entry status; `projectPrefix` is `nonisolated`
+    because that step and the lookup's initialiser are non-isolated code, which
+    may not call a main-actor method. The step decides nothing: the
+    generation / root-generation guard stays on the main actor, before anything
+    is assigned, so a superseded refresh's lookup is discarded whole and the
+    published lookup is always the one carried back with the published list;
+    the failure path is the bare run's. `GitStatusSnapshot`, `ChangedFile` and
+    `FileStatus` are `Sendable` so the snapshot can cross back. Tests (`LocalChangesModelTests`, the stub serving an
     ignored list through the snapshot seam and reusing its gated
     `changedFiles`): a refresh publishes the lookup; ignored paths never reach
     `changedFiles`; a superseded refresh, staged with the gate, does not
-    overwrite a newer lookup; a folder switch clears it before the new root's
+    overwrite a newer lookup — staged both ways: the superseded one released
+    after the newer one published, and released first while the newer one is
+    still held, the recorded `$treeGitStatus` values then containing no lookup
+    built from the older list; a folder switch clears it before the new root's
     refresh lands; a failed refresh clears it together with `changedFiles`; and
     a held refresh released to fail after a newer one published leaves the newer
     lookup and list standing.

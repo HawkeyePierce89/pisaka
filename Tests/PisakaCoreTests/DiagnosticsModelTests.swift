@@ -772,6 +772,115 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNotNil(entry(underFolder), "the folder change forgets every tombstone")
     }
 
+    /// A file found under a removed folder is one file back, not the folder:
+    /// the folder's tombstone stays, so a never-opened sibling — which the
+    /// delete call sites give no tombstone of its own — is still probed and
+    /// refused. The file found is remembered, so its next report lands without
+    /// asking the disk again, until a removal at or above it forgets it.
+    func testAFileFoundUnderARemovedFolderLeavesTheFolderTombstoned() {
+        var probes: [String] = []
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let inner = folder.appendingPathComponent("inner.swift")
+        let sibling = folder.appendingPathComponent("sibling.swift")
+        model = DiagnosticsModel(fileExists: { url in
+            probes.append(url.path)
+            return url == inner
+        })
+        let report = [positionalDiagnostic(line: 0, character: 0, message: "back")]
+        let folderTombstone = [folder.standardizedFileURL.pathComponents]
+
+        model.noteItemRemoved(at: folder)
+        model.receive(positional(report, url: inner))
+        XCTAssertNotNil(entry(inner), "the file exists, so its report lands")
+        XCTAssertEqual(model.removedPaths, folderTombstone, "the folder above the file found stays tombstoned")
+        XCTAssertEqual(model.foundAgain, [inner.standardizedFileURL.pathComponents])
+
+        model.receive(positional(report, url: sibling))
+        XCTAssertNil(entry(sibling), "a late report for a never-opened sibling still gone is refused")
+        XCTAssertEqual(probes, [inner.path, sibling.path])
+
+        model.receive(positional(report, url: inner))
+        XCTAssertEqual(probes, [inner.path, sibling.path], "the file found again does not probe twice")
+
+        model.noteItemRemoved(at: folder)
+        XCTAssertEqual(model.foundAgain, [], "a removal at or above the file forgets it")
+        XCTAssertEqual(model.removedPaths, folderTombstone)
+        model.receive(positional(report, url: inner))
+        XCTAssertEqual(probes, [inner.path, sibling.path, inner.path], "so its next report is probed again")
+    }
+
+    /// A removal already recorded exactly adds no second tombstone, while a
+    /// file under a removed folder still adds its own — and every removal
+    /// still clears the store under its own path.
+    func testARepeatedRemovalAddsNoTombstoneButStillClears() {
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let file = folder.appendingPathComponent("a.swift")
+        let other = folder.appendingPathComponent("b.swift")
+        let set = [diagnostic(at: 0, length: 3, line: 0, message: "m")]
+
+        model.noteItemRemoved(at: folder)
+        XCTAssertEqual(model.removedPaths, [folder.standardizedFileURL.pathComponents])
+
+        // A mapped push for a synced buffer is gated by its record, not by a
+        // tombstone, so it plants an entry under the removed folder.
+        syncAtVersionOne(file)
+        model.receive(published(set, version: 1, url: file))
+        XCTAssertNotNil(entry(file))
+        model.noteItemRemoved(at: file)
+        XCTAssertNil(entry(file), "the removal under the folder still clears its entry")
+        XCTAssertEqual(
+            model.removedPaths,
+            [folder.standardizedFileURL.pathComponents, file.standardizedFileURL.pathComponents],
+            "a file under a removed folder keeps a tombstone of its own"
+        )
+
+        syncAtVersionOne(other)
+        model.receive(published(set, version: 1, url: other))
+        XCTAssertNotNil(entry(other))
+        model.noteItemRemoved(at: folder)
+        XCTAssertNil(entry(other), "the repeated removal still clears under the folder")
+        XCTAssertEqual(model.removedPaths.count, 2, "the same folder again adds no tombstone")
+    }
+
+    /// Finding a file lifts only its own tombstone: the folder above it, a
+    /// file removed with it — before or after the folder, the delete call
+    /// sites passing the folder first — and an unrelated removal stay
+    /// tombstoned, so a late report for any of them is still probed and
+    /// refused.
+    func testFindingAFileKeepsEveryOtherTombstone() {
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let removedAfter = folder.appendingPathComponent("a.swift")
+        let removedBefore = folder.appendingPathComponent("z.swift")
+        let recreated = folder.appendingPathComponent("b.swift")
+        let unrelated = root.appendingPathComponent("Other/x.swift")
+        var probes: [String] = []
+        model = DiagnosticsModel(fileExists: { url in
+            probes.append(url.path)
+            return url == recreated
+        })
+        let report = [positionalDiagnostic(line: 0, character: 0, message: "late")]
+
+        model.noteItemRemoved(at: removedBefore)
+        model.noteItemRemoved(at: folder)
+        model.noteItemRemoved(at: removedAfter)
+        model.noteItemRemoved(at: unrelated)
+        XCTAssertEqual(model.removedPaths.count, 4)
+
+        model.receive(positional(report, url: recreated))
+        XCTAssertNotNil(entry(recreated), "the recreated file's report lands")
+        XCTAssertEqual(
+            model.removedPaths,
+            [removedBefore, folder, removedAfter, unrelated].map(\.standardizedFileURL.pathComponents),
+            "the recreated file had no tombstone of its own, so none is lifted"
+        )
+
+        for gone in [removedAfter, removedBefore, unrelated] {
+            model.receive(positional(report, url: gone))
+            XCTAssertNil(entry(gone), "a late report for a file still gone is refused")
+        }
+        XCTAssertEqual(probes, [recreated, removedAfter, removedBefore, unrelated].map(\.path))
+    }
+
     /// The default probe counts a file, not any item: a folder recreated at a
     /// removed file's path does not lift its tombstone.
     func testTheDefaultProbeAcceptsAFileButNotADirectory() throws {

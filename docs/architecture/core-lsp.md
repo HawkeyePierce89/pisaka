@@ -2963,8 +2963,21 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     exists again as a file — the model's one file-system call, an injected
     `fileExists` probe asked only on that match, whose default
     (`DiagnosticsModel.isFile`) refuses a directory, so a folder recreated at a
-    removed file's path is not the file coming back — and an exact tombstone
-    whose path exists again is lifted there. A kept **mapped** set is
+    removed file's path is not the file coming back. A file found there lifts
+    its own tombstone only, and is remembered (`foundAgain`), so its next
+    report lands without asking the disk again; a removed folder above it is
+    **not** lifted, because one file back says nothing about its siblings —
+    the delete and move call sites tombstone the folder and the open files
+    under it alone, so a never-opened sibling has only the folder's tombstone
+    between a late report and a resurrected row. A sibling is therefore probed
+    on its own report, once per report until it too is found. A removal at or
+    above a remembered file forgets it, so the next report is probed again; a
+    remembered file later deleted outside the app takes reports, exactly as a
+    file whose own tombstone was lifted does. A removal already recorded
+    exactly appends none (its clear still runs), so the list stays bounded by
+    the distinct removed paths, and a finer tombstone under a folder one is
+    kept whichever was removed first.
+    A kept **mapped** set is
     dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
     that is gone, so the file shows nothing until the next push. The editor
     treats a first showing as a plain tab switch, which keeps a set, so the
@@ -3126,10 +3139,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     built for: a folder change that empties the store publishes the same value a
     model with no folder holds.
     **The cost bound.** `mark(for:)` standardizes the row URL, strips whichever
-    spelling it lies under, and reads the one key — a descent of the trie, a
-    handful of levels and at most thirteen. `resolve(_:)` is the internal
-    seam returning the mark with its probe count (keys read), pinned at most one
-    whether the store holds ten diagnosed files or ten thousand.
+    spelling it lies under, and reads the one key — a single descent of the
+    trie, a handful of levels, never more than `MarkTrie.maxLevel` (thirteen)
+    branches deep. `resolve(_:)` is the internal seam returning the mark with
+    its probe count: the trie nodes that descent visited (a leaf answers 1, each
+    branch on the way adds one), counted by the descent alone; a row under
+    neither spelling costs 0. The test pins every probe at most the table's
+    actual `MarkTrie.depth + 1` — a structural walk the read never calls, so
+    the work is counted apart from the bound — over two stores: seven keys,
+    where the root stays one leaf (depth 0, asserted) and every read costs
+    exactly 1, and ten thousand files, where the root splits (depth ≥ 1,
+    asserted) and every read costs more than 1. The second half is what keeps
+    the bound non-vacuous; a lookup that scanned the table or read once per
+    ancestor would break it.
     **The holder.** The lookup is published by `TreeDiagnosticsHolder`
     (`DiagnosticsModel.swift`, above), which assigns only on inequality; the tree
     observes it through a thin wrapper in `ContentView.swift`, so the window root
@@ -4056,6 +4078,9 @@ lane** rather than dropped.
 - **Close keeps the set.** Closing the last tab drops the sync record, the
   revision and any hold, and no longer touches the store, so the file's problems
   stay listed after the close and its positional lane opens for the next report.
+  The app keeps the set; the server decides what happens next — a server that
+  clears the file on `didClose` empties it, one that sends nothing leaves its last
+  report listed (the table below).
 - **A removal is not a close.** When the app itself deletes, renames or moves a
   file or folder — the project tree's operations, or a git operation's resync
   force-closing a tab whose file it deleted — `noteItemRemoved(at:)` clears every
@@ -4088,9 +4113,9 @@ expectation, not a contract this layer can enforce:
 | gopls | whole workspace (compiler diagnostics for every loaded package; analysis may be limited to packages with open files) |
 | rust-analyzer | whole workspace from the `cargo check` it runs once the workspace has loaded; its own native diagnostics are open-files-only. Pisaka sends no `didSave` (D2), so the check is not re-run on a save |
 | pyright | whole workspace, through the setting (`core-provisioning.md`) |
-| typescript-language-server | open files only |
-| sourcekit-lsp | open files only |
-| yaml-language-server | open files only |
+| typescript-language-server | open files only; on `didClose` it clears the file (5.3.0, probed), so a closed file's rows go with its tab |
+| sourcekit-lsp | open files only; it sends nothing on `didClose`, so a closed file's last report stays listed |
+| yaml-language-server | open files only; what it sends on `didClose` is unverified |
 
 **Stated limit: a closed file's set is what its server said last.** Pisaka sends no
 `workspace/didChangeWatchedFiles`, so a closed file edited outside the app — in the
@@ -4263,8 +4288,11 @@ report overwrite a current mapped one.
 - **Diagnostics cover what a server said last, and closed files only as far as
   the server reports on them.** A report about a document no buffer holds is kept
   positionally (D46) and shown by the Problems panel and the tree, never by the
-  editor surfaces; which servers report on closed files at all is D46's table, so a
-  TypeScript, Swift or YAML project lists only the files that have been open. A
+  editor surfaces; which servers report on closed files at all is D46's table. In a
+  TypeScript, Swift or YAML project a closed file is listed only as far as its
+  server's answer to `didClose` leaves it: typescript-language-server clears it,
+  sourcekit-lsp leaves its last report listed, and yaml-language-server's
+  behaviour is unverified. A
   closed file edited outside the app keeps its mark until its server reports again
   (D46's stated limit). Between pushes the shown state is
   maintained by shift-and-drop (D32), which is exact for edits outside a

@@ -115,22 +115,23 @@ final class SparkleSourceGatingTests: XCTestCase {
     }
 
     /// The updater is the only thing outside the iOS layer with a DEBUG-only
-    /// branch — the precondition CI's macOS job now rests on.
+    /// branch — the precondition CI's macOS jobs rest on.
     ///
-    /// `.github/workflows/ci.yml` *switched* its macOS job from Debug to Release
-    /// rather than adding a second one, so that the `#if !DEBUG` updater is
-    /// compiled on every PR instead of first appearing inside the release
-    /// archive. The cost is stated in that file's own comment: macOS-gated code
-    /// under `#if DEBUG` is now built by **no** CI job at all — the iOS job cannot
+    /// `.github/workflows/ci.yml` builds `build-macos` in Release, so that job is
+    /// the only compile of the shipping `#if !DEBUG` path on every PR instead of
+    /// its first appearing inside the release archive. `test-macos`'s Debug build
+    /// is the only compile of macOS-gated `#if DEBUG` code — the iOS job cannot
     /// stand in, because every macOS file is inside `#if os(macOS)` and the iOS
-    /// compile never reaches it. That trade is acceptable "only because there is
-    /// exactly one such block outside `Sources/Pisaka/iOS/` and it is the
-    /// updater's two no-op declarations", and nothing enforced that sentence.
+    /// compile never reaches it. That job exists to host the app-layer bundle, not
+    /// to stand for the product: DEBUG-only content outside the iOS layer is code
+    /// the shipping configuration never compiles. That is acceptable "only because
+    /// there is exactly one such block outside `Sources/Pisaka/iOS/` and it is the
+    /// updater's two no-op declarations", and nothing else enforces that sentence.
     ///
     /// So the moment a `#if DEBUG` block with real content appears in any other
-    /// macOS file, it ships compiled by nobody and breaks on a developer's machine
-    /// — with the stated precondition silently false. This is the rule failing;
-    /// the fix is a third, macOS-Debug CI job, not a wider allow-list here.
+    /// macOS file, the product a developer runs and the product that ships stop
+    /// being the same code — with the stated precondition silently false. This is
+    /// the rule failing; the bound is not widened here.
     ///
     /// A `#else` closing a `#if !DEBUG` counts, exactly as `#if DEBUG` does: the
     /// walker models branches rather than condition text for that reason, and the
@@ -152,10 +153,10 @@ final class SparkleSourceGatingTests: XCTestCase {
 
         XCTAssertEqual(withDebugBranches.sorted(), [Self.updaterFile], """
             \(Self.updaterFile) must be the only file outside Sources/Pisaka/iOS with a DEBUG-only \
-            branch. Found: \(withDebugBranches.sorted()). See this test's doc comment — CI builds \
-            macOS in Release only, so a `#if DEBUG` branch here is compiled by no CI job at all. \
-            If the new block is real code rather than a no-op, ci.yml needs a third, macOS-Debug \
-            job before it can be trusted.
+            branch. Found: \(withDebugBranches.sorted()). See this test's doc comment — build-macos's \
+            Release build is the only compile of the shipping path, and test-macos's Debug build, \
+            which exists to host the app-layer bundle, is the only compile of a `#if DEBUG` branch \
+            here: code the shipping configuration never compiles.
             """)
     }
 

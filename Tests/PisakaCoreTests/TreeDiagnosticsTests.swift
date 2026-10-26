@@ -327,27 +327,45 @@ final class TreeDiagnosticsTests: XCTestCase {
         XCTAssertLessThan(large.copied, large.keys / 32)
     }
 
-    func testProbeCountIsAtMostOneWhateverTheStoreHolds() {
-        func probes(fileCount: Int) -> [Int] {
+    /// A row's read is one descent of the trie: the count `resolve(_:)` reports
+    /// is the nodes that descent visited, bounded by the table's own depth —
+    /// a structural walk the descent never calls. A store of seven keys keeps
+    /// the root a single leaf, so every read costs exactly one node; ten
+    /// thousand files split it, so every read costs more than one — which is
+    /// what makes the bound a statement about the descent rather than a
+    /// constant. A row under neither spelling reads nothing.
+    func testProbeCountIsTheDescentBoundedByTheTablesDepth() {
+        func probes(_ files: [URL]) -> (counts: [Int], depth: Int) {
             var store = DiagnosticStore()
-            for index in 0..<fileCount {
-                let file = url("gen/d\(index % 37)/f\(index).swift")
+            for file in files {
                 store.replace(url: file, serverKey: serverKey, positional: [positional(file, .warning)])
             }
             let hit = url("hit/x.swift")
             store.replace(url: hit, serverKey: serverKey, diagnostics: [mapped(hit, .error)])
             let tree = lookup(store)
-            return [
+            let counts = [
                 tree.resolve(hit).probes,
                 tree.resolve(url("a/b/c/d.swift")).probes,
                 tree.resolve(url("gen")).probes,
                 tree.resolve(root).probes,
                 tree.resolve(URL(fileURLWithPath: "/elsewhere/x.swift")).probes,
             ]
+            return (counts, tree.table.depth)
         }
-        let small = probes(fileCount: 10)
-        let large = probes(fileCount: 10_000)
-        XCTAssertEqual(small, large)
-        XCTAssertEqual(large, [1, 1, 1, 1, 0])
+        let small = probes((0..<3).map { url("gen/f\($0).swift") })
+        let large = probes((0..<10_000).map { url("gen/d\($0 % 37)/f\($0).swift") })
+        XCTAssertEqual(small.depth, 0, "seven keys stay within one leaf")
+        XCTAssertGreaterThanOrEqual(large.depth, 1, "ten thousand files split the root")
+
+        for store in [small, large] {
+            for count in store.counts {
+                XCTAssertLessThanOrEqual(count, store.depth + 1)
+            }
+            XCTAssertEqual(store.counts.last, 0, "a row outside the folder reads nothing")
+        }
+        XCTAssertEqual(Array(small.counts.dropLast()), [1, 1, 1, 1])
+        for count in large.counts.dropLast() {
+            XCTAssertGreaterThan(count, 1, "a read below a branch visits it too")
+        }
     }
 }

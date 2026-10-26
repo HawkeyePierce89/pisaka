@@ -37,7 +37,7 @@ extension Array where Element == String {
 /// tell a live setting from a described one. Every substring assertion in these
 /// suites must run over this, not the raw text.
 ///
-/// Only *whole-line* comments are dropped. A trailing `# v4.3.1` after a pinned
+/// Only *whole-line* comments are dropped. A trailing `# v7.0.1` after a pinned
 /// action SHA stays, which is wanted: those annotate live lines rather than
 /// standing in for them.
 func activeYAMLLines(of text: String) -> [String] {

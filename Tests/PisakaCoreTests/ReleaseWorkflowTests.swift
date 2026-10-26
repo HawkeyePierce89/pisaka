@@ -2937,6 +2937,53 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Every action either workflow runs is pinned to one full commit, the same
+    /// commit everywhere it is used, and the set of actions is closed.
+    ///
+    /// A tag is a movable name, so `@v7` runs whatever its owner points it at on
+    /// the next run — in the release workflow, beside the signing identity and the
+    /// tap deploy key. A full SHA cannot move, and the trailing `# vX.Y.Z` is the
+    /// only record of which release that SHA is, so it is required too. Holding
+    /// each action to **one distinct line** across both files is what stops a bump
+    /// that misses a job: the workflow still parses and every job still runs, one
+    /// of them on the old runtime. The action set is held by set equality, so a
+    /// fourth action fails here until it is named — the same deliberate act
+    /// `testEveryWorkflowPinsTheSameXcode` asks of a new setup-xcode site.
+    ///
+    /// Read over `activeYAMLLines(of:)`, which drops whole-line comments and keeps
+    /// the trailing version comment this rule is partly about.
+    func testEveryActionIsPinnedToOneFullCommitInBothWorkflows() throws {
+        let pin = try NSRegularExpression(pattern: #"^uses: [^@\s]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$"#)
+        var linesByAction: [String: Set<String>] = [:]
+        for workflow in ["ci.yml", "release.yml"] {
+            let usesLines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
+                .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) : $0 }
+                .filter { $0.hasPrefix("uses:") }
+            XCTAssertFalse(usesLines.isEmpty, "\(workflow) carries no active `uses:` line; this rule reads nothing")
+            for line in usesLines {
+                let action = String(line.dropFirst("uses:".count).trimmingCharacters(in: .whitespaces)
+                    .prefix { $0 != "@" && !$0.isWhitespace })
+                linesByAction[action, default: []].insert(line)
+                XCTAssertNotNil(pin.firstMatch(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line)), """
+                    \(workflow): `\(line)` must read `uses: owner/repo@<40 lowercase hex> # vX.Y.Z` — a full \
+                    commit, which cannot move, and the release it is, which nothing else records.
+                    """)
+            }
+        }
+
+        for (action, lines) in linesByAction.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(lines.count, 1, """
+                \(action) is pinned by \(lines.count) different lines across ci.yml and release.yml: \
+                \(lines.sorted()). Every use of one action carries the same commit and comment.
+                """)
+        }
+
+        XCTAssertEqual(Set(linesByAction.keys), ["actions/checkout", "actions/cache", "maxim-lobanov/setup-xcode"], """
+            The actions ci.yml and release.yml run changed. Found: \(linesByAction.keys.sorted()). \
+            A new one must be named here — and pinned to a full commit — before it can run.
+            """)
+    }
+
     /// Every job that installs an Xcode installs the same one, so the toolchain
     /// that gates a pull request is the toolchain that archives the release.
     ///
@@ -3023,10 +3070,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// up on a developer's machine, as a whole-file diff hiding the one real pin
     /// change.
     ///
-    /// Two ci.yml jobs guard their resolve: `build-macos`, whose resolution feeds
-    /// the shipping build, and `test-macos`, whose resolution feeds the app-layer
-    /// bundle. (`build-ios` resolves too, under a cache key that does not name the
-    /// Xcode, and is not asked here.) Each runs under the pinned Xcode its own setup-xcode step installs
+    /// Three ci.yml jobs guard their resolve: `build-macos`, whose resolution
+    /// feeds the shipping build, `test-macos`, whose resolution feeds the
+    /// app-layer bundle, and `build-ios`, whose resolution feeds the iOS build.
+    /// Each runs under the pinned Xcode its own setup-xcode step installs
     /// (`testEveryWorkflowPinsTheSameXcode`), so each observes that toolchain's
     /// resolution independently, and each is asked the whole guard by
     /// `assertResolvedGuard(inJob:)` over comment-stripped lines scoped to it.
@@ -3035,22 +3082,26 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// must exist — a misspelled path makes `git diff` compare nothing and pass
     /// forever.
     ///
-    /// The two jobs are then held to the same cache path, key and restore keys,
-    /// the same Xcode read, the same resolve and the same guard, line for line.
-    /// An equal path and key are what make the two jobs share one cache entry
-    /// (the cache action versions an entry by its paths too) rather than
-    /// each paying for its own download, and equal steps are what make a green
-    /// guard in one job mean the same thing as in the other.
+    /// The three jobs are then held to the same cache path, key and restore keys,
+    /// the same Xcode read, the same resolve and the same guard, line for line,
+    /// each compared against `build-macos`. An equal path and key are what make
+    /// the three jobs share one cache entry (the cache action versions an entry
+    /// by its paths too) rather than each paying for its own download, and equal
+    /// steps are what make a green guard in one job mean the same thing as in
+    /// another.
     func testCIRefusesARewrittenPackageResolved() throws {
-        let builtPath = try assertResolvedGuard(inJob: "build-macos")
-        let testedPath = try assertResolvedGuard(inJob: "test-macos")
-        XCTAssertEqual(builtPath, testedPath, """
-            ci.yml's `build-macos` and `test-macos` must hash and guard the same lock file; they \
-            name \(builtPath ?? "none") and \(testedPath ?? "none").
-            """)
+        let reference = "build-macos"
+        let others = ["test-macos", "build-ios"]
+        let referencePath = try assertResolvedGuard(inJob: reference)
+        for job in others {
+            let path = try assertResolvedGuard(inJob: job)
+            XCTAssertEqual(path, referencePath, """
+                ci.yml's `\(job)` must hash and guard the same lock file as `\(reference)`; they \
+                name \(path ?? "none") and \(referencePath ?? "none").
+                """)
+        }
 
-        let built = try Self.jobSteps("build-macos", in: "ci.yml")
-        let tested = try Self.jobSteps("test-macos", in: "ci.yml")
+        let referenceSteps = try Self.jobSteps(reference, in: "ci.yml")
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         let shared: [(String, ([String]) -> Bool, ([String]) -> [String])] = [
             ("the SwiftPM cache path, key and restore keys",
@@ -3061,15 +3112,18 @@ final class ReleaseWorkflowTests: XCTestCase {
             ("the `\(Self.resolvedGuardStepName)` step", { $0.first == guardName }, { $0 }),
         ]
         for (what, matches, lines) in shared {
-            let inBuild = try XCTUnwrap(built.first(where: matches).map(lines),
-                                        "ci.yml's `build-macos` job has no \(what)")
-            let inTest = try XCTUnwrap(tested.first(where: matches).map(lines),
-                                       "ci.yml's `test-macos` job has no \(what)")
-            XCTAssertEqual(inBuild, inTest, """
-                ci.yml's `build-macos` and `test-macos` must carry \(what) line for line — an equal cache \
-                path and key are what make the two jobs share one SwiftPM cache entry, and an equal resolve and \
-                guard are what make the two guards observe the same thing.
-                """)
+            let inReference = try XCTUnwrap(referenceSteps.first(where: matches).map(lines),
+                                            "ci.yml's `\(reference)` job has no \(what)")
+            for job in others {
+                let steps = try Self.jobSteps(job, in: "ci.yml")
+                let inJob = try XCTUnwrap(steps.first(where: matches).map(lines),
+                                          "ci.yml's `\(job)` job has no \(what)")
+                XCTAssertEqual(inJob, inReference, """
+                    ci.yml's `\(job)` must carry \(what) line for line as `\(reference)` does — an equal \
+                    cache path and key are what make the three jobs share one SwiftPM cache entry, and an equal \
+                    resolve and guard are what make the three guards observe the same thing.
+                    """)
+            }
         }
     }
 
@@ -3080,6 +3134,26 @@ final class ReleaseWorkflowTests: XCTestCase {
         let steps = try Self.jobSteps(job, in: "ci.yml")
         let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
                                     "ci.yml's `\(job)` job no longer resolves package dependencies")
+        // The cache key names the Xcode `id: xcode` reads, so that read must
+        // follow the setup-xcode step and precede the cache: run anywhere else,
+        // the key loses the version and one toolchain's checkouts are restored
+        // under another's — while every line-for-line comparison stays green.
+        let order: [(String, ([String]) -> Bool)] = [
+            ("the setup-xcode step", { $0.contains { $0.contains("uses: maxim-lobanov/setup-xcode@") } }),
+            ("the `id: xcode` step", { $0.contains("id: xcode") }),
+            ("the SwiftPM cache step", { $0.contains { $0.hasPrefix("uses: actions/cache@") } }),
+        ]
+        let positions = try order.map { what, matches in
+            try XCTUnwrap(steps.firstIndex(where: matches), "ci.yml's `\(job)` job has no \(what)")
+        }
+        XCTAssertEqual(positions, positions.sorted(), """
+            ci.yml's `\(job)` job must run setup-xcode, then `id: xcode`, then the SwiftPM cache, in \
+            that order; they sit at steps \(positions).
+            """)
+        XCTAssertLessThan(positions.last ?? .max, resolve, """
+            ci.yml's `\(job)` job must restore the SwiftPM cache before resolving, or the resolve never \
+            reads the cached checkouts.
+            """)
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
             ci.yml's `\(job)` job must run `\(Self.resolvedGuardStepName)` as the step directly \

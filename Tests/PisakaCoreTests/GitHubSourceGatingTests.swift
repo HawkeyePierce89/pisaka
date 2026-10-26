@@ -172,8 +172,10 @@ final class GitHubSourceGatingTests: XCTestCase {
 
     /// Swift source with its comments removed and its **string literals kept**.
     ///
-    /// The one reading the `gh`-vocabulary rule can use, and used by nothing
-    /// else. Literals are tracked rather than ignored — a `//` inside a URL is
+    /// The literal-keeping reading every suite whose rule is about a spelled
+    /// literal uses; the inventory of those readings is
+    /// `ChromeThemeSourceGatingTests.testTheHeaderNamesEveryLiteralKeepingReading`,
+    /// not a list kept here. Literals are tracked rather than ignored — a `//` inside a URL is
     /// not the start of a comment — but their contents survive, which is the
     /// whole point: the rule is about a flag being *spelled*, and the ordinary
     /// scanner deletes exactly the text that would prove it.

@@ -492,8 +492,11 @@ public final class LocalChangesModel: ObservableObject {
         do {
             let repoRoot = try await gitService.repositoryRoot(for: root)
             // One status run answers both the list and the tree's lookup; the
-            // snapshot keeps git's ignored records out of `files`.
-            let snapshot = try await gitService.statusSnapshot(root: repoRoot)
+            // snapshot keeps git's ignored records out of `files`. The lookup is
+            // built beside the run, off the main actor (`statusAndLookup`).
+            let (snapshot, lookup) = try await Self.statusAndLookup(
+                gitService: gitService, repositoryRoot: repoRoot, openedFolder: root
+            )
             let files = snapshot.changedFiles
             // A newer refresh started and is the one that should win; discard this
             // now-stale result rather than overwriting the newer published state.
@@ -511,7 +514,7 @@ public final class LocalChangesModel: ObservableObject {
             projectPrefix = Self.projectPrefix(folder: root, repositoryRoot: repoRoot)
             publishedRootGeneration = rootGeneration
             changedFiles = files
-            treeGitStatus = TreeGitStatus(snapshot: snapshot, repositoryRoot: repoRoot, openedFolder: root)
+            treeGitStatus = lookup
             if !(keepingRevertError && revertErrorStanding) {
                 errorMessage = nil
                 revertErrorStanding = false
@@ -568,14 +571,32 @@ public final class LocalChangesModel: ObservableObject {
         }
     }
 
+    /// One refresh's status run and the project tree's lookup built from it,
+    /// both in this non-isolated step rather than on the main actor: building
+    /// `TreeGitStatus` walks every entry and canonicalises both roots, which
+    /// measured 186 ms on the main thread for a 50 000-entry status. The step
+    /// decides nothing — the caller's generation guard, on the main actor and
+    /// before anything is assigned, still discards a superseded answer whole,
+    /// lookup included — and a failure propagates exactly as the bare run's did.
+    private nonisolated static func statusAndLookup(
+        gitService: GitServicing,
+        repositoryRoot: URL,
+        openedFolder: URL
+    ) async throws -> (snapshot: GitStatusSnapshot, lookup: TreeGitStatus) {
+        let snapshot = try await gitService.statusSnapshot(root: repositoryRoot)
+        let lookup = TreeGitStatus(snapshot: snapshot, repositoryRoot: repositoryRoot, openedFolder: openedFolder)
+        return (snapshot, lookup)
+    }
+
     /// The opened `folder`'s path relative to `repositoryRoot`, `""` when they
     /// name the same directory. Both sides go through `CanonicalPath`, so a
     /// symlinked or `..`-laden spelling of the folder still yields the same
     /// prefix; a folder that is not under the root (which git's top-level
     /// answer rules out) yields `""` rather than a path climbing out of it.
-    /// `TreeGitStatus` builds its keys through it on the main actor, inside this
-    /// model's refresh; it is `nonisolated` only because that lookup's
-    /// initialiser is non-isolated code, which may not call a main-actor method.
+    /// `TreeGitStatus` builds its keys through it off the main actor, inside
+    /// this model's `statusAndLookup` step beside the status run; it is
+    /// `nonisolated` because that step and the lookup's initialiser are
+    /// non-isolated code, which may not call a main-actor method.
     nonisolated public static func projectPrefix(folder: URL, repositoryRoot: URL) -> String {
         let folderComponents = CanonicalPath.canonical(folder).pathComponents
         let rootComponents = CanonicalPath.canonical(repositoryRoot).pathComponents

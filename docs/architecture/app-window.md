@@ -1348,8 +1348,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `onNewFile(URL,
     String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
     callbacks take the final accepted text and run under the same writer
-    gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest`
-    remain parameterless callbacks. The callbacks only *request* the
+    gate as defense-in-depth, while `onRun(URL)` / `onRunTest(URL)` take
+    only the row's url and `onDelete(URL, String?)` also carries the name
+    the confirmation quotes (a chain row's label, `nil` otherwise — see the
+    single-child chains entry). The callbacks only *request* the
     operation: `PisakaApp` validates once more, performs the disk I/O and
     bumps `treeRevision`. `DirectoryNodeView` also observes `.onChange(of:
     model.treeRevision)`: when currently expanded it re-reads its listing
@@ -1699,11 +1701,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     set.
     **Menu.** New File / New Folder (into the tail); `Rename "<tail>"` and
     `Delete "<label>"`, the titles being `TreeChain`'s; then `Show as Separate
-    Folders`. A plain folder keeps `Rename` / `Delete`, and a separated folder the
-    rule says would otherwise qualify (`offersShowAsOneRow`) adds `Show as One
-    Row`. The delete confirmation and the app callbacks are unchanged — they
-    receive the real url. The two view items are view choices, not file
-    operations: no draft, no gate.
+    Folders`. A plain folder keeps `Rename` / `Delete`, and a separated folder
+    whose joining the rule says would draw a chain of more than one segment
+    (`offersShowAsOneRow`) adds `Show as One Row`. **The delete confirmation
+    names what the menu item named**: the tree's `onDelete` carries
+    `(URL, String?)` — the head's real url and the shape's
+    `deleteConfirmationName`, which is `TreeChain.deleteConfirmationName` (the
+    label, the very name `deleteTitle` quotes) for a chain and nil for a file
+    or plain folder. `ContentView` passes it through and
+    `PisakaApp.deleteItem(at:named:)` hands `FilePanels.confirmDelete` the
+    name, or `url.lastPathComponent` when it is nil, so a file's and a plain
+    folder's sheet is exactly as before. The two view items are view choices,
+    not file operations: no draft, no gate.
     **The unfold memory.** `separatedFolders: Set<String>` is `@State` on
     `ProjectTreeView`, keyed by `TreeChainRule.key(for:)` and handed down as a
     value beside `opensOnAppearance`, with one callback carrying a private
@@ -1721,8 +1730,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and nothing tree-wide records it. Neither set is
     written to the session, both are cleared on a project-root change, and
     neither is pruned — a key whose folder is gone matches no row. A `separated`
-    change re-runs the rule over the node's cached listing against the memo
-    alone (`rememberedListing(of:revision:)`) and lists nothing — joining
+    change re-runs the rule over the node's own **remembered** listing against
+    the memo alone (`rememberedListing(of:revision:)`), stores that listing as
+    the node's `children` — so the rows and the listing the create draft and
+    reveal read come from one read — and lists nothing — joining
     included, because the rule walks a separated head's run under every load
     that draws it, and a probe that failed under that load is answered as the
     same failure rather than retried (`core-workspace.md`). The memo answers

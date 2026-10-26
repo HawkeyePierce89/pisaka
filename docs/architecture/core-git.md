@@ -198,7 +198,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     are plain: a wholly ignored directory is one entry with its trailing `/`
     already stripped, standing for itself and everything below it. A producer
     that cannot see ignored entries builds an honest snapshot with an empty list
-    (the `GitServicing` default).
+    (the `GitServicing` default). All three types are `Sendable` — value types of
+    `Sendable` members — so a snapshot can cross back from the non-isolated step
+    `LocalChangesModel` builds the tree's lookup in (`core-git-models.md`).
   - `GitStatusParser.swift` — pure `static func parse(_ output: String) ->
     [ChangedFile]` over `git status --porcelain=v2` output, plus
     `static func parseSnapshot(_ output: String) -> GitStatusSnapshot` over the

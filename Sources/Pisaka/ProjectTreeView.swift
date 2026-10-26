@@ -52,8 +52,11 @@ struct ProjectTreeView: View {
     var onNewFolder: (URL, String) -> Void = { _, _ in }
     /// Rename the file or folder at the given url.
     var onRename: (URL, String) -> Void = { _, _ in }
-    /// Delete the file or folder at the given url.
-    var onDelete: (URL) -> Void = { _ in }
+    /// Delete the file or folder at the given url. The name is the one the
+    /// row's menu item quoted, for the confirmation to quote too — a chain
+    /// row's label (`TreeChain.deleteConfirmationName`); nil for a file or a
+    /// plain folder, whose confirmation names the url's last component.
+    var onDelete: (URL, String?) -> Void = { _, _ in }
     /// Run the file at the given url in a new embedded-terminal session. Shown
     /// in the file-row context menu only for runnable file types.
     var onRun: (URL) -> Void = { _ in }
@@ -513,7 +516,7 @@ private struct DirectoryNodeView: View {
     let onNewFile: (URL, String) -> Void
     let onNewFolder: (URL, String) -> Void
     let onRename: (URL, String) -> Void
-    let onDelete: (URL) -> Void
+    let onDelete: (URL, String?) -> Void
     let onRun: (URL) -> Void
     let onRunTest: (URL) -> Void
     let onShowLocalHistory: (URL) -> Void
@@ -579,7 +582,7 @@ private struct DirectoryNodeView: View {
         onNewFile: @escaping (URL, String) -> Void,
         onNewFolder: @escaping (URL, String) -> Void,
         onRename: @escaping (URL, String) -> Void,
-        onDelete: @escaping (URL) -> Void,
+        onDelete: @escaping (URL, String?) -> Void,
         onRun: @escaping (URL) -> Void,
         onRunTest: @escaping (URL) -> Void,
         onShowLocalHistory: @escaping (URL) -> Void,
@@ -726,7 +729,7 @@ private struct DirectoryNodeView: View {
                             draft = nil
                         },
                         onRenameCancel: { draft = nil },
-                        onDelete: { onDelete(entry.url) },
+                        onDelete: { onDelete(entry.url, nil) },
                         onRun: { onRun(entry.url) },
                         onRunTest: { onRunTest(entry.url) },
                         onShowLocalHistory: { onShowLocalHistory(entry.url) },
@@ -859,13 +862,20 @@ private struct DirectoryNodeView: View {
         // re-run over an empty memo and draw every chain as a plain folder.
         // When this node's own listing is not remembered, the toggle has no
         // load behind it, so it reloads (or forgets, collapsed) instead.
+        //
+        // The remembered listing is the one the rows are computed from, and it
+        // is stored as `children`: the rows and the listing the create draft
+        // and reveal read then always come from one read.
         .onChange(of: separated) { _ in
-            guard let children else { return }
-            guard (try? listingMemo.rememberedListing(of: contentsDirectory, revision: model.treeRevision)) != nil else {
+            guard children != nil else { return }
+            guard let listing = try? listingMemo.rememberedListing(
+                of: contentsDirectory, revision: model.treeRevision
+            ) else {
                 reloadOrForget()
                 return
             }
-            let childRows = childRows(for: children, revision: model.treeRevision, rememberedOnly: true)
+            let childRows = childRows(for: listing, revision: model.treeRevision, rememberedOnly: true)
+            children = listing
             rows = childRows
             dropDraftNotLed(by: childRows)
         }
@@ -960,7 +970,7 @@ private struct DirectoryNodeView: View {
                         draft = .rename(entry: shape.renameEntry)
                     }
                 }
-                Button(shape.deleteTitle) { onDelete(shape.deleteTarget) }
+                Button(shape.deleteTitle) { onDelete(shape.deleteTarget, shape.deleteConfirmationName) }
             }
         }
         // A view choice, not a file operation: no draft, no gate. Unfolding an
@@ -1222,8 +1232,8 @@ private enum TreeNodeShape: Equatable {
         return nil
     }
 
-    /// Whether the row's menu offers `Show as One Row`: a separated folder the
-    /// rule says would otherwise head a chain.
+    /// Whether the row's menu offers `Show as One Row`: a separated folder
+    /// whose joining the rule says would draw a chain of more than one segment.
     var offersShowAsOneRow: Bool {
         if case .folder(_, let offers) = self { return offers }
         return false
@@ -1294,6 +1304,16 @@ private enum TreeNodeShape: Equatable {
         switch self {
         case .folder: return "Delete"
         case .chain(let chain): return chain.deleteTitle
+        }
+    }
+
+    /// The name the delete confirmation quotes: the chain's own, the one its
+    /// title quotes; nil for a plain folder, whose confirmation names the
+    /// folder's last path component.
+    var deleteConfirmationName: String? {
+        switch self {
+        case .folder: return nil
+        case .chain(let chain): return chain.deleteConfirmationName
         }
     }
 

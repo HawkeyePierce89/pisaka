@@ -333,6 +333,9 @@ final class LSPSourceGatingTests: XCTestCase {
     /// `identifier` as a whole word: not preceded or followed by an identifier
     /// character. This is what keeps `ProcessInfo` and `processIdentifier` out of
     /// the `Process` ban.
+    ///
+    /// Compares each candidate slice in place, as the stripper's `matches(_:at:)`
+    /// does: no array is allocated per position examined.
     static func containsToken(_ identifier: String, in code: String) -> Bool {
         let characters = Array(code)
         let needle = Array(identifier)
@@ -341,7 +344,7 @@ final class LSPSourceGatingTests: XCTestCase {
             character.isLetter || character.isNumber || character == "_"
         }
         for start in 0...(characters.count - needle.count) {
-            guard Array(characters[start..<(start + needle.count)]) == needle else { continue }
+            guard characters[start..<(start + needle.count)].elementsEqual(needle) else { continue }
             if start > 0, isIdentifierCharacter(characters[start - 1]) { continue }
             let after = start + needle.count
             if after < characters.count, isIdentifierCharacter(characters[after]) { continue }

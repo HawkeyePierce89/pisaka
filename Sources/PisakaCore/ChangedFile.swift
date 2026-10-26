@@ -6,7 +6,7 @@ import Foundation
 /// pure-enum precedent of `FileStatus`'s siblings (`FileIconColor`,
 /// `SyntaxTokenKind`). The view layer maps each case to an icon/color; Core
 /// stays UI-free.
-public enum FileStatus: Equatable, CaseIterable {
+public enum FileStatus: Equatable, CaseIterable, Sendable {
     case modified
     case added
     case deleted
@@ -59,7 +59,7 @@ extension FileStatus {
 /// "unchanged" rule reads it (`LocalChangesInlineDiff`). Defaulted to `nil`, so
 /// every construction that predates it, iOS's included, compiles unchanged and
 /// reads as "unknown".
-public struct ChangedFile: Identifiable, Equatable {
+public struct ChangedFile: Identifiable, Equatable, Sendable {
     public let path: String
     public let status: FileStatus
     public let oldPath: String?
@@ -84,7 +84,7 @@ public struct ChangedFile: Identifiable, Equatable {
 /// so it stands for itself and everything below it. `changedFiles` is exactly the
 /// list `changedFiles(root:)` answers, which is why a producer that cannot see
 /// ignored entries can still build an honest snapshot with an empty ignored list.
-public struct GitStatusSnapshot: Equatable {
+public struct GitStatusSnapshot: Equatable, Sendable {
     public let changedFiles: [ChangedFile]
     public let ignoredPaths: [String]
 
