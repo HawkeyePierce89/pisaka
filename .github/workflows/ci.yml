@@ -29,13 +29,13 @@ jobs:
       - name: Run PisakaCore tests
         run: swift test
 
-  # No `needs: test` here or on build-ios, on purpose: the build graph does not
-  # depend on the Core suite's verdict, and the run's result is wanted as early
-  # as its longest job allows. Serialized behind `test`, the wall time was
-  # `test` plus this job. The accepted cost is that a red `swift test` no longer
-  # saves these two runners' minutes. release.yml keeps its `needs: test`,
-  # because publishing must be gated on a green suite — a separate question
-  # from when feedback arrives.
+  # No `needs: test` here, on test-macos or on build-ios, on purpose: the build
+  # graph does not depend on the Core suite's verdict, and the run's result is
+  # wanted as early as its longest job allows. Serialized behind `test`, the wall
+  # time was `test` plus the slowest of these. The accepted cost is that a red
+  # `swift test` no longer saves these three runners' minutes. release.yml keeps
+  # its `needs: test`, because publishing must be gated on a green suite — a
+  # separate question from when feedback arrives.
   build-macos:
     runs-on: macos-15
     # Higher than the iOS job's: this one builds Release, so it pays for
@@ -83,21 +83,6 @@ jobs:
             echo "::error file=Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved::Resolving packages under the pinned Xcode rewrote the committed Package.resolved (diff above). Keep the resolved values and re-emit them in SwiftPM's v2 schema, as DependencyPinTests' doc comment describes; never commit the rewrite."
             exit 1
           fi
-      # The app-layer test bundle that `swift test` structurally cannot cover: it
-      # drives `NSTextView`/`NSLayoutManager`/`NSATSTypesetter` subclasses with
-      # behaviour of their own (the bracket overlay, the folding typesetter),
-      # whose launch-time trap no Core gate could see, plus the app-layer rules
-      # with no Core seam at all — the download collector's ceiling and its
-      # cancellation mapping (`core-provisioning.md`). It runs in Debug because
-      # the app's own Debug configuration is what the test host builds, and the
-      # trap is present in both.
-      - name: Test the AppKit overlay (PisakaAppTests)
-        run: >
-          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
-          -destination 'platform=macOS'
-          -clonedSourcePackagesDirPath SourcePackages
-          -derivedDataPath DerivedData.noindex
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
       # Release, deliberately, and it is the macOS job that carries it. The whole
       # Sparkle updater is behind `#if !DEBUG` (`SoftwareUpdater.swift`), so a
       # Debug-only gate would never compile `import Sparkle`,
@@ -302,6 +287,75 @@ jobs:
           kill -9 "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
           echo "The app survived ${DEADLINE}s and was terminated by this step."
+
+  # The app-layer test bundle has a job of its own so that it runs in parallel
+  # with the Release build above instead of in front of it. That gives up the
+  # old ordering — failing before building what would not launch — for wall
+  # time. The trap the bundle names is still caught on every run, whichever job
+  # builds the product, and build-macos's smoke launch still executes the
+  # shipped product after its build.
+  test-macos:
+    runs-on: macos-15
+    # A Debug build plus the bundle, 4–7.5 minutes measured; the iOS job's
+    # budget is the ceiling.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.3'
+      - name: Install XcodeGen 2.45.4
+        run: |
+          curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          sudo xcodegen/install.sh
+          xcodegen --version
+      # The checkouts are keyed by the Xcode that resolved them as well as by the
+      # lock file, so the guard below never reads one toolchain's resolution
+      # through another's cache: the first run after a pin bump resolves from
+      # scratch under the new Xcode.
+      - name: Read the selected Xcode for the cache key
+        id: xcode
+        run: echo "version=$(xcodebuild -version | head -n 1 | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: SourcePackages
+          key: spm-${{ steps.xcode.outputs.version }}-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ steps.xcode.outputs.version }}-
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Resolve package dependencies
+        run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+      # Which schema resolution writes depends on the Xcode doing it, and a
+      # rewrite (v2 into the legacy v1 shape) hides the one real pin change
+      # inside a whole-file diff. This step is what observes the pinned Xcode's
+      # behaviour: resolution must leave the committed file byte-identical. It
+      # resolves from scratch on a cache miss (always the first run under a new
+      # pin, since the key names the Xcode) and over this Xcode's own cached
+      # checkouts otherwise. DependencyPinTests' doc comment has the remedy.
+      - name: Package.resolved is unchanged by resolution
+        run: |
+          if ! git diff --exit-code -- Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved; then
+            echo "::error file=Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved::Resolving packages under the pinned Xcode rewrote the committed Package.resolved (diff above). Keep the resolved values and re-emit them in SwiftPM's v2 schema, as DependencyPinTests' doc comment describes; never commit the rewrite."
+            exit 1
+          fi
+      # The app-layer test bundle that `swift test` structurally cannot cover: it
+      # drives `NSTextView`/`NSLayoutManager`/`NSATSTypesetter` subclasses with
+      # behaviour of their own (the bracket overlay, the folding typesetter),
+      # whose launch-time trap no Core gate could see, plus the app-layer rules
+      # with no Core seam at all — the download collector's ceiling and its
+      # cancellation mapping (`core-provisioning.md`). It runs in Debug because
+      # the app's own Debug configuration is what the test host builds, and the
+      # trap is present in both.
+      - name: Test the AppKit overlay (PisakaAppTests)
+        run: >
+          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath SourcePackages
+          -derivedDataPath DerivedData.noindex
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
 
   build-ios:
     runs-on: macos-15

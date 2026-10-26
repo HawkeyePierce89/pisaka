@@ -926,7 +926,7 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// `ci.yml`'s budget for its macOS Release build, found by walking back from
     /// the build step rather than by taking the file's first `timeout-minutes:`
-    /// — that file has three jobs with three different budgets, and the first is
+    /// — that file has several jobs, each with its own budget, and the first is
     /// the *test* job's.
     private func ciMacBuildBudget(file: StaticString = #filePath, line: UInt = #line) throws -> Int {
         let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/ci.yml"))
@@ -2940,8 +2940,8 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// Every job that installs an Xcode installs the same one, so the toolchain
     /// that gates a pull request is the toolchain that archives the release.
     ///
-    /// The set of `setup-xcode` sites is pinned by set equality, so a sixth step
-    /// fails here until it is named — a new job silently left on an older Xcode
+    /// The set of `setup-xcode` sites is pinned by set equality, so an additional
+    /// step fails here until it is named — a new job silently left on an older Xcode
     /// is the drift this exists to refuse. The line count closes the other side:
     /// an `xcode-version:` sitting outside any step would satisfy nothing and
     /// mislead every reader. `XcodePin`'s doc comment is the authority and lists
@@ -2951,7 +2951,7 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         let sites = Set(steps.map { "\($0.workflow): \($0.job)" })
         XCTAssertEqual(sites, [
-            "ci.yml: test", "ci.yml: build-macos", "ci.yml: build-ios",
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: test-macos", "ci.yml: build-ios",
             "release.yml: test", "release.yml: release",
         ], """
             The jobs carrying a maxim-lobanov/setup-xcode step changed. Found: \(sites.sorted()). \
@@ -3023,43 +3023,91 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// up on a developer's machine, as a whole-file diff hiding the one real pin
     /// change.
     ///
-    /// Read over comment-stripped lines and scoped to `build-macos`, the job
-    /// whose resolution feeds the app tests and the shipping build. The path is
-    /// held equal to the one the SwiftPM cache key hashes, so the guard and the
-    /// cache cannot come to name two different files, and it must exist — a
-    /// misspelled path makes `git diff` compare nothing and pass forever.
+    /// Two ci.yml jobs guard their resolve: `build-macos`, whose resolution feeds
+    /// the shipping build, and `test-macos`, whose resolution feeds the app-layer
+    /// bundle. (`build-ios` resolves too, under a cache key that does not name the
+    /// Xcode, and is not asked here.) Each runs under the pinned Xcode its own setup-xcode step installs
+    /// (`testEveryWorkflowPinsTheSameXcode`), so each observes that toolchain's
+    /// resolution independently, and each is asked the whole guard by
+    /// `assertResolvedGuard(inJob:)` over comment-stripped lines scoped to it.
+    /// The path is held equal to the one the job's SwiftPM cache key hashes, so
+    /// the guard and the cache cannot come to name two different files, and it
+    /// must exist — a misspelled path makes `git diff` compare nothing and pass
+    /// forever.
+    ///
+    /// The two jobs are then held to the same cache path, key and restore keys,
+    /// the same Xcode read, the same resolve and the same guard, line for line.
+    /// An equal path and key are what make the two jobs share one cache entry
+    /// (the cache action versions an entry by its paths too) rather than
+    /// each paying for its own download, and equal steps are what make a green
+    /// guard in one job mean the same thing as in the other.
     func testCIRefusesARewrittenPackageResolved() throws {
-        let steps = try Self.jobSteps("build-macos", in: "ci.yml")
+        let builtPath = try assertResolvedGuard(inJob: "build-macos")
+        let testedPath = try assertResolvedGuard(inJob: "test-macos")
+        XCTAssertEqual(builtPath, testedPath, """
+            ci.yml's `build-macos` and `test-macos` must hash and guard the same lock file; they \
+            name \(builtPath ?? "none") and \(testedPath ?? "none").
+            """)
+
+        let built = try Self.jobSteps("build-macos", in: "ci.yml")
+        let tested = try Self.jobSteps("test-macos", in: "ci.yml")
+        let guardName = "- name: \(Self.resolvedGuardStepName)"
+        let shared: [(String, ([String]) -> Bool, ([String]) -> [String])] = [
+            ("the SwiftPM cache path, key and restore keys",
+             { $0.contains { $0.hasPrefix("uses: actions/cache@") } },
+             { $0.filter { $0.hasPrefix("path:") || $0.hasPrefix("key:") || $0.hasPrefix("restore-keys:") } }),
+            ("the `id: xcode` step", { $0.contains("id: xcode") }, { $0 }),
+            ("the resolve step", { $0.contains { $0.contains("-resolvePackageDependencies") } }, { $0 }),
+            ("the `\(Self.resolvedGuardStepName)` step", { $0.first == guardName }, { $0 }),
+        ]
+        for (what, matches, lines) in shared {
+            let inBuild = try XCTUnwrap(built.first(where: matches).map(lines),
+                                        "ci.yml's `build-macos` job has no \(what)")
+            let inTest = try XCTUnwrap(tested.first(where: matches).map(lines),
+                                       "ci.yml's `test-macos` job has no \(what)")
+            XCTAssertEqual(inBuild, inTest, """
+                ci.yml's `build-macos` and `test-macos` must carry \(what) line for line — an equal cache \
+                path and key are what make the two jobs share one SwiftPM cache entry, and an equal resolve and \
+                guard are what make the two guards observe the same thing.
+                """)
+        }
+    }
+
+    /// Asks the `Package.resolved` guard of one ci.yml job and returns the single
+    /// path that job's SwiftPM cache key hashes (`nil` when it hashes another
+    /// number of files, which has already failed).
+    private func assertResolvedGuard(inJob job: String) throws -> String? {
+        let steps = try Self.jobSteps(job, in: "ci.yml")
         let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
-                                    "ci.yml's `build-macos` job no longer resolves package dependencies")
+                                    "ci.yml's `\(job)` job no longer resolves package dependencies")
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
-            ci.yml's `build-macos` job must run `\(Self.resolvedGuardStepName)` as the step directly \
+            ci.yml's `\(job)` job must run `\(Self.resolvedGuardStepName)` as the step directly \
             after `Resolve package dependencies` — before anything else can touch the worktree, so a \
             rewrite is attributed to resolution and nothing else.
             """)
         let step = try XCTUnwrap(steps.first(where: { $0.first == guardName }),
-                                 "ci.yml's `build-macos` job has no `\(Self.resolvedGuardStepName)` step")
+                                 "ci.yml's `\(job)` job has no `\(Self.resolvedGuardStepName)` step")
 
         let diffs = step.filter { $0.contains("git diff") }
-        XCTAssertFalse(diffs.isEmpty, "`\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
+        XCTAssertFalse(diffs.isEmpty, "`\(job)`'s `\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
         for diff in diffs {
             XCTAssertTrue(diff.contains("--exit-code"), """
-                `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
+                `\(job)`'s `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
                 rewritten Package.resolved prints a diff and the step still succeeds: \(diff)
                 """)
         }
         XCTAssertFalse(step.contains { $0.hasPrefix("continue-on-error") }, """
-            `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
             survives failing observes nothing.
             """)
         XCTAssertFalse(step.contains { $0.hasPrefix("if:") }, """
-            `\(Self.resolvedGuardStepName)` must not carry an `if:` — a guard that can be skipped \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must not carry an `if:` — a guard that can be skipped \
             observes nothing on the runs it skips.
             """)
         for diff in diffs {
             XCTAssertNil(diff.range(of: #"\|\|\s*(true|:)"#, options: .regularExpression), """
-                `\(Self.resolvedGuardStepName)` must not swallow `git diff`'s status with `|| true`: \(diff)
+                `\(job)`'s `\(Self.resolvedGuardStepName)` must not swallow `git diff`'s status with `|| true`: \(diff)
                 """)
         }
         // The failing diff has to fail the step: either the `if ! git diff` form
@@ -3069,7 +3117,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             ? step.contains { $0 == "exit 1" }
             : diffs.contains { $0.hasPrefix("git diff --exit-code") && !$0.contains("||") && !$0.contains("&&") }
         XCTAssertTrue(guarded, """
-            `\(Self.resolvedGuardStepName)` must fail when `git diff --exit-code` does — an \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must fail when `git diff --exit-code` does — an \
             `if ! git diff …; then … exit 1; fi`, or a bare `git diff --exit-code` line.
             """)
 
@@ -3083,17 +3131,18 @@ final class ReleaseWorkflowTests: XCTestCase {
             keyPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
                 .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
         })
-        XCTAssertEqual(hashed.count, 1, "`build-macos`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
+        XCTAssertEqual(hashed.count, 1, "`\(job)`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
         XCTAssertEqual(diffedPaths, hashed, """
-            `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
             It diffs \(diffedPaths.sorted()); the cache key hashes \(hashed.sorted()).
             """)
         for path in diffedPaths {
             XCTAssertTrue(FileManager.default.fileExists(atPath: Self.repositoryRoot.appendingPathComponent(path).path), """
-                `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
+                `\(job)`'s `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
                 `git diff` over a missing path compares nothing and passes on every run.
                 """)
         }
+        return hashed.count == 1 ? hashed.first : nil
     }
 
     private static let resolvedGuardStepName = "Package.resolved is unchanged by resolution"
@@ -3136,22 +3185,35 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The AppKit overlay is verified by a headless XCTest bundle that drives
     /// the editor's real TextKit stack — the layer `swift test` structurally
-    /// cannot cover. It runs in the macOS job before the Release build so a
-    /// launch-time typesetter trap fails the job before it builds what it would
-    /// not launch, and it is not skippable for the same reason the smoke launch
-    /// is not.
-    func testCIAppKitOverlayIsTestedBeforeTheBuild() throws {
-        let script = try stepScript(named: Self.ciAppKitTestStepName, in: "ci.yml", because: """
-            It is the only gate that drives the editor's real TextKit stack headlessly — the layer \
-            swift test structurally cannot cover, and the one that sees the FoldingTypesetter trap.
+    /// cannot cover. It runs in a job of its own, `test-macos`, after that job's
+    /// package resolve, and it is not skippable for the same reason the smoke
+    /// launch is not.
+    ///
+    /// It used to run in `build-macos` ahead of the Release build, so a
+    /// launch-time typesetter trap failed the job before it built what it would
+    /// not launch. That ordering is given up on purpose, for wall time: the two
+    /// jobs now run in parallel. The trap is still caught by this bundle on every
+    /// run, whichever job builds the product, and the Release build's own smoke
+    /// launch still runs the product after the build. What is pinned instead is
+    /// that the bundle lives in `test-macos` and *only* there — a copy left in
+    /// `build-macos` would put the bundle back on that job's critical path.
+    func testCIAppKitOverlayIsTestedInItsOwnJob() throws {
+        let steps = try Self.jobSteps("test-macos", in: "ci.yml")
+        let stepName = "- name: \(Self.ciAppKitTestStepName)"
+        let index = try XCTUnwrap(steps.firstIndex(where: { $0.first == stepName }), """
+            ci.yml's `test-macos` job has no `\(Self.ciAppKitTestStepName)` step. It is the only gate \
+            that drives the editor's real TextKit stack headlessly — the layer swift test \
+            structurally cannot cover, and the one that sees the FoldingTypesetter trap.
             """)
+        let script = steps[index]
         XCTAssertTrue(script.contains { $0.contains("xcodebuild") }, """
             ci.yml's `\(Self.ciAppKitTestStepName)` step must run `xcodebuild`. It is the headless \
             AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
             cannot see.
             """)
-        XCTAssertTrue(script.contains { $0.contains("test") }, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run the test action. It is the headless \
+        XCTAssertTrue(Self.runsTestAction(script), """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run xcodebuild's `test` (or \
+            `test-without-building`) action — `build-for-testing` compiles the bundle and runs none of it. It is the headless \
             AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
             cannot see.
             """)
@@ -3164,34 +3226,72 @@ final class ReleaseWorkflowTests: XCTestCase {
             ci.yml's `\(Self.ciAppKitTestStepName)` step must pass CODE_SIGNING_ALLOWED=NO. CI builds \
             unsigned and the test host is the unsigned app — the same flags the build steps use.
             """)
-        // Positioned after resolve, before the Release build.
+        let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
+                                    "ci.yml's `test-macos` job no longer resolves package dependencies")
+        XCTAssertGreaterThan(index, resolve, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after `test-macos`'s package resolve. \
+            The test target resolves the app's packages (Neon, tree-sitter) the same way the build does.
+            """)
+        let resolvedDir = try XCTUnwrap(Self.clonedPackagesDirectory(of: steps[resolve]),
+                                        "`test-macos`'s resolve step names no -clonedSourcePackagesDirPath")
+        XCTAssertEqual(Self.clonedPackagesDirectory(of: script), resolvedDir, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must pass `-clonedSourcePackagesDirPath \(resolvedDir)`, \
+            the checkouts its job's resolve wrote and its guard checked. Without it the test action resolves \
+            again into the derived-data directory, after the guard, so a rewritten Package.resolved goes unseen.
+            """)
+
         let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
         let appKit = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciAppKitTestStepName)"
+            $0.trimmingCharacters(in: .whitespaces) == stepName
         }), "ci.yml has no `\(Self.ciAppKitTestStepName)` step")
-        let resolve = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).contains("resolvePackageDependencies")
-        }), "ci.yml has no package resolve step")
-        let build = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciMacBuildStepName)"
-        }), "ci.yml has no `\(Self.ciMacBuildStepName)` step")
-        XCTAssertGreaterThan(appKit, resolve, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after the package resolve. The test \
-            target resolves the app's packages (Neon, tree-sitter) the same way the build does.
-            """)
-        XCTAssertLessThan(appKit, build, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run before \
-            `\(Self.ciMacBuildStepName)`. The crash it catches is a launch crash; building a Release \
-            product that will not survive layout is wasted work and the wrong order to fail in.
-            """)
         let owningJob = raw[..<appKit].last(where: Self.isJobHeader)
-        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "build-macos:", """
-            The AppKit test belongs to the `build-macos:` job, which is the one that builds the macOS \
-            app. It is currently under “\(owningJob ?? "no job at all")”.
+        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "test-macos:", """
+            The AppKit test belongs to the `test-macos:` job, which runs it in parallel with the \
+            Release build. It is currently under “\(owningJob ?? "no job at all")”.
+            """)
+
+        // Not in build-macos, under its name or any other: no step there runs
+        // xcodebuild's test action.
+        let buildSteps = try Self.jobSteps("build-macos", in: "ci.yml")
+        XCTAssertFalse(buildSteps.contains { $0.first == stepName }, """
+            ci.yml's `build-macos` job must not carry `\(Self.ciAppKitTestStepName)` — the bundle runs \
+            in `test-macos`, in parallel with the Release build, not in front of it.
+            """)
+        XCTAssertEqual(buildSteps.filter(Self.runsTestAction).compactMap(\.first), [], """
+            ci.yml's `build-macos` job must not run xcodebuild's test action — the app-layer bundle \
+            runs in `test-macos`, in parallel with the Release build, not in front of it.
             """)
     }
 
     private static let ciAppKitTestStepName = "Test the AppKit overlay (PisakaAppTests)"
+
+    /// The whitespace tokens of every `xcodebuild` invocation in one step. A
+    /// folded `run: >` step is one command spread over its lines; a `run: |`
+    /// script is one command per line, so a `test` elsewhere in a script
+    /// (`if ! test -x …`) is never read as xcodebuild's action.
+    private static func xcodebuildInvocations(in step: [String]) -> [[Substring]] {
+        if let folded = step.firstIndex(where: { $0.hasPrefix("run: >") }) {
+            let command = step[(folded + 1)...].joined(separator: " ")
+            return command.contains("xcodebuild") ? [command.split(whereSeparator: \.isWhitespace)] : []
+        }
+        return step.filter { $0.contains("xcodebuild") }.map { $0.split(whereSeparator: \.isWhitespace) }
+    }
+
+    /// Whether a step runs xcodebuild's test action, read off whole tokens so
+    /// `build-for-testing` (which runs nothing) does not count.
+    private static func runsTestAction(_ step: [String]) -> Bool {
+        xcodebuildInvocations(in: step).contains { $0.contains("test") || $0.contains("test-without-building") }
+    }
+
+    /// The directory a step's `xcodebuild` passes to `-clonedSourcePackagesDirPath`.
+    private static func clonedPackagesDirectory(of step: [String]) -> Substring? {
+        for tokens in xcodebuildInvocations(in: step) {
+            if let flag = tokens.firstIndex(of: "-clonedSourcePackagesDirPath"), tokens.indices.contains(flag + 1) {
+                return tokens[flag + 1]
+            }
+        }
+        return nil
+    }
 
     /// The name of CI's macOS build step. A constant for the same reason
     /// `archiveStepName` is one: a renamed step must fail loudly rather than

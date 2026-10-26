@@ -64,11 +64,12 @@ import XCTest
 /// below are what catch getting either half wrong.
 ///
 /// What the pinned Xcode does today is no longer remembered here but observed:
-/// ci.yml's `build-macos` job resolves and then runs
+/// ci.yml's `build-macos` and `test-macos` jobs both resolve and then run
 /// `Package.resolved is unchanged by resolution`, a `git diff --exit-code` over
 /// this file (`ReleaseWorkflowTests.testCIRefusesARewrittenPackageResolved`), on
-/// every run — from scratch on a cache miss, and its SwiftPM cache is keyed by
-/// the Xcode as well as by this file, so the first run under a new pin is one.
+/// every run — from scratch on a cache miss, and their shared SwiftPM cache is
+/// keyed by the Xcode as well as by this file, so the first run under a new pin
+/// is one.
 /// Xcode 26.3's fresh-clone behaviour, as that step first observed it on the
 /// pull request that moved the pin: on a cache miss (key
 /// `spm-Xcode-26.3-…`, nothing restored) resolution left this v2 file
