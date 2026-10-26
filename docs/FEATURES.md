@@ -45,6 +45,17 @@ user sees it.
   **Show as Separate Folders** on such a row (and **Show as One Row** back,
   offered only while joining would again draw more than one folder) changes
   only that row, until the app quits or another folder is opened.
+  On macOS, scrolling through a long expanded folder keeps the row of every
+  expanded folder you are inside pinned at the tree's top edge, directly under
+  the header, outermost first and at its own indent, so you can always see which
+  folders hold what is on screen. Each pinned row is pushed up and out as its
+  folder's contents end, and the stack takes at most a third of the tree's
+  height, dropping the outermost rows first. Clicking a pinned row scrolls its
+  folder's own row into view just below the stack, and clicking its chevron
+  collapses that folder. The pinned rows are a navigation aid only: they have no
+  context menu, cannot be dragged or dropped onto, and are not announced by
+  VoiceOver. Reveal in Project Tree and a New File or New Folder draft also land
+  below the stack, never under it.
   Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
   delete; only the service entries `.git` and `.DS_Store` are hidden (and cannot

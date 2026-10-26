@@ -4497,7 +4497,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// a row whose background stops yielding its selection wash, a new row
     /// background and a deleted one all fail until a person reads the code.
     /// Acknowledgements joined this pin when its dependency list left
-    /// `List(selection:)` for the Log's row shape.
+    /// `List(selection:)` for the Log's row shape. The tree's third entry is
+    /// the pinned copy of an expanded folder's row (`TreeStickyRowView`): it
+    /// passes `isSelected: false` because a folder is never the active tab, and
+    /// `isDropTarget: false` because the copy accepts no drop — so it has no
+    /// selection to yield, and only its hover goes through the shared mapping.
     private static let chromeRowBackgrounds: [String: [String]] = [
         "AcknowledgementsView.swift": [
             "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
@@ -4520,6 +4524,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
                 + "isHovering: isHovering, isDropTarget: isDropTarget ) "
                 + "return TreeRowBackground.color(for: state, resolving: theme.color)",
             "let state = TreeRowState.state( isSelected: isSelected, isWindowKey: controlActiveState == .key, "
+                + "isHovering: isHovering, isDropTarget: false ) "
+                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+            "let state = TreeRowState.state( isSelected: false, isWindowKey: controlActiveState == .key, "
                 + "isHovering: isHovering, isDropTarget: false ) "
                 + "return TreeRowBackground.color(for: state, resolving: theme.color)",
         ],

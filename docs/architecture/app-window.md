@@ -1303,7 +1303,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     in progress" alert fires exactly when the menu is chosen), then set an
     inline `@State private var draft: TreeEditDraft?`. A drafted folder row
     expands if collapsed and renders the draft as its literal first child,
-    scrolled into view; a drafted file or folder row swaps its label for the
+    placed below the pinned stack (`TreeStickyRule.placement`, see the
+    sticky-folders entry below); a drafted file or folder row swaps its label for the
     draft field. While a row is drafted, its tap (expand/open), drag source,
     drop delegate, context menu, and button trait are suppressed so
     VoiceOver reaches the field and gestures do not compete with typing.
@@ -1450,7 +1451,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `dropTargetTint` through `TreeRowBackground`, which composes no alpha — the
     accent's hue at a third strength the palette carries (part five (g) in
     `core-theme.md`) — and `TreeRowBackgroundTests` pins it. One rule and
-    one mapping, read by both row kinds, is what stops the treatments drifting
+    one mapping, read by both row kinds (and by the sticky stack's pinned
+    folder copy, hover only), is what stops the treatments drifting
     apart. Everything else on both row kinds is **unchanged and in the same
     order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
     click are distinct gestures), the hover highlight, the full-row `.contextMenu`s
@@ -1472,7 +1474,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeRowBackgroundTests`.) The theme arrives as a
     role-to-colour *function*, not as the theme value, so no view file names
     `ChromeTheme` — rule five of the gating suite (`core-theme.md`). Both row
-    kinds read that one mapping, for the reason they share the geometry tokens.
+    kinds — and the sticky stack's pinned folder copy, hover only — read that
+    one mapping, for the reason they share the geometry tokens.
     Two of the rule's four inputs are
     **derived, not interactive**: *selection* is "this row's file is the active
     editor tab's file" — `ProjectTreeView` builds a `TreeSelection` from
@@ -1546,7 +1549,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the target row reports `onRevealed(token, id)` from its `.onAppear` (its folder
     just expanded) and from `.onChange(of: reveal)` (already on screen);
     `ProjectTreeView` then scrolls the existing `ScrollViewReader` to it at
-    `.center` — the reader wraps the `ScrollView`, since a proxy drives only the
+    `UnitPoint(x: 0, y: TreeStickyRule.revealAnchorY)` — the centre, which
+    always clears the pinned stack (see the sticky-folders entry below) — the reader wraps the `ScrollView`, since a proxy drives only the
     scroll views its reader contains. That report also **withdraws the request** — the tree records the
     completed token and hands `nil` down from then on — so a node the user later
     collapses, or one rebuilt by a re-expansion of its parent, is never re-opened
@@ -1815,6 +1819,133 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeGitStatusColourTests.testAChainRowColoursEachSegmentByItsOwnStateAndItsSeparatorSecondary`
     samples each segment's role and the separator's `textSecondary` off one
     render; `TreeRevealRequestTests` pins the chain questions.
+  - `ProjectTreeView.swift`, **sticky parent folders** — while the tree scrolls
+    through an expanded folder, a copy of every expanded ancestor whose real row
+    has scrolled above the viewport is pinned at the scroll view's top edge,
+    directly under the pane header. Every decision — which rows pin, in what
+    order, where each is drawn (push-out included), how tall the stack is, and
+    where a scrolled-to row must land — is `TreeStickyRule`'s
+    (`core-workspace.md`); the view measures, draws and hands the answers to
+    `scrollTo`. A navigation aid only: nothing is persisted, and nothing about
+    what the tree holds or what any operation addresses changes.
+    **Measurement.** `DirectoryNodeView` carries `depth` (root `0`, child the
+    parent's plus one, a chain row one node and one depth). While a node is
+    expanded, a `GeometryReader` background on its `DisclosureGroup` reports one
+    `TreeStickyFolderReport` through `TreeStickyFoldersKey` (an array, tree
+    order): the whole node's frame in the named **content** space
+    (`TreeStickySpace.content`, set on the padded content `VStack`), its depth
+    and expansion, its `TreeNodeShape`, its folder row's scroll id
+    (`TreeRevealRequest.rowID(head)`, on `FolderDisclosureRow` alone so the
+    anchor maths sees one row's height) and the node's own `$isExpanded`.
+    **Collapsed nodes attach no reader** — they have no subtree to measure —
+    and a frame in content space does not move while scrolling, so a scroll
+    changes no report. The **scroll offset** is read by one `GeometryReader` on
+    the padded content, its `minY` in the scroll view's named **viewport**
+    space, and written through `onChange(of:initial:)` into
+    `TreeStickyViewport` — an `ObservableObject` with a `@Published top` and a
+    `@Published contentWidth` (the same reader's width, through a second
+    `onChange`), each assigned only on inequality — held by `TreeStickyViewportSource`, an
+    unpublished `@StateObject` (the `TreeListingSource` pattern), so the tree
+    root that owns it is never invalidated by the offset. It is deliberately
+    **not a preference**: measured, a preference changed by scrolling alone
+    never reached an `onPreferenceChange` outside the scroll view (two calls,
+    both `0`, through a reveal and four AppKit clip-view scrolls), while the
+    reader itself saw every offset. The viewport height is the overlay's own
+    `GeometryReader`. **Why scrolling re-renders no row and lists nothing**:
+    the overlay, `TreeStickyStackView`, is the offset's **one observer**, so a
+    scroll frame re-renders it alone; the reports it reads carry no listing and
+    the rows it draws read the root's already-published `gitStatus` and
+    `diagnostics` lookups with the urls the real row asks
+    (`spokenGitStateURL`, `diagnosticMarkURL`, `gitStatusURLs`), so no file-system
+    call is reachable from a scroll.
+    **Shared drawing.** The folder row is split into `TreeFolderRowLayout`
+    (chevron column, padding, the fixed `rowHeight` frame with its rename-draft
+    ceiling) and `TreeFolderLabel` (glyph, diagnostic dot, name slot), whose
+    name is `TreeFolderName` (plain or segmented; `segmentsText` is static over
+    a `resolving` function). `FolderDisclosureRow` and the pinned copy
+    (`TreeStickyRowView`) both draw through them, so "drawn exactly as the real
+    row" holds by construction; the real row keeps its rename-field branch,
+    passing the field into the label's name slot. The copy always draws
+    `chevron-down`, because only expanded folders pin, and never a draft.
+    **Overlay.** `.overlayPreferenceValue(TreeStickyFoldersKey.self, alignment:
+    .top)` on the `ScrollView`, inside the existing `ScrollViewReader` — so on
+    the viewport rather than in the content, directly under the header, which
+    is outside the scroll view, whatever the offset. Its frame is **exactly
+    `Stack.height`** tall and the **content's width** wide — measured by the
+    content's own reader into `TreeStickyViewport.contentWidth`, which is the
+    scroll view's width less a legacy scroller, so the stack neither paints over
+    that scroller nor takes its drags (an overlay scroller, drawn over the
+    content, is still covered while it shows, as it covers the rows) — then
+    `.clipped()` **and** `.contentShape(Rectangle())`. Both are needed:
+    `clipped()` limits drawing alone, so without the content shape a row being
+    pushed out would still take the header's clicks above the frame. So a
+    pushed-out row never draws over the header nor answers its clicks, and
+    everything below the stack keeps receiving clicks, drags and menus. Rows are a `ZStack` offset by each `Stack.Row.top`,
+    `zIndex`ed **outermost on top**, identified by the folder's scroll id so a
+    copy keeps its hover state while the stack above it changes. **Indent by
+    layout**: one `metrics.scaled(ChromeGeometry.treeIndentStep)`-wide spacer
+    per depth level, each carrying `TreeIndentGuide` as its leading background,
+    so every enclosing folder's guide runs through the copy as through the real
+    row. Back to front: the `bgPanel` ground across the full width, the guides,
+    the row over its own background —
+    `TreeRowState.state(isSelected: false, isWindowKey: controlActiveState ==
+    .key, isHovering: isHovering, isDropTarget: false)` through
+    `TreeRowBackground.color(for:resolving:)`, the tree's third pinned entry in
+    chrome gating rule thirty-five (`core-theme.md`) — and a one-`hairline` rule
+    `metrics.scaled(ChromeGeometry.hairlineWidth)` tall at the stack's bottom
+    edge, `.allowsHitTesting(false)` so the last copy's bottom strip under it
+    still takes that copy's tap. Every size goes through `metrics`, every colour through
+    `theme.color(role)`.
+    **Interaction.** A tap on the chevron slot (the scaled leading padding
+    plus `TreeRowLayout.chevronGutter`, overlaid on the row) sets the reported
+    binding to `false` — the very `@State` the real row toggles, so the node's
+    collapse handler drops any draft below. A tap anywhere else hands the
+    `Stack.Row` and the scroll id to the tree, which calls `withAnimation {
+    proxy.scrollTo(id, anchor: UnitPoint(x: 0, y: row.scrollAnchorY)) }`,
+    reading the anchor the rule put on the row — **never the row's index in
+    the stack**, which is wrong once the cap has dropped outer rows. It changes
+    no selection and opens nothing. **Reveal** scrolls to
+    `TreeStickyRule.revealAnchorY` (the centre, which the rule proves clears
+    the largest stack the cap allows). **The create draft is placed through
+    the rule**: the draft row reports its content-space top through
+    `TreeStickyDraftTopKey` (a `Double?`, read by `onPreferenceChange` inside
+    the scroll view, where a layout-only change reaches it); `onDraftAppeared`
+    sets `draftPlacementPending`; `TreeStickyDraftPlacement`, drawn behind the
+    stack inside the same overlay closure where the reports and the viewport
+    meet, reads the offset object **without observing it** and, when both the
+    flag and a measured top are present, asks `TreeStickyRule.placement` once —
+    the tree scrolls `"draft-row"` only on a non-nil anchor and clears the flag
+    either way. Causal, with no timed delay; it replaces the anchor-less
+    `scrollTo("draft-row")`, which could leave the draft under a folder that
+    New File had just expanded and that then pinned over its own first child.
+    **Stated limits.** The stack is capped at **a third** of the tree's height
+    in whole rows (`TreeStickyRule.capFraction`), dropping the outermost rows
+    first. A copy offers **click-to-scroll and chevron collapse only**: no
+    context menu, no drag, no drop, no draft. The whole overlay is
+    `.accessibilityHidden(true)` — the real rows carry everything a reader
+    needs. The rule takes a folder's own row to be one `rowHeight` tall, so a
+    folder whose **own rename draft** is open (its row grown to fit a wrapped
+    field) is still measured as one row.
+    **Tests.** `TreeStickyScrollListingTests` (app bundle) builds a project with
+    `a/` of 60 files and `b/` of 5 over a counting `FileServicing` wrapper
+    injected through `WorkspaceModel(fileService:)` — strictly stronger than a
+    listing count, since it also catches link queries — reveals `a/f45`, then
+    scrolls the hosting `NSScrollView`'s clip view to four offsets, and pins
+    that the file-service call count never moved while the clip view's origin
+    did; one capture at the final offset finds the pinned chevron inked in the
+    first slot under the header, proving SwiftUI observed the AppKit-driven
+    scroll, which is how a wheel scroll arrives. `TreeStickyStackLayoutTests`
+    (app bundle, `HostedRender` at 1.8, dark) renders a project whose `a/`
+    holds 40 files, a modified `a/f03` and an error in `a/f07`, twice: `a`
+    collapsed, then `a/f30` revealed. It pins `a`'s chevron and glyph in the
+    first slot under the header at the depth-1 slots, the copy's name and dot
+    colours equal to the real row's and to `statusYellow` / `statusRed`, the
+    hairline at the stack's bottom edge and the root's guide through the copy.
+    Its accessibility pin **reads the source** — `.accessibilityHidden(true)`
+    inside `TreeStickyStackView`'s declaration, line comments stripped —
+    because headless the hosting view's `accessibilityChildren()` is empty and a
+    hit test answers the hosting view itself, so a probe of the tree would pass
+    either way.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,

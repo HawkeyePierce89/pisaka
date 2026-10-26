@@ -714,7 +714,7 @@ full entry; what is **not** listed here has not been swept.
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
     `app-window.md`. Every row state answers with a role or with nothing, through
     the one mapping `TreeRowBackground.color(for:resolving:)` that both row kinds
-    read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
+    — and the sticky stack's pinned folder copy, hover only — read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
     `accent` at a composed 40 % before), and only `plain` paints nothing. Hover,
     selection and drop are all true at the moment a drag sits over a selected row
     (the pointer is inside it), so the drop treatment has to out-read
@@ -3911,7 +3911,11 @@ The fifty-one rules, each invisible to the compiler:
     file to the whitespace-normalized body of every `var rowBackground` it
     declares, in source order, compared in both directions — today the Log's
     two, the problem browser's, Local Changes', the Problems panel's, the
-    tree's two, the vertical tab row's and Acknowledgements'. The last moved
+    tree's three, the vertical tab row's and Acknowledgements'. The tree's
+    third is the pinned copy of an expanded folder's row (the sticky stack):
+    `isSelected: false`, because a folder is never the active tab, and
+    `isDropTarget: false`, because the copy accepts no drop, so only its hover
+    goes through the shared `TreeRowBackground` mapping. The last moved
     there from the platform pin, where it had stood as `[[]]`, when its list
     left `List(selection:)` for the Log's row shape (part five (c)'s decision
     15): its selected-row background is `if isSelected { return
