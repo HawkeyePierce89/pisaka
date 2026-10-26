@@ -537,10 +537,11 @@ DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -projec
 ```
 
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
-push to `master` as four independent jobs, none with a `needs:` on another: `swift test`;
+push to `master` as five independent jobs, none with a `needs:` on another: `swift test`;
 the macOS job (which first refuses a `Package.resolved` the pinned Xcode's resolution
-rewrote — remedy in `DependencyPinTests`' doc comment — then runs the app-layer
-`PisakaAppTests` bundle, then an unsigned build); an unsigned iOS build (device arch, `generic/platform=iOS`,
+rewrote — remedy in `DependencyPinTests`' doc comment — then builds Release, unsigned,
+and launches what it built); the app-layer `PisakaAppTests` bundle (Debug, headless, in
+its own job behind the same guard); an unsigned iOS build (device arch, `generic/platform=iOS`,
 covering libgit2 linking); and `lint`
 (pinned SwiftLint 0.65.1, `--strict`), which refuses style
 violations even when the pre-commit hook was bypassed or never installed. No

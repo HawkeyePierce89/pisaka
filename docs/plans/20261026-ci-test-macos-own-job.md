@@ -263,7 +263,7 @@ weakened:
 - Modify: `CLAUDE.md`
 - Modify: `docs/RELEASING.md`
 
-- [ ] In CLAUDE.md's Commands section, rewrite the CI sentence as five independent
+- [x] In CLAUDE.md's Commands section, rewrite the CI sentence as five independent
   jobs, none with a `needs:` on another, keeping the text after it unchanged ("No
   signing, secrets, or simulator. The **macOS build is `-configuration
   Release`…**", "The macOS job then **launches what it built**…"). The five jobs:
@@ -275,12 +275,12 @@ weakened:
   - the unsigned iOS build (device arch, `generic/platform=iOS`, covering libgit2
     linking);
   - `lint` (pinned SwiftLint 0.65.1, `--strict`).
-- [ ] Confirm by grep that CLAUDE.md's Tests section has no clause saying the
+- [x] Confirm by grep that CLAUDE.md's Tests section has no clause saying the
   bundle runs "in the macOS job". Exploration found none; correct one only if it
   is there.
-- [ ] Run `wc -c CLAUDE.md`. It must stay under 60,000 (56,702 before). Record
+- [x] Run `wc -c CLAUDE.md`. It must stay under 60,000 (56,702 before). Record
   both numbers in Notes.
-- [ ] In `docs/RELEASING.md`'s toolchain paragraph:
+- [x] In `docs/RELEASING.md`'s toolchain paragraph:
   - "three in `ci.yml` (`test`, `build-macos`, `build-ios`)" becomes "four in
     `ci.yml` (`test`, `build-macos`, `test-macos`, `build-ios`)";
   - "holds all five" becomes "holds all six".
@@ -288,14 +288,14 @@ weakened:
   First grep the tests for "all five" and for that parenthesis, to confirm nothing
   pins the old wording; record the result in Notes. Leave the anchored "Pinned
   toolchain" phrase untouched.
-- [ ] Re-read every other `ci.yml` mention in RELEASING.md (lines ~445, 484, 763,
+- [x] Re-read every other `ci.yml` mention in RELEASING.md (lines ~445, 484, 763,
   794, 1026, 1039, 1059, 1167) and correct only a sentence that says the bundle
   runs inside the macOS build job. Exploration found none; record the finding in
   Notes.
-- [ ] Run `git grep -n -e "macOS job" -e "build-macos" -- ':!docs/plans'` and
+- [x] Run `git grep -n -e "macOS job" -e "build-macos" -- ':!docs/plans'` and
   confirm that no hit says the bundle runs inside the macOS job. README.md,
   `docs/architecture/*` and `Makefile` are expected to stay unchanged.
-- [ ] Run the full `swift test` (`LintConfigurationTests` must be green, with
+- [x] Run the full `swift test` (`LintConfigurationTests` must be green, with
   CLAUDE.md under the ceiling) and `make lint`.
 
 ### Task 4: Verify acceptance criteria
@@ -368,7 +368,25 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
     green; full `swift test` 7118 tests, 0 failures; `make lint` 0 violations in
     784 files.
 - CLAUDE.md character count before and after.
+  - `wc -c CLAUDE.md`: 56,702 before, 56,783 after (under the 60,000 ceiling;
+    `LintConfigurationTests` 29 tests green). The Tests section has no clause
+    saying the bundle runs "in the macOS job"; nothing changed there.
 - RELEASING.md findings (wording pins grep; other `ci.yml` mentions).
+  - `git grep` over the tests for "all five" and for the old
+    `(`test`, `build-macos`, `build-ios`)` parenthesis: no pin on either. The only
+    "all five" hit is `VendoredGrammarQueryTests`' doc comment (the five grammars,
+    unrelated). The only old job list is `Fixtures/github/README.md`, which
+    describes fixture data recorded from PR #54 and stays as it is.
+  - The other `ci.yml` mentions (lines 445, 484, 763, 794, 1026, 1039, 1059,
+    1167) cover concurrency, the `test` job, "that bundle is `ci.yml`'s gate"
+    (still true), the smoke launch, the cleanup step, the build budget and the
+    DerivedData root. None says the bundle runs inside the macOS build job, so
+    none changed.
+  - Repository-wide `git grep -e "macOS job" -e "build-macos"` (excluding
+    docs/plans): no hit says the bundle runs in the macOS job. README.md,
+    `docs/architecture/*` and `Makefile` are unchanged.
+  - After Task 3: full `swift test` 7118 tests, 0 failures; `make lint`
+    0 violations in 784 files.
 - Final `swift test` line, `make lint` line, YAML check output.
 
 ## Post-Completion

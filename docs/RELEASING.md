@@ -454,9 +454,9 @@ step leaves the release behind as a **draft** (below), which is invisible on the
 releases page's default view but still occupies the tag.
 
 **Pinned toolchain: Xcode `26.3`.** Every `maxim-lobanov/setup-xcode` step —
-three in `ci.yml` (`test`, `build-macos`, `build-ios`) and two here (`test`,
+four in `ci.yml` (`test`, `build-macos`, `test-macos`, `build-ios`) and two here (`test`,
 `release`) — installs that one version, on the `macos-15` runner, and
-`ReleaseWorkflowTests` holds all five to a single value, with this sentence
+`ReleaseWorkflowTests` holds all six to a single value, with this sentence
 held equal to it (the set of steps is the authority; `XcodePin`, in the test
 support directory, lists every reader checked against it). The pin exists
 because the language the project may use is whatever *this* Xcode accepts, and a
