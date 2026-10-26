@@ -178,6 +178,10 @@ final class TreeStickyRuleTests: XCTestCase {
         // Cap 2, c's real row is [66, 88). At 43 it still crosses the stack
         // [a, b]'s bottom edge (87): it shows itself and no copy is drawn.
         XCTAssertEqual(pinned(nested, top: 43, height: capTwo), [row("a", 0), row("b", 22)])
+        // Half a point or a hair short of it, c's row still shows under the
+        // stack: the full chain's `≤` allows a drift, not a margin.
+        XCTAssertEqual(pinned(nested, top: 43.5, height: capTwo), [row("a", 0), row("b", 22)])
+        XCTAssertEqual(pinned(nested, top: 43.999, height: capTwo), [row("a", 0), row("b", 22)])
         // At 44 it lies exactly under b's copy, the last slot [66, 88): left
         // out, c would show neither its row nor a copy. It joins, a drops.
         XCTAssertEqual(pinned(nested, top: 44, height: capTwo), [row("b", 0), row("c", 22)])
@@ -405,6 +409,37 @@ final class TreeStickyRuleTests: XCTestCase {
                         XCTAssertTrue(inSight(ancestor), "\(deep[ancestor].name) covered — \(context)")
                     }
                 }
+            }
+        }
+    }
+
+    func testTheEligibleAncestorCountIsTheFoldersStrictlyContainingTheRow() {
+        // The binary-searched count against the definition, at every row edge
+        // of three fixtures and every point between: eligible, and
+        // `top + tolerance < rowTop < bottom − tolerance`. The third mixes
+        // siblings, a collapsed folder and an expanded empty one.
+        let mixed = [
+            folder("root", depth: 0, 0, 1_000),
+            folder("a", depth: 1, 22, 300),
+            folder("b", depth: 2, 44, 132),
+            folder("c", depth: 2, 132, 154, expanded: false),
+            folder("d", depth: 2, 154, 176),
+            folder("e", depth: 1, 300, 900),
+            folder("f", depth: 2, 322, 600),
+        ]
+        for named in [nested, deep, mixed] {
+            let folders = named.map(\.folder)
+            let tolerance = TreeStickyRule.measurementTolerance
+            for rowTop in stride(from: -22.0, through: 5_100, by: 0.5) {
+                let expected = folders.filter {
+                    $0.depth >= 1 && $0.isExpanded && $0.bottom > $0.top + rowHeight + tolerance
+                        && $0.top + tolerance < rowTop && rowTop < $0.bottom - tolerance
+                }.count
+                XCTAssertEqual(
+                    TreeStickyRule.eligibleAncestorCount(forRowAt: rowTop, folders: folders, rowHeight: rowHeight),
+                    expected,
+                    "row at \(rowTop)"
+                )
             }
         }
     }

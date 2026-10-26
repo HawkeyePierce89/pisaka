@@ -1893,7 +1893,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeRowBackground.color(for:resolving:)`, the tree's third pinned entry in
     chrome gating rule thirty-five (`core-theme.md`) — and a one-`hairline` rule
     `metrics.scaled(ChromeGeometry.hairlineWidth)` tall at the stack's bottom
-    edge. Every size goes through `metrics`, every colour through
+    edge, `.allowsHitTesting(false)` so the last copy's bottom strip under it
+    still takes that copy's tap. Every size goes through `metrics`, every colour through
     `theme.color(role)`.
     **Interaction.** A tap on the chevron slot (the scaled leading padding
     plus `TreeRowLayout.chevronGutter`, overlaid on the row) sets the reported

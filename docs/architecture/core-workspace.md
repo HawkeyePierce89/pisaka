@@ -1009,12 +1009,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the rule would, so a last child's bottom can come back one ulp past its
     parent's (`246.40000000000003` against `246.4` at scale 1.1) and exact
     containment would drop it from the chain, pinning its child straight under
-    the grandparent. Eligibility, containment, the ancestor count and the full
-    chain's `≤` therefore each allow `measurementTolerance = 0.5` points across
-    their boundary — far above the drift, far below the smallest row (19.2 at
-    the interface scale's 0.8 floor), so no two distinct rows blur. The free
-    slots' `<` stays strict: a drift there pins a copy exactly over its own
-    row, the same pixels.
+    the grandparent. Eligibility, containment and the ancestor count compare
+    one row's edge with another's, and therefore each allow
+    `measurementTolerance = 0.5` points across their boundary — far above the
+    drift, far below the smallest row (19.2 at the interface scale's 0.8
+    floor), so no two distinct rows blur. The full chain's `≤` is different: it
+    compares an edge with the scroll offset, which moves continuously, so a
+    0.5-point margin would join the candidate — and drop the outermost row —
+    while half a point of its real row still showed. It allows only
+    `slotTolerance = 1e-6`, the round-off of the click anchor's `y·(H − h)`:
+    AppKit keeps a programmatic scroll's fractional offset as asked rather than
+    snapping it to the backing pixel (an `NSClipView` probe at backing scale 1
+    read `48.4`, `66.25` and `66.1` back unchanged through `scroll(to:)`,
+    `setBoundsOrigin` and `constrainBoundsRect`), so the click lands within a
+    drift of the equality and nothing wider is needed. The free slots' `<`
+    stays strict: a drift there pins a copy exactly over its own row, the same
+    pixels.
     **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom −
     rowHeight)`, reported relative to the viewport top as `Stack.Row.top` —
     negative, or above its nominal slot, while the end of its subtree pushes it
@@ -1032,10 +1042,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     to `0…1`, `0` when `H ≤ h`. `eligibleAncestorCount(forRowAt:folders:
     rowHeight:)` counts the eligible folders whose span contains the row's top
     (`top < rowTop < bottom`); a folder's own row is not inside its span, so it
-    never counts itself. `scrollAnchorY(forRowAt:folders:viewportHeight:
+    never counts itself. It is two binary searches over the eligible folders'
+    sorted tops and sorted bottoms — those starting above the row minus those
+    ending at or above it, an eligible folder ending above the row necessarily
+    starting above it too — so `stack(...)` builds the two arrays once — and
+    not at all when nothing pins, an empty chain returning before them — and
+    counts each pinned row in `O(log n)`, keeping the whole stack `O(n log n)`
+    rather than a linear scan per pinned row on every scroll. `scrollAnchorY(forRowAt:folders:viewportHeight:
     rowHeight:)` — `anchorY` of that count capped at `maximumRows` — is **the
     one below-the-stack anchor**: `stack(...)` fills every
-    `Stack.Row.scrollAnchorY` by asking it for the folder's top, and
+    `Stack.Row.scrollAnchorY` with the same answer for the folder's top, and
     `placement` asks it directly. **Why the count and not the index**: with
     the cap dropping outer rows the index is wrong — with `maximumRows` 3 and
     `a/b/c/d/e` nested, expanded and deep, the stack shows `[c, d, e]`;
@@ -1049,12 +1065,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rowTop + h)` already lies inside `[viewport.top + stack.height,
     viewport.top + H)` — no scroll — and otherwise `scrollAnchorY(forRowAt:)`,
     the anchor the click uses; the app asks it for the create draft.
-    Covered by `TreeStickyRuleTests` (31 tests, `rowHeight` 22, viewports
+    Covered by `TreeStickyRuleTests` (32 tests, `rowHeight` 22, viewports
     giving caps of 1, 2, 3 and 4): nothing pins at offset 0 or while a real row
     is at or below its slot; one row, several rows outermost first, shuffled
     input, input indices; push-out and both slide-under orders; the cap
     dropping the outermost first and a capped candidate joining only once fully
-    under the stack; `maximumRows` at and either side of exact multiples, and
+    under the stack, not half a point or a hair short of it; `maximumRows` at and either side of exact multiples, and
     `0` below three rows; a collapsed ancestor, the root and an expanded empty
     folder never pinning; one-ulp drift in every tolerant comparison
     changing no answer (each part failing with the tolerance at 0); a chain as
@@ -1063,7 +1079,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the capped `a/b/c/d/e` fixture's anchors `[0.25, 0.375, 0.375]`, equal to a
     direct `scrollAnchorY(forRowAt: e.top)` and **not** `anchorY(rowsAbove:
     2)`; the uncapped stack's anchors equal to the index; the ancestor count
-    ignoring the root, collapsed folders and the row's own folder; the reveal
+    ignoring the root, collapsed folders and the row's own folder, and equal to
+    the definition counted directly at every half point of three fixtures; the reveal
     centre clearing the capped stack for every height from `3h` to `60h` in
     one-point steps, the count of heights checked (1,255) asserted so the loop
     cannot pass empty; and `placement` `nil` for clear rows, the shared anchor —

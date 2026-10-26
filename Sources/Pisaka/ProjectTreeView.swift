@@ -2489,6 +2489,9 @@ private struct TreeStickyStackView: View {
                 Rectangle()
                     .fill(theme.color(.hairline))
                     .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+                    // Decoration only: the last copy's bottom strip under it
+                    // still takes the copy's tap and hover.
+                    .allowsHitTesting(false)
             }
         }
         .accessibilityHidden(true)
