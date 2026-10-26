@@ -22,7 +22,9 @@ import PisakaCore
 /// scroll. After it settles the count is recorded, the hosting `NSScrollView`'s
 /// clip view is scrolled to four offsets — the way a wheel scroll arrives,
 /// through AppKit — settling after each, and the count must never have moved
-/// while the clip view's origin did.
+/// while the clip view's origin did. One capture at the final offset then
+/// finds `a`'s pinned chevron in the first row slot under the header, which
+/// proves SwiftUI observed the AppKit-driven scroll.
 @MainActor
 final class TreeStickyScrollListingTests: XCTestCase {
 
@@ -57,6 +59,23 @@ final class TreeStickyScrollListingTests: XCTestCase {
             XCTAssertEqual(files.calls, settled,
                            "scrolling to \(offset) reached the file service \(files.calls - settled) time(s)")
         }
+
+        // SwiftUI observed the AppKit-driven scroll — the way a wheel scroll
+        // arrives: `a`'s pinned copy draws its chevron in the first row slot
+        // under the header, at the depth-1 chevron slot. A chevron, not `a`'s
+        // own one-point guide, which runs through that column in the rows the
+        // copy covers.
+        try render.capture()
+        let metrics = InterfaceMetrics(scale: 1)
+        let header = metrics.scaled(ChromeGeometry.sidebarHeaderHeight)
+        let slotX = metrics.scaled(ChromeGeometry.treeIndentStep) + metrics.scaled(ChromeGeometry.rowPaddingX)
+        let chevron = try XCTUnwrap(
+            ink(in: render, x: slotX..<(slotX + metrics.scaled(TreeRowLayout.chevronWidth)),
+                rows: header..<(header + metrics.scaled(ChromeGeometry.rowHeight))),
+            "no pinned chevron in the first row slot after the AppKit scroll"
+        )
+        XCTAssertGreaterThan(chevron.width, metrics.scaled(TreeRowLayout.chevronWidth) / 3,
+                             "the first slot's depth-1 chevron column holds a rule, not a pinned chevron")
     }
 
     // MARK: - Helpers
@@ -74,6 +93,26 @@ final class TreeStickyScrollListingTests: XCTestCase {
         }
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         return root
+    }
+
+    /// The bounding box of every pixel in `x` × `rows` that differs from the
+    /// row's ground — sampled at the row's leading edge — or `nil` when the
+    /// region is clean. Reads the one bitmap.
+    private func ink(in render: HostedRender, x: Range<CGFloat>, rows: Range<CGFloat>) -> CGRect? {
+        let step = 1 / render.pixelScale
+        guard let ground = render.color(atX: step, y: (rows.lowerBound + rows.upperBound) / 2) else { return nil }
+        var box: CGRect?
+        for py in stride(from: rows.lowerBound, to: rows.upperBound, by: step) {
+            for px in stride(from: x.lowerBound, to: x.upperBound, by: step) {
+                guard let color = render.color(atX: px, y: py),
+                      abs(color.redComponent - ground.redComponent) > 0.08
+                        || abs(color.greenComponent - ground.greenComponent) > 0.08
+                        || abs(color.blueComponent - ground.blueComponent) > 0.08 else { continue }
+                let pixel = CGRect(x: px, y: py, width: step, height: step)
+                box = box.map { $0.union(pixel) } ?? pixel
+            }
+        }
+        return box
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {

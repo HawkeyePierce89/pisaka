@@ -312,6 +312,22 @@ struct ProjectTreeView: View {
                 }
             }
             .coordinateSpace(.named(TreeStickySpace.viewport))
+            // The pinned stack, on the scroll view rather than in its content:
+            // it sits at the viewport's top edge — directly under the header,
+            // which is outside the scroll view — whatever the offset. It reads
+            // the expanded folders' reports as they cross the scroll view, and
+            // its own reader answers the viewport's height.
+            .overlayPreferenceValue(TreeStickyFoldersKey.self, alignment: .top) { reports in
+                GeometryReader { geometry in
+                    TreeStickyStackView(
+                        reports: reports,
+                        viewport: stickyViewport.viewport,
+                        viewportHeight: Double(geometry.size.height),
+                        gitStatus: gitStatus,
+                        diagnostics: diagnostics
+                    )
+                }
+            }
             .onChange(of: model.projectRoot) { _ in
                 draft = nil
                 listings.memo(listingThrough: model).reset()
@@ -2345,6 +2361,146 @@ private struct TreeDropDelegate: DropDelegate {
         let destination = folder
         DispatchQueue.main.async { move(source, destination) }
         return true
+    }
+}
+
+/// The pinned stack: a copy of every expanded ancestor's row whose real row
+/// has scrolled above the viewport, as `TreeStickyRule` answers it. Drawn over
+/// the scroll view's top edge, so directly under the header.
+///
+/// The one observer of `TreeStickyViewport`: a scroll frame re-renders this
+/// view alone. Its frame is **exactly the stack's height** and clipped, so a
+/// row being pushed out never draws over the header and everything below the
+/// stack keeps receiving clicks, drags and menus. Rows are drawn outermost on
+/// top, so a deeper row whose subtree ends slides up under its parent. A
+/// navigation aid only: no drag, no drop, no menu, no draft, and hidden from
+/// accessibility — the real rows carry everything a reader needs.
+private struct TreeStickyStackView: View {
+    /// Every expanded folder node's report, in tree order.
+    let reports: [TreeStickyFolderReport]
+    @ObservedObject var viewport: TreeStickyViewport
+    let viewportHeight: Double
+    /// The tree's lookups, read as the real rows read them.
+    let gitStatus: TreeGitStatus
+    let diagnostics: TreeDiagnostics
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+
+    var body: some View {
+        let stack = TreeStickyRule.stack(
+            folders: reports.map(\.folder),
+            viewport: TreeStickyRule.Viewport(top: viewport.top, height: viewportHeight),
+            rowHeight: Double(metrics.scaled(ChromeGeometry.rowHeight))
+        )
+        let pinned = stack.rows.enumerated().map { level, row in
+            TreeStickyPinnedRow(level: level, row: row, report: reports[row.index])
+        }
+        ZStack(alignment: .top) {
+            ForEach(pinned) { pinnedRow in
+                TreeStickyRowView(report: pinnedRow.report, gitStatus: gitStatus, diagnostics: diagnostics)
+                    .offset(y: pinnedRow.row.top)
+                    // Outermost on top.
+                    .zIndex(Double(pinned.count - pinnedRow.level))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: stack.height, maxHeight: stack.height, alignment: .top)
+        .clipped()
+        .overlay(alignment: .bottom) {
+            if !pinned.isEmpty {
+                Rectangle()
+                    .fill(theme.color(.hairline))
+                    .frame(height: metrics.scaled(ChromeGeometry.hairlineWidth))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// One row of the stack: its level, the rule's answer and the report it was
+/// drawn from, identified by the folder's scroll id so a copy keeps its hover
+/// state while the stack above it changes.
+private struct TreeStickyPinnedRow: Identifiable {
+    let level: Int
+    let row: TreeStickyRule.Stack.Row
+    let report: TreeStickyFolderReport
+
+    var id: String { report.scrollID }
+}
+
+/// A pinned copy of an expanded folder's row, drawn exactly as the real row
+/// draws — the same `TreeFolderRowLayout`, `TreeFolderLabel` and
+/// `TreeFolderName`, asked of the same lookups with the same urls.
+///
+/// The indent is built by layout: one `treeIndentStep`-wide spacer per depth
+/// level, each carrying `TreeIndentGuide` as its leading background, so every
+/// enclosing folder's guide runs through the copy as it runs through the real
+/// row. Back to front: the `bgPanel` ground across the full width, the guides,
+/// then the row over its own hover background. The copy always draws the
+/// expanded chevron, because only expanded folders pin. A tap on the chevron
+/// slot collapses the folder through its node's own expansion binding — the
+/// very `@State` the real row toggles, so its collapse handler drops any draft
+/// below.
+private struct TreeStickyRowView: View {
+    let report: TreeStickyFolderReport
+    let gitStatus: TreeGitStatus
+    let diagnostics: TreeDiagnostics
+
+    @State private var isHovering = false
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+    /// The chrome's colours, inherited from the window root.
+    @Environment(\.chromeTheme) private var theme
+    /// Whether this row's window is the key one, as the real row reads it.
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    var body: some View {
+        let shape = report.shape
+        HStack(spacing: 0) {
+            ForEach(0..<report.depth, id: \.self) { _ in
+                Color.clear
+                    .frame(width: metrics.scaled(ChromeGeometry.treeIndentStep))
+                    .background(alignment: .leading) { TreeIndentGuide() }
+            }
+            TreeFolderRowLayout(isExpanded: true, isDrafted: false) {
+                TreeFolderLabel(isExpanded: true, diagnosticMark: diagnostics.mark(for: shape.diagnosticMarkURL)) {
+                    TreeFolderName(
+                        shape: shape, gitState: gitStatus.state(for: shape.spokenGitStateURL), gitStatus: gitStatus
+                    )
+                }
+            }
+            .background(rowBackground)
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .overlay(alignment: .leading) {
+                // The chevron slot: the row's leading padding, the chevron
+                // column and its gap, each scaled as the row lays them out.
+                Color.clear
+                    .frame(
+                        width: metrics.scaled(ChromeGeometry.rowPaddingX) + TreeRowLayout.chevronGutter(metrics)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { report.expansion.wrappedValue = false }
+            }
+        }
+        .frame(height: metrics.scaled(ChromeGeometry.rowHeight))
+        .background(theme.color(.bgPanel))
+    }
+
+    /// The copy's background, through the one mapping both real row kinds
+    /// use. Never selected — a folder is never the active tab — and never a
+    /// drop target, because the copy accepts no drop.
+    private var rowBackground: Color {
+        let state = TreeRowState.state(
+            isSelected: false,
+            isWindowKey: controlActiveState == .key,
+            isHovering: isHovering,
+            isDropTarget: false
+        )
+        return TreeRowBackground.color(for: state, resolving: theme.color)
     }
 }
 

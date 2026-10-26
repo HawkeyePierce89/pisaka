@@ -3911,7 +3911,11 @@ The fifty-one rules, each invisible to the compiler:
     file to the whitespace-normalized body of every `var rowBackground` it
     declares, in source order, compared in both directions — today the Log's
     two, the problem browser's, Local Changes', the Problems panel's, the
-    tree's two, the vertical tab row's and Acknowledgements'. The last moved
+    tree's three, the vertical tab row's and Acknowledgements'. The tree's
+    third is the pinned copy of an expanded folder's row (the sticky stack):
+    `isSelected: false`, because a folder is never the active tab, and
+    `isDropTarget: false`, because the copy accepts no drop, so only its hover
+    goes through the shared `TreeRowBackground` mapping. The last moved
     there from the platform pin, where it had stood as `[[]]`, when its list
     left `List(selection:)` for the Log's row shape (part five (c)'s decision
     15): its selected-row background is `if isSelected { return

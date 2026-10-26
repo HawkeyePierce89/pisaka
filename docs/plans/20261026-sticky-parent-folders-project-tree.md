@@ -328,21 +328,21 @@ Task 3.
 - Modify: `Tests/PisakaCoreTests/ChromeThemeSourceGatingTests.swift`
 - Create: `Tests/PisakaAppTests/TreeStickyStackLayoutTests.swift`
 
-- [ ] Add the overlay and the pinned row view per Decision 4: placement under the header,
+- [x] Add the overlay and the pinned row view per Decision 4: placement under the header,
   clip, frame of exactly `Stack.height`, z-order outermost on top, indent spacers carrying
   `TreeIndentGuide`, ground/guides/row layering, hover background through the shared mapping,
   hairline at the stack bottom, chevron-tap collapse through the reported binding, no
   drag/drop/menu/draft, overlay hidden from accessibility. The row-body tap is wired in Task 4,
   once the rule answers its anchor.
-- [ ] Add the pinned row's background expression to rule thirty-five's pinned set, with its
+- [x] Add the pinned row's background expression to rule thirty-five's pinned set, with its
   reason in the set's doc comment. Run every source-gating suite
   (`ChromeThemeSourceGatingTests`, `ZoomSourceGatingTests`, `MenuShortcutUniquenessTests`,
   `DrawDirtyRectSourceGatingTests`); fix the code, not the rules, except for that one
   deliberate entry.
-- [ ] Extend `TreeStickyScrollListingTests` with one capture at its final offset. Assert a
+- [x] Extend `TreeStickyScrollListingTests` with one capture at its final offset. Assert a
   pinned row's chevron is inked in the first row slot under the header. This proves SwiftUI
   observed the AppKit-driven scroll, which is how a wheel scroll arrives.
-- [ ] Write `TreeStickyStackLayoutTests`, `HostedRender` at scale 1.8, window
+- [x] Write `TreeStickyStackLayoutTests`, `HostedRender` at scale 1.8, window
   `metrics.scaled(240) × metrics.scaled(300)`, dark theme.
   - **Project.** `a/` with 40 files; `gitStatus` marking `a/f03` modified, so `a` takes the
     modified name role; `diagnostics` with an error in `a/f07`, so `a`'s glyph carries the
@@ -355,13 +355,13 @@ Task 3.
     - the hairline runs at the stack's bottom edge;
     - the root's guide runs through the pinned row at the depth-0 guide centre.
   - Two renders in total; no loops over windows or bitmaps.
-- [ ] Hand-break and record, each making the named test fail:
+- [x] Hand-break and record, each making the named test fail:
   - an unscaled indent;
   - the copy's name drawn without its git role;
   - the overlay offset by the content padding;
   - accessibility not hidden (state the probe used: the overlay's `accessibilityHidden` read
     off the hosting view's accessibility children).
-- [ ] Run `swift test` and the app bundle; both must pass before Task 4.
+- [x] Run `swift test` and the app bundle; both must pass before Task 4.
 
 ### Task 4: Programmatic scrolls land below the stack
 
@@ -498,6 +498,57 @@ hosted-render measurements.)
   failed at each offset (`8 ≠ 7`, `9 ≠ 7`, `10 ≠ 7`, `11 ≠ 7` calls; "scrolling to 100.0
   reached the file service 1 time(s)" … "4 time(s)"). Restored, and the restored file
   compared byte-identical to the saved copy.
+
+### Task 3
+
+- App-layer gates ran under Xcode 27.1 again (the pinned 26.3 is not installed here). The
+  app bundle passed 499 tests with 0 failures, among them both sticky suites and the seven
+  tree suites unchanged. `swift test` passed 7,145 tests, among them the four source-gating
+  suites (`ChromeThemeSourceGatingTests` 75, `ZoomSourceGatingTests` 8,
+  `MenuShortcutUniquenessTests` 3, `DrawDirtyRectSourceGatingTests` 10). `swiftlint
+  --strict` is clean.
+- Views: `TreeStickyStackView` (the overlay, the viewport's one observer) and
+  `TreeStickyRowView` (the copy), both at the end of `ProjectTreeView.swift`, plus
+  `TreeStickyPinnedRow`, which identifies a copy by its folder's scroll id. Because they sit
+  after `FileRowView`, the copy's `rowBackground` is the tree's third entry in
+  `chromeRowBackgrounds` in source order as well. The chevron-tap target is the row's
+  leading padding plus `TreeRowLayout.chevronGutter`, overlaid on the shared row layout.
+- Hosted-render measurements (`TreeStickyStackLayoutTests`, scale 1.8, the bitmap at 1 px
+  per point on this machine). Header `57.5`, row height `43`. The reveal settled at clip
+  origin `1163`. Render A's root chevron ink is `(19.5, 83.5, 13 × 7)`. Render B's pinned
+  chevron ink is `(48.5, 75.5, 13 × 8)`: one step (`29`) right of the root's, and the same
+  offset into its slot (`18` vs `19`, within 2 px). The pinned glyph ink is
+  `(73, 69.5, 24 × 23)`. Name colour in A and B: sRGB `0.794 0.647 0.390`
+  (`statusYellow`). Dot colour in A and B: sRGB `0.777 0.486 0.443` (`statusRed`). The
+  bottom rule runs `99.5 ..< 101.5`, i.e. it ends at the slot's bottom `100.5`
+  (+1 px sampling) and is the scaled hairline thick.
+- **Deviation, measured: the accessibility probe reads the source.** Headless, the hosting
+  view's `accessibilityChildren()` is empty, with the window ordered front or not. An
+  accessibility hit test over the pinned row answers the hosting view itself. So a probe of
+  the accessibility tree passes whether or not the overlay is hidden, which is the
+  `LocalChangesLayoutTests` / `WelcomeLayoutTests` finding again.
+  `testThePinnedStackIsHiddenFromAccessibility` instead reads `ProjectTreeView.swift`,
+  with line comments stripped, and requires `.accessibilityHidden(true)` inside
+  `TreeStickyStackView`'s declaration.
+- Hand-breaks, each run against `TreeStickyStackLayoutTests`, each restored, and the
+  restored file compared byte-identical to the saved copy:
+  - Unscaled indent (the spacer's `.frame(width: ChromeGeometry.treeIndentStep)`): 5
+    failures, among them "the pinned chevron is not one indent step right of the root's"
+    (`24 ≠ 29`) and "the pinned row does not start directly under the header" (`12 ≠ 19`).
+  - The copy's name as a plain `Text(shape.label)`: "the pinned copy's name is not drawn in
+    its git role, statusYellow".
+  - The overlay offset by the content padding (`.padding(.top, metrics.scaled(4))`): 3
+    failures. "The pinned row does not start directly under the header" (`25 ≠ 19`), "the
+    hairline does not run at the stack's bottom edge" (`108.5 ≠ 100.5`), and the
+    bgPanel-ground check.
+  - `.accessibilityHidden(true)` removed: "the pinned stack is not hidden from
+    accessibility", and failing alone, in three runs. On the first run with this break the
+    layout test also died once inside `HostedRender.settle` ("needing another Update
+    Constraints in Window pass"). That did not recur in three more runs with the break or
+    in three clean runs of both suites, so it is recorded here as a one-off.
+- `TreeStickyScrollListingTests`' added capture at offset 1000 finds the pinned chevron in
+  the first slot under the header, wider than a third of the chevron column, so it is not
+  `a`'s one-point guide.
 
 ## Post-Completion
 
