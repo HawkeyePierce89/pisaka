@@ -926,7 +926,7 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// `ci.yml`'s budget for its macOS Release build, found by walking back from
     /// the build step rather than by taking the file's first `timeout-minutes:`
-    /// — that file has three jobs with three different budgets, and the first is
+    /// — that file has several jobs, each with its own budget, and the first is
     /// the *test* job's.
     private func ciMacBuildBudget(file: StaticString = #filePath, line: UInt = #line) throws -> Int {
         let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/ci.yml"))
@@ -2940,8 +2940,8 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// Every job that installs an Xcode installs the same one, so the toolchain
     /// that gates a pull request is the toolchain that archives the release.
     ///
-    /// The set of `setup-xcode` sites is pinned by set equality, so a sixth step
-    /// fails here until it is named — a new job silently left on an older Xcode
+    /// The set of `setup-xcode` sites is pinned by set equality, so an additional
+    /// step fails here until it is named — a new job silently left on an older Xcode
     /// is the drift this exists to refuse. The line count closes the other side:
     /// an `xcode-version:` sitting outside any step would satisfy nothing and
     /// mislead every reader. `XcodePin`'s doc comment is the authority and lists
@@ -2951,7 +2951,7 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         let sites = Set(steps.map { "\($0.workflow): \($0.job)" })
         XCTAssertEqual(sites, [
-            "ci.yml: test", "ci.yml: build-macos", "ci.yml: build-ios",
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: test-macos", "ci.yml: build-ios",
             "release.yml: test", "release.yml: release",
         ], """
             The jobs carrying a maxim-lobanov/setup-xcode step changed. Found: \(sites.sorted()). \
@@ -3136,15 +3136,27 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// The AppKit overlay is verified by a headless XCTest bundle that drives
     /// the editor's real TextKit stack — the layer `swift test` structurally
-    /// cannot cover. It runs in the macOS job before the Release build so a
-    /// launch-time typesetter trap fails the job before it builds what it would
-    /// not launch, and it is not skippable for the same reason the smoke launch
-    /// is not.
-    func testCIAppKitOverlayIsTestedBeforeTheBuild() throws {
-        let script = try stepScript(named: Self.ciAppKitTestStepName, in: "ci.yml", because: """
-            It is the only gate that drives the editor's real TextKit stack headlessly — the layer \
-            swift test structurally cannot cover, and the one that sees the FoldingTypesetter trap.
+    /// cannot cover. It runs in a job of its own, `test-macos`, after that job's
+    /// package resolve, and it is not skippable for the same reason the smoke
+    /// launch is not.
+    ///
+    /// It used to run in `build-macos` ahead of the Release build, so a
+    /// launch-time typesetter trap failed the job before it built what it would
+    /// not launch. That ordering is given up on purpose, for wall time: the two
+    /// jobs now run in parallel. The trap is still caught by this bundle on every
+    /// run, whichever job builds the product, and the Release build's own smoke
+    /// launch still runs the product after the build. What is pinned instead is
+    /// that the bundle lives in `test-macos` and *only* there — a copy left in
+    /// `build-macos` would put the bundle back on that job's critical path.
+    func testCIAppKitOverlayIsTestedInItsOwnJob() throws {
+        let steps = try Self.jobSteps("test-macos", in: "ci.yml")
+        let stepName = "- name: \(Self.ciAppKitTestStepName)"
+        let index = try XCTUnwrap(steps.firstIndex(where: { $0.first == stepName }), """
+            ci.yml's `test-macos` job has no `\(Self.ciAppKitTestStepName)` step. It is the only gate \
+            that drives the editor's real TextKit stack headlessly — the layer swift test \
+            structurally cannot cover, and the one that sees the FoldingTypesetter trap.
             """)
+        let script = steps[index]
         XCTAssertTrue(script.contains { $0.contains("xcodebuild") }, """
             ci.yml's `\(Self.ciAppKitTestStepName)` step must run `xcodebuild`. It is the headless \
             AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
@@ -3164,30 +3176,38 @@ final class ReleaseWorkflowTests: XCTestCase {
             ci.yml's `\(Self.ciAppKitTestStepName)` step must pass CODE_SIGNING_ALLOWED=NO. CI builds \
             unsigned and the test host is the unsigned app — the same flags the build steps use.
             """)
-        // Positioned after resolve, before the Release build.
+        let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
+                                    "ci.yml's `test-macos` job no longer resolves package dependencies")
+        XCTAssertGreaterThan(index, resolve, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after `test-macos`'s package resolve. \
+            The test target resolves the app's packages (Neon, tree-sitter) the same way the build does.
+            """)
+
         let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
         let appKit = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciAppKitTestStepName)"
+            $0.trimmingCharacters(in: .whitespaces) == stepName
         }), "ci.yml has no `\(Self.ciAppKitTestStepName)` step")
-        let resolve = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).contains("resolvePackageDependencies")
-        }), "ci.yml has no package resolve step")
-        let build = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciMacBuildStepName)"
-        }), "ci.yml has no `\(Self.ciMacBuildStepName)` step")
-        XCTAssertGreaterThan(appKit, resolve, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run after the package resolve. The test \
-            target resolves the app's packages (Neon, tree-sitter) the same way the build does.
-            """)
-        XCTAssertLessThan(appKit, build, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run before \
-            `\(Self.ciMacBuildStepName)`. The crash it catches is a launch crash; building a Release \
-            product that will not survive layout is wasted work and the wrong order to fail in.
-            """)
         let owningJob = raw[..<appKit].last(where: Self.isJobHeader)
-        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "build-macos:", """
-            The AppKit test belongs to the `build-macos:` job, which is the one that builds the macOS \
-            app. It is currently under “\(owningJob ?? "no job at all")”.
+        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "test-macos:", """
+            The AppKit test belongs to the `test-macos:` job, which runs it in parallel with the \
+            Release build. It is currently under “\(owningJob ?? "no job at all")”.
+            """)
+
+        // Not in build-macos, under its name or any other: no step there runs
+        // xcodebuild's test action.
+        let buildSteps = try Self.jobSteps("build-macos", in: "ci.yml")
+        XCTAssertFalse(buildSteps.contains { $0.first == stepName }, """
+            ci.yml's `build-macos` job must not carry `\(Self.ciAppKitTestStepName)` — the bundle runs \
+            in `test-macos`, in parallel with the Release build, not in front of it.
+            """)
+        let testingSteps = buildSteps.filter { step in
+            step.contains { $0.contains("xcodebuild") } && step.contains { line in
+                line.split(whereSeparator: \.isWhitespace).contains { $0 == "test" || $0 == "test-without-building" }
+            }
+        }
+        XCTAssertEqual(testingSteps.compactMap(\.first), [], """
+            ci.yml's `build-macos` job must not run xcodebuild's test action — the app-layer bundle \
+            runs in `test-macos`, in parallel with the Release build, not in front of it.
             """)
     }
 

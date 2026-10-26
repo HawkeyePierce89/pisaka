@@ -183,10 +183,10 @@ weakened:
 - Modify: `.github/workflows/ci.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Record the baseline: `swift test --filter ReleaseWorkflowTests` gives the
+- [x] Record the baseline: `swift test --filter ReleaseWorkflowTests` gives the
   test count, and `shasum -a 256 .github/workflows/release.yml` gives the release
   workflow's digest. Put both in Notes.
-- [ ] In `ci.yml`, add the `test-macos` job directly after `build-macos`, with
+- [x] In `ci.yml`, add the `test-macos` job directly after `build-macos`, with
   exactly the steps, `timeout-minutes: 30` and comments listed under Design
   decisions.
   - Copy the shared steps from `build-macos` so the lines are identical.
@@ -194,18 +194,18 @@ weakened:
     verbatim, then delete both from `build-macos`.
   - Leave every other `build-macos` line unchanged: the timeout and its comment,
     the Release build step and its full comment, the smoke launch.
-- [ ] Reword the comment block above `build-macos:` so it covers three
+- [x] Reword the comment block above `build-macos:` so it covers three
   independent build/test jobs, as described under Design decisions.
-- [ ] Update `testEveryWorkflowPinsTheSameXcode`:
+- [x] Update `testEveryWorkflowPinsTheSameXcode`:
   - add `"ci.yml: test-macos"` to the expected site set;
   - change the doc comment's "a sixth step" to "an additional step".
-- [ ] Replace `testCIAppKitOverlayIsTestedBeforeTheBuild` with
+- [x] Replace `testCIAppKitOverlayIsTestedBeforeTheBuild` with
   `testCIAppKitOverlayIsTestedInItsOwnJob`, exactly as described under Design
   decisions. This includes the "not in `build-macos`" assertion and the doc
   comment stating the trade.
-- [ ] Fix the `ciMacBuildBudget` doc comment ("several jobs, each with its own
+- [x] Fix the `ciMacBuildBudget` doc comment ("several jobs, each with its own
   budget").
-- [ ] Check that the new pin can fail:
+- [x] Check that the new pin can fail:
   - temporarily copy the test step back into `build-macos`; the "not in
     `build-macos`" assertion must fail;
   - temporarily delete the step from `test-macos`; the test must fail with the
@@ -213,11 +213,11 @@ weakened:
   - restore `ci.yml` after each check (`git diff` shows only the intended
     changes).
   - Record both failure messages in Notes.
-- [ ] Run `swift test --filter ReleaseWorkflowTests`; it must be green.
+- [x] Run `swift test --filter ReleaseWorkflowTests`; it must be green.
   `testCILaunchesWhatItBuilds`, `testCIBuildsTheConfigurationThatShips`,
   `testTheJobBudgetCoversTheNotaryWait`, `testTheTwoSmokeLaunchesAreTheSameCheck`
   and `testXcodeGenIsPinnedIdenticallyToCI` must pass with no edits.
-- [ ] Run the full `swift test` and `make lint`.
+- [x] Run the full `swift test` and `make lint`.
 
 ### Task 2: Ask the `Package.resolved` guard of both jobs that resolve
 
@@ -338,7 +338,22 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
 ## Notes (filled in during execution)
 
 - Baseline: the ReleaseWorkflowTests count; the release.yml digest.
+  - Task 1 baseline: `swift test --filter ReleaseWorkflowTests` executed 69 tests,
+    0 failures; `shasum -a 256 .github/workflows/release.yml` =
+    `56c8e0ce09e406356fc7f777cfb7902927d7609fcad80932d541eca0625769cb`.
+    After Task 1: still 69 tests, green; full `swift test` 7118 tests, 0 failures;
+    `make lint` 0 violations in 784 files.
 - Hand-break messages (Tasks 1–2).
+  - Task 1, test step copied back into `build-macos` (after its guard): three
+    failures — the owning-job check ("It is currently under “  build-macos:”"),
+    "ci.yml's `build-macos` job must not carry `Test the AppKit overlay
+    (PisakaAppTests)` — the bundle runs in `test-macos`, in parallel with the
+    Release build, not in front of it.", and "ci.yml's `build-macos` job must not
+    run xcodebuild's test action — …" listing the step.
+  - Task 1, step deleted from `test-macos`: XCTUnwrap failed — "ci.yml's
+    `test-macos` job has no `Test the AppKit overlay (PisakaAppTests)` step. It is
+    the only gate that drives the editor's real TextKit stack headlessly — …".
+    `ci.yml` restored byte-identically (`cmp`) after each check.
 - CLAUDE.md character count before and after.
 - RELEASING.md findings (wording pins grep; other `ci.yml` mentions).
 - Final `swift test` line, `make lint` line, YAML check output.
