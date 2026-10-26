@@ -253,6 +253,9 @@ struct ProjectTreeView: View {
                         shape: .folder(DirectoryEntry(url: root, isDirectory: true), offersShowAsOneRow: false),
                         revealURL: root,
                         depth: 0,
+                        // The root's own components: it is never a test row,
+                        // whatever it is called on disk (`TreeTestRule`).
+                        relativeComponents: [],
                         listingMemo: listings.memo(listingThrough: model),
                         separated: separatedFolders,
                         opensOnAppearance: opensOnAppearance,
@@ -583,6 +586,12 @@ private struct DirectoryNodeView: View {
     /// child. A chain row is one node and so one depth, whatever its segment
     /// count — what the pinned stack's rule reads (`TreeStickyRule.Folder`).
     let depth: Int
+    /// The contents directory's path below the opened root, one listing name
+    /// per component — `[]` for the root, the parent's plus the row's segment
+    /// names (`TreeNodeShape.segmentNames`) for a child. Built from listing
+    /// names alone, so no canonicalization enters and the cost is the row's
+    /// depth; what `TreeTestRule` judges a row by.
+    let relativeComponents: [String]
     /// The tree's one listing memo, handed down the recursion.
     let listingMemo: TreeListingMemo
     /// The keys (`TreeChainRule.key(for:)`) of folders the user asked to see as
@@ -656,6 +665,7 @@ private struct DirectoryNodeView: View {
         shape: TreeNodeShape,
         revealURL: URL,
         depth: Int,
+        relativeComponents: [String],
         listingMemo: TreeListingMemo,
         separated: Set<String>,
         opensOnAppearance: Set<String>,
@@ -686,6 +696,7 @@ private struct DirectoryNodeView: View {
         self.shape = shape
         self.revealURL = revealURL
         self.depth = depth
+        self.relativeComponents = relativeComponents
         self.listingMemo = listingMemo
         self.separated = separated
         self.opensOnAppearance = opensOnAppearance
@@ -733,6 +744,10 @@ private struct DirectoryNodeView: View {
         // coloured per segment in `nameLabel(gitState:)`.
         let gitState = gitStatus.state(for: shape.spokenGitStateURL)
         let diagnosticMark = diagnostics.mark(for: shape.diagnosticMarkURL)
+        // Asked once per render too, of the contents directory's components —
+        // a chain is judged by its tail, so a test folder anywhere in it
+        // washes the row.
+        let isTestRow = TreeTestRule.isTestRow(components: relativeComponents, isFolder: true)
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == contentsDirectory {
                 Group {
@@ -783,6 +798,7 @@ private struct DirectoryNodeView: View {
                         shape: childShape,
                         revealURL: contentsRevealURL.appendingPathComponent(childShape.head.lastPathComponent),
                         depth: depth + 1,
+                        relativeComponents: relativeComponents + childShape.segmentNames,
                         listingMemo: listingMemo,
                         separated: separated,
                         opensOnAppearance: opensOnAppearance,
@@ -832,7 +848,10 @@ private struct DirectoryNodeView: View {
                         siblings: currentChildrenNames,
                         isSelected: selection.contains(entry.url),
                         gitState: gitStatus.state(for: entry.url),
-                        diagnosticMark: diagnostics.mark(for: entry.url)
+                        diagnosticMark: diagnostics.mark(for: entry.url),
+                        isTestRow: TreeTestRule.isTestRow(
+                            components: relativeComponents + [entry.name], isFolder: false
+                        )
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                     .id(TreeRevealRequest.rowID(entry.url))
@@ -862,13 +881,14 @@ private struct DirectoryNodeView: View {
                 isDrafted: isDrafted,
                 gitState: gitState,
                 diagnosticMark: diagnosticMark,
+                isTestRow: isTestRow,
                 scrollID: TreeRevealRequest.rowID(shape.head),
                 onMove: onMove
             ) {
                 folderMenu
             }
         )
-        .background { stickyReport }
+        .background { stickyReport(isTestRow: isTestRow) }
         // Collapsing takes this node's whole subtree out of the hierarchy, not
         // just its direct children — so a draft anywhere *below* this folder
         // loses the view that renders it. It has to be dropped here, or it
@@ -998,9 +1018,10 @@ private struct DirectoryNodeView: View {
     /// in the tree's content space, and what a pinned copy of its row needs to
     /// draw and act. A collapsed node attaches no reader — it has no subtree
     /// to measure — and the frame it reports does not move while the tree
-    /// scrolls, so a scroll changes no report and reads nothing.
+    /// scrolls, so a scroll changes no report and reads nothing. `isTestRow` is
+    /// the node's own answer, so the copy is washed exactly as the row is.
     @ViewBuilder
-    private var stickyReport: some View {
+    private func stickyReport(isTestRow: Bool) -> some View {
         if isExpanded {
             GeometryReader { geometry in
                 let report = TreeStickyFolderReport(
@@ -1008,6 +1029,7 @@ private struct DirectoryNodeView: View {
                     depth: depth,
                     isExpanded: isExpanded,
                     shape: shape,
+                    isTestRow: isTestRow,
                     scrollID: TreeRevealRequest.rowID(shape.head),
                     expansion: $isExpanded
                 )
@@ -1406,6 +1428,16 @@ private enum TreeNodeShape: Equatable {
         }
     }
 
+    /// The listing names this row adds below its parent's contents directory,
+    /// head first: the folder's own name, or every segment's for a chain — so
+    /// the parent's components plus these are the row's contents directory's.
+    var segmentNames: [String] {
+        switch self {
+        case .folder(let entry, _): return [entry.name]
+        case .chain(let chain): return chain.segments.map(\.name)
+        }
+    }
+
     /// Each segment as a reveal request spells it, head first, under the head's
     /// reveal url: that url alone for a folder, the chain's own spelling
     /// (`TreeChain.revealURLs`) for a chain. The last is the tail's.
@@ -1445,13 +1477,15 @@ private enum TreeStickySpace {
 /// What one expanded folder node reports to the pinned stack: its whole node's
 /// frame in `TreeStickySpace.content`, its depth, and what a pinned copy of its
 /// row draws and acts on — the shape (name, segments, git and diagnostic
-/// urls), the row's scroll id and the node's own expansion binding, which the
-/// copy's chevron sets to collapse the very `@State` the real row toggles.
+/// urls), whether it is a test row (the node's own `TreeTestRule` answer), the
+/// row's scroll id and the node's own expansion binding, which the copy's
+/// chevron sets to collapse the very `@State` the real row toggles.
 private struct TreeStickyFolderReport: Equatable {
     let frame: CGRect
     let depth: Int
     let isExpanded: Bool
     let shape: TreeNodeShape
+    let isTestRow: Bool
     let scrollID: String
     let expansion: Binding<Bool>
 
@@ -1466,7 +1500,7 @@ private struct TreeStickyFolderReport: Equatable {
     /// same node's `@State` for as long as the other fields are.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.frame == rhs.frame && lhs.depth == rhs.depth && lhs.isExpanded == rhs.isExpanded
-            && lhs.shape == rhs.shape && lhs.scrollID == rhs.scrollID
+            && lhs.shape == rhs.shape && lhs.isTestRow == rhs.isTestRow && lhs.scrollID == rhs.scrollID
     }
 }
 
@@ -1562,6 +1596,9 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
     let gitState: TreeGitState
     /// The worst diagnostic at or below the folder, spoken after its git word.
     let diagnosticMark: TreeDiagnosticMark
+    /// Whether the folder is a test row (`TreeTestRule`): washed beneath its
+    /// state tint, and `Test` spoken after its expansion word.
+    let isTestRow: Bool
     /// The row's scroll id — its head's `TreeRevealRequest.rowID` — so a click
     /// on its pinned copy scrolls to the *row*, whose height alone the anchor
     /// arithmetic assumes, rather than to the whole node.
@@ -1582,6 +1619,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 isDrafted: isDrafted,
                 gitState: gitState,
                 diagnosticMark: diagnosticMark,
+                isTestRow: isTestRow,
                 onMove: onMove,
                 menu: menu
             )
@@ -1652,6 +1690,9 @@ private struct FolderDisclosureRow<Menu: View>: View {
     let gitState: TreeGitState
     /// The folder's diagnostic mark — the worst severity below it.
     let diagnosticMark: TreeDiagnosticMark
+    /// Whether the folder is a test row. The wash is unaffected by `isDrafted`:
+    /// a folder being renamed keeps it.
+    let isTestRow: Bool
     let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
@@ -1678,7 +1719,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // (the pointer is inside the row, so both are on), and is drawn at the
         // same site from the same enum, which is what keeps the two treatments
         // from drifting apart.
-        .background(rowBackground)
+        .background { rowBackground }
         .contentShape(Rectangle())
         // Every non-root row is a drag source. Placed before the tap/hover/menu
         // block, which is untouched: a drag and a click are distinct gestures, so
@@ -1721,34 +1762,35 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
         .accessibilityElement(children: isDrafted ? .contain : .combine)
         .accessibilityAddTraits(isDrafted ? [] : .isButton)
-        // The expansion word, then the git state's and the diagnostics' words
-        // when there are any — Core's composition, so the two row kinds speak
-        // the state alike.
+        // The expansion word, then `Test` for a test row, then the git state's
+        // and the diagnostics' words when there are any — Core's composition,
+        // so the two row kinds speak the state alike.
         .accessibilityValue(
             isDrafted
                 ? ""
                 : TreeGitState.accessibilityValue(
                     state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded),
-                    isTestRow: false
+                    isTestRow: isTestRow
                 )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
 
     /// The row's background, asked of `TreeRowState` and painted through
-    /// `TreeRowBackground.color(for:resolving:)` — the same two lines a file row
-    /// runs, so the two row kinds cannot answer the question differently.
+    /// `TreeRowBackground.background(for:isTestRow:resolving:)` — the same two
+    /// lines a file row runs, so the two row kinds cannot answer the question
+    /// differently.
     ///
     /// A folder row passes `isSelected: false` unconditionally: selection here is
     /// *derived* from the active editor tab, and a folder is never one.
-    private var rowBackground: Color {
+    private var rowBackground: TreeRowBackground.Layered {
         let state = TreeRowState.state(
             isSelected: false,
             isWindowKey: controlActiveState == .key,
             isHovering: isHovering,
             isDropTarget: isDropTarget
         )
-        return TreeRowBackground.color(for: state, resolving: theme.color)
+        return TreeRowBackground.background(for: state, isTestRow: isTestRow, resolving: theme.color)
     }
 }
 
@@ -1905,12 +1947,14 @@ private struct TreeFolderName: View {
 }
 
 /// The one mapping from a `TreeRowState` to the colour its background is painted
-/// in.
+/// in, and the one site a tree row's background is painted at.
 ///
 /// Both row kinds read it — and the sticky stack's pinned folder copy, hover
 /// only — for the reason they share `ChromeGeometry`'s tokens: restated at each
 /// row kind, a change to one would silently leave the other painting the old
-/// answer.
+/// answer. The three tree rows paint through `background(for:isTestRow:resolving:)`,
+/// which lays the test-row wash beneath the state's tint; the commit dialog's
+/// file row, which is never washed, keeps `color(for:resolving:)`.
 enum TreeRowBackground {
     /// The role a state paints itself in — every state answers with a role or
     /// with nothing.
@@ -1946,6 +1990,42 @@ enum TreeRowBackground {
     ) -> Color {
         guard let role = role(for: state) else { return Color.clear }
         return resolving(role)
+    }
+
+    /// The roles a tree row paints, bottom to top: the test-row wash
+    /// (`ChromeColorRole.treeRowWashRole(isTestRow:)`, Core's one answer) first,
+    /// then the state's role from `role(for:)` — never a second copy of its
+    /// table — with every `nil` dropped. A plain row that is no test row has no
+    /// layer at all.
+    static func layers(for state: TreeRowState, isTestRow: Bool) -> [ChromeColorRole] {
+        [ChromeColorRole.treeRowWashRole(isTestRow: isTestRow), role(for: state)].compactMap { $0 }
+    }
+
+    /// A tree row's background: each of `layers(for:isTestRow:)` painted in the
+    /// resolver's colour unchanged, bottom to top, so the state's tint lies over
+    /// the wash. Nothing is composed — each layer's alpha is the palette's — and
+    /// the resolver is asked once per layer. The theme arrives as `resolving`,
+    /// for `color(for:resolving:)`'s reason.
+    static func background(
+        for state: TreeRowState,
+        isTestRow: Bool,
+        resolving: (ChromeColorRole) -> Color
+    ) -> Layered {
+        Layered(colors: layers(for: state, isTestRow: isTestRow).map(resolving))
+    }
+
+    /// The painted layers, bottom to top; draws nothing when there are none.
+    /// A value of its own so the colours a row paints can be read back.
+    struct Layered: View {
+        let colors: [Color]
+
+        var body: some View {
+            ZStack {
+                ForEach(colors.indices, id: \.self) { index in
+                    colors[index]
+                }
+            }
+        }
     }
 }
 
@@ -2037,6 +2117,10 @@ private struct FileRowView: View {
     /// This file's diagnostic mark, asked of the tree's lookup once by the
     /// folder listing it, like `gitState`.
     let diagnosticMark: TreeDiagnosticMark
+    /// Whether this file is a test row (`TreeTestRule`), asked once by the
+    /// folder listing it. The wash survives selection and a rename draft: the
+    /// state tint paints over it, and the draft changes neither.
+    let isTestRow: Bool
 
     @State private var isHovering = false
 
@@ -2094,7 +2178,7 @@ private struct FileRowView: View {
             maxHeight: isDraftedRow ? nil : metrics.scaled(ChromeGeometry.rowHeight),
             alignment: .leading
         )
-        .background(rowBackground)
+        .background { rowBackground }
         .contentShape(Rectangle())
         // As on a folder row: added ahead of the untouched tap/hover/menu block,
         // through the same one drag-source helper.
@@ -2135,15 +2219,17 @@ private struct FileRowView: View {
                 Button("Local History") { onShowLocalHistory() }
             }
         }
-        // One element carrying the git state's and the diagnostics' words as its
-        // value, as a folder row carries its expansion; a plain, clean file says
-        // nothing more than its name. `.contain` while a rename draft is open, as
+        // One element carrying `Test` for a test row, then the git state's and
+        // the diagnostics' words, as its value, as a folder row carries its
+        // expansion; a plain, clean file says nothing more than its name. `.contain` while a rename draft is open, as
         // on a folder row, so the field stays reachable as itself.
         .accessibilityElement(children: isDraftedRow ? .contain : .combine)
         .accessibilityValue(
             isDraftedRow
                 ? ""
-                : TreeGitState.accessibilityValue(state: gitState, mark: diagnosticMark, row: .file, isTestRow: false)
+                : TreeGitState.accessibilityValue(
+                    state: gitState, mark: diagnosticMark, row: .file, isTestRow: isTestRow
+                )
         )
     }
 
@@ -2157,14 +2243,14 @@ private struct FileRowView: View {
     /// The row's background, through the same rule and the same mapping a folder
     /// row asks. A file row is never a drop target — a file is not a
     /// destination — so that input is constantly `false`.
-    private var rowBackground: Color {
+    private var rowBackground: TreeRowBackground.Layered {
         let state = TreeRowState.state(
             isSelected: isSelected,
             isWindowKey: controlActiveState == .key,
             isHovering: isHovering,
             isDropTarget: false
         )
-        return TreeRowBackground.color(for: state, resolving: theme.color)
+        return TreeRowBackground.background(for: state, isTestRow: isTestRow, resolving: theme.color)
     }
 }
 
@@ -2520,7 +2606,8 @@ private struct TreeStickyPinnedRow: Identifiable {
 /// level, each carrying `TreeIndentGuide` as its leading background, so every
 /// enclosing folder's guide runs through the copy as it runs through the real
 /// row. Back to front: the `bgPanel` ground across the full width, the guides,
-/// then the row over its own hover background. The copy always draws the
+/// then the row over its own background — the node's test-row wash beneath the
+/// hover tint, through the real rows' one site. The copy always draws the
 /// expanded chevron, because only expanded folders pin. A tap on the chevron
 /// slot collapses the folder through its node's own expansion binding — the
 /// very `@State` the real row toggles, so its collapse handler drops any draft
@@ -2556,7 +2643,7 @@ private struct TreeStickyRowView: View {
                     )
                 }
             }
-            .background(rowBackground)
+            .background { rowBackground }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .onTapGesture { onSelect() }
@@ -2576,16 +2663,17 @@ private struct TreeStickyRowView: View {
     }
 
     /// The copy's background, through the one mapping both real row kinds
-    /// use. Never selected — a folder is never the active tab — and never a
-    /// drop target, because the copy accepts no drop.
-    private var rowBackground: Color {
+    /// use, washed from the node's own test-row answer. Never selected — a
+    /// folder is never the active tab — and never a drop target, because the
+    /// copy accepts no drop.
+    private var rowBackground: TreeRowBackground.Layered {
         let state = TreeRowState.state(
             isSelected: false,
             isWindowKey: controlActiveState == .key,
             isHovering: isHovering,
             isDropTarget: false
         )
-        return TreeRowBackground.color(for: state, resolving: theme.color)
+        return TreeRowBackground.background(for: state, isTestRow: report.isTestRow, resolving: theme.color)
     }
 }
 

@@ -204,7 +204,19 @@ runner keep their current predicate and behaviour.
      name, via a `segmentNames` helper on `TreeNodeShape`; a file appends its
      own name.
    - Canonicalization never enters, and the cost is the row's depth.
-7. **Part 3 findings.** List here every sentence corrected in the two sticky
+7. **The wash suite's selected row is a file of its own (Task 3).**
+   - Conflict: the hosted window is never key, so a selected row paints
+     `selectionInactive`, which is opaque. A washed row that is also selected
+     cannot show its wash, so `a_test.go` could not both be the active tab and
+     be among the rows asserted washed.
+   - Resolution: `TreeTestRowWashTests` adds a second convention-named file,
+     `c_test.go`, opened as the active tab. The washed set asserted is the
+     `Tests` folder, `Tests/Gate.swift` and `a_test.go`, all unselected; the
+     selected-row assertion compares `c_test.go` against the unselected
+     `a_test.go`.
+   - Also: the plan names rule thirteen as `chromeRowBackgrounds`' rule; in the
+     suite it is rule thirty-five. That is the rule updated.
+8. **Part 3 findings.** List here every sentence corrected in the two sticky
    entries, beyond the `a/f45` one.
 
 ## Implementation Steps
@@ -307,7 +319,7 @@ runner keep their current predicate and behaviour.
 - Modify: `docs/architecture/core-theme.md`, `docs/architecture/app-window.md`,
   `CLAUDE.md` (rule count)
 
-- [ ] Carry root-relative components down the recursion.
+- [x] Carry root-relative components down the recursion.
   - `DirectoryNodeView` gets a `relativeComponents: [String]` for its contents
     directory. The root passes `[]`.
   - A child node gets `relativeComponents + childShape.segmentNames`, where
@@ -316,7 +328,7 @@ runner keep their current predicate and behaviour.
   - Each node asks `TreeTestRule.isTestRow(components:isFolder: true)` once per
     render. Each file row is asked with `relativeComponents + [entry.name]` and
     `isFolder: false`.
-- [ ] Hand the answer to the rows.
+- [x] Hand the answer to the rows.
   - `FolderDisclosureStyle`/`FolderDisclosureRow` and `FileRowView` take
     `isTestRow`.
   - `TreeStickyFolderReport` carries it, so the pinned copy reads the node's
@@ -324,7 +336,7 @@ runner keep their current predicate and behaviour.
   - The create draft row is not wired and is never washed.
   - The row being renamed keeps its wash: the background is unaffected by
     `isDrafted`. Its spoken value stays `""`.
-- [ ] Extend `TreeRowBackground`.
+- [x] Extend `TreeRowBackground`.
   - Add `layers(for:isTestRow:)`: the wash role from
     `ChromeColorRole.treeRowWashRole(isTestRow:)` first, then `role(for:)`,
     with `nil`s dropped. It must not restate the state→role table.
@@ -335,9 +347,9 @@ runner keep their current predicate and behaviour.
   - `color(for:resolving:)` stays unchanged for `CommitFileRow`, which must not
     be washed. The pinned copy's `bgPanel` ground stays beneath its row
     background.
-- [ ] Pass `isTestRow` into both rows' `accessibilityValue` calls. The draft
+- [x] Pass `isTestRow` into both rows' `accessibilityValue` calls. The draft
   row's value stays `""`.
-- [ ] Update `ChromeThemeSourceGatingTests`.
+- [x] Update `ChromeThemeSourceGatingTests`.
   - Update `chromeRowBackgrounds` to the three new tree bodies.
   - Add **rule fifty-two**, "the tree's test wash is Core's one answer, painted
     at the one row-background site". Over stripped source, it checks:
@@ -349,7 +361,7 @@ runner keep their current predicate and behaviour.
     spelled table.
   - Confirm that rule nineteen (no app file names `diffAddedBackground`) and
     the row-state switch detector still pass untouched.
-- [ ] Update `core-theme.md`:
+- [x] Update `core-theme.md`:
   - record the reuse beside `diffAddedBackground` (its consumer, reached
     through `treeRowWashRole`, and the reason);
   - add rule fifty-two to the canonical list, opening "The fifty-two rules,
@@ -358,19 +370,19 @@ runner keep their current predicate and behaviour.
     layered method while the commit row keeps `color(for:resolving:)`.
 
   Change `CLAUDE.md`'s "its fifty-one rules" to "fifty-two".
-- [ ] Update the project tree's entry in `app-window.md`:
+- [x] Update the project tree's entry in `app-window.md`:
   - the wash beneath the state tints;
   - the shared site;
   - the pinned copy washed from the same answer;
   - the drafts (renamed row keeps it, create draft never washed);
   - the spoken `Test` word and its position;
   - the components carried down the recursion.
-- [ ] Extend `TreeRowBackgroundTests` to pin `layers(for:isTestRow:)` for all
+- [x] Extend `TreeRowBackgroundTests` to pin `layers(for:isTestRow:)` for all
   ten (state × isTestRow) combinations: the wash role is first, the state's
   role follows, and `.plain` without a test row has no layers. Also pin that
   the layered background asks the resolver once per layer and composes no
   alpha, and that `color(for:resolving:)`'s existing pins are unchanged.
-- [ ] Create `TreeTestRowWashTests` (app bundle, `HostedRender`, interface
+- [x] Create `TreeTestRowWashTests` (app bundle, `HostedRender`, interface
   scale 1).
   - **Project.** A temporary project with a `Tests/` folder (expanded, holding
     one file), a sibling plain folder, a convention-named test file
@@ -386,8 +398,10 @@ runner keep their current predicate and behaviour.
       `a_test.go`;
     - the selected test row's pixel differs from an unselected washed row's,
       so the selection tint is still shown over the wash.
-- [ ] Run `swift test`, `swiftlint --strict`, `xcodegen generate`, and the
+- [x] Run `swift test`, `swiftlint --strict`, `xcodegen generate`, and the
   app-layer bundle under the pinned Xcode. All must pass before Task 4.
+  (App bundle ran under the installed Xcode 27.1: the pinned 26.3 is not
+  installed on this machine.)
 
 ### Task 4: Core — the sticky slot tolerance sized to the scroll rounding (TDD)
 

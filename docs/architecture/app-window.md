@@ -1442,8 +1442,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     source app with it — behind a dialog. The highlight is **`dropTargetTint`**,
     reached at the *same* site and through the same rule as every
     other row state: the row asks `TreeRowState.state(isSelected:isWindowKey:
-    isHovering:isDropTarget:)` (`core-theme.md`) and maps the answer through
-    `TreeRowBackground.color(for:resolving:)`. Drop outranks hover there because
+    isHovering:isDropTarget:)` (`core-theme.md`) and paints the answer through
+    `TreeRowBackground.background(for:isTestRow:resolving:)`. Drop outranks hover there because
     the pointer is inside the row and both conditions are true at once, and "will
     this drop land here?" is the only question being asked; the wash is heavier
     than `accentTintStrong` for the same reason — a drop over a row that is also
@@ -1463,12 +1463,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `ProjectTreeView.swift`, **the chrome theme's third surface** — the rows are
     drawn from the colour roles through the geometry-and-state path
     (`core-theme.md`). Every row background is one expression: the row asks
-    `TreeRowState.state(...)` and maps the answer through the file-scope
-    `TreeRowBackground.color(for:resolving:)` — `hover` → `hoverTint`,
+    `TreeRowState.state(...)` and paints the answer through the file-scope
+    `TreeRowBackground.background(for:isTestRow:resolving:)`, whose state layer
+    is `role(for:)`'s answer — `hover` → `hoverTint`,
     `selectedFocused` → `accentTintStrong`, `selectedUnfocused` →
     `selectionInactive`, `dropTarget` → `dropTargetTint`, and `plain` →
-    `.clear`, the *absence* of a background rather than a colour of its own.
-    (`role(for:)` beneath it answers a role for every state but one, and `nil`
+    no layer, the *absence* of a background rather than a colour of its own
+    (the test-row wash beneath it is the **test rows** entry's, below).
+    (`role(for:)` answers a role for every state but one, and `nil`
     only for `plain`, which paints nothing; no state composes an alpha, the drop
     wash's strength coming from the palette — pinned by
     `TreeRowBackgroundTests`.) The theme arrives as a
@@ -1605,6 +1607,42 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     their names in `statusYellow`, an ignored file's in `textSecondary`, the
     glyph unchanged, and a plain row pixel-identical to the tree without git
     state.
+  - `ProjectTreeView.swift`, **test rows** — a row Core's `TreeTestRule`
+    (`core-workspace.md`) answers as a test row — under a test folder, a test
+    folder itself, or a file named by its ecosystem's test convention — is
+    washed in `ChromeColorRole.treeRowWashRole(isTestRow:)`'s answer, the
+    palette's faint green `diffAddedBackground`, **beneath** the row-state
+    tints. **Components down the recursion**: `DirectoryNodeView` carries
+    `relativeComponents`, the root-relative listing names of its contents
+    directory — `[]` for the root, which is therefore never a test row, and the
+    parent's plus `TreeNodeShape.segmentNames` (the folder's name, or every
+    segment's for a chain) for a child — so no canonicalization enters and the
+    cost is the row's depth. Each node asks the rule **once per render** with
+    `isFolder: true` (a chain is judged by its tail, so a test segment anywhere
+    in it washes the row); each file row is asked by the folder listing it with
+    `relativeComponents + [entry.name]` and `isFolder: false`. **One site**:
+    the folder row, the file row and the sticky stack's pinned copy all paint
+    through `TreeRowBackground.background(for:isTestRow:resolving:)`, which
+    lays `layers(for:isTestRow:)` — the wash role first, then `role(for:)`'s
+    state role, `nil`s dropped — bottom to top, each the resolver's colour
+    unchanged and composing no alpha; so hover, selection and a drop target
+    paint over the wash and a selected test row still reads as selected. The
+    commit dialog's file row keeps `color(for:resolving:)` and is never washed.
+    **The pinned copy** reads the node's own answer, carried on its
+    `TreeStickyFolderReport` (`isTestRow`). **Drafts**: the row being renamed
+    keeps its wash (the background ignores `isDrafted`) while its spoken value
+    stays `""`; the create draft row is not wired and is never washed.
+    **Accessibility**: a test row's value gains `Test` — after a folder's
+    expansion word and before the git and diagnostic words, a clean test file
+    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`,
+    `core-git-models.md`). Chrome gating rule fifty-two pins the wash's one
+    reader and that every ask lies inside `enum TreeRowBackground`
+    (`core-theme.md`); `TreeRowBackgroundTests` pins `layers(for:isTestRow:)`
+    over all ten combinations and the layered background's resolver use, and
+    `TreeTestRowWashTests` (app bundle) renders one tree per appearance and
+    pins that the `Tests` folder, its child and `a_test.go` are washed, an
+    unwashed sibling and the canvas are not, and the selected test row still
+    shows its selection tint over the wash.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`
@@ -1891,7 +1929,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the row over its own background —
     `TreeRowState.state(isSelected: false, isWindowKey: controlActiveState ==
     .key, isHovering: isHovering, isDropTarget: false)` through
-    `TreeRowBackground.color(for:resolving:)`, the tree's third pinned entry in
+    `TreeRowBackground.background(for:isTestRow:resolving:)` with the report's
+    `isTestRow`, so a test folder's copy is washed as its row is — the tree's third pinned entry in
     chrome gating rule thirty-five (`core-theme.md`) — and a one-`hairline` rule
     `metrics.scaled(ChromeGeometry.hairlineWidth)` tall at the stack's bottom
     edge, `.allowsHitTesting(false)` so the last copy's bottom strip under it

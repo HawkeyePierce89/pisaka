@@ -14,6 +14,13 @@ import PisakaCore
 /// for that role — no `.opacity` chained on top, so a wash's strength is the
 /// palette's and the tree cannot drift back to composing one.
 ///
+/// The tree rows paint through the layered `background(for:isTestRow:resolving:)`
+/// rather than `color(for:resolving:)`, which the commit dialog's file row keeps:
+/// `layers(for:isTestRow:)` is pinned over all ten state × test-row combinations
+/// — the wash role first, the state's role over it, nothing for a plain row that
+/// is no test row — and the layered background is pinned to ask the resolver
+/// once per layer and hand each colour back unchanged.
+///
 /// What it leaves to others: the palette's values, `dropTargetTint`'s among them,
 /// are `ChromePaletteTests`' business, and the precedence between the four facts
 /// a row can show is Core's (`TreeRowState`'s own tests).
@@ -53,6 +60,53 @@ final class TreeRowBackgroundTests: XCTestCase {
             } else {
                 XCTAssertEqual(asked, [], "\(state) must not ask the resolver")
                 XCTAssertEqual(colour, Color.clear, "\(state) paints nothing")
+            }
+        }
+    }
+
+    func testTheLayersAreTheWashFirstThenTheStatesRole() {
+        let expected: [TreeRowState: ChromeColorRole?] = [
+            .plain: nil,
+            .hover: .hoverTint,
+            .selectedFocused: .accentTintStrong,
+            .selectedUnfocused: .selectionInactive,
+            .dropTarget: .dropTargetTint,
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(TreeRowState.allCases))
+        for state in TreeRowState.allCases {
+            let stateRole = expected[state] ?? nil
+            XCTAssertEqual(
+                TreeRowBackground.layers(for: state, isTestRow: false),
+                [stateRole].compactMap { $0 },
+                "\(state), not a test row: the state's role alone"
+            )
+            XCTAssertEqual(
+                TreeRowBackground.layers(for: state, isTestRow: true),
+                [.diffAddedBackground] + [stateRole].compactMap { $0 },
+                "\(state), a test row: the wash first, the state's role over it"
+            )
+        }
+        XCTAssertEqual(TreeRowBackground.layers(for: .plain, isTestRow: false), [], "a plain row that is no test row")
+    }
+
+    func testTheLayeredBackgroundIsTheResolversAnswersWithNoAlphaComposed() {
+        let colours = Dictionary(uniqueKeysWithValues: ChromeColorRole.allCases.enumerated().map { index, role in
+            (role, Color(red: Double(index + 1) / 64, green: 0.25, blue: 0.5))
+        })
+
+        for state in TreeRowState.allCases {
+            for isTestRow in [false, true] {
+                var asked: [ChromeColorRole] = []
+                let background = TreeRowBackground.background(for: state, isTestRow: isTestRow) { role in
+                    asked.append(role)
+                    return colours[role] ?? Color.clear
+                }
+                let layers = TreeRowBackground.layers(for: state, isTestRow: isTestRow)
+                XCTAssertEqual(asked, layers, "\(state), test row \(isTestRow): the resolver is asked once per layer")
+                XCTAssertEqual(
+                    background.colors, layers.map { colours[$0] ?? Color.clear },
+                    "\(state), test row \(isTestRow): each layer is the resolver's colour unchanged, bottom to top"
+                )
             }
         }
     }

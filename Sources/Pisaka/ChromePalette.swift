@@ -108,7 +108,9 @@ enum ChromePalette {
         case .statusRed: return Entry(dark: 0xC4746B, light: 0xC1483D)
         case .statusYellow: return Entry(dark: 0xC9A35C, light: 0xA67C2E)
 
-        // Diff and merge.
+        // Diff and merge. `diffAddedBackground` is also the project tree's
+        // test-row wash, reached through Core's `treeRowWashRole(isTestRow:)`
+        // and painted beneath the row's state tint by `TreeRowBackground`.
         case .diffAddedBackground: return Entry(dark: 0x7A9D6E, light: 0x4F8A3D, alpha: 0x22)
         case .diffRemovedBackground: return Entry(dark: 0xC4746B, light: 0xC1483D, alpha: 0x22)
         case .conflictBackground: return Entry(dark: 0xC9A35C, light: 0xA67C2E, alpha: 0x26)
