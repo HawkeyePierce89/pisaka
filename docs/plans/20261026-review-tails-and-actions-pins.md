@@ -5,7 +5,7 @@
 This plan closes the debt recorded by the last five acceptance reviews and bumps the CI pins. It adds no feature. Only four Core behaviours change:
 
 1. The tree-diagnostics probe count becomes a real count.
-2. Folder tombstones in `DiagnosticsModel` get lifted, and covered ones are no longer added.
+2. Folder tombstones in `DiagnosticsModel` get lifted, and an exact duplicate is no longer added.
 3. The git lookup (`TreeGitStatus`) is built off the main actor.
 4. `offersShowAsOneRow` gets an honest definition.
 
@@ -20,7 +20,7 @@ Everything else is wording, test-suite hygiene, the `build-ios` cache and guard,
 Decisions made here, so nothing is left open at run time:
 
 - **1.2: make the count real; do not remove the seam.** The cost claim ("one key read, a descent of a handful of trie levels") is worth pinning. Two regressions would pass every equality test and compile cleanly: a lookup that scans the table, and one that reads once per ancestor. A real count catches both. The count comes from the nodes the read descent visits. The bound comes from `MarkTrie.depth`, a separate structural walk that already exists. So the work is counted somewhere other than the bound it is checked against, which is what CLAUDE.md requires.
-- **1.3:** a new tombstone that an existing one already covers is not added. A new folder tombstone does **not** prune finer tombstones already recorded under it. Lifting the folder later must not also lift a file tombstone that may still be gone.
+- **1.3:** a tombstone is skipped only when the exact path is already recorded. A file under a removed folder still gets its own tombstone, whichever was removed first, and a new folder tombstone does **not** prune finer tombstones already recorded under it. Lifting the folder later must not also lift a file tombstone that may still be gone. (Skipping a file "covered" by a folder tombstone is wrong: the delete and move call sites pass the folder before the open files under it, so once the folder is lifted, a late report for such a file would come back. See Notes.)
 - **1.4: the build moves into one `nonisolated static` async step in `LocalChangesModel`.** That step awaits the service's snapshot and builds the lookup in the same non-isolated context, then returns both. In the Swift 5 language mode the package uses, this runs on the generic executor. `GitServicing` and its three implementations stay untouched.
 - **1.5 delete confirmation:** Core's `TreeChain` gains the one name both the menu title and the sheet use. The tree's delete callback carries an optional display name. It is `nil` for files and plain folders, so `deleteItem` falls back to `url.lastPathComponent` exactly as today.
 - **1.6 `strippingComments` doc:** the comment names no list of readers. It says it is "the literal-keeping reading every suite whose rule is about a spelled literal uses" and points at `ChromeThemeSourceGatingTests.testTheHeaderNamesEveryLiteralKeepingReading`. A hand-written list of the six suites would be a second, unpinned copy of a set.
@@ -99,7 +99,7 @@ Decisions made here, so nothing is left open at run time:
 - [x] Update `core-lsp.md`'s "The cost bound" paragraph to match. The thirteen-level ceiling is `MarkTrie.maxLevel`, and the pinned bound is the actual `depth + 1`.
 - [x] Run `swift test`; it must pass before Task 2.
 
-### Task 2: Folder tombstones are lifted and never duplicated (1.3)
+### Task 2: Folder tombstones are lifted and exact duplicates are not added (1.3)
 
 **Files:**
 - Modify: `Sources/PisakaCore/DiagnosticsModel.swift`
@@ -107,14 +107,15 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `docs/architecture/core-lsp.md`
 
 - [x] In `isRemovedAndGone(_:)`, when the probe finds the file, remove every tombstone the file lies at or under. Use the same whole-component lexical comparison the match uses, so the folder is evidently back.
-- [x] In `noteItemRemoved(at:)`, skip the append when an existing tombstone already covers the path (the path is at or under it). The store clear is unchanged and always runs. Tombstones already recorded below a new folder tombstone are kept, for the reason given in the Overview.
+- [x] In `noteItemRemoved(at:)`, skip the append only when the exact path is already recorded. A path under an existing folder tombstone still appends its own. The store clear is unchanged and always runs. Tombstones already recorded below a new folder tombstone are kept, for the reason given in the Overview.
 - [x] Expose the tombstone list read-only to tests (`private(set)`, internal) and update the property's doc comment.
-- [x] Add two tests:
+- [x] Add three tests:
   - After removing folder `Gone`, one positional report for `Gone/inner.swift`, once the probe says the file exists, leaves no tombstone at or above it. A second report under `Gone` does not probe.
-  - After removing `Gone`, removing `Gone/a.swift` and then `Gone` again adds no entry: the count stays 1. The store entries under each removed path are still cleared.
+  - After removing `Gone`, removing `Gone/a.swift` adds its own tombstone (the list is `[Gone, Gone/a.swift]`), and removing `Gone` again adds none: the count stays 2. The store entries under each removed path are still cleared.
+  - Removing `Gone/z.swift`, then `Gone`, then `Gone/a.swift`, then an unrelated `Other/x.swift`, and then finding `Gone/b.swift`, lifts only the `Gone` tombstone. Late reports for the other three are still probed and refused.
 
   Adjust `testALateReportCannotResurrectARemovedPath` only where its expectations encoded exact-only lifting.
-- [x] Update `core-lsp.md`'s tombstone paragraph: folder lifting, and no covered appends.
+- [x] Update `core-lsp.md`'s tombstone paragraph: folder lifting, no exact-duplicate appends, and finer tombstones kept under a folder one, whichever was removed first.
 - [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: The git lookup is built off the main actor (1.4)
@@ -266,8 +267,9 @@ Decisions made here, so nothing is left open at run time:
 - Toolchain deviation: the installed Xcode in place of 26.3 for the local app-layer gates: Xcode 27.1 (27A9275), XcodeGen 2.46.0, `xcodegen generate` first, every build in `~/Library/Developer/Xcode/DerivedData/pisaka-build`.
 - Acceptance run (Task 8): `swift test` 7124 tests, 0 failures. App-layer bundle (`platform=macOS`, Debug) 496 tests, 0 failures, `** TEST SUCCEEDED **`. macOS Release (`generic/platform=macOS`, `CODE_SIGNING_ALLOWED=NO`) and iOS (`generic/platform=iOS`, Debug, `CODE_SIGNING_ALLOWED=NO`) both `** BUILD SUCCEEDED **`; the only `error:` text in their logs is the installed Xcode's CoreDevice plug-in / CoreSimulator version notice, environmental and not a build diagnostic. `Package.resolved` was not rewritten by local resolution (`git status` clean), so no restore was needed. `swiftlint --strict` (0.65.1) from the root: clean, exit 0.
 - Acceptance grep (excluding `.build`, `.git`, `.ralphex` and `docs/plans/completed/`) for "no CI job", "used by nothing else", "files that have been open" and "closing a file keeps its rows": every hit is in this plan, quoting the old wording it records as removed, so every hit is true. `CLAUDE.md` is 56,806 characters (< 60,000). The branch diff against `master` adds no brand name or reference to another editor (case-insensitive search of every added line for the usual editor names).
-- Coverage of the four behaviour changes: probe count — `TreeDiagnosticsTests.testProbeCountIsTheDescentBoundedByTheTablesDepth`; tombstones — `DiagnosticsModelTests.testAFileFoundUnderARemovedFolderLiftsTheFolder` and `testACoveredRemovalAddsNoTombstoneButStillClears`; off-main lookup — `LocalChangesModelTests.testASupersededRefreshsLookupIsNeverPublished`; `offersShowAsOneRow` — `TreeChainRuleTests.testASeparatedFolderWhoseOnlyChildIsUnreadableDoesNotOfferShowAsOneRow`, `testASeparatedFolderWhoseOnlyChildIsALinkOffersShowAsOneRow` and the changed unfold-sequence expectation, plus the `deleteConfirmationName` assertions for the one delete name.
+- Coverage of the four behaviour changes: probe count — `TreeDiagnosticsTests.testProbeCountIsTheDescentBoundedByTheTablesDepth`; tombstones — `DiagnosticsModelTests.testAFileFoundUnderARemovedFolderLiftsTheFolder`, `testARepeatedRemovalAddsNoTombstoneButStillClears` and `testLiftingAFolderKeepsTheFileTombstonesUnderIt`; off-main lookup — `LocalChangesModelTests.testASupersededRefreshsLookupIsNeverPublished`; `offersShowAsOneRow` — `TreeChainRuleTests.testASeparatedFolderWhoseOnlyChildIsUnreadableDoesNotOfferShowAsOneRow`, `testASeparatedFolderWhoseOnlyChildIsALinkOffersShowAsOneRow` and the changed unfold-sequence expectation, plus the `deleteConfirmationName` assertions for the one delete name.
 - Documentation check (Task 9): `README.md`'s only change is the severity-dots half-sentence (single-child folder chains show as one `a/b/c` row), and `CLAUDE.md`'s only change is the CI sentence ("covering libgit2 linking, behind the same guard"). No index entry was added, because no file was added. Every touched source file's entry was updated in its task: `core-lsp.md` (`TreeDiagnostics`, `DiagnosticsModel`), `core-git-models.md` (`LocalChangesModel`), `core-git.md` (`ChangedFile`'s `Sendable`), `core-workspace.md` (`TreeChainRule`) and `app-window.md` (`ProjectTreeView`, `ContentView`). In `app-shell.md`, Task 5 had updated only the Sparkle paragraph, so `PisakaApp`'s file-operation walk-through still described Delete without its named confirmation. It now names `deleteItem(at:named:)` and the name the confirmation quotes. After that edit `swift test` ran 7124 tests with 0 failures.
+- Review correction (Task 2's append rule): as first implemented, `noteItemRemoved(at:)` skipped any path already covered by a tombstone. Review found this let a late report resurrect a removed file. The delete and move call sites pass the folder before the open files under it, so a file's tombstone was never recorded, and once a recreated sibling lifted the folder, a late report for the still-missing file landed. The rule is now exact duplicates only: a file under a folder tombstone keeps its own, whichever was removed first. The covered-skip test became `testARepeatedRemovalAddsNoTombstoneButStillClears`, and `testLiftingAFolderKeepsTheFileTombstonesUnderIt` pins the scenario. The Overview, the 1.3 decision and Task 2 above describe the corrected rule.
 
 ## Post-Completion
 
