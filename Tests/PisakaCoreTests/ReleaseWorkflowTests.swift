@@ -3023,43 +3023,90 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// up on a developer's machine, as a whole-file diff hiding the one real pin
     /// change.
     ///
-    /// Read over comment-stripped lines and scoped to `build-macos`, the job
-    /// whose resolution feeds the app tests and the shipping build. The path is
-    /// held equal to the one the SwiftPM cache key hashes, so the guard and the
-    /// cache cannot come to name two different files, and it must exist — a
-    /// misspelled path makes `git diff` compare nothing and pass forever.
+    /// Two ci.yml jobs resolve: `build-macos`, whose resolution feeds the
+    /// shipping build, and `test-macos`, whose resolution feeds the app-layer
+    /// bundle. Each runs under the pinned Xcode its own setup-xcode step installs
+    /// (`testEveryWorkflowPinsTheSameXcode`), so each observes that toolchain's
+    /// resolution independently, and each is asked the whole guard by
+    /// `assertResolvedGuard(inJob:)` over comment-stripped lines scoped to it.
+    /// The path is held equal to the one the job's SwiftPM cache key hashes, so
+    /// the guard and the cache cannot come to name two different files, and it
+    /// must exist — a misspelled path makes `git diff` compare nothing and pass
+    /// forever.
+    ///
+    /// The two jobs are then held to the same cache key and restore keys, the
+    /// same Xcode read, the same resolve and the same guard, line for line.
+    /// Equal keys are what make the two jobs share one cache entry rather than
+    /// each paying for its own download, and equal steps are what make a green
+    /// guard in one job mean the same thing as in the other.
     func testCIRefusesARewrittenPackageResolved() throws {
-        let steps = try Self.jobSteps("build-macos", in: "ci.yml")
+        let builtPath = try assertResolvedGuard(inJob: "build-macos")
+        let testedPath = try assertResolvedGuard(inJob: "test-macos")
+        XCTAssertEqual(builtPath, testedPath, """
+            ci.yml's `build-macos` and `test-macos` must hash and guard the same lock file; they \
+            name \(builtPath ?? "none") and \(testedPath ?? "none").
+            """)
+
+        let built = try Self.jobSteps("build-macos", in: "ci.yml")
+        let tested = try Self.jobSteps("test-macos", in: "ci.yml")
+        let guardName = "- name: \(Self.resolvedGuardStepName)"
+        let shared: [(String, ([String]) -> Bool, ([String]) -> [String])] = [
+            ("the SwiftPM cache key and restore keys",
+             { $0.contains { $0.hasPrefix("uses: actions/cache@") } },
+             { $0.filter { $0.hasPrefix("key:") || $0.hasPrefix("restore-keys:") } }),
+            ("the `id: xcode` step", { $0.contains("id: xcode") }, { $0 }),
+            ("the resolve step", { $0.contains { $0.contains("-resolvePackageDependencies") } }, { $0 }),
+            ("the `\(Self.resolvedGuardStepName)` step", { $0.first == guardName }, { $0 }),
+        ]
+        for (what, matches, lines) in shared {
+            let inBuild = try XCTUnwrap(built.first(where: matches).map(lines),
+                                        "ci.yml's `build-macos` job has no \(what)")
+            let inTest = try XCTUnwrap(tested.first(where: matches).map(lines),
+                                       "ci.yml's `test-macos` job has no \(what)")
+            XCTAssertFalse(inBuild.isEmpty, "ci.yml's `build-macos` job has an empty reading of \(what)")
+            XCTAssertEqual(inBuild, inTest, """
+                ci.yml's `build-macos` and `test-macos` must carry \(what) line for line — equal cache \
+                keys are what make the two jobs share one SwiftPM cache entry, and an equal resolve and \
+                guard are what make the two guards observe the same thing.
+                """)
+        }
+    }
+
+    /// Asks the `Package.resolved` guard of one ci.yml job and returns the single
+    /// path that job's SwiftPM cache key hashes (`nil` when it hashes another
+    /// number of files, which has already failed).
+    private func assertResolvedGuard(inJob job: String) throws -> String? {
+        let steps = try Self.jobSteps(job, in: "ci.yml")
         let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
-                                    "ci.yml's `build-macos` job no longer resolves package dependencies")
+                                    "ci.yml's `\(job)` job no longer resolves package dependencies")
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
-            ci.yml's `build-macos` job must run `\(Self.resolvedGuardStepName)` as the step directly \
+            ci.yml's `\(job)` job must run `\(Self.resolvedGuardStepName)` as the step directly \
             after `Resolve package dependencies` — before anything else can touch the worktree, so a \
             rewrite is attributed to resolution and nothing else.
             """)
         let step = try XCTUnwrap(steps.first(where: { $0.first == guardName }),
-                                 "ci.yml's `build-macos` job has no `\(Self.resolvedGuardStepName)` step")
+                                 "ci.yml's `\(job)` job has no `\(Self.resolvedGuardStepName)` step")
 
         let diffs = step.filter { $0.contains("git diff") }
-        XCTAssertFalse(diffs.isEmpty, "`\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
+        XCTAssertFalse(diffs.isEmpty, "`\(job)`'s `\(Self.resolvedGuardStepName)` must run `git diff` over the lock file")
         for diff in diffs {
             XCTAssertTrue(diff.contains("--exit-code"), """
-                `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
+                `\(job)`'s `\(Self.resolvedGuardStepName)` must pass `--exit-code` to `git diff`; without it a \
                 rewritten Package.resolved prints a diff and the step still succeeds: \(diff)
                 """)
         }
         XCTAssertFalse(step.contains { $0.hasPrefix("continue-on-error") }, """
-            `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must not carry `continue-on-error` — a guard the job \
             survives failing observes nothing.
             """)
         XCTAssertFalse(step.contains { $0.hasPrefix("if:") }, """
-            `\(Self.resolvedGuardStepName)` must not carry an `if:` — a guard that can be skipped \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must not carry an `if:` — a guard that can be skipped \
             observes nothing on the runs it skips.
             """)
         for diff in diffs {
             XCTAssertNil(diff.range(of: #"\|\|\s*(true|:)"#, options: .regularExpression), """
-                `\(Self.resolvedGuardStepName)` must not swallow `git diff`'s status with `|| true`: \(diff)
+                `\(job)`'s `\(Self.resolvedGuardStepName)` must not swallow `git diff`'s status with `|| true`: \(diff)
                 """)
         }
         // The failing diff has to fail the step: either the `if ! git diff` form
@@ -3069,7 +3116,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             ? step.contains { $0 == "exit 1" }
             : diffs.contains { $0.hasPrefix("git diff --exit-code") && !$0.contains("||") && !$0.contains("&&") }
         XCTAssertTrue(guarded, """
-            `\(Self.resolvedGuardStepName)` must fail when `git diff --exit-code` does — an \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must fail when `git diff --exit-code` does — an \
             `if ! git diff …; then … exit 1; fi`, or a bare `git diff --exit-code` line.
             """)
 
@@ -3083,17 +3130,18 @@ final class ReleaseWorkflowTests: XCTestCase {
             keyPattern.matches(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line))
                 .compactMap { Range($0.range(at: 1), in: line).map { String(line[$0]) } }
         })
-        XCTAssertEqual(hashed.count, 1, "`build-macos`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
+        XCTAssertEqual(hashed.count, 1, "`\(job)`'s SwiftPM cache key must hash exactly one file; it hashes \(hashed.sorted())")
         XCTAssertEqual(diffedPaths, hashed, """
-            `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
+            `\(job)`'s `\(Self.resolvedGuardStepName)` must diff exactly the file the SwiftPM cache key hashes. \
             It diffs \(diffedPaths.sorted()); the cache key hashes \(hashed.sorted()).
             """)
         for path in diffedPaths {
             XCTAssertTrue(FileManager.default.fileExists(atPath: Self.repositoryRoot.appendingPathComponent(path).path), """
-                `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
+                `\(job)`'s `\(Self.resolvedGuardStepName)` diffs \(path), which is not a committed file — \
                 `git diff` over a missing path compares nothing and passes on every run.
                 """)
         }
+        return hashed.count == 1 ? hashed.first : nil
     }
 
     private static let resolvedGuardStepName = "Package.resolved is unchanged by resolution"

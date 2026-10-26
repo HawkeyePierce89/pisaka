@@ -225,7 +225,7 @@ weakened:
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 - Modify: `Tests/PisakaCoreTests/DependencyPinTests.swift` (doc comment only)
 
-- [ ] Refactor `testCIRefusesARewrittenPackageResolved` into the private helper
+- [x] Refactor `testCIRefusesARewrittenPackageResolved` into the private helper
   `assertResolvedGuard(inJob:)`.
   - Keep every existing assertion: the guard is the step directly after resolve;
     `git diff` is present with `--exit-code`; no `continue-on-error`; no `if:`;
@@ -233,7 +233,7 @@ weakened:
     one file; the diffed path equals the hashed path; the file exists.
   - Each message names the job it was asked of.
   - The helper returns the hashed path.
-- [ ] In the test, call the helper for `build-macos` and for `test-macos`. Then
+- [x] In the test, call the helper for `build-macos` and for `test-macos`. Then
   assert cross-job equality of:
   - the cache step's `key:` and `restore-keys:` lines;
   - the `id: xcode` step;
@@ -243,17 +243,17 @@ weakened:
 
   Rewrite the doc comment so it scopes the pin to both jobs and says why the keys
   must be equal.
-- [ ] Check that the pin can fail:
+- [x] Check that the pin can fail:
   - temporarily change `test-macos`'s cache key (for example, drop the Xcode
     segment); the cross-job assertion must fail;
   - temporarily move `test-macos`'s guard below its test step; the "directly after
     resolve" assertion must fail and name `test-macos`;
   - restore `ci.yml` after each check.
   - Record both messages in Notes.
-- [ ] In `DependencyPinTests`' type doc comment, say that ci.yml's `build-macos`
+- [x] In `DependencyPinTests`' type doc comment, say that ci.yml's `build-macos`
   and `test-macos` jobs both resolve and then run the guard. Keep the rest of the
   paragraph.
-- [ ] Run `swift test --filter ReleaseWorkflowTests` and
+- [x] Run `swift test --filter ReleaseWorkflowTests` and
   `swift test --filter DependencyPinTests`; both must be green. Then run the full
   `swift test` and `make lint`.
 
@@ -354,6 +354,19 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
     `test-macos` job has no `Test the AppKit overlay (PisakaAppTests)` step. It is
     the only gate that drives the editor's real TextKit stack headlessly — …".
     `ci.yml` restored byte-identically (`cmp`) after each check.
+  - Task 2, Xcode segment dropped from `test-macos`'s cache key: each job's own
+    guard stays green (the key still hashes one file), and the cross-job check
+    fails — "ci.yml's `build-macos` and `test-macos` must carry the SwiftPM cache
+    key and restore keys line for line — equal cache keys are what make the two
+    jobs share one SwiftPM cache entry, …".
+  - Task 2, `test-macos`'s guard moved below its test step: "ci.yml's
+    `test-macos` job must run `Package.resolved is unchanged by resolution` as
+    the step directly after `Resolve package dependencies` — …" (found
+    `Test the AppKit overlay (PisakaAppTests)` there instead).
+    `ci.yml` restored byte-identically (`cmp`) after each check.
+  - After Task 2: ReleaseWorkflowTests 69 tests and DependencyPinTests both
+    green; full `swift test` 7118 tests, 0 failures; `make lint` 0 violations in
+    784 files.
 - CLAUDE.md character count before and after.
 - RELEASING.md findings (wording pins grep; other `ci.yml` mentions).
 - Final `swift test` line, `make lint` line, YAML check output.
