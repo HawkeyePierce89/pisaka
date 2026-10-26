@@ -106,16 +106,16 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `Tests/PisakaCoreTests/DiagnosticsModelTests.swift`
 - Modify: `docs/architecture/core-lsp.md`
 
-- [ ] In `isRemovedAndGone(_:)`, when the probe finds the file, remove every tombstone the file lies at or under. Use the same whole-component lexical comparison the match uses, so the folder is evidently back.
-- [ ] In `noteItemRemoved(at:)`, skip the append when an existing tombstone already covers the path (the path is at or under it). The store clear is unchanged and always runs. Tombstones already recorded below a new folder tombstone are kept, for the reason given in the Overview.
-- [ ] Expose the tombstone list read-only to tests (`private(set)`, internal) and update the property's doc comment.
-- [ ] Add two tests:
+- [x] In `isRemovedAndGone(_:)`, when the probe finds the file, remove every tombstone the file lies at or under. Use the same whole-component lexical comparison the match uses, so the folder is evidently back.
+- [x] In `noteItemRemoved(at:)`, skip the append when an existing tombstone already covers the path (the path is at or under it). The store clear is unchanged and always runs. Tombstones already recorded below a new folder tombstone are kept, for the reason given in the Overview.
+- [x] Expose the tombstone list read-only to tests (`private(set)`, internal) and update the property's doc comment.
+- [x] Add two tests:
   - After removing folder `Gone`, one positional report for `Gone/inner.swift`, once the probe says the file exists, leaves no tombstone at or above it. A second report under `Gone` does not probe.
   - After removing `Gone`, removing `Gone/a.swift` and then `Gone` again adds no entry: the count stays 1. The store entries under each removed path are still cleared.
 
   Adjust `testALateReportCannotResurrectARemovedPath` only where its expectations encoded exact-only lifting.
-- [ ] Update `core-lsp.md`'s tombstone paragraph: folder lifting, and no covered appends.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Update `core-lsp.md`'s tombstone paragraph: folder lifting, and no covered appends.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: The git lookup is built off the main actor (1.4)
 

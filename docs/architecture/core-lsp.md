@@ -2963,8 +2963,15 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     exists again as a file — the model's one file-system call, an injected
     `fileExists` probe asked only on that match, whose default
     (`DiagnosticsModel.isFile`) refuses a directory, so a folder recreated at a
-    removed file's path is not the file coming back — and an exact tombstone
-    whose path exists again is lifted there. A kept **mapped** set is
+    removed file's path is not the file coming back. A file found there lifts
+    every tombstone it lies at or under — its own and any removed folder above
+    it, which is evidently back — so a second report under that folder lands
+    without asking the disk again. A removal an existing tombstone already
+    covers appends none (its clear still runs), so the list stays bounded by
+    the distinct removals rather than by every delete beneath one; a new folder
+    tombstone deliberately keeps finer ones already recorded under it, because
+    lifting the folder later must not also lift a file that may still be gone.
+    A kept **mapped** set is
     dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
     that is gone, so the file shows nothing until the next push. The editor
     treats a first showing as a plain tab switch, which keeps a set, so the

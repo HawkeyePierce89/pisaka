@@ -772,6 +772,68 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNotNil(entry(underFolder), "the folder change forgets every tombstone")
     }
 
+    /// A file found under a removed folder is the folder coming back: the probe
+    /// that finds it lifts every tombstone at or above it, so a second report
+    /// under the same folder lands without asking the disk again.
+    func testAFileFoundUnderARemovedFolderLiftsTheFolder() {
+        var probes: [String] = []
+        model = DiagnosticsModel(fileExists: { url in
+            probes.append(url.path)
+            return true
+        })
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let inner = folder.appendingPathComponent("inner.swift")
+        let sibling = folder.appendingPathComponent("sibling.swift")
+        let report = [positionalDiagnostic(line: 0, character: 0, message: "back")]
+
+        model.noteItemRemoved(at: folder)
+        XCTAssertEqual(model.removedPaths.count, 1)
+
+        model.receive(positional(report, url: inner))
+        XCTAssertNotNil(entry(inner), "the file exists, so its report lands")
+        XCTAssertEqual(probes, [inner.path])
+        let components = inner.standardizedFileURL.pathComponents
+        XCTAssertFalse(
+            model.removedPaths.contains {
+                components == $0 || CanonicalPath.relativeComponents(of: components, under: $0) != nil
+            },
+            "no tombstone is left at or above the file found"
+        )
+
+        model.receive(positional(report, url: sibling))
+        XCTAssertNotNil(entry(sibling))
+        XCTAssertEqual(probes, [inner.path], "a second report under the lifted folder does not probe")
+    }
+
+    /// A removal an existing tombstone already covers adds no second one — a
+    /// file under a removed folder, or the same folder again — while each
+    /// removal still clears the store under its own path.
+    func testACoveredRemovalAddsNoTombstoneButStillClears() {
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let file = folder.appendingPathComponent("a.swift")
+        let other = folder.appendingPathComponent("b.swift")
+        let set = [diagnostic(at: 0, length: 3, line: 0, message: "m")]
+
+        model.noteItemRemoved(at: folder)
+        XCTAssertEqual(model.removedPaths, [folder.standardizedFileURL.pathComponents])
+
+        // A mapped push for a synced buffer is gated by its record, not by a
+        // tombstone, so it plants an entry under the removed folder.
+        syncAtVersionOne(file)
+        model.receive(published(set, version: 1, url: file))
+        XCTAssertNotNil(entry(file))
+        model.noteItemRemoved(at: file)
+        XCTAssertNil(entry(file), "the covered removal still clears its entry")
+        XCTAssertEqual(model.removedPaths.count, 1, "a file under a removed folder adds no tombstone")
+
+        syncAtVersionOne(other)
+        model.receive(published(set, version: 1, url: other))
+        XCTAssertNotNil(entry(other))
+        model.noteItemRemoved(at: folder)
+        XCTAssertNil(entry(other), "the repeated removal still clears under the folder")
+        XCTAssertEqual(model.removedPaths.count, 1, "the same folder again adds no tombstone")
+    }
+
     /// The default probe counts a file, not any item: a folder recreated at a
     /// removed file's path does not lift its tombstone.
     func testTheDefaultProbeAcceptsAFileButNotADirectory() throws {
