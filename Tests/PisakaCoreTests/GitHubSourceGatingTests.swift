@@ -188,26 +188,32 @@ final class GitHubSourceGatingTests: XCTestCase {
 
         let characters = Array(source)
         var result = ""
+        result.reserveCapacity(source.utf8.count)
         var state = State.code
         var index = 0
 
-        func matches(_ text: String, at position: Int) -> Bool {
-            let needle = Array(text)
+        let lineCommentOpen: [Character] = ["/", "/"]
+        let blockCommentOpen: [Character] = ["/", "*"]
+        let blockCommentClose: [Character] = ["*", "/"]
+        let multilineQuote: [Character] = ["\"", "\"", "\""]
+
+        // Compares in place: no array is allocated per character examined.
+        func matches(_ needle: [Character], at position: Int) -> Bool {
             guard position + needle.count <= characters.count else { return false }
-            return Array(characters[position..<(position + needle.count)]) == needle
+            return characters[position..<(position + needle.count)].elementsEqual(needle)
         }
 
         while index < characters.count {
             let character = characters[index]
             switch state {
             case .code:
-                if matches("//", at: index) {
+                if matches(lineCommentOpen, at: index) {
                     state = .lineComment
                     index += 2
-                } else if matches("/*", at: index) {
+                } else if matches(blockCommentOpen, at: index) {
                     state = .blockComment(depth: 1)
                     index += 2
-                } else if matches("\"\"\"", at: index) {
+                } else if matches(multilineQuote, at: index) {
                     state = .multilineString
                     result.append("\"\"\"")
                     index += 3
@@ -223,10 +229,10 @@ final class GitHubSourceGatingTests: XCTestCase {
                 }
                 index += 1
             case .blockComment(let depth):
-                if matches("/*", at: index) {
+                if matches(blockCommentOpen, at: index) {
                     state = .blockComment(depth: depth + 1)
                     index += 2
-                } else if matches("*/", at: index) {
+                } else if matches(blockCommentClose, at: index) {
                     state = depth == 1 ? .code : .blockComment(depth: depth - 1)
                     index += 2
                 } else {
@@ -246,7 +252,7 @@ final class GitHubSourceGatingTests: XCTestCase {
                     index += 1
                 }
             case .multilineString:
-                if matches("\"\"\"", at: index) {
+                if matches(multilineQuote, at: index) {
                     state = .code
                     result.append("\"\"\"")
                     index += 3

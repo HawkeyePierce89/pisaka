@@ -354,8 +354,13 @@ final class LSPSourceGatingTests: XCTestCase {
     /// and string literals removed, newlines preserved so line-oriented assertions
     /// still work.
     ///
+    /// The one full stripper: `RepositorySources.stripped(_:)` serves its output
+    /// once per file per process to every suite that matches against code, and
+    /// `SourceStripperContractTests` pins that output construct by construct, so
+    /// any rewrite must reproduce it byte for byte.
+    ///
     /// Not a parser and does not need to be: it is exact on the constructs this
-    /// repository's LSP files actually contain. Where it is approximate it is so
+    /// repository's Swift files actually contain. Where it is approximate it is so
     /// in the *lenient* direction — the contents of a string interpolation are
     /// dropped along with the literal around them — which is the right way round
     /// for a check whose failure message asks a human to reword something.
@@ -385,10 +390,7 @@ final class LSPSourceGatingTests: XCTestCase {
         // Compares in place: no array is allocated per character examined.
         func matches(_ needle: [Character], at position: Int) -> Bool {
             guard position + needle.count <= characters.count else { return false }
-            for offset in 0..<needle.count where characters[position + offset] != needle[offset] {
-                return false
-            }
-            return true
+            return characters[position..<(position + needle.count)].elementsEqual(needle)
         }
 
         while index < characters.count {

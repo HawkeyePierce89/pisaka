@@ -6,11 +6,13 @@ import XCTest
 final class RepositorySourcesTests: XCTestCase {
     private static let sample = "Sources/PisakaCore/PisakaCore.swift"
 
-    func testStrippedIsTheStripperOverTheRawText() throws {
-        let raw = try RepositorySources.raw(at: Self.sample)
+    /// Compared against a direct read of the disk, not against the cache's own
+    /// raw text, so a stale or mis-keyed entry cannot agree with itself.
+    func testStrippedIsTheStripperOverTheFileOnDisk() throws {
+        let onDisk = try String(contentsOf: RepositorySources.url(Self.sample), encoding: .utf8)
         XCTAssertEqual(
             try RepositorySources.stripped(at: Self.sample),
-            LSPSourceGatingTests.strippingCommentsAndStringLiterals(raw)
+            LSPSourceGatingTests.strippingCommentsAndStringLiterals(onDisk)
         )
     }
 
@@ -20,21 +22,40 @@ final class RepositorySourcesTests: XCTestCase {
         XCTAssertEqual(try RepositorySources.raw(url), try String(contentsOf: url, encoding: .utf8))
     }
 
-    /// Whatever earlier tests in this process asked for, the counts can only be
-    /// exactly one afterwards: "at most once" is the property, and the asks
-    /// here guarantee "at least once".
+    /// The file is written fresh under a name nothing else in the process can
+    /// ask for, so every one of the 64 workers races for an empty entry — a
+    /// repository file would already be cached by the sweeps that run earlier in
+    /// a full run, and the counts would be one whatever the lock covered.
     func testConcurrentAsksReadAndStripOnce() throws {
-        let key = "Sources/PisakaCore/WorkspaceModel.swift"
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RepositorySourcesTests-\(UUID().uuidString).swift")
+        try "let a = 1 // trailing\nlet s = \"literal\"\n".write(to: url, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let key = RepositorySources.key(of: url)
+        XCTAssertEqual(RepositorySources.readCount(of: key), 0)
+
         let results = Results(count: 64)
         DispatchQueue.concurrentPerform(iterations: 64) { index in
-            results.set(index, try? RepositorySources.stripped(at: key))
+            results.set(index, try? RepositorySources.stripped(url))
         }
         let all = results.values
         XCTAssertEqual(all.count, 64)
         let first = try XCTUnwrap(all.first ?? nil, "the stripped text could not be read")
+        XCTAssertEqual(first, "let a = 1 \nlet s = \n")
         XCTAssertTrue(all.allSatisfy { $0 == first }, "concurrent asks must all see the same text")
         XCTAssertEqual(RepositorySources.readCount(of: key), 1)
         XCTAssertEqual(RepositorySources.stripCount(of: key), 1)
+    }
+
+    /// Two spellings of one file — a `..` detour and the plain relative path —
+    /// meet in one entry, so the file is read once.
+    func testEverySpellingOfAFileSharesOneEntry() throws {
+        let plain = "Sources/PisakaCore/FileName.swift"
+        let detour = RepositorySources.root
+            .appendingPathComponent("Sources/PisakaCore/../PisakaCore/FileName.swift")
+        XCTAssertEqual(RepositorySources.key(of: detour), plain)
+        XCTAssertEqual(try RepositorySources.raw(detour), try RepositorySources.raw(at: plain))
+        XCTAssertEqual(RepositorySources.readCount(of: plain), 1)
     }
 
     func testSwiftFilesWalkIsSortedSwiftOnlyAndStable() throws {
@@ -54,6 +75,22 @@ final class RepositorySourcesTests: XCTestCase {
         XCTAssertThrowsError(try RepositorySources.raw(at: missing))
         XCTAssertThrowsError(try RepositorySources.raw(at: missing))
         XCTAssertEqual(RepositorySources.readCount(of: missing), 2, "a failed read must not be cached")
+    }
+
+    func testMissingFileStrippedThrowsEveryTimeAndIsNeverStripped() {
+        let missing = "Sources/PisakaCore/DoesNotExist-\(UUID().uuidString).swift"
+        XCTAssertThrowsError(try RepositorySources.stripped(at: missing))
+        XCTAssertThrowsError(try RepositorySources.stripped(at: missing))
+        XCTAssertEqual(RepositorySources.readCount(of: missing), 2, "a failed read must not be cached")
+        XCTAssertEqual(RepositorySources.stripCount(of: missing), 0)
+    }
+
+    /// `FileManager`'s enumerator answers an empty walk for a directory that
+    /// does not exist; the reader must answer `nil` instead, and every time.
+    func testMissingDirectoryWalkIsNilEveryTime() {
+        let missing = "Sources/DoesNotExist-\(UUID().uuidString)"
+        XCTAssertNil(RepositorySources.swiftFiles(under: missing))
+        XCTAssertNil(RepositorySources.swiftFiles(under: missing))
     }
 
     func testURLResolvesUnderTheRoot() {

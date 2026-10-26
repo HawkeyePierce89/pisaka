@@ -1,7 +1,7 @@
 import Foundation
 
-/// The one reader every source-gating suite gets a repository file's text from:
-/// read once, stripped once, walked once, per test process.
+/// The one reader the source-gating suites get a repository Swift file's text
+/// from: read once, stripped once, walked once, per test process.
 ///
 /// **What is memoized.** Three things, each computed at most once per process:
 /// the walk of a source directory (`swiftFiles(under:)`), a file's raw text
@@ -30,8 +30,11 @@ import Foundation
 /// held, and nothing takes it twice.
 ///
 /// **Failures are not memoized.** A read that throws rethrows the same
-/// `String(contentsOf:encoding: .utf8)` error on every call, and a walk whose
-/// enumerator cannot be created answers `nil` every time, so a test that fails
+/// `String(contentsOf:encoding: .utf8)` error on every call, and a walk of a
+/// directory that does not exist (or whose enumerator cannot be created)
+/// answers `nil` every time — `FileManager`'s enumerator alone would hand back
+/// an empty walk for a misspelled directory, which every caller's "found no
+/// Swift sources" guard would then never see — so a test that fails
 /// on a missing file fails exactly as it did when it read the file itself. Each
 /// caller keeps its own `XCTUnwrap` / `guard` message and its own "found no Swift
 /// sources" assertion; this type asserts nothing.
@@ -52,6 +55,14 @@ import Foundation
 /// finds the literal-keeping readings *by the call's spelling* inside each test
 /// body, so a reader mode would hide them from the inventory it holds equal to
 /// that suite's stated exceptions.
+///
+/// **What it does not serve.** Non-Swift repository files — YAML, plists,
+/// Markdown, workflows, licenses, query files, fixtures — are still read by
+/// their suites directly, and two walks stay outside it on purpose:
+/// `LintConfigurationTests` walks with `contentsOfDirectory`, because it skips
+/// hidden entries and also walks `Tests/`, which this enumerator does neither
+/// of; `ChromeThemeSourceGatingTests.sweepDocuments()` walks `docs/` for
+/// Markdown, not Swift.
 enum RepositorySources {
     /// The repository root, derived from this file's own `#filePath`.
     static let root = URL(fileURLWithPath: #filePath)
@@ -67,7 +78,8 @@ enum RepositorySources {
     }
 
     /// Every `.swift` file under `relativeDirectory`, at any depth, sorted by
-    /// path; `nil` when the directory cannot be enumerated (not cached).
+    /// path; `nil` when the directory does not exist or cannot be enumerated
+    /// (not cached).
     static func swiftFiles(under relativeDirectory: String = "Sources") -> [URL]? {
         memo.withLock { $0.swiftFiles(under: relativeDirectory) }
     }
@@ -106,7 +118,7 @@ enum RepositorySources {
     /// otherwise.
     static func key(of url: URL) -> String {
         let path = url.standardizedFileURL.path
-        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        let prefix = root.path + "/"
         return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
     }
 
@@ -131,10 +143,12 @@ enum RepositorySources {
 
         func swiftFiles(under relativeDirectory: String) -> [URL]? {
             if let cached = walks[relativeDirectory] { return cached }
-            guard let enumerator = FileManager.default.enumerator(
-                at: RepositorySources.url(relativeDirectory),
-                includingPropertiesForKeys: nil
-            ) else { return nil }
+            let directory = RepositorySources.url(relativeDirectory)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
+            else { return nil }
             let files = enumerator
                 .compactMap { $0 as? URL }
                 .filter { $0.pathExtension == "swift" }

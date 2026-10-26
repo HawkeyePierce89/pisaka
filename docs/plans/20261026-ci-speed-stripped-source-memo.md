@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two changes that don't depend on each other.
+Three changes that don't depend on each other.
 
 1. Every source-gating suite gets the text of a repository Swift file from one shared, lock-guarded reader in `Tests/PisakaCoreTests/Support/`. Each file is read once and stripped once per test process. The walk of a source directory is also done once. Today nineteen test files each walk `Sources/`, re-read files and re-run `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` in every test. `ChromeThemeSourceGatingTests` reaches the stripper from 94 sites. This costs about 8.5 of the `test` job's 10.5 execution minutes on CI.
 2. The stripper is rewritten so it no longer allocates two arrays on every character. Its output stays byte-identical, and a new contract test pins its behaviour.
@@ -227,7 +227,8 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
     - `ZoomSourceGatingTests`: 14.951 s → 1.904 s (10 tests)
     - `MenuShortcutUniquenessTests`: 8.194 s → 8.164 s (8 tests)
     - `GitHubSourceGatingTests`: 4.411 s → 1.254 s (19 tests)
-  - The five slowest before (ChromeTheme, Folding, Markdown, Zoom, LeetCode) together: 212.2 s → 61.3 s. That is not "well under a minute": ChromeTheme alone keeps ~35 s and Markdown ~16 s. The per-test cost left in those suites is their own scanning, not file I/O or stripping, which now happen once per file. MenuShortcutUniqueness did not change, so its cost is not in reading.
+  - After the review round (same machine): `Executed 7118 tests, with 0 failures (0 unexpected) in 87.833 (88.128) seconds` (7114 + 4 review tests); ChromeTheme 33.966 s, Markdown 11.614 s, MenuShortcutUniqueness 8.164 s → 5.308 s.
+  - The five slowest before (ChromeTheme, Folding, Markdown, Zoom, LeetCode) together: 212.2 s → 61.3 s. That misses the "well under a minute" expectation: ChromeTheme alone keeps ~35 s and Markdown ~16 s. File I/O and the full stripper now happen once per file, but part of the remaining cost was the comment-only scanner `GitHubSourceGatingTests.strippingComments(_:)`, which still allocated two arrays per character and runs uncached over whole trees: every `Sources/Pisaka` file in each of `MenuShortcutUniquenessTests`' tests (which is why that suite did not change), in `WelcomeShortcutPinTests`, and in two ChromeTheme sweeps. The review gave it the same in-place comparison as the full stripper, checked byte-identical against the verbatim old version over every Swift file in the tree by a temporary, uncommitted test.
   - Hand-breaks repeated exactly as in Task 1; each message after `failed - ` is byte-identical to the baseline. Folding in full: `FoldController.swift must not name autosave: folding is a reader, like the symbol index. It writes nothing — not the buffer, not the session, not the disk — so there is nothing for a writer gate to order it against.` Markdown: `MarkdownPreviewController.swift must not name localChanges: the preview is a reader, like the symbol index.` ChromeTheme: `a gated view must ask the palette for a role, never the system for a colour`, offender list `["TabStripView.swift: red"]`, same as before. Every file was restored with `git checkout --`, and `git status` was clean afterwards.
   - `make lint` (SwiftLint 0.65.1, `--strict`): `Found 0 violations, 0 serious in 784 files`.
   - `ci.yml` has no `needs:` key at all (build-macos, build-ios, test and lint all independent). `git diff --exit-code master -- .github/workflows/release.yml` is empty.

@@ -162,4 +162,23 @@ final class SourceStripperContractTests: XCTestCase {
             ]
         )
     }
+
+    /// The stripper walks `Character`s, and two of its answers follow from that
+    /// alone, so a UTF-8 or UTF-16 rewrite would change them silently. Both are
+    /// pinned as they are, not endorsed: `"\r\n"` is one `Character` that is not
+    /// `"\n"`, so a line comment in a CRLF file never ends, and a quote carrying a
+    /// combining mark is not `"\""`, so it opens no literal. No Swift file in the
+    /// repository has CRLF endings or such a quote today. Asserted directly
+    /// rather than through `assertStrips`, whose line count splits inside
+    /// `"\r\n"`.
+    func testCharacterGranularityDecidesCRLFAndCombiningMarks() {
+        XCTAssertEqual(
+            LSPSourceGatingTests.strippingCommentsAndStringLiterals("let a = 1 // c\r\nlet b = 2"),
+            "let a = 1 "
+        )
+        XCTAssertEqual(
+            LSPSourceGatingTests.strippingCommentsAndStringLiterals("let s = \"\u{301}abc\"; let n = 1\nlet m = 2"),
+            "let s = \"\u{301}abc\nlet m = 2"
+        )
+    }
 }

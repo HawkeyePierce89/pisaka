@@ -498,8 +498,8 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
 `ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc`,
 `DesignGlyphRecord`, `XcodePin` and `RepositorySources` — the once-per-process
-walk and raw/stripped text of repository files that every source-gating suite
-reads through. A fake
+walk and raw/stripped text of repository Swift files the source-gating suites
+read through (non-Swift files are still read directly). A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
 writes into a `StubFileTree` must hop to the main actor first — two threads in one
 `Dictionary` is a corrupted hash table, not a flaky assertion.
