@@ -978,7 +978,7 @@ struct PisakaApp: App {
                 onNewFolder: { dir, name in newFolder(in: dir, name: name) },
                 onRename: { url, name in renameItem(at: url, newName: name) },
                 onMove: { moveItem(at: $0, into: $1) },
-                onDelete: { deleteItem(at: $0) },
+                onDelete: { deleteItem(at: $0, named: $1) },
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
                 onShowLocalHistory: { showLocalHistory(for: $0) },
@@ -5203,10 +5203,12 @@ struct PisakaApp: App {
     /// Delete the file or folder at `url`: confirm first (destructive), remove it
     /// from disk, close any affected open tabs via `closeFiles(under:)`, then bump
     /// `treeRevision`. The disk and tab-reconciliation paths handle a file and a
-    /// directory tree uniformly.
-    private func deleteItem(at url: URL) {
+    /// directory tree uniformly. The confirmation quotes `name` — a chain row's
+    /// label, the one its menu item quoted — or, when nil, `url`'s last path
+    /// component.
+    private func deleteItem(at url: URL, named name: String?) {
         guard !revertInFlight() else { return }
-        guard FilePanels.confirmDelete(fileNames: [url.lastPathComponent]) else { return }
+        guard FilePanels.confirmDelete(fileNames: [name ?? url.lastPathComponent]) else { return }
         // Capture the affected tab ids *before* the removal, while a tab opened
         // through a symlink to `url` (or into it) still canonicalizes to it — once
         // the item is gone that symlink dangles and would no longer match. Close

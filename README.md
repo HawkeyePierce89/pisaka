@@ -13,7 +13,8 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   offers to download once (checksum-pinned, removable in Preferences), Go via
   `gopls` and Rust via `rust-analyzer`. Errors and warnings appear as you
   type — wavy underlines, gutter markers, a project-wide Problems panel and
-  severity dots in the project tree — plus hover
+  severity dots in the project tree (where single-child folder chains show
+  as one `a/b/c` row) — plus hover
   types, precise Go to Definition and project-wide **Rename** (Ctrl+Cmd+R);
   every language falls back to the built-in index silently, no alerts ever.
 - **Code intelligence with no setup at all** — a project-wide symbol index

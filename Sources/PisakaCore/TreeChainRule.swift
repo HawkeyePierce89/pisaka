@@ -23,7 +23,9 @@ import Foundation
 ///   list it.
 ///
 /// A separated head is walked all the same — its row is a plain folder, but the
-/// run's listings are read under this load, so joining it again lists nothing.
+/// run's listings are read under this load, so joining it again lists nothing —
+/// and that walk is what decides whether it offers to join (see
+/// `TreeRow.folder`).
 ///
 /// A chain of one segment is a plain folder row. Every failure while probing is
 /// **silent**: it shapes the answer and never throws out of the rule.
@@ -89,8 +91,10 @@ public enum TreeChainRule {
             tailListing = nextListing
         }
 
+        // A separated head offers to join exactly when joining it would draw a
+        // chain: the run its own walk just built has more than one segment.
         guard !separated.contains(key(for: entry.url)) else {
-            return .folder(entry, offersShowAsOneRow: holdsOneFolder(headListing))
+            return .folder(entry, offersShowAsOneRow: segments.count > 1)
         }
         guard segments.count > 1 else { return .folder(entry, offersShowAsOneRow: false) }
         return .chain(TreeChain(segments: segments, tailListing: tailListing))
@@ -107,7 +111,12 @@ public enum TreeRow: Equatable, Identifiable {
     /// A file entry.
     case file(DirectoryEntry)
     /// A folder drawn as itself. `offersShowAsOneRow` is true exactly when the
-    /// folder is separated by the user *and* would otherwise qualify.
+    /// folder is separated by the user *and* the chain joining it would form
+    /// has more than one segment — the head's own walk, run as if it were not
+    /// separated, appended at least one child. So a separated folder whose one
+    /// child is itself separated, or whose one child cannot be listed, offers
+    /// nothing (joining it would draw the same plain row), while one whose
+    /// one child is a symbolic link offers to join it as a two-segment chain.
     case folder(DirectoryEntry, offersShowAsOneRow: Bool)
     /// A run of at least two folders drawn as one row.
     case chain(TreeChain)
@@ -199,8 +208,14 @@ public struct TreeChain: Equatable {
     /// entry's own name, as it does for any rename).
     public var renameSiblings: [String] { [tail.name] }
 
+    /// The name a delete of this row is confirmed under — the menu item's
+    /// title and the confirmation sheet both quote it, so the two can never
+    /// name different things. It is the label: the row stands for the head's
+    /// whole subtree, which is what the delete removes.
+    public var deleteConfirmationName: String { label }
+
     public var renameTitle: String { "Rename \"\(tail.name)\"" }
-    public var deleteTitle: String { "Delete \"\(label)\"" }
+    public var deleteTitle: String { "Delete \"\(deleteConfirmationName)\"" }
     public static let showAsSeparateFoldersTitle = "Show as Separate Folders"
     /// The title a separated, qualifying plain folder row offers.
     public static let showAsOneRowTitle = "Show as One Row"

@@ -136,6 +136,29 @@ final class TreeChainRuleTests: XCTestCase {
         )
     }
 
+    /// Joining `a` would stop before its unreadable only child, a chain of one:
+    /// the same plain row, so nothing is offered.
+    func testASeparatedFolderWhoseOnlyChildIsUnreadableDoesNotOfferShowAsOneRow() throws {
+        let tree = tree(["a/b/one.swift", "a/b/two.swift"])
+        tree.unreadableDirectories = ["a/b"]
+        XCTAssertEqual(
+            try rows(tree, separated: [key(tree, "a")]),
+            [.folder(DirectoryEntry(url: tree.url("a"), isDirectory: true), offersShowAsOneRow: false)]
+        )
+    }
+
+    /// Joining `a` would append its only child, a link, as the unlisted tail —
+    /// a two-segment chain, so the item is offered.
+    func testASeparatedFolderWhoseOnlyChildIsALinkOffersShowAsOneRow() throws {
+        let tree = tree(["a/b/c/one.swift", "a/b/c/two.swift"])
+        tree.symlinks = ["a/b"]
+        XCTAssertEqual(
+            try rows(tree, separated: [key(tree, "a")]),
+            [.folder(DirectoryEntry(url: tree.url("a"), isDirectory: true), offersShowAsOneRow: true)]
+        )
+        XCTAssertFalse(tree.listedPaths.contains("a/b"))
+    }
+
     func testASeparatedContinuationEndsTheChainBeforeIt() throws {
         let tree = tree(["a/b/c/d/one.swift", "a/b/c/d/two.swift"])
         let chain = try XCTUnwrap(onlyChain(try rows(tree, separated: [key(tree, "a/b/c")])))
@@ -188,6 +211,8 @@ final class TreeChainRuleTests: XCTestCase {
 
         XCTAssertEqual(chain.label, "a/b/c")
         XCTAssertEqual(chain.renameTitle, "Rename \"c\"")
+        XCTAssertEqual(chain.deleteConfirmationName, "a/b/c")
+        XCTAssertEqual(chain.deleteTitle, "Delete \"\(chain.deleteConfirmationName)\"")
         XCTAssertEqual(chain.deleteTitle, "Delete \"a/b/c\"")
         XCTAssertEqual(TreeChain.showAsSeparateFoldersTitle, "Show as Separate Folders")
         XCTAssertEqual(TreeChain.showAsOneRowTitle, "Show as One Row")
@@ -457,9 +482,10 @@ final class TreeChainRuleTests: XCTestCase {
         XCTAssertEqual(TreeRow.chain(remainder).id, folded.remainderHead)
         XCTAssertEqual(tree.listedPaths, listed)
 
-        // {a, b}: `b` plain too, over the rest.
+        // {a, b}: `b` plain too, over the rest. `a` offers nothing: its one
+        // child is separated, so joining it would draw the same plain row.
         let both: Set = [key(tree, "a"), key(tree, "a/b")]
-        XCTAssertEqual(try rows(of: "", memo, separated: both, tree: tree), [plain(tree, "a", offersShowAsOneRow: true)])
+        XCTAssertEqual(try rows(of: "", memo, separated: both, tree: tree), [plain(tree, "a", offersShowAsOneRow: false)])
         XCTAssertEqual(try rows(of: "a", memo, separated: both, tree: tree), [plain(tree, "a/b", offersShowAsOneRow: true)])
         XCTAssertEqual(names(try XCTUnwrap(onlyChain(try rows(of: "a/b", memo, separated: both, tree: tree))).segments), ["c", "d"])
         XCTAssertEqual(tree.listedPaths, listed)

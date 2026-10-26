@@ -255,7 +255,9 @@ struct ContentView: View {
     /// layer decides nothing about the move: every validity and destination
     /// question is `MoveDropRule`'s.
     var onMove: (URL, URL) -> Void = { _, _ in }
-    var onDelete: (URL) -> Void = { _ in }
+    /// Delete from the project tree: the url and the name its confirmation
+    /// quotes, nil for a file or plain folder (`ProjectTreeView.onDelete`).
+    var onDelete: (URL, String?) -> Void = { _, _ in }
     /// Invoked when a project-tree file row requests a run (the "Run" context-menu
     /// item), wired to `PisakaApp.runFile(url:)`. Default no-op so previews/tests
     /// can construct the view without the app wiring.

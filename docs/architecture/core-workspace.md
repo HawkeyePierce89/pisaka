@@ -834,12 +834,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chain of one segment is a plain folder row. **The cap is 32**
     (`maximumSegments`): the 32nd segment is still listed, so its listing is the
     tail's contents and the rest of the run appears as that tail's children.
+    **A separated head is walked all the same**: its row is a plain folder, but
+    the run it would draw is listed under the load that drew it, so `Show as One
+    Row` re-runs the rule over the memo alone — even after a revision bump left
+    nothing else read. Its cost is the one the unseparated head pays.
     `offersShowAsOneRow` on the plain-folder case is true exactly when the
-    folder is separated **and** would otherwise qualify. **A separated head is
-    walked all the same**: its row is a plain folder, but the run it would draw
-    is listed under the load that drew it, so `Show as One Row` re-runs the rule
-    over the memo alone — even after a revision bump left nothing else read. Its
-    cost is the one the unseparated head pays. **Every probe failure
+    folder is separated **and** the chain joining it would form has more than
+    one segment — `segments.count > 1` off that same walk, the answer the
+    unseparated head would draw from. A head merely *holding one folder* is not
+    enough: when its one child is itself separated, or cannot be listed, the
+    walk stops before it, joining would draw the same plain row, and nothing is
+    offered; when its one child is a symbolic link, the link is appended as the
+    tail, so joining draws a two-segment chain and the item is offered. **Every probe failure
     is silent**: it shapes the answer and never throws out of the rule; only a
     node's own contents read may beep, in the view.
     **Symbolic links in today's listing.** `FileService.contentsOfDirectory`
@@ -854,7 +860,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     directory entry probed, never a listing. Descending into symlinked
     directories is out of scope.
     **`TreeRow`** has three cases — `.file`, `.folder(_, offersShowAsOneRow:)`,
-    `.chain(TreeChain)` — and **`id` is the entry url, or the chain's head**, so
+    `.chain(TreeChain)`, the folder's flag being the `offersShowAsOneRow`
+    answer above — and **`id` is the entry url, or the chain's head**, so
     a folder keeps its identity as it turns from plain to chain and back, which
     is what lets the view keep its `@State` (expansion above all) across a
     reshape. `leads(toDraftAnchor:renaming:)` is the question a reload asks of
@@ -882,8 +889,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     | `diagnosticMarkURL`, `spokenGitStateURL` | head |
     | `gitStatusURLs` | each segment |
 
-    `label` is the segment names joined with `/`; the titles are
-    `Rename "<tail>"`, `Delete "<label>"`, and the two statics
+    `label` is the segment names joined with `/`, and
+    `deleteConfirmationName` is that label — **the one name a chain's delete is
+    confirmed under**: `deleteTitle` is built from it, and the app hands the
+    same value to the confirmation sheet (`app-window.md`), so the menu item and
+    the sheet cannot name different things. The titles are
+    `Rename "<tail>"`, `Delete "<deleteConfirmationName>"`, and the two statics
     `Show as Separate Folders` / `Show as One Row`. `renameSiblings` is the tail
     alone — the listing of its parent segment, which the field excludes as it
     excludes any renamed entry's own name — and `leadingSegments` are the ones a
@@ -922,9 +933,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the qualifying run, the three stops (no entries, two entries, one file), a
     chain of one, files beside a chain, the root never a segment, a link head
     never listed, a link continuation as the unlisted tail, the 32-segment cap,
-    a separated head offering `Show as One Row` and a non-qualifying one not, a
+    a separated head offering `Show as One Row` and a non-qualifying one not,
+    a separated head whose only child is unreadable offering nothing and one
+    whose only child is a symbolic link offering the item, a
     separated continuation, an unreadable head, continuation and first
-    continuation, every address and title as data on one chain, the key's
+    continuation, every address and title as data on one chain (the delete
+    title quoting exactly `deleteConfirmationName`, which is `a/b/c`), the key's
     spelling, and `leads` for the plain, tail, under-tail and inner-segment
     anchors; over the real `FileService` in a temporary directory, a folder
     holding `.git` and one subfolder qualifies because the listing's own
@@ -940,7 +954,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     that segment (same `id`, its listing holding the old tail and the file), and
     after the extend a rename draft of the old tail leads nowhere. The unfold
     sequence — `{a}`, `{a, b}`, then `a` removed — is three rule re-runs with no
-    new listing, the rule staying local to each folder; and a separated head
+    new listing, the rule staying local to each folder (with `{a, b}` separated,
+    `a` offers nothing, its one child being separated); and a separated head
     loaded under a fresh revision is joined again with no new listing either.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
