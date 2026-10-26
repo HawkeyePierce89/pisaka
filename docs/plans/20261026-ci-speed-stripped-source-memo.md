@@ -110,8 +110,8 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Create: `Tests/PisakaCoreTests/Support/RepositorySources.swift`
 - Create: `Tests/PisakaCoreTests/RepositorySourcesTests.swift`
 
-- [ ] Implement `RepositorySources` with the surface, key, lock, failure and mode rules stated in Design decisions.
-- [ ] Write the doc comment as its own inventory:
+- [x] Implement `RepositorySources` with the surface, key, lock, failure and mode rules stated in Design decisions.
+- [x] Write the doc comment as its own inventory:
   - what is memoized: the walk, raw text and stripped text;
   - the key;
   - the `NSLock` held across compute, and why: at most once per process, and CLAUDE.md's two-threads-in-one-`Dictionary` warning;
@@ -120,14 +120,14 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
   - the two modes, with the rule for choosing between them;
   - why the comment-only scanner is applied by callers over raw text and is not a mode (the literal-keeping inventory check finds those readings by the call's spelling);
   - that it matches the class's conventions: stripped text by default, and a literal-keeping reading states its reason at its site.
-- [ ] Tests in `RepositorySourcesTests`:
+- [x] Tests in `RepositorySourcesTests`:
   - `stripped(at:)` equals the stripper applied to `raw(at:)` for a real file (e.g. `Sources/PisakaCore/PisakaCore.swift`);
   - `raw(at:)` equals `String(contentsOf:)` of the same file;
   - asking 64 times through `DispatchQueue.concurrentPerform` for one file's stripped text gives identical results, and `readCount(of:)` and `stripCount(of:)` for that key are both exactly 1 afterwards. This holds whatever earlier tests in the process asked for, because "at most once" is the property;
   - `swiftFiles(under: "Sources")` is non-empty, path-sorted, contains only `.swift` files, and two calls return equal arrays;
   - a missing path throws from `raw(at:)` on two consecutive calls, so failures are not cached;
   - `url(_:)` resolves to an existing `Package.swift` at the root.
-- [ ] Run the full `swift test`.
+- [x] Run the full `swift test`.
 
 ### Task 4: Move the heavy suites to the reader
 
@@ -213,6 +213,7 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Stripper equivalence (Task 2): command, file count, result.
   - `swift test --filter StripperEquivalenceCheck`: the temporary test compared 789 files (every `.swift` under `Sources/`, `Tests/` and `Vendor/`, plus `Package.swift`, skipping `/.build/`) and all matched the verbatim legacy stripper: `Executed 1 test, with 0 failures (0 unexpected)`. `StripperEquivalenceCheck.swift` was then deleted and is not committed.
   - After the rewrite, `SourceStripperContractTests` passed (10 tests, 0 failures) and the full `swift test` passed: `Executed 7108 tests, with 0 failures (0 unexpected) in 189.825 (190.133) seconds`, down from 270 s. Along the way: ChromeThemeSourceGatingTests 70.9 s (was 101.9 s), FoldingSourceGatingTests 25.0 s (was 41.6 s), MarkdownPreviewSourceGatingTests 28.6 s (was 40.1 s).
+- Reader (Task 3): `RepositorySourcesTests` adds 6 tests; full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 189.488 (189.793) seconds`. This is the count Tasks 4 and 5 must keep.
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
 
