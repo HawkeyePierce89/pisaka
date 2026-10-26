@@ -300,11 +300,11 @@ weakened:
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run the full `swift test`; it must pass. Record the `Executed N tests` line
+- [x] Run the full `swift test`; it must pass. Record the `Executed N tests` line
   in Notes. N equals the pre-change total, because the renamed test replaces the
   old one one-for-one and the new assertions live inside existing tests.
-- [ ] Run `make lint` (SwiftLint 0.65.1, `--strict`); it must be clean.
-- [ ] Run `ruby -ryaml -e` over `ci.yml` and assert all of the following; record
+- [x] Run `make lint` (SwiftLint 0.65.1, `--strict`); it must be clean.
+- [x] Run `ruby -ryaml -e` over `ci.yml` and assert all of the following; record
   the output in Notes:
   - there are exactly five jobs: `test`, `build-macos`, `test-macos`,
     `build-ios`, `lint`;
@@ -313,9 +313,9 @@ weakened:
     equal resolve `run` and equal guard `run`;
   - no `build-macos` step's `run` contains ` test` as the xcodebuild action;
   - `build-macos` `timeout-minutes` is 45 and `test-macos` is 30.
-- [ ] Run `git diff --exit-code master -- .github/workflows/release.yml`; it must
+- [x] Run `git diff --exit-code master -- .github/workflows/release.yml`; it must
   be empty. The `shasum` must equal Task 1's baseline.
-- [ ] Coverage note: this change touches only a workflow file and the suites that
+- [x] Coverage note: this change touches only a workflow file and the suites that
   pin it. Every new assertion was shown to fail on a hand-broken workflow in
   Tasks 1–2, which takes the place of a coverage percentage here.
 
@@ -388,6 +388,23 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
   - After Task 3: full `swift test` 7118 tests, 0 failures; `make lint`
     0 violations in 784 files.
 - Final `swift test` line, `make lint` line, YAML check output.
+  - Full `swift test`: `Executed 7118 tests, with 0 failures (0 unexpected)`,
+    the same total as after Task 1 (the renamed pin replaced the old one
+    one-for-one; ReleaseWorkflowTests stayed at 69).
+  - `make lint`: `Done linting! Found 0 violations, 0 serious in 784 files.`
+  - `ruby -ryaml` over `ci.yml`:
+    - OK   jobs = ["test", "build-macos", "test-macos", "build-ios", "lint"]
+    - OK   no job has needs
+    - OK   cache key equal: spm-${{ steps.xcode.outputs.version }}-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+    - OK   restore-keys equal
+    - OK   resolve run equal
+    - OK   guard run equal
+    - OK   no build-macos xcodebuild test action
+    - OK   build-macos timeout 45
+    - OK   test-macos timeout 30
+  - `git diff --exit-code master -- .github/workflows/release.yml`: empty;
+    `shasum -a 256` = `56c8e0ce09e406356fc7f777cfb7902927d7609fcad80932d541eca0625769cb`,
+    equal to the Task 1 baseline.
 
 ## Post-Completion
 
