@@ -3023,9 +3023,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// up on a developer's machine, as a whole-file diff hiding the one real pin
     /// change.
     ///
-    /// Two ci.yml jobs resolve: `build-macos`, whose resolution feeds the
-    /// shipping build, and `test-macos`, whose resolution feeds the app-layer
-    /// bundle. Each runs under the pinned Xcode its own setup-xcode step installs
+    /// Two ci.yml jobs guard their resolve: `build-macos`, whose resolution feeds
+    /// the shipping build, and `test-macos`, whose resolution feeds the app-layer
+    /// bundle. (`build-ios` resolves too, under a cache key that does not name the
+    /// Xcode, and is not asked here.) Each runs under the pinned Xcode its own setup-xcode step installs
     /// (`testEveryWorkflowPinsTheSameXcode`), so each observes that toolchain's
     /// resolution independently, and each is asked the whole guard by
     /// `assertResolvedGuard(inJob:)` over comment-stripped lines scoped to it.
@@ -3034,9 +3035,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// must exist — a misspelled path makes `git diff` compare nothing and pass
     /// forever.
     ///
-    /// The two jobs are then held to the same cache key and restore keys, the
-    /// same Xcode read, the same resolve and the same guard, line for line.
-    /// Equal keys are what make the two jobs share one cache entry rather than
+    /// The two jobs are then held to the same cache path, key and restore keys,
+    /// the same Xcode read, the same resolve and the same guard, line for line.
+    /// An equal path and key are what make the two jobs share one cache entry
+    /// (the cache action versions an entry by its paths too) rather than
     /// each paying for its own download, and equal steps are what make a green
     /// guard in one job mean the same thing as in the other.
     func testCIRefusesARewrittenPackageResolved() throws {
@@ -3051,9 +3053,9 @@ final class ReleaseWorkflowTests: XCTestCase {
         let tested = try Self.jobSteps("test-macos", in: "ci.yml")
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         let shared: [(String, ([String]) -> Bool, ([String]) -> [String])] = [
-            ("the SwiftPM cache key and restore keys",
+            ("the SwiftPM cache path, key and restore keys",
              { $0.contains { $0.hasPrefix("uses: actions/cache@") } },
-             { $0.filter { $0.hasPrefix("key:") || $0.hasPrefix("restore-keys:") } }),
+             { $0.filter { $0.hasPrefix("path:") || $0.hasPrefix("key:") || $0.hasPrefix("restore-keys:") } }),
             ("the `id: xcode` step", { $0.contains("id: xcode") }, { $0 }),
             ("the resolve step", { $0.contains { $0.contains("-resolvePackageDependencies") } }, { $0 }),
             ("the `\(Self.resolvedGuardStepName)` step", { $0.first == guardName }, { $0 }),
@@ -3063,10 +3065,9 @@ final class ReleaseWorkflowTests: XCTestCase {
                                         "ci.yml's `build-macos` job has no \(what)")
             let inTest = try XCTUnwrap(tested.first(where: matches).map(lines),
                                        "ci.yml's `test-macos` job has no \(what)")
-            XCTAssertFalse(inBuild.isEmpty, "ci.yml's `build-macos` job has an empty reading of \(what)")
             XCTAssertEqual(inBuild, inTest, """
-                ci.yml's `build-macos` and `test-macos` must carry \(what) line for line — equal cache \
-                keys are what make the two jobs share one SwiftPM cache entry, and an equal resolve and \
+                ci.yml's `build-macos` and `test-macos` must carry \(what) line for line — an equal cache \
+                path and key are what make the two jobs share one SwiftPM cache entry, and an equal resolve and \
                 guard are what make the two guards observe the same thing.
                 """)
         }
@@ -3210,8 +3211,9 @@ final class ReleaseWorkflowTests: XCTestCase {
             AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
             cannot see.
             """)
-        XCTAssertTrue(script.contains { $0.contains("test") }, """
-            ci.yml's `\(Self.ciAppKitTestStepName)` step must run the test action. It is the headless \
+        XCTAssertTrue(Self.runsTestAction(script), """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must run xcodebuild's `test` (or \
+            `test-without-building`) action — `build-for-testing` compiles the bundle and runs none of it. It is the headless \
             AppKit bundle — PisakaAppTests — that reproduces the TextKit re-entrancy crash swift test \
             cannot see.
             """)
@@ -3229,6 +3231,13 @@ final class ReleaseWorkflowTests: XCTestCase {
         XCTAssertGreaterThan(index, resolve, """
             ci.yml's `\(Self.ciAppKitTestStepName)` step must run after `test-macos`'s package resolve. \
             The test target resolves the app's packages (Neon, tree-sitter) the same way the build does.
+            """)
+        let resolvedDir = try XCTUnwrap(Self.clonedPackagesDirectory(of: steps[resolve]),
+                                        "`test-macos`'s resolve step names no -clonedSourcePackagesDirPath")
+        XCTAssertEqual(Self.clonedPackagesDirectory(of: script), resolvedDir, """
+            ci.yml's `\(Self.ciAppKitTestStepName)` step must pass `-clonedSourcePackagesDirPath \(resolvedDir)`, \
+            the checkouts its job's resolve wrote and its guard checked. Without it the test action resolves \
+            again into the derived-data directory, after the guard, so a rewritten Package.resolved goes unseen.
             """)
 
         let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
@@ -3248,18 +3257,41 @@ final class ReleaseWorkflowTests: XCTestCase {
             ci.yml's `build-macos` job must not carry `\(Self.ciAppKitTestStepName)` — the bundle runs \
             in `test-macos`, in parallel with the Release build, not in front of it.
             """)
-        let testingSteps = buildSteps.filter { step in
-            step.contains { $0.contains("xcodebuild") } && step.contains { line in
-                line.split(whereSeparator: \.isWhitespace).contains { $0 == "test" || $0 == "test-without-building" }
-            }
-        }
-        XCTAssertEqual(testingSteps.compactMap(\.first), [], """
+        XCTAssertEqual(buildSteps.filter(Self.runsTestAction).compactMap(\.first), [], """
             ci.yml's `build-macos` job must not run xcodebuild's test action — the app-layer bundle \
             runs in `test-macos`, in parallel with the Release build, not in front of it.
             """)
     }
 
     private static let ciAppKitTestStepName = "Test the AppKit overlay (PisakaAppTests)"
+
+    /// The whitespace tokens of every `xcodebuild` invocation in one step. A
+    /// folded `run: >` step is one command spread over its lines; a `run: |`
+    /// script is one command per line, so a `test` elsewhere in a script
+    /// (`if ! test -x …`) is never read as xcodebuild's action.
+    private static func xcodebuildInvocations(in step: [String]) -> [[Substring]] {
+        if let folded = step.firstIndex(where: { $0.hasPrefix("run: >") }) {
+            let command = step[(folded + 1)...].joined(separator: " ")
+            return command.contains("xcodebuild") ? [command.split(whereSeparator: \.isWhitespace)] : []
+        }
+        return step.filter { $0.contains("xcodebuild") }.map { $0.split(whereSeparator: \.isWhitespace) }
+    }
+
+    /// Whether a step runs xcodebuild's test action, read off whole tokens so
+    /// `build-for-testing` (which runs nothing) does not count.
+    private static func runsTestAction(_ step: [String]) -> Bool {
+        xcodebuildInvocations(in: step).contains { $0.contains("test") || $0.contains("test-without-building") }
+    }
+
+    /// The directory a step's `xcodebuild` passes to `-clonedSourcePackagesDirPath`.
+    private static func clonedPackagesDirectory(of step: [String]) -> Substring? {
+        for tokens in xcodebuildInvocations(in: step) {
+            if let flag = tokens.firstIndex(of: "-clonedSourcePackagesDirPath"), tokens.indices.contains(flag + 1) {
+                return tokens[flag + 1]
+            }
+        }
+        return nil
+    }
 
     /// The name of CI's macOS build step. A constant for the same reason
     /// `archiveStepName` is one: a renamed step must fail loudly rather than

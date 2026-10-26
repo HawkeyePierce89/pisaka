@@ -82,4 +82,4 @@ build-ios: toolchain generate ## Build the iOS app for a device (what CI builds)
 	DEVELOPER_DIR="$(PINNED_XCODE)/Contents/Developer" xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-destination '$(DESTINATION_IOS)' build
 
-all: lint test test-app build build-ios ## Everything CI runs, in CI's order
+all: lint test test-app build build-ios ## Everything CI runs, one after another (CI runs them as parallel jobs)
