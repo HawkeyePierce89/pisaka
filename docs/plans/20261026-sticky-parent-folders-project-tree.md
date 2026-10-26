@@ -405,13 +405,14 @@ Task 3.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` green, including `TreeStickyRuleTests` and every source-gating suite.
-- [ ] App bundle green under the pinned Xcode, including both new suites.
-- [ ] macOS Release build and iOS build green.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
-- [ ] Grep the diff for brand names or references to other editors; none.
-- [ ] Execution notes in this plan file hold every hand-break and the hosted-render
+- [x] `swift test` green, including `TreeStickyRuleTests` and every source-gating suite.
+- [x] App bundle green under the pinned Xcode, including both new suites (run under Xcode
+  27.1: the pinned 26.3 is not installed here; CI runs the pinned one).
+- [x] macOS Release build and iOS build green.
+- [x] `swiftlint --strict` clean from the repository root.
+- [x] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
+- [x] Grep the diff for brand names or references to other editors; none.
+- [x] Execution notes in this plan file hold every hand-break and the hosted-render
   measurements.
 
 ### Task 6: Update documentation
@@ -583,6 +584,21 @@ hosted-render measurements.)
   failed 4 assertions (`0.25 ≠ 0.375` for `e`; `[0.0, 0.125, 0.25] ≠ [0.25, 0.375, 0.375]`),
   while the uncapped case stayed green, as it must. Restored, and the restored file
   compared byte-identical to the saved copy.
+
+### Task 5
+
+- `swift test`: 7,153 tests, 0 failures. Among them `TreeStickyRuleTests` (28), every
+  `*SourceGatingTests` suite and `LintConfigurationTests` (29), re-run filtered: 285 tests,
+  0 failures. `CLAUDE.md` is 56,806 characters.
+- App bundle under Xcode 27.1 (the pinned 26.3 is still not installed here): 499 tests,
+  0 failures, `TreeStickyScrollListingTests` and `TreeStickyStackLayoutTests` among them.
+  The macOS Release build and the iOS build (`generic/platform=iOS`,
+  `CODE_SIGNING_ALLOWED=NO`) both succeeded. `swiftlint --strict` reported 0 violations in
+  788 files.
+- Brand grep over the branch's added lines and its commit messages: no editor names. "Xcode"
+  appears only as the toolchain in gate commands and these notes.
+- Execution notes cover every hand-break the plan names (Task 1: two, Task 2: one, Task 3:
+  four, Task 4: two) and Task 3's hosted-render measurements.
 
 ## Post-Completion
 
