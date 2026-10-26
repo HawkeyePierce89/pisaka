@@ -174,16 +174,20 @@ final class TreeStickyRuleTests: XCTestCase {
         XCTAssertEqual(stack(nested, top: 50, height: capTwo).height, 44)
     }
 
-    func testACappedCandidateJoinsOnlyOnceFullyUnderTheStack() {
-        // Cap 2, c's real row is [66, 88). At 44 it sits exactly under the stack
-        // [a, b] (which ends at 88): it shows itself and no copy is drawn.
-        XCTAssertEqual(pinned(nested, top: 44, height: capTwo), [row("a", 0), row("b", 22)])
-        // One point further its row is fully under the stack: it joins, a drops.
+    func testACappedCandidateJoinsExactlyOnceFullyUnderTheStack() {
+        // Cap 2, c's real row is [66, 88). At 43 it still crosses the stack
+        // [a, b]'s bottom edge (87): it shows itself and no copy is drawn.
+        XCTAssertEqual(pinned(nested, top: 43, height: capTwo), [row("a", 0), row("b", 22)])
+        // At 44 it lies exactly under b's copy, the last slot [66, 88): left
+        // out, c would show neither its row nor a copy. It joins, a drops.
+        XCTAssertEqual(pinned(nested, top: 44, height: capTwo), [row("b", 0), row("c", 22)])
         XCTAssertEqual(pinned(nested, top: 45, height: capTwo), [row("b", 0), row("c", 22)])
-        // Cap 1: each deeper folder replaces the last one by one.
+        // Cap 1: each deeper folder replaces the last one by one, at the point
+        // its row lands exactly in the one slot.
         XCTAssertEqual(pinned(nested, top: 30, height: capOne), [row("a", 0)])
-        XCTAssertEqual(pinned(nested, top: 45, height: capOne), [row("b", 0)])
-        XCTAssertEqual(pinned(nested, top: 67, height: capOne), [row("c", 0)])
+        XCTAssertEqual(pinned(nested, top: 43, height: capOne), [row("a", 0)])
+        XCTAssertEqual(pinned(nested, top: 44, height: capOne), [row("b", 0)])
+        XCTAssertEqual(pinned(nested, top: 66, height: capOne), [row("c", 0)])
     }
 
     func testMaximumRowsIsAThirdOfTheViewportInWholeRows() {
@@ -327,8 +331,9 @@ final class TreeStickyRuleTests: XCTestCase {
         // outermost: the stack is [c, d, e].
         let answer = stack(deep, top: 200, height: capThree)
         XCTAssertEqual(answer.rows.map { deep[$0.index].name }, ["c", "d", "e"])
-        // e sits at index 2, but once its row is under the stack a, b, c and d
-        // all qualify and fill slots 0–2: it must land in slot 3.
+        // e sits at index 2, but it has four eligible ancestors, a to d, and
+        // once its row is under the stack the cap's three slots are full: it
+        // must land in slot 3, just under them.
         let innermost = answer.rows[2]
         XCTAssertEqual(innermost.scrollAnchorY, anchorY(3, height: capThree))
         XCTAssertNotEqual(innermost.scrollAnchorY, anchorY(2, height: capThree))
@@ -338,6 +343,35 @@ final class TreeStickyRuleTests: XCTestCase {
             answer.rows.map(\.scrollAnchorY),
             [anchorY(2, height: capThree), anchorY(3, height: capThree), anchorY(3, height: capThree)]
         )
+    }
+
+    func testAClickLeavesTheFolderAndItsInnermostAncestorsInSight() {
+        // The round trip: scroll each copy's folder to its anchor and
+        // recompute the stack there. The folder's real row must not be under
+        // the stack, and nor may any of the ancestors the cap leaves room for:
+        // each is either pinned or shows its real row below the stack — never
+        // covered by another folder's copy, as the direct parent was when a
+        // capped candidate exactly under the last slot was left out.
+        let folders = deep.map(\.folder)
+        for height in [capOne, capTwo, capThree, capFour] {
+            let cap = TreeStickyRule.maximumRows(viewportHeight: height, rowHeight: rowHeight)
+            for top in stride(from: 0.0, through: 400, by: 1) {
+                for clicked in stack(deep, top: top, height: height).rows {
+                    let landed = folders[clicked.index].top - clicked.scrollAnchorY * (height - rowHeight)
+                    let after = stack(deep, top: landed, height: height)
+                    let pinned = Set(after.rows.map(\.index))
+                    func inSight(_ index: Int) -> Bool {
+                        pinned.contains(index) || folders[index].top - landed >= after.height - 1e-9
+                    }
+                    let context = "\(deep[clicked.index].name) clicked at \(top), H \(height)"
+                    XCTAssertFalse(pinned.contains(clicked.index), context)
+                    XCTAssertTrue(inSight(clicked.index), context)
+                    for ancestor in (1..<clicked.index).suffix(cap) {
+                        XCTAssertTrue(inSight(ancestor), "\(deep[ancestor].name) covered — \(context)")
+                    }
+                }
+            }
+        }
     }
 
     func testWithNothingCappedTheClickAnchorIsTheIndexInTheStack() {
@@ -391,6 +425,14 @@ final class TreeStickyRuleTests: XCTestCase {
         // At 200 the stack [c, d, e] ends at 266: a row starting there is clear.
         XCTAssertNil(placement(deep, rowAt: 266, top: 200, height: capThree))
         XCTAssertNil(placement(deep, rowAt: 376, top: 200, height: capThree))
+    }
+
+    func testPlacementScrollsARowCrossingTheStacksBottomEdge() {
+        // The stack at 200 ends at 266: a row one point higher is not clear.
+        XCTAssertEqual(
+            placement(deep, rowAt: 265, top: 200, height: capThree),
+            scrollAnchorY(deep, rowAt: 265, height: capThree)
+        )
     }
 
     func testPlacementScrollsARowUnderTheStackBelowIt() {

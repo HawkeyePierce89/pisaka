@@ -11,7 +11,8 @@ import Foundation
 /// coordinates. The row itself is taken to be `[top, top + rowHeight)`, and
 /// `rowHeight` is also the height of a pinned copy. A chain row is one node and
 /// one `Folder`, whatever its segment count. The input order is not trusted:
-/// the rule orders folders by `top` ascending, then `depth` ascending.
+/// the rule orders folders by `top` ascending, then `depth` ascending, then
+/// input index.
 ///
 /// **Eligibility.** A folder may pin only when its depth is at least 1 (the
 /// root never pins), it is expanded, and `bottom > top + rowHeight` — it has
@@ -19,7 +20,7 @@ import Foundation
 ///
 /// **Cap.** At most `maximumRows(viewportHeight:rowHeight:)` rows pin — a
 /// third of the viewport (`capFraction`) in whole rows, `0` for a non-positive
-/// row height. With `0`, nothing pins.
+/// row or viewport height. With `0`, nothing pins.
 ///
 /// **The chain.** Level `i` has the nominal slot `S_i = viewport.top + i·rowHeight`.
 /// The next member is the first eligible folder, in rule order, that lies inside
@@ -28,10 +29,13 @@ import Foundation
 /// `top < S_i < bottom`. Spans containing one point nest, so the first match is
 /// the outermost one and the members form an ancestor chain. Once the chain
 /// holds `maximumRows`, a further candidate must satisfy
-/// `top < S_(maximumRows−1) < bottom`; if it does, the **outermost** member is
-/// dropped and the candidate appended, repeatedly. So a capped row joins only
-/// once its real row is fully under the stack, and a copy is never drawn while
-/// its real row shows below the stack.
+/// `top ≤ S_(maximumRows−1) < bottom` — `≤`, not `<`: at equality its real row
+/// lies exactly under the last copy, and leaving it out would hide that folder
+/// altogether; if it does, the **outermost** member is dropped and the
+/// candidate appended, repeatedly. So a capped row joins exactly once its real
+/// row is fully under the stack, and a copy is never drawn while its real row
+/// shows below the stack. The click anchor lands a capped folder's row at
+/// precisely that equality, so the folder above it is pinned, not covered.
 ///
 /// **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom − rowHeight)`,
 /// reported relative to the viewport top — negative, or above the nominal slot,
@@ -101,7 +105,7 @@ public enum TreeStickyRule {
     }
 
     /// The most rows the stack may hold: `floor(viewportHeight / 3 / rowHeight)`,
-    /// and `0` when `rowHeight ≤ 0`.
+    /// and `0` when `rowHeight ≤ 0` or `viewportHeight ≤ 0`.
     public static func maximumRows(viewportHeight: Double, rowHeight: Double) -> Int {
         guard rowHeight > 0, viewportHeight > 0 else { return 0 }
         // The tolerance keeps an exact multiple (66 / 3 / 22) from flooring
@@ -129,9 +133,14 @@ public enum TreeStickyRule {
                !lies(candidate, inside: folders[previous], rowHeight: rowHeight) {
                 continue
             }
+            let isFull = chain.count == cap
             let slot = viewport.top + Double(min(chain.count, cap - 1)) * rowHeight
-            guard candidate.top < slot, slot < candidate.bottom else { continue }
-            if chain.count == cap { chain.removeFirst() }
+            // A free slot takes a row that has started under it; the full
+            // chain's last slot is already drawn, so a row exactly under it
+            // is covered and must join.
+            let hasReached = isFull ? candidate.top <= slot : candidate.top < slot
+            guard hasReached, slot < candidate.bottom else { continue }
+            if isFull { chain.removeFirst() }
             chain.append(index)
         }
 

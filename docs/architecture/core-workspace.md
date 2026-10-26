@@ -991,10 +991,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     first match is the outermost and the members form an ancestor chain; a
     sibling after a pinned folder's subtree fails the containment test and never
     stacks under it. Once the chain holds `maximumRows`, a further candidate
-    must satisfy `top < S_(maximumRows−1) < bottom`, and then the **outermost**
-    member is dropped and the candidate appended, repeatedly — so capping drops
-    outer rows first, a capped row joins only once its real row is fully under
-    the stack, and a copy is never drawn while its real row shows below it.
+    must satisfy `top ≤ S_(maximumRows−1) < bottom` — **`≤`, not `<`**: at
+    equality its real row lies exactly under the last copy, so left out it
+    would show neither its row nor a copy — and then the **outermost** member
+    is dropped and the candidate appended, repeatedly — so capping drops outer
+    rows first, a capped row joins exactly once its real row is fully under the
+    stack, and a copy is never drawn while its real row shows below it. The
+    equality is no corner case: the click anchor lands a capped folder's row
+    precisely there, and with `<` the folder directly above it — its parent,
+    when it is the parent's first row — ended up covered by the next copy out.
+    `testAClickLeavesTheFolderAndItsInnermostAncestorsInSight` pins that by
+    round trip: every copy, at every offset of the deep fixture under every
+    cap, is scrolled to its anchor and the stack recomputed there, and neither
+    the folder nor any ancestor the cap leaves room for may be covered.
     **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom −
     rowHeight)`, reported relative to the viewport top as `Stack.Row.top` —
     negative, or above its nominal slot, while the end of its subtree pushes it

@@ -303,13 +303,20 @@ struct ProjectTreeView: View {
                 // preference: measured, a change caused by scrolling alone
                 // never reaches an `onPreferenceChange` outside the scroll
                 // view, while the reader itself sees every offset.
+                // Its width goes the same way: the content's width, which is the
+                // scroll view's minus a legacy scroller, so the stack never
+                // covers the scroller.
                 .background {
                     GeometryReader { geometry in
-                        Color.clear.onChange(
-                            of: geometry.frame(in: .named(TreeStickySpace.viewport)).minY, initial: true
-                        ) { _, minY in
-                            stickyViewport.viewport.scroll(to: -minY)
-                        }
+                        Color.clear
+                            .onChange(
+                                of: geometry.frame(in: .named(TreeStickySpace.viewport)).minY, initial: true
+                            ) { _, minY in
+                                stickyViewport.viewport.scroll(to: -minY)
+                            }
+                            .onChange(of: geometry.size.width, initial: true) { _, width in
+                                stickyViewport.viewport.resize(to: width)
+                            }
                     }
                 }
                 .coordinateSpace(.named(TreeStickySpace.content))
@@ -1481,15 +1488,24 @@ private struct TreeStickyDraftTopKey: PreferenceKey {
 }
 
 /// The tree's scroll offset — the content offset at the viewport's top edge —
-/// published for the pinned stack, its one observer. A scroll frame therefore
-/// re-renders the stack alone, never the tree root or any row.
+/// and the content's width, published for the pinned stack, its one observer.
+/// A scroll frame therefore re-renders the stack alone, never the tree root or
+/// any row.
 private final class TreeStickyViewport: ObservableObject {
     @Published private(set) var top: Double = 0
+    /// The content's width: the scroll view's, less a legacy scroller's. `nil`
+    /// until first measured, when the stack takes the scroll view's width.
+    @Published private(set) var contentWidth: CGFloat?
 
     /// Publishes `offset` when it differs from the last one, so a re-reported
     /// unchanged value invalidates nothing.
     func scroll(to offset: Double) {
         if top != offset { top = offset }
+    }
+
+    /// Publishes `width` when it differs from the last one.
+    func resize(to width: CGFloat) {
+        if contentWidth != width { contentWidth = width }
     }
 }
 
@@ -1890,9 +1906,10 @@ private struct TreeFolderName: View {
 /// The one mapping from a `TreeRowState` to the colour its background is painted
 /// in.
 ///
-/// Both row kinds read it, for the reason they share `ChromeGeometry`'s tokens:
-/// restated at each row kind, a change to one would silently leave the other
-/// painting the old answer.
+/// Both row kinds read it — and the sticky stack's pinned folder copy, hover
+/// only — for the reason they share `ChromeGeometry`'s tokens: restated at each
+/// row kind, a change to one would silently leave the other painting the old
+/// answer.
 enum TreeRowBackground {
     /// The role a state paints itself in — every state answers with a role or
     /// with nothing.
@@ -2414,9 +2431,11 @@ private struct TreeDropDelegate: DropDelegate {
 /// the scroll view's top edge, so directly under the header.
 ///
 /// The one observer of `TreeStickyViewport`: a scroll frame re-renders this
-/// view alone. Its frame is **exactly the stack's height** and clipped, so a
-/// row being pushed out never draws over the header and everything below the
-/// stack keeps receiving clicks, drags and menus. Rows are drawn outermost on
+/// view alone. Its frame is **exactly the stack's height** and the content's
+/// width, clipped and hit-tested to that frame, so a row being pushed out
+/// never draws over the header or takes its clicks, a legacy scroller beside
+/// the stack stays drawn and draggable, and everything below the stack keeps
+/// receiving clicks, drags and menus. Rows are drawn outermost on
 /// top, so a deeper row whose subtree ends slides up under its parent. A
 /// navigation aid only: no drag, no drop, no menu, no draft, and hidden from
 /// accessibility — the real rows carry everything a reader needs.
@@ -2459,8 +2478,12 @@ private struct TreeStickyStackView: View {
                 .zIndex(Double(pinned.count - pinnedRow.level))
             }
         }
-        .frame(maxWidth: .infinity, minHeight: stack.height, maxHeight: stack.height, alignment: .top)
+        .frame(maxWidth: viewport.contentWidth ?? .infinity, alignment: .top)
+        .frame(minHeight: stack.height, maxHeight: stack.height, alignment: .top)
         .clipped()
+        // `clipped()` limits drawing only: without this, a pushed-out row's
+        // hidden part above the frame would still take the header's clicks.
+        .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             if !pinned.isEmpty {
                 Rectangle()

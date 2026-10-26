@@ -1451,7 +1451,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `dropTargetTint` through `TreeRowBackground`, which composes no alpha — the
     accent's hue at a third strength the palette carries (part five (g) in
     `core-theme.md`) — and `TreeRowBackgroundTests` pins it. One rule and
-    one mapping, read by both row kinds, is what stops the treatments drifting
+    one mapping, read by both row kinds (and by the sticky stack's pinned
+    folder copy, hover only), is what stops the treatments drifting
     apart. Everything else on both row kinds is **unchanged and in the same
     order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
     click are distinct gestures), the hover highlight, the full-row `.contextMenu`s
@@ -1473,7 +1474,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeRowBackgroundTests`.) The theme arrives as a
     role-to-colour *function*, not as the theme value, so no view file names
     `ChromeTheme` — rule five of the gating suite (`core-theme.md`). Both row
-    kinds read that one mapping, for the reason they share the geometry tokens.
+    kinds — and the sticky stack's pinned folder copy, hover only — read that
+    one mapping, for the reason they share the geometry tokens.
     Two of the rule's four inputs are
     **derived, not interactive**: *selection* is "this row's file is the active
     editor tab's file" — `ProjectTreeView` builds a `TreeSelection` from
@@ -1840,8 +1842,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     changes no report. The **scroll offset** is read by one `GeometryReader` on
     the padded content, its `minY` in the scroll view's named **viewport**
     space, and written through `onChange(of:initial:)` into
-    `TreeStickyViewport` — an `ObservableObject` with one `@Published top`,
-    assigned only on inequality — held by `TreeStickyViewportSource`, an
+    `TreeStickyViewport` — an `ObservableObject` with a `@Published top` and a
+    `@Published contentWidth` (the same reader's width, through a second
+    `onChange`), each assigned only on inequality — held by `TreeStickyViewportSource`, an
     unpublished `@StateObject` (the `TreeListingSource` pattern), so the tree
     root that owns it is never invalidated by the offset. It is deliberately
     **not a preference**: measured, a preference changed by scrolling alone
@@ -1868,9 +1871,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     .top)` on the `ScrollView`, inside the existing `ScrollViewReader` — so on
     the viewport rather than in the content, directly under the header, which
     is outside the scroll view, whatever the offset. Its frame is **exactly
-    `Stack.height`** and `.clipped()`, so a row being pushed out never draws
-    over the header and everything below the stack keeps receiving clicks,
-    drags and menus. Rows are a `ZStack` offset by each `Stack.Row.top`,
+    `Stack.height`** tall and the **content's width** wide — measured by the
+    content's own reader into `TreeStickyViewport.contentWidth`, which is the
+    scroll view's width less a legacy scroller, so the stack neither paints over
+    that scroller nor takes its drags (an overlay scroller, drawn over the
+    content, is still covered while it shows, as it covers the rows) — then
+    `.clipped()` **and** `.contentShape(Rectangle())`. Both are needed:
+    `clipped()` limits drawing alone, so without the content shape a row being
+    pushed out would still take the header's clicks above the frame. So a
+    pushed-out row never draws over the header nor answers its clicks, and
+    everything below the stack keeps receiving clicks, drags and menus. Rows are a `ZStack` offset by each `Stack.Row.top`,
     `zIndex`ed **outermost on top**, identified by the folder's scroll id so a
     copy keeps its hover state while the stack above it changes. **Indent by
     layout**: one `metrics.scaled(ChromeGeometry.treeIndentStep)`-wide spacer

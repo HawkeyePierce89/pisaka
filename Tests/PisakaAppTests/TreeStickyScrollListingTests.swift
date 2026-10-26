@@ -17,14 +17,18 @@ import PisakaCore
 /// count is taken at the file-service seam instead, which is strictly
 /// stronger — it also catches link queries. A counting `FileServicing` wrapper
 /// of the real `FileService` is injected through `WorkspaceModel(fileService:)`
-/// and counts every protocol call. One window: a temporary project with `a/`
-/// holding sixty files and `b/` five, a reveal of `a/f45` to expand `a` and
-/// scroll. After it settles the count is recorded, the hosting `NSScrollView`'s
-/// clip view is scrolled to four offsets — the way a wheel scroll arrives,
-/// through AppKit — settling after each, and the count must never have moved
-/// while the clip view's origin did. One capture at the final offset then
-/// finds `a`'s pinned chevron in the first row slot under the header, which
-/// proves SwiftUI observed the AppKit-driven scroll.
+/// and counts every protocol call. One window: a temporary project `p` with
+/// `a/` holding sixty files and `b/` five, a reveal of `a/f00` to expand `a`
+/// without scrolling — the centre anchor clamps to the top, so nothing pins
+/// and no animated scroll is left to race the ones below. After it settles the
+/// count is recorded and one capture finds **no** stack: no hairline down a
+/// column right of every (short) name. The hosting `NSScrollView`'s clip view
+/// is then scrolled to four offsets — the way a wheel scroll arrives, through
+/// AppKit — settling after each, and the count must never have moved while the
+/// clip view's origin did. One capture at the final offset then finds the
+/// stack's hairline at the first slot's bottom edge and `a`'s pinned chevron in
+/// that slot. Only the AppKit scrolls can have put them there, which proves
+/// SwiftUI observed them.
 @MainActor
 final class TreeStickyScrollListingTests: XCTestCase {
 
@@ -34,7 +38,7 @@ final class TreeStickyScrollListingTests: XCTestCase {
         let model = WorkspaceModel(fileService: files)
         model.openFolder(url: root)
         let reveal = try XCTUnwrap(
-            TreeRevealRequest(after: nil, revealing: root.appendingPathComponent("a/f45"), root: root)
+            TreeRevealRequest(after: nil, revealing: root.appendingPathComponent("a/f00"), root: root)
         )
 
         let render = try HostedRender(
@@ -50,6 +54,15 @@ final class TreeStickyScrollListingTests: XCTestCase {
         XCTAssertGreaterThan(files.calls, 0, "the tree listed nothing — the seam is not the one the tree reads")
         let settled = files.calls
 
+        // The landing: unscrolled, so no stack and no stack hairline.
+        let metrics = InterfaceMetrics(scale: 1)
+        let header = metrics.scaled(ChromeGeometry.sidebarHeaderHeight)
+        let rowHeight = metrics.scaled(ChromeGeometry.rowHeight)
+        XCTAssertEqual(clip.bounds.origin.y, 0, accuracy: 1, "the reveal of a/f00 scrolled the tree")
+        try render.capture()
+        XCTAssertNil(hairline(in: render, below: header, rowHeight: rowHeight),
+                     "a stack hairline is drawn before any scroll — the final capture would prove nothing")
+
         for offset in [100.0, 400.0, 700.0, 1_000.0] {
             clip.scroll(to: NSPoint(x: 0, y: offset))
             scrollView.reflectScrolledClipView(clip)
@@ -61,17 +74,19 @@ final class TreeStickyScrollListingTests: XCTestCase {
         }
 
         // SwiftUI observed the AppKit-driven scroll — the way a wheel scroll
-        // arrives: `a`'s pinned copy draws its chevron in the first row slot
-        // under the header, at the depth-1 chevron slot. A chevron, not `a`'s
-        // own one-point guide, which runs through that column in the rows the
-        // copy covers.
+        // arrives: the stack's hairline now runs at the first slot's bottom
+        // edge, and `a`'s pinned copy draws its chevron in that slot, at the
+        // depth-1 chevron slot. A chevron, not `a`'s own one-point guide,
+        // which runs through that column in the rows the copy covers.
         try render.capture()
-        let metrics = InterfaceMetrics(scale: 1)
-        let header = metrics.scaled(ChromeGeometry.sidebarHeaderHeight)
+        let rule = try XCTUnwrap(hairline(in: render, below: header, rowHeight: rowHeight),
+                                 "no stack hairline after the AppKit scroll")
+        XCTAssertEqual(rule, header + rowHeight, accuracy: 2 / render.pixelScale,
+                       "the stack's hairline does not run at the first slot's bottom edge")
         let slotX = metrics.scaled(ChromeGeometry.treeIndentStep) + metrics.scaled(ChromeGeometry.rowPaddingX)
         let chevron = try XCTUnwrap(
             ink(in: render, x: slotX..<(slotX + metrics.scaled(TreeRowLayout.chevronWidth)),
-                rows: header..<(header + metrics.scaled(ChromeGeometry.rowHeight))),
+                rows: header..<(header + rowHeight)),
             "no pinned chevron in the first row slot after the AppKit scroll"
         )
         XCTAssertGreaterThan(chevron.width, metrics.scaled(TreeRowLayout.chevronWidth) / 3,
@@ -80,10 +95,12 @@ final class TreeStickyScrollListingTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// A real temporary project: `a/` holding sixty files, `b/` five.
+    /// A real temporary project `p` — a short name, so no name reaches the
+    /// hairline's column: `a/` holding sixty files, `b/` five.
     private func makeProject() throws -> URL {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("tree-sticky-\(UUID().uuidString)")
+        let holder = fm.temporaryDirectory.appendingPathComponent("tree-sticky-\(UUID().uuidString)")
+        let root = holder.appendingPathComponent("p")
         for (folder, count) in [("a", 60), ("b", 5)] {
             let dir = root.appendingPathComponent(folder)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -91,8 +108,20 @@ final class TreeStickyScrollListingTests: XCTestCase {
                 try Data().write(to: dir.appendingPathComponent(String(format: "f%02d", index)))
             }
         }
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: holder) }
         return root
+    }
+
+    /// The bottom edge of the `hairline` run down a column right of every name
+    /// and left of the scroller, within two rows under `header`, or `nil` when
+    /// that column holds none. Reads the one bitmap.
+    private func hairline(in render: HostedRender, below header: CGFloat, rowHeight: CGFloat) -> CGFloat? {
+        let step = 1 / render.pixelScale
+        let edge = render.bounds.width * 0.6
+        let rule = stride(from: header + step, to: header + 2 * rowHeight, by: step).filter {
+            render.matches(.hairline, atX: edge, y: $0)
+        }
+        return rule.last.map { $0 + step }
     }
 
     /// The bounding box of every pixel in `x` × `rows` that differs from the
