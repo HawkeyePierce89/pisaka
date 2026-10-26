@@ -227,6 +227,40 @@ runner keep their current predicate and behaviour.
    count stays 32.
 9. **Part 3 findings.** List here every sentence corrected in the two sticky
    entries, beyond the `a/f45` one.
+10. **Task 5: what was observed, and two conflicts found.**
+    - **Backing scale observed:** `render.window.backingScaleFactor` read
+      `1.0` in this headless host, so the scale-1 branch ran: the measured
+      target `1370.5` (viewport derived from `t`'s measured node) settled at
+      `1370.0` — on the grid, exactly half a point short, within the tolerance.
+    - **Access level.** `TreeStickyFolderReport` and `TreeStickyFoldersKey` are
+      internal. The report's `shape` had to stay `fileprivate`, because
+      `TreeNodeShape` is private and Swift refuses an internal property of a
+      private type; the test identifies `t` by `scrollID` instead. No
+      source-gating suite pins either type's access level.
+    - **Conflict: the second reveal never reached the on-screen row.** Both
+      `.onChange(of: reveal)` sites in `DirectoryNodeView` used the deprecated
+      one-argument form, whose action reads the *previous* update's `reveal`
+      (probed: `nil` while the tree's `liveReveal` was token 2). So a request
+      never expanded an on-screen folder nor scrolled to an on-screen row in
+      the shipping app either; only `.onAppear` honoured one. Resolution: both
+      sites moved to the two-argument form (macOS 14, the deployment floor).
+      The rounding test's second reveal pins the row half; a new
+      `TreeRevealOnScreenTests` pins the node half (seen red with the node
+      site reverted). The reveal host types (`TreeRevealHost`,
+      `TreeRevealHostState`) are internal in the rounding suite's file and
+      shared by both suites. Documented in `app-window.md`'s reveal entry.
+    - The condition-waits lay the host out every turn, as `HostedRender`'s
+      `settle()` does, since the hosted window is never ordered on screen.
+    - **Deviation: the first reveal does not scroll.** As first written, the
+      first reveal scrolled animated in the 300-point window; in the full
+      bundle that animation stalled past the "held still" wait and resumed
+      after the raw scroll to `0` (landing at `60`). The window now starts
+      taller than the document (3,200 points), so the first reveal's centred
+      target clamps to the top and nothing animates; the derived height is
+      then sized around a nominal 300-point viewport,
+      `T = floor(c − 150) + 0.5`, rather than from the first window's `H0`.
+      Still one window, resized once. Stable over five iterations and the
+      full bundle.
 
 ## Implementation Steps
 
@@ -472,11 +506,11 @@ runner keep their current predicate and behaviour.
 - Modify: `docs/architecture/app-window.md` (sticky entry's **Tests**, and the
   note that the two types are internal for the test's read)
 
-- [ ] Make `TreeStickyFolderReport` and `TreeStickyFoldersKey` internal, so
+- [x] Make `TreeStickyFolderReport` and `TreeStickyFoldersKey` internal, so
   the test reads them through `@testable import`. Their doc comments say why.
   If a source-gating suite pins their access level, update it here and record
   that in the execution notes.
-- [ ] Write one `HostedRender` test at interface scale 1. It uses one window,
+- [x] Write one `HostedRender` test at interface scale 1. It uses one window,
   resized once, and no loop of windows.
   - **Project.** A temporary project `p` with:
     - sixty collapsed folders `d00`…`d59`;
@@ -528,11 +562,12 @@ runner keep their current predicate and behaviour.
     - why the target is derived from the measured row rather than from
       viewport parity;
     - that no other scale's rounding is asserted.
-- [ ] Re-run the existing sticky suites (`TreeStickyScrollListingTests`,
+- [x] Re-run the existing sticky suites (`TreeStickyScrollListingTests`,
   `TreeStickyStackLayoutTests`) and update them only if the new tolerance
   changes something they pin.
-- [ ] Add the new suite to the sticky entry's **Tests** in `app-window.md`.
-- [ ] Run `swift test` and the app-layer bundle under the pinned Xcode; both
+- [x] Add the new suite to the sticky entry's **Tests** in `app-window.md`.
+- [x] Run `swift test` and the app-layer bundle under the pinned Xcode (run
+  under Xcode 27.1: the pinned 26.3 is not installed on this machine); both
   must pass before Task 6.
 
 ### Task 6: Documentation drift in the sticky entries

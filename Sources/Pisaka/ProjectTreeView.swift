@@ -857,9 +857,11 @@ private struct DirectoryNodeView: View {
                     .id(TreeRevealRequest.rowID(entry.url))
                     // Causal, not timed: the target row reports itself when it
                     // appears (its folder just expanded) or, already on screen,
-                    // when the request arrives.
+                    // when the request arrives. The two-argument `onChange`: the
+                    // one-argument form's action reads the previous update's
+                    // `reveal`, which for an on-screen row is still `nil`.
                     .onAppear { reportIfRevealed(entry) }
-                    .onChange(of: reveal) { _ in reportIfRevealed(entry) }
+                    .onChange(of: reveal) { _, _ in reportIfRevealed(entry) }
                 }
             }
         } label: {
@@ -916,8 +918,10 @@ private struct DirectoryNodeView: View {
         }
         // A reveal expands every ancestor of its target. A node already on
         // screen sees the request change; a node created by its parent's
-        // expansion sees it only on appear, so both ask.
-        .onChange(of: reveal) { _ in expandIfRevealed() }
+        // expansion sees it only on appear, so both ask — through the
+        // two-argument `onChange`, whose action reads this update's `reveal`
+        // (the one-argument form's reads the previous one's, still `nil`).
+        .onChange(of: reveal) { _, _ in expandIfRevealed() }
         // A node seeded as expanded (the root) starts `isExpanded == true`, so
         // `onChange` never fires for it — load its children on first appearance.
         .onAppear {
@@ -1480,11 +1484,15 @@ private enum TreeStickySpace {
 /// urls), whether it is a test row (the node's own `TreeTestRule` answer), the
 /// row's scroll id and the node's own expansion binding, which the copy's
 /// chevron sets to collapse the very `@State` the real row toggles.
-private struct TreeStickyFolderReport: Equatable {
+///
+/// Internal rather than private, with its key, for one reader outside this
+/// file: `TreeStickyScrollRoundingTests` measures a folder's top through it
+/// (`@testable import`). The shape stays `fileprivate`, its type being private.
+struct TreeStickyFolderReport: Equatable {
     let frame: CGRect
     let depth: Int
     let isExpanded: Bool
-    let shape: TreeNodeShape
+    fileprivate let shape: TreeNodeShape
     let isTestRow: Bool
     let scrollID: String
     let expansion: Binding<Bool>
@@ -1504,8 +1512,9 @@ private struct TreeStickyFolderReport: Equatable {
     }
 }
 
-/// Every expanded folder node's report, in tree order.
-private struct TreeStickyFoldersKey: PreferenceKey {
+/// Every expanded folder node's report, in tree order. Internal for the test's
+/// read, as its value type is (`TreeStickyFolderReport`).
+struct TreeStickyFoldersKey: PreferenceKey {
     static let defaultValue: [TreeStickyFolderReport] = []
     static func reduce(value: inout [TreeStickyFolderReport], nextValue: () -> [TreeStickyFolderReport]) {
         value.append(contentsOf: nextValue())

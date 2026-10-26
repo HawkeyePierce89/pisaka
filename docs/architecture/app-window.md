@@ -1569,6 +1569,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chain row asks the chain variants**, `expands(anyOf:)` and
     `isUnreachable(belowChain:listing:)`, over its segments' reveal spellings
     (see the chain entry below). The `"draft-row"` scroll id is unchanged.
+    **Both `.onChange(of: reveal)` sites use the two-argument form**, whose
+    action reads the update it was called for: the deprecated one-argument
+    form's action reads the previous update's `reveal`, which for a node or
+    row already on screen is still `nil` — so a request never expanded an
+    on-screen folder nor scrolled to an on-screen row, and only `.onAppear`
+    ever honoured one. `TreeRevealOnScreenTests` (app bundle) pins the node
+    half — a request published to a hosted tree expands its already-drawn,
+    collapsed `t` — and `TreeStickyScrollRoundingTests`' second reveal (the
+    sticky entry) the row half.
   - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
     is drawn in its git state: conflict, modified, added, ignored or plain
     (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
@@ -1876,6 +1885,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and expansion, its `TreeNodeShape`, its folder row's scroll id
     (`TreeRevealRequest.rowID(head)`, on `FolderDisclosureRow` alone so the
     anchor maths sees one row's height) and the node's own `$isExpanded`.
+    The report and its key are **internal** rather than private — the shape
+    alone stays `fileprivate`, its type being private — for one reader outside
+    the file: `TreeStickyScrollRoundingTests` measures a folder through them
+    under `@testable import`.
     **Collapsed nodes attach no reader** — they have no subtree to measure —
     and a frame in content space does not move while scrolling, so a scroll
     changes no report. The **scroll offset** is read by one `GeometryReader` on
@@ -1985,7 +1998,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     inside `TreeStickyStackView`'s declaration, line comments stripped —
     because headless the hosting view's `accessibilityChildren()` is empty and a
     hit test answers the hosting view itself, so a probe of the tree would pass
-    either way.
+    either way. `TreeStickyScrollRoundingTests` (app bundle, `HostedRender` at
+    1, one window resized once) pins the scroll rounding
+    `TreeStickyRule.slotTolerance` is sized against. Over sixty empty folders,
+    `t/x` and sixty root files, a first reveal of `t/x` in a window taller than
+    the document expands `t` without scrolling, so no animated scroll is left in
+    flight; `t`'s report gives its node's frame (asserted two rows tall), and
+    from it the window height is derived so that the centred target for `x` lies exactly
+    half a point off the whole-point grid — asserted before scrolling, along
+    with the target being inside the scrollable range, so the test fails rather
+    than passing on a scroll that rounded nothing. A raw scroll back to `0` and
+    a second reveal then go the real path, `scrollTo` at `revealAnchorY`, and
+    the wait is a condition on the clip view's origin. It reads the window's
+    backing scale at run time: at exactly 1 — the only scale measured, and the
+    one this headless host reports — the settled offset is on the whole-point
+    grid, exactly half a point short of the target and within the tolerance;
+    at any other scale only
+    `|settled − target| ≤ slotTolerance` is asserted.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
