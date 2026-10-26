@@ -298,16 +298,16 @@ Task 3.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Create: `Tests/PisakaAppTests/TreeStickyScrollListingTests.swift`
 
-- [ ] Extract the folder label (glyph + dot + name/segments) and the folder row layout
+- [x] Extract the folder label (glyph + dot + name/segments) and the folder row layout
   (chevron column, padding, fixed frame) into shared views used by the real row,
   behaviour-identical. The rename-field branch stays on the real row only.
-- [ ] Add `depth` to `DirectoryNodeView`.
-- [ ] Add the expanded-only folder report preference, the content and viewport coordinate
+- [x] Add `depth` to `DirectoryNodeView`.
+- [x] Add the expanded-only folder report preference, the content and viewport coordinate
   spaces, the scroll-offset preference, the `TreeStickyViewport` object and its unpublished
   holder `@StateObject`, all per Decision 3. Add the folder row's scroll id.
-- [ ] Keep the plain `VStack`, and its comment at the scroll container. Add one sentence there
+- [x] Keep the plain `VStack`, and its comment at the scroll container. Add one sentence there
   on why measurement goes through preferences instead.
-- [ ] Write `TreeStickyScrollListingTests` (AC3), in one window:
+- [x] Write `TreeStickyScrollListingTests` (AC3), in one window:
   - a temporary project with `a/` holding 60 files and `b/` holding 5;
   - a `WorkspaceModel` built over a counting `FileServicing` wrapper of `FileService()`;
   - a reveal of `a/f45` to expand and scroll;
@@ -315,8 +315,8 @@ Task 3.
   - scroll the hosting `NSScrollView`'s clip view to four different offsets (`scroll(to:)` +
     `reflectScrolledClipView`), settling after each;
   - assert the count never moved and the clip view's origin did.
-- [ ] Hand-break and record: a listing inside the scroll-offset handler makes the test fail.
-- [ ] Existing tree suites stay green unchanged: `TreeChainRowLayoutTests`,
+- [x] Hand-break and record: a listing inside the scroll-offset handler makes the test fail.
+- [x] Existing tree suites stay green unchanged: `TreeChainRowLayoutTests`,
   `TreeRowGlyphLayoutTests`, `TreeIndentGuideLayoutTests`, `TreeGitStatusColourTests`,
   `TreeDiagnosticMarkTests`, `TreeRowBackgroundTests`, `TreeRevealRequestTests`. Run
   `swift test` and the app bundle; both must pass before Task 3.
@@ -468,6 +468,36 @@ hosted-render measurements.)
   `chain.removeLast()`): `testTheCapDropsTheOutermostFirst` and
   `testACappedCandidateJoinsOnlyOnceFullyUnderTheStack` failed, each with `[a@0, c@22]` ≠
   `[b@0, c@22]`. Restored; the restored file compared byte-identical to the saved copy.
+
+### Task 2
+
+- App-layer gates ran under Xcode 27.1 (`/Applications/Xcode.app`): the pinned Xcode 26.3 is
+  not installed on this machine, so `DEVELOPER_DIR` was left unset. CI runs the pinned one.
+  The app bundle passed 497 tests with 0 failures, among them `TreeStickyScrollListingTests`
+  and the seven named tree suites unchanged. `swift test` passed 7,145 tests, and the 265
+  source-gating tests were re-run over the final source. `swiftlint --strict` is clean.
+- Shared drawing: `TreeFolderRowLayout` (chevron column, padding, fixed frame with the
+  rename-draft ceiling) and `TreeFolderLabel` (glyph, dot, name slot). `TreeFolderName` is the
+  plain or segmented name, and its `segmentsText` is now static with a `resolving` theme
+  function. The real row keeps the rename-field branch and passes the field into the label's
+  name slot.
+- **Deviation from Decision 3, measured: the scroll offset is not a preference.** A
+  `TreeScrollOffsetKey` preference read by `.onPreferenceChange` on the `ScrollView` was
+  built first. Its handler fired only twice, both times with `0`, through the reveal's
+  animated scroll and four AppKit clip-view scrolls. Logged in the same run, the reader's
+  own `frame(in: .named(viewport)).minY` went `-136 … -600`, so the geometry did move. The
+  reader therefore writes straight into `TreeStickyViewport` through
+  `onChange(of: minY, initial: true)`, which logged `-400`, `-700` and `-1000` for the AppKit
+  scrolls. The key was removed, and the reason is in the comment at the reader.
+- Measured for Task 3: the folder reports *do* cross the scroll view. A debug
+  `overlayPreferenceValue(TreeStickyFoldersKey.self)` on the `ScrollView` received 2 reports
+  (root `4–1516`, `a` `28–1492` in content space) once `a` expanded. Each expanded node's
+  reader closure re-runs on a scroll frame, because its global position moves, but the frame
+  it reports in content space stays the same, and it reads nothing.
+- Hand-break: `_ = try? model.children(of: root)` added in the offset handler. The test
+  failed at each offset (`8 ≠ 7`, `9 ≠ 7`, `10 ≠ 7`, `11 ≠ 7` calls; "scrolling to 100.0
+  reached the file service 1 time(s)" … "4 time(s)"). Restored, and the restored file
+  compared byte-identical to the saved copy.
 
 ## Post-Completion
 

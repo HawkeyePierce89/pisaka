@@ -1,0 +1,159 @@
+#if os(macOS)
+import AppKit
+import SwiftUI
+import XCTest
+import PisakaCore
+@testable import Pisaka
+
+/// Scrolling the project tree lists nothing.
+///
+/// **The property.** The pinned stack measures expanded folders through
+/// preferences in the content's coordinate space, which a scroll never moves,
+/// and reads the scroll offset into an object only the stack observes. So a
+/// scroll changes one offset value and causes no directory read and no link
+/// query: nothing in a scroll frame reaches the file system.
+///
+/// **How it is measured.** The tree's listing memo exposes no count, so the
+/// count is taken at the file-service seam instead, which is strictly
+/// stronger — it also catches link queries. A counting `FileServicing` wrapper
+/// of the real `FileService` is injected through `WorkspaceModel(fileService:)`
+/// and counts every protocol call. One window: a temporary project with `a/`
+/// holding sixty files and `b/` five, a reveal of `a/f45` to expand `a` and
+/// scroll. After it settles the count is recorded, the hosting `NSScrollView`'s
+/// clip view is scrolled to four offsets — the way a wheel scroll arrives,
+/// through AppKit — settling after each, and the count must never have moved
+/// while the clip view's origin did.
+@MainActor
+final class TreeStickyScrollListingTests: XCTestCase {
+
+    func testScrollingTheTreeListsNothing() throws {
+        let root = try makeProject()
+        let files = CountingFileService()
+        let model = WorkspaceModel(fileService: files)
+        model.openFolder(url: root)
+        let reveal = try XCTUnwrap(
+            TreeRevealRequest(after: nil, revealing: root.appendingPathComponent("a/f45"), root: root)
+        )
+
+        let render = try HostedRender(
+            size: CGSize(width: 240, height: 300),
+            root: ProjectTreeView(model: model, reveal: reveal)
+                .environment(\.interfaceMetrics, InterfaceMetrics(scale: 1))
+                .environment(\.chromeTheme, ChromeTheme(.dark))
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+
+        let scrollView = try XCTUnwrap(Self.scrollView(in: render.host), "the tree hosts no NSScrollView")
+        let clip = scrollView.contentView
+        XCTAssertGreaterThan(files.calls, 0, "the tree listed nothing — the seam is not the one the tree reads")
+        let settled = files.calls
+
+        for offset in [100.0, 400.0, 700.0, 1_000.0] {
+            clip.scroll(to: NSPoint(x: 0, y: offset))
+            scrollView.reflectScrolledClipView(clip)
+            render.settle()
+            XCTAssertEqual(clip.bounds.origin.y, offset, accuracy: 1,
+                           "the clip view did not scroll to \(offset)")
+            XCTAssertEqual(files.calls, settled,
+                           "scrolling to \(offset) reached the file service \(files.calls - settled) time(s)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// A real temporary project: `a/` holding sixty files, `b/` five.
+    private func makeProject() throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("tree-sticky-\(UUID().uuidString)")
+        for (folder, count) in [("a", 60), ("b", 5)] {
+            let dir = root.appendingPathComponent(folder)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for index in 0..<count {
+                try Data().write(to: dir.appendingPathComponent(String(format: "f%02d", index)))
+            }
+        }
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private static func scrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView { return scrollView }
+        for subview in view.subviews {
+            if let found = scrollView(in: subview) { return found }
+        }
+        return nil
+    }
+}
+
+/// The real `FileService`, counting every protocol call — the defaulted ones
+/// too, which is why each is implemented here rather than inherited.
+private final class CountingFileService: FileServicing {
+    private let base = FileService()
+    private(set) var calls = 0
+
+    func read(url: URL) throws -> String {
+        calls += 1
+        return try base.read(url: url)
+    }
+
+    func write(_ text: String, to url: URL) throws {
+        calls += 1
+        try base.write(text, to: url)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] {
+        calls += 1
+        return try base.contentsOfDirectory(at: url)
+    }
+
+    func createFile(at url: URL) throws {
+        calls += 1
+        try base.createFile(at: url)
+    }
+
+    func createDirectory(at url: URL) throws {
+        calls += 1
+        try base.createDirectory(at: url)
+    }
+
+    func ensureDirectory(at url: URL) throws {
+        calls += 1
+        try base.ensureDirectory(at: url)
+    }
+
+    func move(from source: URL, to destination: URL) throws {
+        calls += 1
+        try base.move(from: source, to: destination)
+    }
+
+    func removeItem(at url: URL) throws {
+        calls += 1
+        try base.removeItem(at: url)
+    }
+
+    func symbolicLinkDestination(at url: URL) -> String? {
+        calls += 1
+        return base.symbolicLinkDestination(at: url)
+    }
+
+    func fileByteCount(at url: URL) -> Int? {
+        calls += 1
+        return base.fileByteCount(at: url)
+    }
+
+    func fileStamp(at url: URL) -> FileStamp? {
+        calls += 1
+        return base.fileStamp(at: url)
+    }
+
+    func isExecutableFile(at url: URL) -> Bool {
+        calls += 1
+        return base.isExecutableFile(at: url)
+    }
+
+    func readTextIfNotBinary(url: URL, maxBytes: Int) throws -> String? {
+        calls += 1
+        return try base.readTextIfNotBinary(url: url, maxBytes: maxBytes)
+    }
+}
+#endif
