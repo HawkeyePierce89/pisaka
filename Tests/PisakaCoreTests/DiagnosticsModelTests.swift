@@ -792,23 +792,17 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(positional(report, url: inner))
         XCTAssertNotNil(entry(inner), "the file exists, so its report lands")
         XCTAssertEqual(probes, [inner.path])
-        let components = inner.standardizedFileURL.pathComponents
-        XCTAssertFalse(
-            model.removedPaths.contains {
-                components == $0 || CanonicalPath.relativeComponents(of: components, under: $0) != nil
-            },
-            "no tombstone is left at or above the file found"
-        )
+        XCTAssertEqual(model.removedPaths, [], "no tombstone is left at or above the file found")
 
         model.receive(positional(report, url: sibling))
         XCTAssertNotNil(entry(sibling))
         XCTAssertEqual(probes, [inner.path], "a second report under the lifted folder does not probe")
     }
 
-    /// A removal an existing tombstone already covers adds no second one — a
-    /// file under a removed folder, or the same folder again — while each
-    /// removal still clears the store under its own path.
-    func testACoveredRemovalAddsNoTombstoneButStillClears() {
+    /// A removal already recorded exactly adds no second tombstone, while a
+    /// file under a removed folder still adds its own — and every removal
+    /// still clears the store under its own path.
+    func testARepeatedRemovalAddsNoTombstoneButStillClears() {
         let folder = root.appendingPathComponent("Gone", isDirectory: true)
         let file = folder.appendingPathComponent("a.swift")
         let other = folder.appendingPathComponent("b.swift")
@@ -823,15 +817,57 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(published(set, version: 1, url: file))
         XCTAssertNotNil(entry(file))
         model.noteItemRemoved(at: file)
-        XCTAssertNil(entry(file), "the covered removal still clears its entry")
-        XCTAssertEqual(model.removedPaths.count, 1, "a file under a removed folder adds no tombstone")
+        XCTAssertNil(entry(file), "the removal under the folder still clears its entry")
+        XCTAssertEqual(
+            model.removedPaths,
+            [folder.standardizedFileURL.pathComponents, file.standardizedFileURL.pathComponents],
+            "a file under a removed folder keeps a tombstone of its own"
+        )
 
         syncAtVersionOne(other)
         model.receive(published(set, version: 1, url: other))
         XCTAssertNotNil(entry(other))
         model.noteItemRemoved(at: folder)
         XCTAssertNil(entry(other), "the repeated removal still clears under the folder")
-        XCTAssertEqual(model.removedPaths.count, 1, "the same folder again adds no tombstone")
+        XCTAssertEqual(model.removedPaths.count, 2, "the same folder again adds no tombstone")
+    }
+
+    /// Lifting a removed folder lifts only what lies at or above the file
+    /// found: a file removed with it — before or after the folder, the delete
+    /// call sites passing the folder first — and an unrelated removal stay
+    /// tombstoned, so a late report for either is still probed and refused.
+    func testLiftingAFolderKeepsTheFileTombstonesUnderIt() {
+        let folder = root.appendingPathComponent("Gone", isDirectory: true)
+        let removedAfter = folder.appendingPathComponent("a.swift")
+        let removedBefore = folder.appendingPathComponent("z.swift")
+        let recreated = folder.appendingPathComponent("b.swift")
+        let unrelated = root.appendingPathComponent("Other/x.swift")
+        var probes: [String] = []
+        model = DiagnosticsModel(fileExists: { url in
+            probes.append(url.path)
+            return url == recreated
+        })
+        let report = [positionalDiagnostic(line: 0, character: 0, message: "late")]
+
+        model.noteItemRemoved(at: removedBefore)
+        model.noteItemRemoved(at: folder)
+        model.noteItemRemoved(at: removedAfter)
+        model.noteItemRemoved(at: unrelated)
+        XCTAssertEqual(model.removedPaths.count, 4)
+
+        model.receive(positional(report, url: recreated))
+        XCTAssertNotNil(entry(recreated), "the recreated file's report lands")
+        XCTAssertEqual(
+            model.removedPaths,
+            [removedBefore, removedAfter, unrelated].map(\.standardizedFileURL.pathComponents),
+            "only the folder above the found file is lifted"
+        )
+
+        for gone in [removedAfter, removedBefore, unrelated] {
+            model.receive(positional(report, url: gone))
+            XCTAssertNil(entry(gone), "a late report for a file still gone is refused")
+        }
+        XCTAssertEqual(probes, [recreated, removedAfter, removedBefore, unrelated].map(\.path))
     }
 
     /// The default probe counts a file, not any item: a folder recreated at a

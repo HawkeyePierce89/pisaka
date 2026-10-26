@@ -121,13 +121,6 @@ public struct TreeDiagnostics: Equatable, Sendable {
         table.value(forKey: key, hash: hash) ?? .none
     }
 
-    /// The mark stored under `key`, whose hash is `hash`, with the trie nodes
-    /// the read visited.
-    private func probedMark(atKey key: String, hash: Int) -> (mark: TreeDiagnosticMark, visited: Int) {
-        let read = table.probe(forKey: key, hash: hash)
-        return (read.value ?? .none, read.visited)
-    }
-
     public init(store: DiagnosticStore, root: Root) {
         self = TreeDiagnosticsIndex(store: store, root: root).lookup
     }
@@ -151,8 +144,8 @@ public struct TreeDiagnostics: Equatable, Sendable {
     func resolve(_ url: URL) -> (mark: TreeDiagnosticMark, probes: Int) {
         guard let key = Self.key(for: url, spellings: spellings) else { return (.none, 0) }
         let joined = key.joined(separator: "/")
-        let read = probedMark(atKey: joined, hash: joined.hashValue)
-        return (read.mark, read.visited)
+        let read = table.probe(forKey: joined, hash: joined.hashValue)
+        return (read.value ?? .none, read.visited)
     }
 
     /// The root-relative components of `url`, or `nil` when it lies under

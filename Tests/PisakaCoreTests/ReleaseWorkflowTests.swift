@@ -3134,6 +3134,26 @@ final class ReleaseWorkflowTests: XCTestCase {
         let steps = try Self.jobSteps(job, in: "ci.yml")
         let resolve = try XCTUnwrap(steps.firstIndex(where: { $0.contains { $0.contains("-resolvePackageDependencies") } }),
                                     "ci.yml's `\(job)` job no longer resolves package dependencies")
+        // The cache key names the Xcode `id: xcode` reads, so that read must
+        // follow the setup-xcode step and precede the cache: run anywhere else,
+        // the key loses the version and one toolchain's checkouts are restored
+        // under another's — while every line-for-line comparison stays green.
+        let order: [(String, ([String]) -> Bool)] = [
+            ("the setup-xcode step", { $0.contains { $0.contains("uses: maxim-lobanov/setup-xcode@") } }),
+            ("the `id: xcode` step", { $0.contains("id: xcode") }),
+            ("the SwiftPM cache step", { $0.contains { $0.hasPrefix("uses: actions/cache@") } }),
+        ]
+        let positions = try order.map { what, matches in
+            try XCTUnwrap(steps.firstIndex(where: matches), "ci.yml's `\(job)` job has no \(what)")
+        }
+        XCTAssertEqual(positions, positions.sorted(), """
+            ci.yml's `\(job)` job must run setup-xcode, then `id: xcode`, then the SwiftPM cache, in \
+            that order; they sit at steps \(positions).
+            """)
+        XCTAssertLessThan(positions.last ?? .max, resolve, """
+            ci.yml's `\(job)` job must restore the SwiftPM cache before resolving, or the resolve never \
+            reads the cached checkouts.
+            """)
         let guardName = "- name: \(Self.resolvedGuardStepName)"
         XCTAssertEqual(steps.indices.contains(resolve + 1) ? steps[resolve + 1].first : nil, guardName, """
             ci.yml's `\(job)` job must run `\(Self.resolvedGuardStepName)` as the step directly \

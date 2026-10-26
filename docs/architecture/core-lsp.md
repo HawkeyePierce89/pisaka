@@ -2966,11 +2966,12 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     removed file's path is not the file coming back. A file found there lifts
     every tombstone it lies at or under — its own and any removed folder above
     it, which is evidently back — so a second report under that folder lands
-    without asking the disk again. A removal an existing tombstone already
-    covers appends none (its clear still runs), so the list stays bounded by
-    the distinct removals rather than by every delete beneath one; a new folder
-    tombstone deliberately keeps finer ones already recorded under it, because
-    lifting the folder later must not also lift a file that may still be gone.
+    without asking the disk again. A removal already recorded exactly appends
+    none (its clear still runs), so the list stays bounded by the distinct
+    removed paths; a finer tombstone under a folder one is always kept,
+    whichever was removed first — the delete and move call sites pass the
+    folder before the open files under it — because lifting the folder later
+    must not also lift a file that may still be gone.
     A kept **mapped** set is
     dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
     that is gone, so the file shows nothing until the next push. The editor

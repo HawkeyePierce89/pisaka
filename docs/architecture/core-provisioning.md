@@ -1414,6 +1414,9 @@ After a bump, re-check the two things that are not mechanical: that the license
 subpaths in `licenseFileSubpaths` still exist inside the new tarball (the
 Acknowledgements section silently drops a component whose texts it cannot read),
 and that `executableSubpath` still names the entry point the package ships.
+A `typescript-language-server` bump also re-probes what the server publishes on
+`didClose`, because D46's table (`core-lsp.md`) and the Problems paragraph of
+`docs/FEATURES.md` quote that answer with the version it was probed at.
 
 The first of those is more than a path check, and it is the step most likely to
 be skipped. **A package's own LICENSE is not automatically the whole

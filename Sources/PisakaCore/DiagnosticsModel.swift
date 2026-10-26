@@ -187,11 +187,11 @@ public final class DiagnosticsModel: ObservableObject {
     /// removal, or a stale one from a server never told about it, cannot
     /// resurrect the path. Cleared by the folder change. When the probe finds
     /// the file, every tombstone it lies at or under is lifted — the file's own
-    /// and any removed folder above it, which is evidently back. A removal an
-    /// existing tombstone already covers adds none, while finer tombstones
-    /// already recorded under a new folder one are kept: lifting the folder
-    /// later must not also lift a file that may still be gone. Readable by
-    /// tests, which pin both halves through it.
+    /// and any removed folder above it, which is evidently back. A removal
+    /// already recorded exactly adds none, while a finer one under a folder
+    /// tombstone is always kept, whichever was removed first: lifting the
+    /// folder later must not also lift a file that may still be gone. Readable
+    /// by tests, which pin both halves through it.
     private(set) var removedPaths: [[String]] = []
 
     /// The existence probe behind the tombstones — the one file-system call
@@ -532,11 +532,12 @@ public final class DiagnosticsModel: ObservableObject {
     /// exists (D46). Bookkeeping is the close's business
     /// (``noteDocumentClosed(url:)``), which the same call sites already reach.
     ///
-    /// A path an existing tombstone already covers adds no second one; the
-    /// clear runs regardless.
+    /// A path already recorded exactly adds no second tombstone; one under a
+    /// removed folder still adds its own, because the folder's is lifted as
+    /// soon as any file under it is found again. The clear runs regardless.
     public func noteItemRemoved(at url: URL) {
         let components = url.standardizedFileURL.pathComponents
-        if !removedPaths.contains(where: { Self.lies(components, atOrUnder: $0) }) {
+        if !removedPaths.contains(components) {
             removedPaths.append(components)
         }
         store.clear(under: url)

@@ -1348,8 +1348,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `onNewFile(URL,
     String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
     callbacks take the final accepted text and run under the same writer
-    gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest`
-    remain parameterless callbacks. The callbacks only *request* the
+    gate as defense-in-depth, while `onRun(URL)` / `onRunTest(URL)` take
+    only the row's url and `onDelete(URL, String?)` also carries the name
+    the confirmation quotes (a chain row's label, `nil` otherwise — see the
+    single-child chains entry). The callbacks only *request* the
     operation: `PisakaApp` validates once more, performs the disk I/O and
     bumps `treeRevision`. `DirectoryNodeView` also observes `.onChange(of:
     model.treeRevision)`: when currently expanded it re-reads its listing
