@@ -66,11 +66,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     is `.command(String)` / `.runnerUndetected` (the latter only for JS/TS with no
     detectable runner, or an unknown extension — every other supported language has
     a single canonical runner). `public enum TestCommand` has:
-    `isTestFile(fileName:) -> Bool` (per-language test-naming convention — JS/TS
-    `*.test.*`/`*.spec.*`, Python `test_*.py`/`*_test.py`, Ruby `*_spec.rb`/
-    `*_test.rb`, PHP `*Test.php`, Elixir `*_test.exs`, Go `*_test.go`, Swift
-    `*Tests.swift`/`*Test.swift`, Rust any `.rs`; drives the "Run Test" menu/context
-    item enablement); `command(forFileName:absolutePath:evidence:) -> TestResult`
+    `followsTestNamingConvention(fileName:) -> Bool` (the per-language
+    test-naming table, held once — JS/TS `*.test.*`/`*.spec.*`, Python
+    `test_*.py`/`*_test.py`, Ruby `*_spec.rb`/`*_test.rb`, PHP `*Test.php`,
+    Elixir `*_test.exs`, Go `*_test.go`, Swift `*Tests.swift`/`*Test.swift`;
+    **`false` for every `.rs` file**, Rust having no name convention; read by
+    the project tree's `TreeTestRule`, `core-workspace.md`);
+    `isTestFile(fileName:) -> Bool`, defined as `ext == "rs" ||
+    followsTestNamingConvention(fileName:)` — so the table exists once and a
+    convention added to it reaches both predicates by construction, while what
+    it answers is exactly what it answered before the split (drives the "Run
+    Test" menu/context item enablement and ⌘U; `TestCommandTests` pins that the
+    two agree on a positive and near-miss sample of every non-Rust convention,
+    and that `rs` is their one disagreement); `command(forFileName:absolutePath:evidence:) -> TestResult`
     over an extension-ordered runner catalog with `<file>`/`<dir>` shell-quoted via
     `ShellQuote` — JS/TS first-matched-signal-wins vitest > jest > mocha (vitest/
     jest from a `vitest.config.*`/`jest.config.*` root entry, mocha from a
@@ -91,7 +99,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`foo_test.rs`, `test_foo.rs`, `foo.test.rs`) as answering **true** for that
     reason rather than because they matched anything, which states the failure
     mode a borrowed suffix check would introduce: it would *exclude* ordinary
-    files. The command is the constant `cargo test`, taking neither the file nor
+    files. The same reason is why the naming predicate answers `false` there:
+    the tree marks *test* rows, and "every Rust file" is not one. The command is the constant `cargo test`, taking neither the file nor
     its directory — cargo finds the workspace from the cwd — so no evidence is
     consulted and, unlike Go's `go test <dir>`, a path full of shell
     metacharacters cannot reach the command line at all.

@@ -88,6 +88,48 @@ final class TestCommandTests: XCTestCase {
         XCTAssertFalse(TestCommand.isTestFile(fileName: "Cargo.toml"))
     }
 
+    // MARK: - followsTestNamingConvention agrees with isTestFile off Rust
+
+    // The naming table exists once: `isTestFile` is "Rust, or the convention".
+    // For every non-Rust convention the two predicates must therefore agree, on
+    // the positives and on the near misses alike — which is what keeps "Run
+    // Test" and ⌘U offering exactly what they offered before the split.
+    func testNamingConventionAgreesWithIsTestFileForEveryNonRustConvention() {
+        let samples: [(name: String, isTest: Bool)] = [
+            ("foo.test.js", true), ("foo.spec.js", true), ("Button.test.jsx", true),
+            ("foo.test.mjs", true), ("foo.spec.cjs", true), ("foo.test.ts", true),
+            ("Button.spec.tsx", true), ("foo.test.mts", true), ("foo.spec.cts", true),
+            ("test_foo.py", true), ("foo_test.py", true),
+            ("foo_spec.rb", true), ("foo_test.rb", true),
+            ("FooTest.php", true),
+            ("foo_test.exs", true),
+            ("foo_test.go", true),
+            ("FooTests.swift", true), ("FooTest.swift", true),
+            // Near misses.
+            ("foo.js", false), ("testing.ts", false), ("foo.tests.ts", false),
+            ("foo.py", false), ("contest.py", false),
+            ("foo.rb", false), ("spec_foo.rb", false),
+            ("Foo.php", false), ("FooTests.php", false),
+            ("foo.exs", false), ("foo_test.ex", false),
+            ("foo.go", false), ("test_foo.go", false), ("foo.test.go", false),
+            ("Foo.swift", false), ("Testing.swift", false),
+            ("test", false), ("Makefile", false), ("foo_test.txt", false),
+        ]
+        for sample in samples {
+            XCTAssertEqual(
+                TestCommand.followsTestNamingConvention(fileName: sample.name), sample.isTest, sample.name
+            )
+            XCTAssertEqual(TestCommand.isTestFile(fileName: sample.name), sample.isTest, sample.name)
+        }
+    }
+
+    func testRustIsTheOneDisagreement() {
+        for name in ["lib.rs", "main.rs", "foo_test.rs", "test_foo.rs", "foo.test.rs", "MAIN.RS"] {
+            XCTAssertTrue(TestCommand.isTestFile(fileName: name), name)
+            XCTAssertFalse(TestCommand.followsTestNamingConvention(fileName: name), name)
+        }
+    }
+
     // MARK: - JS/TS runner selection
 
     func testVitestBeatsJestWhenBothPresent() {

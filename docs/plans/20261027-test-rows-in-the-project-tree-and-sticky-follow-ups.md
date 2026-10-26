@@ -220,14 +220,14 @@ runner keep their current predicate and behaviour.
   `docs/architecture/core-services.md` (the `TestCommand` entry), `CLAUDE.md`
   (index)
 
-- [ ] Add `TestCommand.followsTestNamingConvention(fileName:)`.
+- [x] Add `TestCommand.followsTestNamingConvention(fileName:)`.
   - It holds today's naming table, including JS/TS `.test.`/`.spec.`, py, rb,
     php, exs, go and swift, and answers `false` for `rs`.
   - Redefine `isTestFile` as `ext == "rs" || followsTestNamingConvention(...)`,
     so the table exists once.
   - Doc comments state why Rust is the one difference and that "Run Test"
     behaviour is unchanged.
-- [ ] Create `TreeTestRule`, a pure, Foundation-only enum.
+- [x] Create `TreeTestRule`, a pure, Foundation-only enum.
   - The closed folder-name set is `test`, `tests`, `__tests__`, `spec`,
     `specs`, matched case-insensitively.
   - `isTestRow(components:isFolder:)` takes root-relative path components,
@@ -240,7 +240,7 @@ runner keep their current predicate and behaviour.
   - It reads no file and calls no service; the cost is one walk over the
     components. The doc comment states inheritance "the way a git ignore
     does" and the Rust exception.
-- [ ] Write `TreeTestRuleTests` covering:
+- [x] Write `TreeTestRuleTests` covering:
   - every folder name in the set, in upper/mixed case;
   - a near miss (`testing`, `contest`) that is not a test folder;
   - the root exclusion: `[]` is never a test row;
@@ -251,16 +251,16 @@ runner keep their current predicate and behaviour.
     `tests/integration.rs` yes);
   - a file named `test` with no extension, which is not a folder and is not a
     test row by its own name.
-- [ ] In `TestCommandTests`, add the agreement test.
+- [x] In `TestCommandTests`, add the agreement test.
   - For a table holding one positive sample per non-Rust convention, plus
     near-miss negatives, `followsTestNamingConvention` and `isTestFile` agree.
   - For `rs`, `isTestFile` answers true and the naming predicate false.
   - Existing `isTestFile` tests stay green unchanged.
-- [ ] Add the `TreeTestRule.swift` entry to `core-workspace.md` (contract, edge
+- [x] Add the `TreeTestRule.swift` entry to `core-workspace.md` (contract, edge
   cases, the Rust exception, the sharing decision). Update the `TestCommand`
   entry in `core-services.md` for the new predicate. Add `TreeTestRule.swift`
   to `CLAUDE.md`'s core-workspace index line.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Core — the spoken `Test` word and the wash role
 

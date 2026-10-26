@@ -1086,6 +1086,43 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     cannot pass empty; and `placement` `nil` for clear rows, the shared anchor —
     capped at `maximumRows` — for a row under the stack and one crossing the
     viewport's bottom edge.
+  - `TreeTestRule.swift` — whether a macOS project-tree row is a **test row**,
+    the rows the tree paints with a wash underneath the row-state tints. Pure
+    and Foundation-only: `TreeTestRule.isTestRow(components:isFolder:)` takes
+    the row's **root-relative path components** — `[]` is the project root —
+    and whether the last one is a folder (a chain row passes its tail's path),
+    and answers `Bool`. It reads no file and calls no service; the cost is one
+    walk over the components, so the row's depth.
+    **Test folders are a closed set**, `testFolderNames` = `test`, `tests`,
+    `__tests__`, `spec`, `specs`, each component lowercased before the lookup,
+    so `Tests` and `__TESTS__` count and `testing`, `contest`, `specification`
+    do not — a whole-component match, never a prefix or a substring.
+    **Being a test folder is inherited the way a git ignore does**: a folder is
+    a test row when *any* of its components is a test-folder name — itself, an
+    ancestor, or any segment of a chain, wherever in the chain the test segment
+    sits — and a file is a test row when any *ancestor* component is one, or
+    when its own name follows its ecosystem's naming convention. A file's own
+    name is never read as a folder name, so a file called `test` with no
+    extension is judged by the convention alone, and is not a test row.
+    **The root is never a test row**: the components are relative to it, so
+    they never spell it, and `[]` answers `false` for both kinds — which is
+    what keeps a project that is itself called `tests` from washing every row.
+    **The naming conventions are shared with `TestCommand`, not restated.**
+    The file half reads `TestCommand.followsTestNamingConvention(fileName:)`,
+    the one table both that predicate and `isTestFile` are built from
+    (`core-services.md`), so a convention added there reaches the tree and
+    "Run Test" by construction. **Rust is the one difference, and the stated
+    exception**: `isTestFile` answers every `.rs` file because Rust's tests
+    live beside the code, which would wash every Rust source in the tree; the
+    naming predicate answers `false` for `rs`, so a Rust file is a test row
+    only through a test folder above it — `tests/integration.rs` yes,
+    `src/lib.rs` no. "Run Test" and ⌘U keep reading `isTestFile` and are
+    unchanged. Covered by `TreeTestRuleTests` (every folder name in upper and
+    mixed case, near misses, the root exclusion, inheritance through
+    `Tests/PisakaCoreTests/Support/Gate.swift` and `src/test/java`, a chain
+    with its test segment first, middle or last, the Rust pair, and the file
+    named `test`), with the agreement of the two `TestCommand` predicates
+    pinned in `TestCommandTests`.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one
