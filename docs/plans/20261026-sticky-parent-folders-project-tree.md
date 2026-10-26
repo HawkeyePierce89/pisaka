@@ -266,7 +266,7 @@ Task 3.
 - Create: `Sources/PisakaCore/TreeStickyRule.swift`
 - Create: `Tests/PisakaCoreTests/TreeStickyRuleTests.swift`
 
-- [ ] Write `TreeStickyRuleTests` first. Cover every case below with hand-computed extents
+- [x] Write `TreeStickyRuleTests` first. Cover every case below with hand-computed extents
   (`rowHeight` 22, viewport heights chosen so the cap is 1, 2 and 4 rows):
   - no ancestor (offset 0, and a folder whose real row is still at or below the viewport top);
   - one pinned row at top 0;
@@ -284,13 +284,13 @@ Task 3.
   - a chain row (one `Folder`, any segment count) pins as exactly one row;
   - a sibling folder after a pinned folder's subtree never stacks under it;
   - `Stack.height` for empty, full and pushed stacks.
-- [ ] Implement `TreeStickyRule` per Decision 1: `Folder`, `Stack`, `Stack.Row` (without
+- [x] Implement `TreeStickyRule` per Decision 1: `Folder`, `Stack`, `Stack.Row` (without
   `scrollAnchorY` yet; Task 4 adds it), `capFraction`, `maximumRows(viewportHeight:rowHeight:)`,
   `stack(folders:viewport:rowHeight:)`. It is pure, Foundation only, doc-commented with the
   contract, and does one sort plus one forward pass.
-- [ ] Hand-break two pins and record them in Execution notes: remove the depth-0 exclusion,
+- [x] Hand-break two pins and record them in Execution notes: remove the depth-0 exclusion,
   and swap the drop-outermost for drop-innermost.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Measurement plumbing and shared row drawing (no visible change yet)
 
@@ -446,6 +446,28 @@ Task 3.
 
 (Filled in during execution: hand-breaks with the failing test each produced, and the
 hosted-render measurements.)
+
+### Task 1
+
+- `TreeStickyRuleTests`: 20 tests, all green; full `swift test` 7,145 tests green;
+  `swiftlint --strict` clean.
+- `Folder` carries four fields (`depth`, `isExpanded`, `top`, `bottom`); Decision 1's
+  "five fields" lists those four, and the pinned row maps back to its report through
+  `Stack.Row.index` (the input index), so no fifth field was needed.
+- `Stack.Row` is declared in an extension of `Stack`: nested inside it, SwiftLint's
+  `nesting` rule (types at most one level deep) refused it. The name is unchanged.
+- `maximumRows` floors `viewportHeight · capFraction / rowHeight` with a `1e-9` tolerance,
+  so an exact multiple (66 / 3 / 22) is not floored one row short by the binary rounding of
+  `1.0/3.0`; pinned by `testMaximumRowsIsAThirdOfTheViewportInWholeRows` (65.9 → 0, 66 → 1,
+  131.9 → 1, 132 → 2, 264 → 4).
+- Hand-break 1, depth-0 exclusion removed from eligibility (`folder.depth >= 1 &&` deleted):
+  27 assertions failed across 15 tests, among them `testTheRootNeverPins`
+  (`[root@0.0]` ≠ `[]`), `testOnePinnedRowAtTheTop` (`[root@0, a@22]` ≠ `[a@0]`) and
+  `testTheRowsCarryTheirInputIndex` (`[2, 5, 4, 0]` ≠ `[5, 4, 0]`). Restored.
+- Hand-break 2, drop-outermost swapped for drop-innermost (`chain.removeFirst()` →
+  `chain.removeLast()`): `testTheCapDropsTheOutermostFirst` and
+  `testACappedCandidateJoinsOnlyOnceFullyUnderTheStack` failed, each with `[a@0, c@22]` ≠
+  `[b@0, c@22]`. Restored; the restored file compared byte-identical to the saved copy.
 
 ## Post-Completion
 
