@@ -821,7 +821,11 @@ user sees it.
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. The list covers **closed
   files too**: what a server reports about a file no tab holds is listed with the
-  server's own line numbers, and closing a file keeps its rows. Clicking a row
+  server's own line numbers. Closing a file keeps its set in the app, and the
+  server decides what happens next: typescript-language-server (5.3.0, probed)
+  clears the file when it is closed, sourcekit-lsp sends nothing so its last
+  report stays listed, and yaml-language-server's behaviour on close is
+  unverified. Clicking a row
   opens (or re-selects) that file and reveals the range — for a closed file, the
   server's position mapped onto the file as it opens, so a position past the end
   lands at the end — and resting the pointer on an underlined span shows
@@ -848,8 +852,8 @@ user sees it.
   does not tell it about saves, so that check is not re-run until the folder is
   reopened), while its own native diagnostics cover open files only; pyright is told to report on the whole workspace;
   typescript-language-server, sourcekit-lsp and yaml-language-server report on
-  open files only, so in those projects the closed-file rows are the files that
-  have been open. Two limits: a closed file edited outside the app keeps its
+  open files only, so in those projects a closed file is listed only as far as
+  its server's answer to the close leaves it (above). Two limits: a closed file edited outside the app keeps its
   mark until its server reports on it again (the app sends servers no
   file-change notice), and a project whose own pyright configuration lists an
   `exclude` loses pyright's built-in excludes — which otherwise skip virtual

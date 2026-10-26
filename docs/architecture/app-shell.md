@@ -1974,27 +1974,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `swift test` entirely green while removing the only pre-tag compile of the
     shipping path.
 
-    That trade is worth stating exactly, because it was made in the *switching*
-    direction rather than by adding a job: the macOS job no longer builds Debug,
-    and the iOS job cannot stand in for it — every file here is inside
-    `#if os(macOS)`, so the iOS compile never reaches them. Debug is still
-    compiled on every PR (by the iOS job), but *macOS-gated code under
-    `#if DEBUG`* is now compiled by no CI job at all. The residual exposure is
+    That split is worth stating exactly. `build-macos`'s Release build is the
+    only compile of the shipping `#if !DEBUG` path, and `test-macos`'s Debug
+    build is the only compile of macOS-gated code under `#if DEBUG` — the iOS
+    job cannot stand in for it, because every file here is inside
+    `#if os(macOS)`, so the iOS compile never reaches them. `test-macos` exists
+    to host the app-layer bundle, so DEBUG-only content outside the iOS layer is
+    code the shipping configuration never compiles. The residual exposure is
     bounded and checked: the app layer outside `Sources/Pisaka/iOS/` contains
-    exactly one `#if DEBUG`, and it is this updater's two no-op declarations. Any
-    macOS Debug-conditional code with real content would need a third job.
+    exactly one `#if DEBUG`, and it is this updater's two no-op declarations.
 
     **That bound is asserted rather than merely stated**, by a third case in
     `SparkleSourceGatingTests`: every app source outside `Sources/Pisaka/iOS/` is
     walked with the same directive walker, and the set of files carrying a live
     DEBUG-only branch must be exactly `{SoftwareUpdater.swift}`. Without it the
     sentence above is a comment in `ci.yml` that quietly stops being true the
-    first time someone adds a `#if DEBUG` block elsewhere — code that then ships
-    compiled by nobody and breaks only on a developer's machine. The walker is
-    reused rather than a text match for the reason it exists: a `#else` closing a
-    `#if !DEBUG` is a DEBUG branch too, and this file is the proof the two shapes
-    are interchangeable. The failure message points at adding the third,
-    macOS-Debug job — widening the allow-list would be discarding the check.
+    first time someone adds a `#if DEBUG` block elsewhere — code the shipping
+    configuration never compiles, so the product a developer runs and the one
+    that ships quietly diverge. The walker is reused rather than a text match for
+    the reason it exists: a `#else` closing a `#if !DEBUG` is a DEBUG branch too,
+    and this file is the proof the two shapes are interchangeable. The failure
+    message names which job compiles which branch; widening the allow-list would
+    be discarding the check.
 
     In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
     creates the updater and the standard user driver and starts it immediately,

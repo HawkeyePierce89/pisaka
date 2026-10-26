@@ -166,17 +166,17 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `docs/architecture/app-shell.md`
 - Modify: `docs/plans/completed/20261026-ci-speed-stripped-source-memo.md`
 
-- [ ] **Closed-file wording (1.1).**
+- [x] **Closed-file wording (1.1).**
   - In `FEATURES.md`'s Problems paragraph, the sentence "closing a file keeps its rows" and the "files that have been open" sentence now say: the app keeps a file's set on close, and the server decides what happens next. typescript-language-server (5.3.0, probed) clears the file on `didClose`. sourcekit-lsp sends nothing, so its last report stays listed. yaml-language-server's behaviour on close is unverified, and the text says so.
   - Make the same change in `core-lsp.md`'s D46 table rows and in its limits paragraph ("lists only the files that have been open").
-- [ ] **`containsToken`.** Before changing it, run `swift test --filter 'ChromeThemeSourceGatingTests|MarkdownPreviewSourceGatingTests'` and record each suite's reported time in Notes. Then compare the slice in place (`elementsEqual`, as the stripper's `matches(_:at:)` does) with no per-position array. Re-run the same filter and record the after times. Behaviour is identical and pinned by the existing suites.
-- [ ] **`strippingComments` doc.** Rewrite the "used by nothing else" sentence in `GitHubSourceGatingTests.strippingComments(_:)`'s doc comment to the phrasing chosen in the Overview, pointing at `ChromeThemeSourceGatingTests.testTheHeaderNamesEveryLiteralKeepingReading`.
-- [ ] **"No CI job" claims.** Rewrite `SparkleSourceGatingTests`' DEBUG-branch case (doc comment and failure message) and `app-shell.md`'s Sparkle paragraph to what is true now:
+- [x] **`containsToken`.** Before changing it, run `swift test --filter 'ChromeThemeSourceGatingTests|MarkdownPreviewSourceGatingTests'` and record each suite's reported time in Notes. Then compare the slice in place (`elementsEqual`, as the stripper's `matches(_:at:)` does) with no per-position array. Re-run the same filter and record the after times. Behaviour is identical and pinned by the existing suites.
+- [x] **`strippingComments` doc.** Rewrite the "used by nothing else" sentence in `GitHubSourceGatingTests.strippingComments(_:)`'s doc comment to the phrasing chosen in the Overview, pointing at `ChromeThemeSourceGatingTests.testTheHeaderNamesEveryLiteralKeepingReading`.
+- [x] **"No CI job" claims.** Rewrite `SparkleSourceGatingTests`' DEBUG-branch case (doc comment and failure message) and `app-shell.md`'s Sparkle paragraph to what is true now:
   - The Release job (`build-macos`) is the only compile of the shipping `#if !DEBUG` path.
   - `test-macos`'s Debug build is the only compile of macOS `#if DEBUG` code. That job exists to host the app-layer bundle, so DEBUG-only content outside the iOS layer is code the shipping configuration never compiles.
   - Remove the "needs a third, macOS-Debug job" remedy. The asserted bound, `{SoftwareUpdater.swift}`, is unchanged.
-- [ ] **Completed-plan phrase.** Correct the one phrase in the completed ci-speed plan's execution notes ("Sparkle keeps `try?` → empty"): that read now throws. Nothing else in that file changes.
-- [ ] Run `swift test`; it must pass before Task 6.
+- [x] **Completed-plan phrase.** Correct the one phrase in the completed ci-speed plan's execution notes ("Sparkle keeps `try?` → empty"): that read now throws. Nothing else in that file changes.
+- [x] Run `swift test`; it must pass before Task 6.
 
 ### Task 6: `build-ios` gets the Xcode-keyed cache and the resolution guard; the Release-step comment (1.6 CI items)
 
@@ -248,7 +248,7 @@ Decisions made here, so nothing is left open at run time:
 
 ## Notes (filled in during execution)
 
-- Suite timings before and after `containsToken`: `ChromeThemeSourceGatingTests` and `MarkdownPreviewSourceGatingTests`.
+- Suite timings before and after `containsToken`: `ChromeThemeSourceGatingTests` and `MarkdownPreviewSourceGatingTests`. Before: ChromeTheme 34.462 s (75 tests), MarkdownPreview 11.553 s (13 tests). After (in-place `elementsEqual`): ChromeTheme 30.714 s, MarkdownPreview 10.792 s. Both runs with `--skip-build` after a fresh `swift build --build-tests`; behaviour unchanged, full suite 7123 tests green.
 - Pin verification: each tag → commit, `node24` confirmed, any difference from the ticket's SHA; setup-xcode unchanged.
 - `pull_request_target` check: `ci.yml` runs on `pull_request` and pushes to `master`, `release.yml` on `v*` tags; no checkout input added.
 - XcodeGen: both digests, the diff summary, and which branch was taken.

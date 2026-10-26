@@ -4072,6 +4072,9 @@ lane** rather than dropped.
 - **Close keeps the set.** Closing the last tab drops the sync record, the
   revision and any hold, and no longer touches the store, so the file's problems
   stay listed after the close and its positional lane opens for the next report.
+  The app keeps the set; the server decides what happens next — a server that
+  clears the file on `didClose` empties it, one that sends nothing leaves its last
+  report listed (the table below).
 - **A removal is not a close.** When the app itself deletes, renames or moves a
   file or folder — the project tree's operations, or a git operation's resync
   force-closing a tab whose file it deleted — `noteItemRemoved(at:)` clears every
@@ -4104,9 +4107,9 @@ expectation, not a contract this layer can enforce:
 | gopls | whole workspace (compiler diagnostics for every loaded package; analysis may be limited to packages with open files) |
 | rust-analyzer | whole workspace from the `cargo check` it runs once the workspace has loaded; its own native diagnostics are open-files-only. Pisaka sends no `didSave` (D2), so the check is not re-run on a save |
 | pyright | whole workspace, through the setting (`core-provisioning.md`) |
-| typescript-language-server | open files only |
-| sourcekit-lsp | open files only |
-| yaml-language-server | open files only |
+| typescript-language-server | open files only; on `didClose` it clears the file (5.3.0, probed), so a closed file's rows go with its tab |
+| sourcekit-lsp | open files only; it sends nothing on `didClose`, so a closed file's last report stays listed |
+| yaml-language-server | open files only; what it sends on `didClose` is unverified |
 
 **Stated limit: a closed file's set is what its server said last.** Pisaka sends no
 `workspace/didChangeWatchedFiles`, so a closed file edited outside the app — in the
@@ -4279,8 +4282,11 @@ report overwrite a current mapped one.
 - **Diagnostics cover what a server said last, and closed files only as far as
   the server reports on them.** A report about a document no buffer holds is kept
   positionally (D46) and shown by the Problems panel and the tree, never by the
-  editor surfaces; which servers report on closed files at all is D46's table, so a
-  TypeScript, Swift or YAML project lists only the files that have been open. A
+  editor surfaces; which servers report on closed files at all is D46's table. In a
+  TypeScript, Swift or YAML project a closed file is listed only as far as its
+  server's answer to `didClose` leaves it: typescript-language-server clears it,
+  sourcekit-lsp leaves its last report listed, and yaml-language-server's
+  behaviour is unverified. A
   closed file edited outside the app keeps its mark until its server reports again
   (D46's stated limit). Between pushes the shown state is
   maintained by shift-and-drop (D32), which is exact for edits outside a
