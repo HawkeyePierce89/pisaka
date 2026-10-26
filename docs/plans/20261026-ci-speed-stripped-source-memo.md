@@ -185,12 +185,12 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Modify: `CLAUDE.md`
 - Check: `docs/RELEASING.md`
 
-- [ ] In CLAUDE.md's Commands section, rewrite the CI sentence ("`swift test` first, then — only when it is green — the macOS job … in parallel, plus an independent `lint` job …"). The new sentence describes four independent jobs with no `needs:` between them: `swift test`; the macOS job (keep its parenthetical about `Package.resolved`, the app-layer bundle and the unsigned build); the unsigned iOS build (device arch, libgit2 linking); and `lint` (pinned SwiftLint 0.65.1, `--strict`).
-- [ ] In CLAUDE.md's Tests section, add `RepositorySources` to the Support helper list in one clause: the once-per-process walk and raw/stripped text of repository files that every source-gating suite reads through.
-- [ ] Check CLAUDE.md stays under 60,000 characters (`wc -c CLAUDE.md`; 56,552 before) and that `LintConfigurationTests` is green.
-- [ ] Re-read every `ci.yml` mention in `docs/RELEASING.md`. Exploration found none that says the build jobs wait for `test`, so the file is expected to stay unchanged. Record the finding in Notes. A sentence that does state such an ordering is corrected; sentences that only list jobs stay.
-- [ ] README.md is unaffected (no user-facing change). `docs/architecture/style-lint.md` is unaffected.
-- [ ] Run the full `swift test` and `swiftlint --strict` one final time.
+- [x] In CLAUDE.md's Commands section, rewrite the CI sentence ("`swift test` first, then — only when it is green — the macOS job … in parallel, plus an independent `lint` job …"). The new sentence describes four independent jobs with no `needs:` between them: `swift test`; the macOS job (keep its parenthetical about `Package.resolved`, the app-layer bundle and the unsigned build); the unsigned iOS build (device arch, libgit2 linking); and `lint` (pinned SwiftLint 0.65.1, `--strict`).
+- [x] In CLAUDE.md's Tests section, add `RepositorySources` to the Support helper list in one clause: the once-per-process walk and raw/stripped text of repository files that every source-gating suite reads through.
+- [x] Check CLAUDE.md stays under 60,000 characters (`wc -c CLAUDE.md`; 56,552 before) and that `LintConfigurationTests` is green.
+- [x] Re-read every `ci.yml` mention in `docs/RELEASING.md`. Exploration found none that says the build jobs wait for `test`, so the file is expected to stay unchanged. Record the finding in Notes. A sentence that does state such an ordering is corrected; sentences that only list jobs stay.
+- [x] README.md is unaffected (no user-facing change). `docs/architecture/style-lint.md` is unaffected.
+- [x] Run the full `swift test` and `swiftlint --strict` one final time.
 
 ## Notes (filled in during execution)
 
@@ -231,7 +231,8 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
   - Hand-breaks repeated exactly as in Task 1; each message after `failed - ` is byte-identical to the baseline. Folding in full: `FoldController.swift must not name autosave: folding is a reader, like the symbol index. It writes nothing — not the buffer, not the session, not the disk — so there is nothing for a writer gate to order it against.` Markdown: `MarkdownPreviewController.swift must not name localChanges: the preview is a reader, like the symbol index.` ChromeTheme: `a gated view must ask the palette for a role, never the system for a colour`, offender list `["TabStripView.swift: red"]`, same as before. Every file was restored with `git checkout --`, and `git status` was clean afterwards.
   - `make lint` (SwiftLint 0.65.1, `--strict`): `Found 0 violations, 0 serious in 784 files`.
   - `ci.yml` has no `needs:` key at all (build-macos, build-ios, test and lint all independent). `git diff --exit-code master -- .github/workflows/release.yml` is empty.
-- RELEASING.md finding (Task 8).
+- RELEASING.md finding (Task 8): every `ci.yml` mention re-read (concurrency comment, the Xcode-pin step list, the `test` job "pinned identically", the `PisakaAppTests` bundle as `ci.yml`'s gate, the smoke-launch script, the build budget). None states that the build jobs wait for `test`; the only `needs: test` is `release.yml`'s, which is unchanged. RELEASING.md left unchanged. README.md and `docs/architecture/style-lint.md` unaffected.
+  - CLAUDE.md: CI sentence rewritten as four independent jobs; `RepositorySources` added to the Support helper list. `wc -c CLAUDE.md`: 56,661 (was 56,552; ceiling 60,000). Final full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.311 (96.611) seconds` (LintConfigurationTests 29 green); `make lint` (SwiftLint 0.65.1, `--strict`): `Found 0 violations, 0 serious in 784 files`.
 
 ## Post-Completion
 
