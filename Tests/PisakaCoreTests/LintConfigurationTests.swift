@@ -178,7 +178,7 @@ final class LintConfigurationTests: XCTestCase {
 
         for tree in ["Sources", "Tests"] {
             for url in try swiftFiles(under: tree) {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try RepositorySources.raw(url)
                 let relativePath = tree + String(url.path.dropFirst(
                     Self.repositoryRoot.appendingPathComponent(tree).path.count))
                 for line in text.components(separatedBy: .newlines) {

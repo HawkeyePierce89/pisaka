@@ -55,18 +55,11 @@ import XCTest
 ///    passing quietly.
 final class LibGit2FetchSourceGatingTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     private static let relativePath = "Sources/Pisaka/iOS/LibGit2Service.swift"
 
     /// The service's source with comments and string literals removed.
     private func strippedSource() throws -> String {
-        let url = Self.repositoryRoot.appendingPathComponent(Self.relativePath)
-        let source = try String(contentsOf: url, encoding: .utf8)
-        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(source)
+        try RepositorySources.stripped(at: Self.relativePath)
     }
 
     /// The UTF-16 offsets at which `pattern` matches `code`.

@@ -101,12 +101,7 @@ final class CodeZoneCheckboxRuleTests: XCTestCase {
     /// interact. Read raw — comments included — which is stricter than the
     /// stripped reading, because the file must not even mention them.
     func testRuleNamesNeitherTheMetricsTypeNorTheChromeScale() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/PisakaCore/CodeZoneCheckboxRule.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try RepositorySources.raw(at: "Sources/PisakaCore/CodeZoneCheckboxRule.swift")
         XCTAssertFalse(source.contains("InterfaceMetrics"))
         XCTAssertFalse(source.contains("interfaceScale"))
         XCTAssertFalse(source.contains("interfaceMetrics"))

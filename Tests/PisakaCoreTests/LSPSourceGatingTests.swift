@@ -161,8 +161,8 @@ final class LSPSourceGatingTests: XCTestCase {
     /// and no rendered bitmap can see a key binding. Matched on stripped text,
     /// because the bar's own doc comment names the modifier it refuses.
     func testTheConsentBarBindsNoKeyboardShortcut() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/LSPConsentBanner.swift")
-        let code = Self.strippingCommentsAndStringLiterals(try read(url))
+        let url = RepositorySources.url("Sources/Pisaka/LSPConsentBanner.swift")
+        let code = try RepositorySources.stripped(url)
         XCTAssertTrue(code.contains("struct LSPConsentBar"), "the consent bar moved; the rule checks nothing")
         XCTAssertFalse(
             code.contains("keyboardShortcut"),
@@ -182,8 +182,8 @@ final class LSPSourceGatingTests: XCTestCase {
             "Sources/Pisaka/LSPServerSettingsView.swift",
         ]
         for path in files {
-            let url = Self.repositoryRoot.appendingPathComponent(path)
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let url = RepositorySources.url(path)
+            let code = try RepositorySources.stripped(url)
             XCTAssertTrue(code.contains("LSPServerFailure"), "\(path) no longer handles the record; the rule checks nothing")
             for token in ["NSAlert", "UNUserNotificationCenter", "NSUserNotification"] {
                 XCTAssertFalse(
@@ -205,7 +205,7 @@ final class LSPSourceGatingTests: XCTestCase {
         XCTAssertFalse(files.isEmpty, "no Sources/PisakaCore files of this layer found — the sweep is broken")
 
         for url in files {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             for identifier in Self.forbiddenInCore {
                 XCTAssertFalse(
                     Self.containsToken(identifier, in: code),
@@ -218,7 +218,7 @@ final class LSPSourceGatingTests: XCTestCase {
 
     func testEveryCoreLSPFileImportsFoundationAndNothingElse() throws {
         for url in try coreLSPFiles() {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             let imports = code
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -252,7 +252,7 @@ final class LSPSourceGatingTests: XCTestCase {
         // differently on iOS, which is exactly the drift the transport seam exists
         // to prevent.
         for url in try coreLSPFiles() {
-            let code = Self.strippingCommentsAndStringLiterals(try read(url))
+            let code = try RepositorySources.stripped(url)
             XCTAssertFalse(
                 code.contains("#if os("),
                 "\(url.lastPathComponent) is platform-conditional; the seam is LSPTransport, not #if"
@@ -293,54 +293,36 @@ final class LSPSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the repository
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
-    private func read(_ url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
     /// This layer's files under `Sources/Pisaka`, at any depth — a future
     /// `Platform/` or `iOS/` file is swept without anyone remembering to add a
     /// directory here.
     private func appLSPFiles() throws -> [URL] {
         try files(
-            under: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka"),
+            under: "Sources/Pisaka",
             prefixedBy: Self.appFilePrefixes
         )
     }
 
     private func coreLSPFiles() throws -> [URL] {
         try files(
-            under: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore"),
+            under: "Sources/PisakaCore",
             prefixedBy: Self.coreFilePrefixes
         )
     }
 
-    private func files(under directory: URL, prefixedBy prefixes: [String]) throws -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+    private func files(under relativeDirectory: String, prefixedBy prefixes: [String]) throws -> [URL] {
+        guard let files = RepositorySources.swiftFiles(under: relativeDirectory) else {
+            XCTFail("cannot enumerate \(RepositorySources.url(relativeDirectory).path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { url in
-                url.pathExtension == "swift"
-                    && prefixes.contains { url.lastPathComponent.hasPrefix($0) }
-            }
-            .sorted { $0.path < $1.path }
+        return files.filter { url in prefixes.contains { url.lastPathComponent.hasPrefix($0) } }
     }
 
     /// The file's lines with comments stripped and blanks dropped — what the
     /// `#if os(macOS)` wrapper assertion reads, so a file may open with as much
     /// documentation as it likes.
     private func significantLines(of url: URL) throws -> [String] {
-        Self.strippingCommentsAndStringLiterals(try read(url))
+        try RepositorySources.stripped(url)
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

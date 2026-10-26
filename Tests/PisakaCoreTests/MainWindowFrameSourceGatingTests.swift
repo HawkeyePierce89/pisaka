@@ -30,27 +30,16 @@ import XCTest
 /// Every rule reads comment- and literal-stripped text; none of them has a literal as its subject.
 final class MainWindowFrameSourceGatingTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     private func appFiles() throws -> [URL] {
-        let directory = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka")
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: "Sources/Pisaka") else {
+            XCTFail("cannot enumerate \(RepositorySources.url("Sources/Pisaka").path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
+        return files
     }
 
     private func significantLines(of url: URL) throws -> [String] {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+        try RepositorySources.stripped(url)
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -67,7 +56,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
         let descriptorRegex = try NSRegularExpression(pattern: "\\bframeDescriptor\\b")
 
         for url in try appFiles() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+            let code = try RepositorySources.stripped(url)
             let codeRange = NSRange(code.startIndex..., in: code)
 
             let setFrameMatches = setFrameRegex.numberOfMatches(in: code, range: codeRange)
@@ -97,7 +86,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     }
 
     func testObserversStartOnlyAfterTheFinalRestore() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
+        let url = RepositorySources.url("Sources/Pisaka/MainWindowFrameAutosave.swift")
         let lines = try significantLines(of: url)
 
         let lastRestoreCall = try XCTUnwrap(
@@ -118,7 +107,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     }
 
     func testTheGlueIsMacOSGated() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
+        let url = RepositorySources.url("Sources/Pisaka/MainWindowFrameAutosave.swift")
         let lines = try significantLines(of: url)
         XCTAssertEqual(
             lines.first,
@@ -128,8 +117,8 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     }
 
     func testTheSceneInstallsTheMarker() throws {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/PisakaApp.swift")
-        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+        let url = RepositorySources.url("Sources/Pisaka/PisakaApp.swift")
+        let code = try RepositorySources.stripped(url)
         XCTAssertTrue(
             LSPSourceGatingTests.containsToken("MainWindowFrameAutosave", in: code),
             "PisakaApp.swift must install the MainWindowFrameAutosave marker."
@@ -152,7 +141,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
                 files.first { $0.lastPathComponent == name },
                 "Could not find \(name) in Sources/Pisaka/"
             )
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+            let code = try RepositorySources.stripped(url)
             XCTAssertTrue(
                 LSPSourceGatingTests.containsToken("center", in: code),
                 "\(name) must continue to call center() explicitly, as auxiliary windows do not use a saved frame."
@@ -165,7 +154,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     /// The lines of the `static func <name>(` body in `MainWindowFrameAutosave.swift`,
     /// from its declaration up to the next `static func` or the end of the type.
     private func functionBody(named name: String) throws -> [String] {
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
+        let url = RepositorySources.url("Sources/Pisaka/MainWindowFrameAutosave.swift")
         let lines = try significantLines(of: url)
         let start = try XCTUnwrap(
             lines.firstIndex { $0.contains("static func \(name)(") },
@@ -178,7 +167,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
     func testTheInitialFrameRuleIsNamedInExactlyOneAppFile() throws {
         var found: Set<String> = []
         for url in try appFiles() {
-            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try String(contentsOf: url, encoding: .utf8))
+            let code = try RepositorySources.stripped(url)
             if LSPSourceGatingTests.containsToken("MainWindowInitialFrameRule", in: code) {
                 found.insert(url.lastPathComponent)
             }
@@ -240,7 +229,7 @@ final class MainWindowFrameSourceGatingTests: XCTestCase {
             body[read + 1], "MainWindowInitialFrameRule.isRestorable(descriptor) else { return nil }",
             "the same guard must refuse a descriptor Core does not consider restorable"
         )
-        let url = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/MainWindowFrameAutosave.swift")
+        let url = RepositorySources.url("Sources/Pisaka/MainWindowFrameAutosave.swift")
         let reads = try significantLines(of: url).filter { $0.contains("UserDefaults.standard.string(forKey:") }
         XCTAssertEqual(reads.count, 1, "the saved key is read only through savedDescriptor()")
     }

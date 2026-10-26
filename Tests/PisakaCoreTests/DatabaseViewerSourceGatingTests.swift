@@ -68,25 +68,14 @@ import XCTest
 ///    the surface, and the surface declares neither.
 final class DatabaseViewerSourceGatingTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     // MARK: - Reading
 
     private func swiftFiles(under relativeDirectory: String) throws -> [URL] {
-        let directory = Self.repositoryRoot.appendingPathComponent(relativeDirectory)
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: relativeDirectory) else {
+            XCTFail("cannot enumerate \(RepositorySources.url(relativeDirectory).path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
+        return files
     }
 
     /// The text of a call's argument list, from just past its opening paren to
@@ -136,13 +125,11 @@ final class DatabaseViewerSourceGatingTests: XCTestCase {
     }
 
     private func code(of url: URL) throws -> String {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(
-            try String(contentsOf: url, encoding: .utf8)
-        )
+        try RepositorySources.stripped(url)
     }
 
     private func code(ofFileNamed name: String, under relativeDirectory: String) throws -> String {
-        try code(of: Self.repositoryRoot.appendingPathComponent(relativeDirectory + "/" + name))
+        try code(of: RepositorySources.url(relativeDirectory + "/" + name))
     }
 
     private func occurrences(of pattern: String, in code: String) throws -> Int {

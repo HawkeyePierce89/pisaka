@@ -40,11 +40,6 @@ import XCTest
 ///   recorded here.
 final class WelcomeShortcutPinTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     /// Every menu title gated on an open folder. Closed: a new one fails
     /// `testFolderRequiredTableIsClosed` until it is recorded here.
     private static let folderRequiredTitles: Set<String> = [
@@ -135,14 +130,13 @@ final class WelcomeShortcutPinTests: XCTestCase {
     // MARK: - The scan
 
     private func menuButtons() throws -> [MenuButton] {
-        let directory = Self.repositoryRoot.appendingPathComponent("Sources/Pisaka")
-        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: "Sources/Pisaka") else {
+            XCTFail("cannot enumerate \(RepositorySources.url("Sources/Pisaka").path)")
             return []
         }
         var found: [MenuButton] = []
-        for url in enumerator.compactMap({ $0 as? URL }) where url.pathExtension == "swift" {
-            let source = try String(contentsOf: url, encoding: .utf8)
+        for url in files {
+            let source = try RepositorySources.raw(url)
             let code = GitHubSourceGatingTests.strippingComments(source)
             found += try Self.scanButtons(in: code, location: url.lastPathComponent)
         }

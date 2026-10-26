@@ -242,11 +242,7 @@ final class SparkleSourceGatingTests: XCTestCase {
 
     // MARK: - Reading the app sources
 
-    private static let appSources = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-        .appendingPathComponent("Sources/Pisaka")
+    private static let appSources = RepositorySources.url("Sources/Pisaka")
 
     private func updaterURL() throws -> URL {
         let url = Self.appSources.appendingPathComponent(Self.updaterFile)
@@ -258,11 +254,9 @@ final class SparkleSourceGatingTests: XCTestCase {
     }
 
     private func appSourceFiles() throws -> [URL] {
-        let enumerator = try XCTUnwrap(
-            FileManager.default.enumerator(at: Self.appSources,
-                                           includingPropertiesForKeys: nil),
+        let files = try XCTUnwrap(
+            RepositorySources.swiftFiles(under: "Sources/Pisaka"),
             "cannot enumerate Sources/Pisaka")
-        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
         XCTAssertFalse(files.isEmpty, "found no Swift files under Sources/Pisaka")
         return files
     }
@@ -272,8 +266,8 @@ final class SparkleSourceGatingTests: XCTestCase {
     /// rather than tidy, and why the stripping itself is `LSPSourceGatingTests`'
     /// state machine rather than a second line-at-a-time one.
     private func code(of url: URL) -> [String] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(text)
+        guard let code = try? RepositorySources.stripped(url) else { return [] }
+        return code
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

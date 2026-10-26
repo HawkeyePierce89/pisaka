@@ -146,12 +146,12 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 **Files:**
 - Modify: `BottomPanelSourceGatingTests.swift`, `DatabaseViewerSourceGatingTests.swift`, `DrawDirtyRectSourceGatingTests.swift`, `GitCLIArgumentSourceGatingTests.swift`, `LibGit2FetchSourceGatingTests.swift`, `LocalHistorySourceGatingTests.swift`, `LSPSourceGatingTests.swift`, `MainWindowFrameSourceGatingTests.swift`, `ReleaseMetadataTests.swift`, `SparkleSourceGatingTests.swift`, `WelcomeShortcutPinTests.swift`, all under `Tests/PisakaCoreTests/`
 
-- [ ] Same treatment as Task 4. Specific points:
+- [x] Same treatment as Task 4. Specific points:
   - `SparkleSourceGatingTests`' `try?` read keeps its "unreadable → empty" behaviour at the call site.
   - `ReleaseMetadataTests` moves only its Swift-source reads.
   - `WelcomeShortcutPinTests` and `GitCLIArgumentSourceGatingTests` keep the comment-only scanner over the reader's raw text.
-- [ ] Confirm by grep that no file under `Tests/PisakaCoreTests/` other than `Support/RepositorySources.swift` calls `FileManager.default.enumerator` over `Sources`, or `String(contentsOf:)` on a `Sources/` Swift file. Remaining `String(contentsOf:)` calls are non-Swift repository files (docs, YAML, plists) or fixtures.
-- [ ] Run the full `swift test`. Count unchanged since Task 3.
+- [x] Confirm by grep that no file under `Tests/PisakaCoreTests/` other than `Support/RepositorySources.swift` calls `FileManager.default.enumerator` over `Sources`, or `String(contentsOf:)` on a `Sources/` Swift file. Remaining `String(contentsOf:)` calls are non-Swift repository files (docs, YAML, plists) or fixtures.
+- [x] Run the full `swift test`. Count unchanged since Task 3.
 
 ### Task 6: CI build jobs start independently
 
@@ -215,6 +215,7 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
   - After the rewrite, `SourceStripperContractTests` passed (10 tests, 0 failures) and the full `swift test` passed: `Executed 7108 tests, with 0 failures (0 unexpected) in 189.825 (190.133) seconds`, down from 270 s. Along the way: ChromeThemeSourceGatingTests 70.9 s (was 101.9 s), FoldingSourceGatingTests 25.0 s (was 41.6 s), MarkdownPreviewSourceGatingTests 28.6 s (was 40.1 s).
 - Reader (Task 3): `RepositorySourcesTests` adds 6 tests; full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 189.488 (189.793) seconds`. This is the count Tasks 4 and 5 must keep.
 - Heavy suites (Task 4): all eight migrated; per-suite `swift test` green (ChromeThemeSourceGatingTests 75 tests in 34.4 s, MarkdownPreviewSourceGatingTests 13 in 17.0 s, FoldingSourceGatingTests 10 in 6.8 s, ZoomSourceGatingTests 10 in 3.1 s, LeetCodeAccountSourceGatingTests 9 in 3.9 s, MenuShortcutUniquenessTests 8 in 8.2 s, GitHubSourceGatingTests 19 in 2.5 s, ChromeThemeTests 11). `testTheHeaderNamesEveryLiteralKeepingReading` green, so the literal-keeping set is unchanged. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 106.807 (107.107) seconds` — same count as Task 3. Doc-comment changes: the two `swiftSources()` comments (Zoom, ChromeTheme) that said the walk was "found relative to this file" now say it is walked by `RepositorySources`; `ChromeThemeTests.readCoreSource` became `readCoreCode` (it now returns stripped text). Markdown reads in ChromeTheme keep `Self.read`.
+- Remaining suites (Task 5): all eleven migrated. Sparkle keeps `try?` → empty at its `code(of:)`; ReleaseMetadata moves only its `Package.swift` read; WelcomeShortcutPin and GitCLIArgument keep `GitHubSourceGatingTests.strippingComments(…)` over `RepositorySources.raw`. LSPSourceGatingTests' private `read(_:)` lost its last caller and was removed. The grep turned up two files outside the nineteen that read a `Sources/` Swift file directly, `CodeZoneCheckboxRuleTests` (a raw read) and `LintConfigurationTests` (raw marker scan); only their reads moved to `RepositorySources.raw`. LintConfigurationTests keeps its own `contentsOfDirectory` walk because it skips hidden entries and also walks `Tests/`. Afterwards the only `FileManager.default.enumerator` outside the reader is ChromeTheme's walk of `docs/`, and every remaining `String(contentsOf:)` reads docs, licenses, YAML, plists, workflows, grammar.js, query files or fixtures. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.892 (97.190) seconds`, the same count as Task 3. `swiftlint --strict` (0.65.1) clean on the changed files.
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
 
