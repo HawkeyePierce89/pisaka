@@ -233,12 +233,12 @@ Decisions made here, so nothing is left open at run time:
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] Run `swift test`: the full Core suite.
-- [ ] Run the app-layer bundle, the macOS Release build and the iOS `generic/platform=iOS` build. Each runs under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`, and the toolchain deviation is recorded. If local resolution rewrote `Package.resolved`, restore it with `git checkout`.
-- [ ] Run `swiftlint --strict` (0.65.1) from the repository root.
-- [ ] Grep the repository, excluding `.build` and `docs/plans/completed/`, for "no CI job", "used by nothing else", "files that have been open" and "closing a file keeps its rows". Confirm every hit is true after this ticket.
-- [ ] Confirm `CLAUDE.md` is under 60,000 characters, and that no brand name or reference to another editor was introduced (search the diff).
-- [ ] Verify test coverage of every changed Core path. Each of the four behaviour changes has its named test.
+- [x] Run `swift test`: the full Core suite.
+- [x] Run the app-layer bundle, the macOS Release build and the iOS `generic/platform=iOS` build. Each runs under the installed Xcode after `xcodegen generate`, with `-derivedDataPath ~/Library/Developer/Xcode/DerivedData/pisaka-build`, and the toolchain deviation is recorded. If local resolution rewrote `Package.resolved`, restore it with `git checkout`.
+- [x] Run `swiftlint --strict` (0.65.1) from the repository root.
+- [x] Grep the repository, excluding `.build` and `docs/plans/completed/`, for "no CI job", "used by nothing else", "files that have been open" and "closing a file keeps its rows". Confirm every hit is true after this ticket.
+- [x] Confirm `CLAUDE.md` is under 60,000 characters, and that no brand name or reference to another editor was introduced (search the diff).
+- [x] Verify test coverage of every changed Core path. Each of the four behaviour changes has its named test.
 
 ### Task 9: Update documentation
 
@@ -263,7 +263,10 @@ Decisions made here, so nothing is left open at run time:
   - release.yml's first checkout without `# v7.0.1`: 2 failures — the same two.
   - a fourth action (`actions/upload-artifact@<sha> # v4.6.2`) added to `lint`: 1 failure — the action set is not `{actions/checkout, actions/cache, maxim-lobanov/setup-xcode}`.
   - Full suite afterwards: 7124 tests green (`ReleaseWorkflowTests`, `LintConfigurationTests`, `DependencyPinTests` included, none weakened); both workflows parse as YAML.
-- Toolchain deviation: the installed Xcode in place of 26.3 for the local app-layer gates.
+- Toolchain deviation: the installed Xcode in place of 26.3 for the local app-layer gates: Xcode 27.1 (27A9275), XcodeGen 2.46.0, `xcodegen generate` first, every build in `~/Library/Developer/Xcode/DerivedData/pisaka-build`.
+- Acceptance run (Task 8): `swift test` 7124 tests, 0 failures. App-layer bundle (`platform=macOS`, Debug) 496 tests, 0 failures, `** TEST SUCCEEDED **`. macOS Release (`generic/platform=macOS`, `CODE_SIGNING_ALLOWED=NO`) and iOS (`generic/platform=iOS`, Debug, `CODE_SIGNING_ALLOWED=NO`) both `** BUILD SUCCEEDED **`; the only `error:` text in their logs is the installed Xcode's CoreDevice plug-in / CoreSimulator version notice, environmental and not a build diagnostic. `Package.resolved` was not rewritten by local resolution (`git status` clean), so no restore was needed. `swiftlint --strict` (0.65.1) from the root: clean, exit 0.
+- Acceptance grep (excluding `.build`, `.git`, `.ralphex` and `docs/plans/completed/`) for "no CI job", "used by nothing else", "files that have been open" and "closing a file keeps its rows": every hit is in this plan, quoting the old wording it records as removed, so every hit is true. `CLAUDE.md` is 56,806 characters (< 60,000). The branch diff against `master` adds no brand name or reference to another editor (case-insensitive search of every added line for the usual editor names).
+- Coverage of the four behaviour changes: probe count — `TreeDiagnosticsTests.testProbeCountIsTheDescentBoundedByTheTablesDepth`; tombstones — `DiagnosticsModelTests.testAFileFoundUnderARemovedFolderLiftsTheFolder` and `testACoveredRemovalAddsNoTombstoneButStillClears`; off-main lookup — `LocalChangesModelTests.testASupersededRefreshsLookupIsNeverPublished`; `offersShowAsOneRow` — `TreeChainRuleTests.testASeparatedFolderWhoseOnlyChildIsUnreadableDoesNotOfferShowAsOneRow`, `testASeparatedFolderWhoseOnlyChildIsALinkOffersShowAsOneRow` and the changed unfold-sequence expectation, plus the `deleteConfirmationName` assertions for the one delete name.
 
 ## Post-Completion
 
