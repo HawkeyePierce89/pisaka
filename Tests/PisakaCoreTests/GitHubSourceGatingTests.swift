@@ -138,24 +138,12 @@ final class GitHubSourceGatingTests: XCTestCase {
 
     // MARK: - Reading
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     private func swiftFiles(under relativeDirectory: String) throws -> [URL] {
-        let directory = Self.repositoryRoot.appendingPathComponent(relativeDirectory)
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: relativeDirectory) else {
+            XCTFail("cannot enumerate \(RepositorySources.url(relativeDirectory).path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
-            .sorted { $0.path < $1.path }
+        return files
     }
 
     private func featureFiles(under relativeDirectory: String) throws -> [URL] {
@@ -165,16 +153,16 @@ final class GitHubSourceGatingTests: XCTestCase {
     }
 
     private func source(of url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
+        try RepositorySources.raw(url)
     }
 
     /// The usual reading: comments *and* string literals gone.
     private func code(of url: URL) throws -> String {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(try source(of: url))
+        try RepositorySources.stripped(url)
     }
 
     private func code(ofFileNamed name: String, under relativeDirectory: String) throws -> String {
-        try code(of: Self.repositoryRoot.appendingPathComponent(relativeDirectory + "/" + name))
+        try code(of: RepositorySources.url(relativeDirectory + "/" + name))
     }
 
     private func occurrences(of pattern: String, in code: String) throws -> Int {
@@ -422,7 +410,7 @@ final class GitHubSourceGatingTests: XCTestCase {
     /// be about the string rather than about who composes a `gh` command.
     private func vocabularyScopedFiles() throws -> [URL] {
         try featureFiles(under: "Sources/Pisaka") + ["PisakaApp.swift", "ContentView.swift"].map {
-            Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/" + $0)
+            RepositorySources.url("Sources/Pisaka/" + $0)
         }
     }
 
@@ -453,7 +441,7 @@ final class GitHubSourceGatingTests: XCTestCase {
     /// scope does not reach.
     func testTheWholeVocabularyIsSpelledInTheCommandsFile() throws {
         let commands = Self.strippingComments(
-            try source(of: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore/GitHubCommands.swift"))
+            try source(of: RepositorySources.url("Sources/PisakaCore/GitHubCommands.swift"))
         )
         for flag in Self.bannedFlags {
             XCTAssertTrue(
@@ -539,7 +527,7 @@ final class GitHubSourceGatingTests: XCTestCase {
     /// vocabulary's reason: the flag *is* a string literal.
     func testTheTailsPullIsFastForwardOnly() throws {
         let service = Self.strippingComments(
-            try source(of: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/GitCLIService.swift"))
+            try source(of: RepositorySources.url("Sources/Pisaka/GitCLIService.swift"))
         )
         XCTAssertEqual(
             try occurrences(of: "\\[\"pull\", \"--ff-only\"\\]", in: service),

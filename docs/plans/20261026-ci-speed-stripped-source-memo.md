@@ -134,12 +134,12 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 **Files:**
 - Modify: `ChromeThemeSourceGatingTests.swift`, `ChromeThemeTests.swift`, `MarkdownPreviewSourceGatingTests.swift`, `FoldingSourceGatingTests.swift`, `ZoomSourceGatingTests.swift`, `LeetCodeAccountSourceGatingTests.swift`, `MenuShortcutUniquenessTests.swift`, `GitHubSourceGatingTests.swift`, all under `Tests/PisakaCoreTests/`
 
-- [ ] In each suite, the walker and read helpers delegate to `RepositorySources`, keeping their names, assertions and messages. Whole-file stripping call sites go through `RepositorySources.stripped`, either directly or through the suite's `code(of:)`.
-- [ ] Literal-keeping readings stay `GitHubSourceGatingTests.strippingComments(<raw text from the reader>)`, spelled in the test body as today.
-- [ ] `strippingComments(_:)` itself is unchanged.
-- [ ] In ChromeTheme, its `testTheHeaderNamesEveryLiteralKeepingReading` still finds the same set.
-- [ ] No gated set, rule count, message or doc-comment inventory is edited. Where a suite's doc comment describes how the suite reads (for example "reads `Sources/` through `#filePath`"), it is still true, because the reader derives the root from `#filePath`. Any sentence that a migrated helper's own name made untrue is corrected, and only that.
-- [ ] Run `swift test` for each migrated suite as it is done, then the full `swift test`. The test count equals Task 3's.
+- [x] In each suite, the walker and read helpers delegate to `RepositorySources`, keeping their names, assertions and messages. Whole-file stripping call sites go through `RepositorySources.stripped`, either directly or through the suite's `code(of:)`.
+- [x] Literal-keeping readings stay `GitHubSourceGatingTests.strippingComments(<raw text from the reader>)`, spelled in the test body as today.
+- [x] `strippingComments(_:)` itself is unchanged.
+- [x] In ChromeTheme, its `testTheHeaderNamesEveryLiteralKeepingReading` still finds the same set.
+- [x] No gated set, rule count, message or doc-comment inventory is edited. Where a suite's doc comment describes how the suite reads (for example "reads `Sources/` through `#filePath`"), it is still true, because the reader derives the root from `#filePath`. Any sentence that a migrated helper's own name made untrue is corrected, and only that.
+- [x] Run `swift test` for each migrated suite as it is done, then the full `swift test`. The test count equals Task 3's.
 
 ### Task 5: Move the remaining suites to the reader
 
@@ -214,6 +214,7 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
   - `swift test --filter StripperEquivalenceCheck`: the temporary test compared 789 files (every `.swift` under `Sources/`, `Tests/` and `Vendor/`, plus `Package.swift`, skipping `/.build/`) and all matched the verbatim legacy stripper: `Executed 1 test, with 0 failures (0 unexpected)`. `StripperEquivalenceCheck.swift` was then deleted and is not committed.
   - After the rewrite, `SourceStripperContractTests` passed (10 tests, 0 failures) and the full `swift test` passed: `Executed 7108 tests, with 0 failures (0 unexpected) in 189.825 (190.133) seconds`, down from 270 s. Along the way: ChromeThemeSourceGatingTests 70.9 s (was 101.9 s), FoldingSourceGatingTests 25.0 s (was 41.6 s), MarkdownPreviewSourceGatingTests 28.6 s (was 40.1 s).
 - Reader (Task 3): `RepositorySourcesTests` adds 6 tests; full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 189.488 (189.793) seconds`. This is the count Tasks 4 and 5 must keep.
+- Heavy suites (Task 4): all eight migrated; per-suite `swift test` green (ChromeThemeSourceGatingTests 75 tests in 34.4 s, MarkdownPreviewSourceGatingTests 13 in 17.0 s, FoldingSourceGatingTests 10 in 6.8 s, ZoomSourceGatingTests 10 in 3.1 s, LeetCodeAccountSourceGatingTests 9 in 3.9 s, MenuShortcutUniquenessTests 8 in 8.2 s, GitHubSourceGatingTests 19 in 2.5 s, ChromeThemeTests 11). `testTheHeaderNamesEveryLiteralKeepingReading` green, so the literal-keeping set is unchanged. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 106.807 (107.107) seconds` — same count as Task 3. Doc-comment changes: the two `swiftSources()` comments (Zoom, ChromeTheme) that said the walk was "found relative to this file" now say it is walked by `RepositorySources`; `ChromeThemeTests.readCoreSource` became `readCoreCode` (it now returns stripped text). Markdown reads in ChromeTheme keep `Self.read`.
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
 

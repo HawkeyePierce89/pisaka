@@ -88,11 +88,6 @@ import XCTest
 /// argument about `gh`'s flags, read here about markup.
 final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
     // MARK: - The feature's files
 
     /// The Core half, enumerated rather than matched by prefix.
@@ -149,21 +144,15 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
     // MARK: - Reading
 
     private func swiftFiles(under relativeDirectory: String) throws -> [URL] {
-        let directory = Self.repositoryRoot.appendingPathComponent(relativeDirectory)
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: nil
-        ) else {
-            XCTFail("cannot enumerate \(directory.path)")
+        guard let files = RepositorySources.swiftFiles(under: relativeDirectory) else {
+            XCTFail("cannot enumerate \(RepositorySources.url(relativeDirectory).path)")
             return []
         }
-        return enumerator
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }
+        return files
     }
 
     private func source(of url: URL) throws -> String {
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let text = try RepositorySources.raw(url)
         XCTAssertFalse(
             text.isEmpty,
             "\(url.lastPathComponent) is unreadable — the walk is broken, not the code"
@@ -174,11 +163,12 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
     /// Comment- and literal-stripped, the scanner every rule but the two stated
     /// exceptions reads.
     private func code(of url: URL) throws -> String {
-        LSPSourceGatingTests.strippingCommentsAndStringLiterals(try source(of: url))
+        _ = try source(of: url)
+        return try RepositorySources.stripped(url)
     }
 
     private func code(ofFileNamed name: String, under relativeDirectory: String) throws -> String {
-        try code(of: Self.repositoryRoot.appendingPathComponent(relativeDirectory + "/" + name))
+        try code(of: RepositorySources.url(relativeDirectory + "/" + name))
     }
 
     /// Comments removed, **string literals kept** — the suite's one stated
@@ -296,7 +286,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
                 try occurrences(
                     of: shape,
                     in: literalKeepingCode(
-                        of: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore/MarkdownPreviewPage.swift")
+                        of: RepositorySources.url("Sources/PisakaCore/MarkdownPreviewPage.swift")
                     )
                 ),
                 0,
@@ -650,7 +640,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
     func testNoAppFileOfTheFeatureComposesHTML() throws {
         for name in Self.appFileNames {
             let code = try literalKeepingCode(
-                of: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/" + name)
+                of: RepositorySources.url("Sources/Pisaka/" + name)
             )
             for shape in Self.htmlTagShapes {
                 XCTAssertEqual(
@@ -668,7 +658,7 @@ final class MarkdownPreviewSourceGatingTests: XCTestCase {
 
     func testTheAppSideFilesAreMacOSGated() throws {
         for name in Self.appFileNames {
-            let firstLine = try source(of: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka/" + name))
+            let firstLine = try source(of: RepositorySources.url("Sources/Pisaka/" + name))
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .first { !$0.isEmpty }
