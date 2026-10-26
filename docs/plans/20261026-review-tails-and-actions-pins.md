@@ -242,9 +242,9 @@ Decisions made here, so nothing is left open at run time:
 
 ### Task 9: Update documentation
 
-- [ ] Confirm that `README.md` (the chain row half-sentence) and `CLAUDE.md` (the CI sentence only, no new index entries, since no file was added) are as Tasks 4 and 6 left them.
-- [ ] Confirm that every touched file's `docs/architecture/` entry was updated in its task: `core-lsp.md`, `core-git-models.md`, `core-workspace.md`, `app-window.md` and `app-shell.md`.
-- [ ] Fill in Notes.
+- [x] Confirm that `README.md` (the chain row half-sentence) and `CLAUDE.md` (the CI sentence only, no new index entries, since no file was added) are as Tasks 4 and 6 left them.
+- [x] Confirm that every touched file's `docs/architecture/` entry was updated in its task: `core-lsp.md`, `core-git-models.md`, `core-workspace.md`, `app-window.md` and `app-shell.md`.
+- [x] Fill in Notes.
 
 ## Notes (filled in during execution)
 
@@ -267,6 +267,7 @@ Decisions made here, so nothing is left open at run time:
 - Acceptance run (Task 8): `swift test` 7124 tests, 0 failures. App-layer bundle (`platform=macOS`, Debug) 496 tests, 0 failures, `** TEST SUCCEEDED **`. macOS Release (`generic/platform=macOS`, `CODE_SIGNING_ALLOWED=NO`) and iOS (`generic/platform=iOS`, Debug, `CODE_SIGNING_ALLOWED=NO`) both `** BUILD SUCCEEDED **`; the only `error:` text in their logs is the installed Xcode's CoreDevice plug-in / CoreSimulator version notice, environmental and not a build diagnostic. `Package.resolved` was not rewritten by local resolution (`git status` clean), so no restore was needed. `swiftlint --strict` (0.65.1) from the root: clean, exit 0.
 - Acceptance grep (excluding `.build`, `.git`, `.ralphex` and `docs/plans/completed/`) for "no CI job", "used by nothing else", "files that have been open" and "closing a file keeps its rows": every hit is in this plan, quoting the old wording it records as removed, so every hit is true. `CLAUDE.md` is 56,806 characters (< 60,000). The branch diff against `master` adds no brand name or reference to another editor (case-insensitive search of every added line for the usual editor names).
 - Coverage of the four behaviour changes: probe count — `TreeDiagnosticsTests.testProbeCountIsTheDescentBoundedByTheTablesDepth`; tombstones — `DiagnosticsModelTests.testAFileFoundUnderARemovedFolderLiftsTheFolder` and `testACoveredRemovalAddsNoTombstoneButStillClears`; off-main lookup — `LocalChangesModelTests.testASupersededRefreshsLookupIsNeverPublished`; `offersShowAsOneRow` — `TreeChainRuleTests.testASeparatedFolderWhoseOnlyChildIsUnreadableDoesNotOfferShowAsOneRow`, `testASeparatedFolderWhoseOnlyChildIsALinkOffersShowAsOneRow` and the changed unfold-sequence expectation, plus the `deleteConfirmationName` assertions for the one delete name.
+- Documentation check (Task 9): `README.md`'s only change is the severity-dots half-sentence (single-child folder chains show as one `a/b/c` row), and `CLAUDE.md`'s only change is the CI sentence ("covering libgit2 linking, behind the same guard"). No index entry was added, because no file was added. Every touched source file's entry was updated in its task: `core-lsp.md` (`TreeDiagnostics`, `DiagnosticsModel`), `core-git-models.md` (`LocalChangesModel`), `core-git.md` (`ChangedFile`'s `Sendable`), `core-workspace.md` (`TreeChainRule`) and `app-window.md` (`ProjectTreeView`, `ContentView`). In `app-shell.md`, Task 5 had updated only the Sparkle paragraph, so `PisakaApp`'s file-operation walk-through still described Delete without its named confirmation. It now names `deleteItem(at:named:)` and the name the confirmation quotes. After that edit `swift test` ran 7124 tests with 0 failures.
 
 ## Post-Completion
 

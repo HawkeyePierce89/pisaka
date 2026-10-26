@@ -1022,7 +1022,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     validate → `performMove(from:to:)`, the shared body below: capture
     `model.planRename(from:to:)` *before* the move → `fileService.move(from:to:)`
     → `model.applyRenamePlan(_:)` → `localHistory.followMove(from:to:root:)` →
-    bump), and Delete (`confirmDelete` → capture `model.tabIDs(under:)` *before*
+    bump), and Delete (`deleteItem(at:named:)`: `confirmDelete` quoting the
+    tree's name — a chain row's label, the one its menu item quoted, or the
+    url's last component when the tree passes nil (`app-window.md`) → capture
+    `model.tabIDs(under:)` *before*
     the removal → `localHistory.captureBeforeDelete(of:root:bufferTexts:)`, whose
     reads are synchronous, not awaited and ungated, and so must precede the
     removal → `fileService.removeItem(at:)` → `model.closeFiles(ids:)` → bump;
