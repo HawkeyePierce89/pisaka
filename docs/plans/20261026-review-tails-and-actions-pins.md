@@ -186,20 +186,20 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `Tests/PisakaCoreTests/DependencyPinTests.swift`
 - Modify: `CLAUDE.md`
 
-- [ ] **Copy three steps into `build-ios`.** Give it the comment and the "Read the selected Xcode for the cache key" step, the cache step with the Xcode-keyed `key:` and `restore-keys:`, and the guard step with its comment directly after the resolve. Each is byte-identical, line for line, to `build-macos` and `test-macos`. All three jobs then share one SwiftPM cache entry.
-- [ ] **Release-step comment.** Rewrite the comment above `build-macos`'s Release build step to the same claims as Task 5 (Release is the only compile of `#if !DEBUG`; `test-macos` Debug is the only compile of macOS `#if DEBUG`). Remove "built by no CI job" and "needs a third, macOS-Debug job".
-- [ ] **Extend `testCIRefusesARewrittenPackageResolved` to all three jobs.**
+- [x] **Copy three steps into `build-ios`.** Give it the comment and the "Read the selected Xcode for the cache key" step, the cache step with the Xcode-keyed `key:` and `restore-keys:`, and the guard step with its comment directly after the resolve. Each is byte-identical, line for line, to `build-macos` and `test-macos`. All three jobs then share one SwiftPM cache entry.
+- [x] **Release-step comment.** Rewrite the comment above `build-macos`'s Release build step to the same claims as Task 5 (Release is the only compile of `#if !DEBUG`; `test-macos` Debug is the only compile of macOS `#if DEBUG`). Remove "built by no CI job" and "needs a third, macOS-Debug job".
+- [x] **Extend `testCIRefusesARewrittenPackageResolved` to all three jobs.**
   - Ask the guard of `build-ios` too.
   - Hold all three hashed paths equal.
   - Compare `test-macos` and `build-ios` against `build-macos` for each shared item (cache path/key/restore keys, the `id: xcode` step, the resolve step, the guard step), with failure messages naming the job.
   - Rewrite the doc comment: "build-ios … is not asked here" goes, and "two jobs" becomes three.
   - Rewrite `DependencyPinTests`' type doc comment to "all three build jobs".
-- [ ] **CLAUDE.md.** Update the CI sentence so the iOS build is behind the same guard. Keep the file under 60,000 characters (`LintConfigurationTests`).
-- [ ] **Hand-breaks.** Make each break, confirm the suite goes red, restore it, and record each in Notes:
+- [x] **CLAUDE.md.** Update the CI sentence so the iOS build is behind the same guard. Keep the file under 60,000 characters (`LintConfigurationTests`).
+- [x] **Hand-breaks.** Make each break, confirm the suite goes red, restore it, and record each in Notes:
   - delete `build-ios`'s guard step;
   - revert `build-ios`'s key to the un-Xcode-keyed form;
   - change one character in `build-ios`'s guard body.
-- [ ] Run `swift test` and check that `ci.yml` parses as YAML (`ruby -ryaml -e 'YAML.load_file(...)'`). Both must pass before Task 7.
+- [x] Run `swift test` and check that `ci.yml` parses as YAML (`ruby -ryaml -e 'YAML.load_file(...)'`). Both must pass before Task 7.
 
 ### Task 7: GitHub Actions and XcodeGen pins (Part 2)
 
@@ -252,7 +252,12 @@ Decisions made here, so nothing is left open at run time:
 - Pin verification: each tag → commit, `node24` confirmed, any difference from the ticket's SHA; setup-xcode unchanged.
 - `pull_request_target` check: `ci.yml` runs on `pull_request` and pushes to `master`, `release.yml` on `v*` tags; no checkout input added.
 - XcodeGen: both digests, the diff summary, and which branch was taken.
-- Hand-breaks: the guard extension (Task 6) and the pin-shape rule (Task 7), each with the failure it produced.
+- Hand-breaks, guard extension (Task 6), each run as `swift test --filter ReleaseWorkflowTests/testCIRefusesARewrittenPackageResolved` and restored byte-identically afterwards:
+  - `build-ios`'s guard step deleted: 2 failures — the step after `Resolve package dependencies` is `Build (iOS)`, not the guard, and "ci.yml's `build-ios` job has no `Package.resolved is unchanged by resolution` step".
+  - `build-ios`'s key reverted to `spm-${{ hashFiles(…) }}`: 1 failure — the cache path/key/restore-keys lines differ from `build-macos`'s.
+  - `build-ios`'s guard `exit 1` changed to `exit 2`: 2 failures — the guard no longer fails when `git diff --exit-code` does, and the guard step differs line for line from `build-macos`'s.
+  - Full suite afterwards: 7123 tests green; `ci.yml` parses as YAML.
+- Hand-breaks, pin-shape rule (Task 7): each with the failure it produced.
 - Toolchain deviation: the installed Xcode in place of 26.3 for the local app-layer gates.
 
 ## Post-Completion

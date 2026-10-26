@@ -542,7 +542,7 @@ the macOS job (which first refuses a `Package.resolved` the pinned Xcode's resol
 rewrote — remedy in `DependencyPinTests`' doc comment — then builds Release, unsigned,
 and launches what it built); the app-layer `PisakaAppTests` bundle (Debug, headless, in
 its own job behind the same guard); an unsigned iOS build (device arch, `generic/platform=iOS`,
-covering libgit2 linking); and `lint`
+covering libgit2 linking, behind the same guard); and `lint`
 (pinned SwiftLint 0.65.1, `--strict`), which refuses style
 violations even when the pre-commit hook was bypassed or never installed. No
 signing, secrets, or simulator. The
