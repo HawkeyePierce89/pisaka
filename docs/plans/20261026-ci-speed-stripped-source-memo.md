@@ -158,16 +158,16 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 **Files:**
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] Remove `needs: test` from `build-macos` and from `build-ios`.
-- [ ] Add one comment block above `build-macos:` at job indentation, modelled on the lint job's comment. It says:
+- [x] Remove `needs: test` from `build-macos` and from `build-ios`.
+- [x] Add one comment block above `build-macos:` at job indentation, modelled on the lint job's comment. It says:
   - the build graph does not depend on the Core suite's verdict;
   - the run's result is wanted as early as the longest job allows (serialized, wall time was `test` plus this job);
   - the accepted cost is that a red `swift test` no longer saves these two runners' minutes;
   - `release.yml` keeps its `needs: test` because publishing must be gated on a green suite, which is a separate question from when feedback arrives.
-- [ ] Leave everything else in ci.yml untouched: concurrency, `timeout-minutes`, setup-xcode pins, XcodeGen URL and digest, the smoke-launch body.
-- [ ] Run `swift test --filter ReleaseWorkflowTests`, `swift test --filter LintConfigurationTests` and `swift test --filter XcodePin`, all green with no edits to those suites.
-- [ ] Run `git diff --exit-code master -- .github/workflows/release.yml`. It must be empty.
-- [ ] Run the full `swift test`.
+- [x] Leave everything else in ci.yml untouched: concurrency, `timeout-minutes`, setup-xcode pins, XcodeGen URL and digest, the smoke-launch body.
+- [x] Run `swift test --filter ReleaseWorkflowTests`, `swift test --filter LintConfigurationTests` and `swift test --filter XcodePin`, all green (XcodePin is a Support helper, not a test class, so that filter matches nothing; its consumers ReleaseWorkflowTests, LintConfigurationTests and DependencyPinTests ran green instead) with no edits to those suites.
+- [x] Run `git diff --exit-code master -- .github/workflows/release.yml`. It must be empty.
+- [x] Run the full `swift test`.
 
 ### Task 7: Verify acceptance criteria
 
@@ -216,6 +216,7 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Reader (Task 3): `RepositorySourcesTests` adds 6 tests; full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 189.488 (189.793) seconds`. This is the count Tasks 4 and 5 must keep.
 - Heavy suites (Task 4): all eight migrated; per-suite `swift test` green (ChromeThemeSourceGatingTests 75 tests in 34.4 s, MarkdownPreviewSourceGatingTests 13 in 17.0 s, FoldingSourceGatingTests 10 in 6.8 s, ZoomSourceGatingTests 10 in 3.1 s, LeetCodeAccountSourceGatingTests 9 in 3.9 s, MenuShortcutUniquenessTests 8 in 8.2 s, GitHubSourceGatingTests 19 in 2.5 s, ChromeThemeTests 11). `testTheHeaderNamesEveryLiteralKeepingReading` green, so the literal-keeping set is unchanged. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 106.807 (107.107) seconds` — same count as Task 3. Doc-comment changes: the two `swiftSources()` comments (Zoom, ChromeTheme) that said the walk was "found relative to this file" now say it is walked by `RepositorySources`; `ChromeThemeTests.readCoreSource` became `readCoreCode` (it now returns stripped text). Markdown reads in ChromeTheme keep `Self.read`.
 - Remaining suites (Task 5): all eleven migrated. Sparkle keeps `try?` → empty at its `code(of:)`; ReleaseMetadata moves only its `Package.swift` read; WelcomeShortcutPin and GitCLIArgument keep `GitHubSourceGatingTests.strippingComments(…)` over `RepositorySources.raw`. LSPSourceGatingTests' private `read(_:)` lost its last caller and was removed. The grep turned up two files outside the nineteen that read a `Sources/` Swift file directly, `CodeZoneCheckboxRuleTests` (a raw read) and `LintConfigurationTests` (raw marker scan); only their reads moved to `RepositorySources.raw`. LintConfigurationTests keeps its own `contentsOfDirectory` walk because it skips hidden entries and also walks `Tests/`. Afterwards the only `FileManager.default.enumerator` outside the reader is ChromeTheme's walk of `docs/`, and every remaining `String(contentsOf:)` reads docs, licenses, YAML, plists, workflows, grammar.js, query files or fixtures. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.892 (97.190) seconds`, the same count as Task 3. `swiftlint --strict` (0.65.1) clean on the changed files.
+- CI jobs (Task 6): `needs: test` removed from `build-macos` and `build-ios`, with the reason in one comment above `build-macos:`. ReleaseWorkflowTests (69) and LintConfigurationTests (29) green with no edits, and DependencyPinTests green too. `git diff --exit-code master -- .github/workflows/release.yml` is empty. Full `swift test`: `Executed 7114 tests, with 0 failures (0 unexpected) in 96.139 (96.435) seconds`.
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
 

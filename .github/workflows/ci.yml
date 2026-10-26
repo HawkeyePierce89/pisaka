@@ -29,8 +29,14 @@ jobs:
       - name: Run PisakaCore tests
         run: swift test
 
+  # No `needs: test` here or on build-ios, on purpose: the build graph does not
+  # depend on the Core suite's verdict, and the run's result is wanted as early
+  # as its longest job allows. Serialized behind `test`, the wall time was
+  # `test` plus this job. The accepted cost is that a red `swift test` no longer
+  # saves these two runners' minutes. release.yml keeps its `needs: test`,
+  # because publishing must be gated on a green suite — a separate question
+  # from when feedback arrives.
   build-macos:
-    needs: test
     runs-on: macos-15
     # Higher than the iOS job's: this one builds Release, so it pays for
     # whole-module optimization across the app and every linked dependency.
@@ -298,7 +304,6 @@ jobs:
           echo "The app survived ${DEADLINE}s and was terminated by this step."
 
   build-ios:
-    needs: test
     runs-on: macos-15
     timeout-minutes: 30
     steps:
