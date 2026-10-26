@@ -210,26 +210,26 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `Tests/PisakaCoreTests/Support/YAMLLineMatching.swift`
 - Modify: `docs/RELEASING.md`
 
-- [ ] **Verify each pin against its tag.** For `actions/checkout` v7.0.1 and `actions/cache` v6.1.0, resolve the tag through `gh api` (`git/ref/tags/<tag>`, then dereference an annotated tag object to its commit). Confirm the commit equals the ticket's SHA (`3d3c42e5aac5ba805825da76410c181273ba90b1` for checkout, `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` for cache), and read `action.yml` at that commit to confirm `using: node24`. On a mismatch, pin the tag's commit and record both values. Record the results in Notes, including setup-xcode v1.7.0's unchanged `node24`.
-- [ ] **Replace every `uses:` line** of the two actions in both files. `actions/checkout` has 7 lines: one in each of `ci.yml`'s five jobs (`test`, `build-macos`, `test-macos`, `build-ios`, `lint`), plus 2 in `release.yml`. `actions/cache` has 4 lines: 3 in `ci.yml` (`build-macos`, `test-macos`, `build-ios`), plus 1 in `release.yml`. Use full SHAs and the existing `# vX.Y.Z` comment format, so each action's line is identical everywhere. Update `YAMLLineMatching`'s `# v4.3.1` example comment to `# v7.0.1`.
-- [ ] **Confirm no new inputs are needed.** Confirm and record that neither workflow uses `pull_request_target`, so checkout v5+'s one breaking change needs no input. `actions/cache` v6 needs none either.
-- [ ] **XcodeGen digest.** Download 2.46.0's `xcodegen.zip` into a fresh empty temp directory. Confirm its SHA-256 equals both `4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806` and the digest the release API publishes. Download 2.45.4 into another empty directory and confirm `090ec294…`.
-- [ ] **XcodeGen diff.** Generate the project with each binary from the repository root and diff the two `Pisaka.xcodeproj` trees, `Package.resolved` aside.
+- [x] **Verify each pin against its tag.** For `actions/checkout` v7.0.1 and `actions/cache` v6.1.0, resolve the tag through `gh api` (`git/ref/tags/<tag>`, then dereference an annotated tag object to its commit). Confirm the commit equals the ticket's SHA (`3d3c42e5aac5ba805825da76410c181273ba90b1` for checkout, `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` for cache), and read `action.yml` at that commit to confirm `using: node24`. On a mismatch, pin the tag's commit and record both values. Record the results in Notes, including setup-xcode v1.7.0's unchanged `node24`.
+- [x] **Replace every `uses:` line** of the two actions in both files. `actions/checkout` has 7 lines: one in each of `ci.yml`'s five jobs (`test`, `build-macos`, `test-macos`, `build-ios`, `lint`), plus 2 in `release.yml`. `actions/cache` has 4 lines: 3 in `ci.yml` (`build-macos`, `test-macos`, `build-ios`), plus 1 in `release.yml`. Use full SHAs and the existing `# vX.Y.Z` comment format, so each action's line is identical everywhere. Update `YAMLLineMatching`'s `# v4.3.1` example comment to `# v7.0.1`.
+- [x] **Confirm no new inputs are needed.** Confirm and record that neither workflow uses `pull_request_target`, so checkout v5+'s one breaking change needs no input. `actions/cache` v6 needs none either.
+- [x] **XcodeGen digest.** Download 2.46.0's `xcodegen.zip` into a fresh empty temp directory. Confirm its SHA-256 equals both `4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806` and the digest the release API publishes. Download 2.45.4 into another empty directory and confirm `090ec294…`.
+- [x] **XcodeGen diff.** Generate the project with each binary from the repository root and diff the two `Pisaka.xcodeproj` trees, `Package.resolved` aside.
   - **Identical, or target order only:** keep the bump, and record the diff summary.
   - **Anything else:** build macOS (`platform=macOS`, Debug) and iOS (`generic/platform=iOS`) from each generated project with the shared derived-data path. Compare each product's embedded frameworks listing and `otool -L` of the executable.
     - Equal: keep the bump and record the explanation.
     - Different: revert every XcodeGen mention to 2.45.4, record the follow-up and its reason in Notes, and continue with the action bumps alone.
-- [ ] **If the bump stands,** change all four install steps (step name, URL, digest) and `RELEASING.md`'s "XcodeGen 2.45.4". `testXcodeGenIsPinnedIdenticallyToCI` must stay green. No action version is added to `RELEASING.md`.
-- [ ] **New pin-shape rule.** Add `testEveryActionIsPinnedToOneFullCommitInBothWorkflows` to `ReleaseWorkflowTests`. It holds three things:
+- [x] **If the bump stands,** change all four install steps (step name, URL, digest) and `RELEASING.md`'s "XcodeGen 2.45.4". `testXcodeGenIsPinnedIdenticallyToCI` must stay green. No action version is added to `RELEASING.md`.
+- [x] **New pin-shape rule.** Add `testEveryActionIsPinnedToOneFullCommitInBothWorkflows` to `ReleaseWorkflowTests`. It holds three things:
   - Every `uses:` line in `ci.yml` and `release.yml` is `owner/repo@<40 lowercase hex> # vX.Y.Z`.
   - For each action, the distinct `uses:` lines across both files form a single line.
   - The set of actions equals `{actions/checkout, actions/cache, maxim-lobanov/setup-xcode}` by set equality.
-- [ ] **Hand-breaks.** Confirm each goes red, restore it, and record it in Notes:
+- [x] **Hand-breaks.** Confirm each goes red, restore it, and record it in Notes:
   - one job's checkout SHA altered by a character;
   - a `@v7` tag reference;
   - a dropped `# v7.0.1` comment;
   - a fourth action added.
-- [ ] Run `swift test` (`ReleaseWorkflowTests`, `LintConfigurationTests` and `DependencyPinTests` must all stay green, none weakened) and parse both YAML files. Both must pass before Task 8.
+- [x] Run `swift test` (`ReleaseWorkflowTests`, `LintConfigurationTests` and `DependencyPinTests` must all stay green, none weakened) and parse both YAML files. Both must pass before Task 8.
 
 ### Task 8: Verify acceptance criteria
 
@@ -249,15 +249,20 @@ Decisions made here, so nothing is left open at run time:
 ## Notes (filled in during execution)
 
 - Suite timings before and after `containsToken`: `ChromeThemeSourceGatingTests` and `MarkdownPreviewSourceGatingTests`. Before: ChromeTheme 34.462 s (75 tests), MarkdownPreview 11.553 s (13 tests). After (in-place `elementsEqual`): ChromeTheme 30.714 s, MarkdownPreview 10.792 s. Both runs with `--skip-build` after a fresh `swift build --build-tests`; behaviour unchanged, full suite 7123 tests green.
-- Pin verification: each tag → commit, `node24` confirmed, any difference from the ticket's SHA; setup-xcode unchanged.
-- `pull_request_target` check: `ci.yml` runs on `pull_request` and pushes to `master`, `release.yml` on `v*` tags; no checkout input added.
-- XcodeGen: both digests, the diff summary, and which branch was taken.
+- Pin verification (`gh api repos/<repo>/git/ref/tags/<tag>`): all three tags are lightweight, pointing straight at a commit, so no tag object to dereference. `actions/checkout` v7.0.1 → `3d3c42e5aac5ba805825da76410c181273ba90b1`, `actions/cache` v6.1.0 → `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`: both equal the ticket's SHAs, no difference. `action.yml` at each commit reads `using: node24` (checkout) and `using: 'node24'` (cache). `maxim-lobanov/setup-xcode` v1.7.0 → `ed7a3b1fda3918c0306d1b724322adc0b8cc0a90`, unchanged, still `using: 'node24'`. Replaced: 7 checkout lines (ci.yml 5, release.yml 2) and 4 cache lines (ci.yml 3, release.yml 1); no old SHA remains anywhere.
+- `pull_request_target` check: `ci.yml` runs on `pull_request` and pushes to `master`, `release.yml` on `v*` tags; neither names `pull_request_target`, and no checkout step carries a `with:` at all, so no checkout input added. Every cache step passes only `path`, `key` and `restore-keys`, all still valid in v6; no input added there either.
+- XcodeGen: 2.46.0's `xcodegen.zip`, downloaded into a fresh temp directory, hashes to `4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806`, equal to the ticket's value and to the release API's asset digest (`sha256:4d9e34b6…`). 2.45.4's, in a second fresh directory, hashes to `090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef`, equal to the old pin and to its API digest. Generated from the repository root with each binary: the two `Pisaka.xcodeproj` trees (`project.pbxproj`, the workspace data, the scheme) are byte-identical (`diff -r` exit 0), and `Package.resolved` was not rewritten. Branch taken: identical, so the bump stands. All four install steps (ci.yml 3, release.yml 1) and `RELEASING.md` now say 2.46.0; `testXcodeGenIsPinnedIdenticallyToCI` green.
 - Hand-breaks, guard extension (Task 6), each run as `swift test --filter ReleaseWorkflowTests/testCIRefusesARewrittenPackageResolved` and restored byte-identically afterwards:
   - `build-ios`'s guard step deleted: 2 failures — the step after `Resolve package dependencies` is `Build (iOS)`, not the guard, and "ci.yml's `build-ios` job has no `Package.resolved is unchanged by resolution` step".
   - `build-ios`'s key reverted to `spm-${{ hashFiles(…) }}`: 1 failure — the cache path/key/restore-keys lines differ from `build-macos`'s.
   - `build-ios`'s guard `exit 1` changed to `exit 2`: 2 failures — the guard no longer fails when `git diff --exit-code` does, and the guard step differs line for line from `build-macos`'s.
   - Full suite afterwards: 7123 tests green; `ci.yml` parses as YAML.
-- Hand-breaks, pin-shape rule (Task 7): each with the failure it produced.
+- Hand-breaks, pin-shape rule (Task 7), each run as `swift test --skip-build --filter ReleaseWorkflowTests/testEveryActionIsPinnedToOneFullCommitInBothWorkflows` and restored byte-identically from a backup (`cmp`):
+  - `lint`'s checkout SHA altered by one character (`3d3c42e5` → `3d3c42e6`): 1 failure — actions/checkout is pinned by 2 different lines.
+  - `lint`'s checkout as `actions/checkout@v7`: 2 failures — the line is not `owner/repo@<40 lowercase hex> # vX.Y.Z`, and checkout is pinned by 2 different lines.
+  - release.yml's first checkout without `# v7.0.1`: 2 failures — the same two.
+  - a fourth action (`actions/upload-artifact@<sha> # v4.6.2`) added to `lint`: 1 failure — the action set is not `{actions/checkout, actions/cache, maxim-lobanov/setup-xcode}`.
+  - Full suite afterwards: 7124 tests green (`ReleaseWorkflowTests`, `LintConfigurationTests`, `DependencyPinTests` included, none weakened); both workflows parse as YAML.
 - Toolchain deviation: the installed Xcode in place of 26.3 for the local app-layer gates.
 
 ## Post-Completion

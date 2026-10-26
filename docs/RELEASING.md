@@ -540,7 +540,7 @@ The workflow then, in order:
     beside the preflight, rather than just before it is used** — for the reason
     the preflight exists at all: a moved asset or a changed tarball layout must
     fail in the first seconds, not after a 20-minute archive.
-  - XcodeGen 2.45.4 (same URL + `shasum -a 256 -c -` as CI), the
+  - XcodeGen 2.46.0 (same URL + `shasum -a 256 -c -` as CI), the
     `SourcePackages` cache keyed on `Package.resolved`, `xcodegen generate`,
     `-resolvePackageDependencies`.
   - `archive` for `generic/platform=macOS`, **`-configuration Release`

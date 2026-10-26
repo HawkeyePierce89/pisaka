@@ -2937,6 +2937,53 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Every action either workflow runs is pinned to one full commit, the same
+    /// commit everywhere it is used, and the set of actions is closed.
+    ///
+    /// A tag is a movable name, so `@v7` runs whatever its owner points it at on
+    /// the next run — in the release workflow, beside the signing identity and the
+    /// tap deploy key. A full SHA cannot move, and the trailing `# vX.Y.Z` is the
+    /// only record of which release that SHA is, so it is required too. Holding
+    /// each action to **one distinct line** across both files is what stops a bump
+    /// that misses a job: the workflow still parses and every job still runs, one
+    /// of them on the old runtime. The action set is held by set equality, so a
+    /// fourth action fails here until it is named — the same deliberate act
+    /// `testEveryWorkflowPinsTheSameXcode` asks of a new setup-xcode site.
+    ///
+    /// Read over `activeYAMLLines(of:)`, which drops whole-line comments and keeps
+    /// the trailing version comment this rule is partly about.
+    func testEveryActionIsPinnedToOneFullCommitInBothWorkflows() throws {
+        let pin = try NSRegularExpression(pattern: #"^uses: [^@\s]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$"#)
+        var linesByAction: [String: Set<String>] = [:]
+        for workflow in ["ci.yml", "release.yml"] {
+            let usesLines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/\(workflow)"))
+                .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) : $0 }
+                .filter { $0.hasPrefix("uses:") }
+            XCTAssertFalse(usesLines.isEmpty, "\(workflow) carries no active `uses:` line; this rule reads nothing")
+            for line in usesLines {
+                let action = String(line.dropFirst("uses:".count).trimmingCharacters(in: .whitespaces)
+                    .prefix { $0 != "@" && !$0.isWhitespace })
+                linesByAction[action, default: []].insert(line)
+                XCTAssertNotNil(pin.firstMatch(in: line, range: NSRange(line.startIndex ..< line.endIndex, in: line)), """
+                    \(workflow): `\(line)` must read `uses: owner/repo@<40 lowercase hex> # vX.Y.Z` — a full \
+                    commit, which cannot move, and the release it is, which nothing else records.
+                    """)
+            }
+        }
+
+        for (action, lines) in linesByAction.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(lines.count, 1, """
+                \(action) is pinned by \(lines.count) different lines across ci.yml and release.yml: \
+                \(lines.sorted()). Every use of one action carries the same commit and comment.
+                """)
+        }
+
+        XCTAssertEqual(Set(linesByAction.keys), ["actions/checkout", "actions/cache", "maxim-lobanov/setup-xcode"], """
+            The actions ci.yml and release.yml run changed. Found: \(linesByAction.keys.sorted()). \
+            A new one must be named here — and pinned to a full commit — before it can run.
+            """)
+    }
+
     /// Every job that installs an Xcode installs the same one, so the toolchain
     /// that gates a pull request is the toolchain that archives the release.
     ///
