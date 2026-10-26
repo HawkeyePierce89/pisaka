@@ -383,8 +383,11 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
     DerivedData root. None says the bundle runs inside the macOS build job, so
     none changed.
   - Repository-wide `git grep -e "macOS job" -e "build-macos"` (excluding
-    docs/plans): no hit says the bundle runs in the macOS job. README.md,
-    `docs/architecture/*` and `Makefile` are unchanged.
+    docs/plans): no hit says the bundle runs in the macOS job. README.md and
+    `docs/architecture/*` are unchanged. `Makefile` was unchanged by the tasks;
+    the post-review fix (6a2652ac) then reworded the `all` target's comment from
+    "in CI's order" to "one after another (CI runs them as parallel jobs)",
+    because CI no longer runs the gates in an order.
   - After Task 3: full `swift test` 7118 tests, 0 failures; `make lint`
     0 violations in 784 files.
 - Final `swift test` line, `make lint` line, YAML check output.
@@ -411,7 +414,9 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
     it too.") names no CI job, so it stays true after the split.
   - `git diff --name-status master...HEAD`: only `ci.yml`, CLAUDE.md,
     `DependencyPinTests.swift`, `ReleaseWorkflowTests.swift`, RELEASING.md and
-    this plan. No new source or test file was added, so CLAUDE.md needs no new
+    this plan at the end of the tasks; the post-review fix (6a2652ac) added
+    `Makefile` (the `all` comment) and touched `ReleaseWorkflowTests.swift`
+    again. No new source or test file was added, so CLAUDE.md needs no new
     index entry.
 
 ## Post-Completion
