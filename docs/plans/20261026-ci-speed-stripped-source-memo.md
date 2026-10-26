@@ -95,14 +95,14 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 - Temporary (created and deleted inside this task): `Tests/PisakaCoreTests/StripperEquivalenceCheck.swift`
 
-- [ ] Before editing, copy the current `strippingCommentsAndStringLiterals` body verbatim into the temporary file as a private `legacyStrip(_:)`.
-- [ ] In the same temporary file, add one test that:
+- [x] Before editing, copy the current `strippingCommentsAndStringLiterals` body verbatim into the temporary file as a private `legacyStrip(_:)`.
+- [x] In the same temporary file, add one test that:
   - walks every `.swift` file under `Sources/`, `Tests/` and `Vendor/`, plus `Package.swift`, skipping any path containing `/.build/`;
   - asserts `LSPSourceGatingTests.strippingCommentsAndStringLiterals(text) == legacyStrip(text)` for each file;
   - prints the number of files compared.
-- [ ] Rewrite the stripper as decided above: same `State` enum, `Character` array kept, no per-call allocation in the needle check, `reserveCapacity` on the result. Behaviour stays exactly the same, including `\\` skipping two characters, including at end of input.
-- [ ] Run `swift test --filter StripperEquivalenceCheck` and record in Notes the command, the file count and the green result. Then delete `StripperEquivalenceCheck.swift`. It must not be committed, because two strippers must not coexist.
-- [ ] Run `swift test --filter SourceStripperContractTests` green, then the full `swift test`.
+- [x] Rewrite the stripper as decided above: same `State` enum, `Character` array kept, no per-call allocation in the needle check, `reserveCapacity` on the result. Behaviour stays exactly the same, including `\\` skipping two characters, including at end of input.
+- [x] Run `swift test --filter StripperEquivalenceCheck` and record in Notes the command, the file count and the green result. Then delete `StripperEquivalenceCheck.swift`. It must not be committed, because two strippers must not coexist.
+- [x] Run `swift test --filter SourceStripperContractTests` green, then the full `swift test`.
 
 ### Task 3: The shared reader
 
@@ -211,6 +211,8 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
     - Markdown (`testTheFeatureNamesNoWriterGate`, `let localChanges = 0` in `MarkdownPreviewController.swift`): `MarkdownPreviewController.swift must not name localChanges: the preview is a reader, like the symbol index.`
     - ChromeTheme (`testNoGatedFileNamesASystemSemanticColor`, `let probe = Color.red` in `TabStripView.swift`): `XCTAssertEqual failed: ("["TabStripView.swift: red"]") is not equal to ("[]") - a gated view must ask the palette for a role, never the system for a colour` (the part after `failed - ` is `a gated view must ask the palette for a role, never the system for a colour`; the offender list is `["TabStripView.swift: red"]`).
 - Stripper equivalence (Task 2): command, file count, result.
+  - `swift test --filter StripperEquivalenceCheck`: the temporary test compared 789 files (every `.swift` under `Sources/`, `Tests/` and `Vendor/`, plus `Package.swift`, skipping `/.build/`) and all matched the verbatim legacy stripper: `Executed 1 test, with 0 failures (0 unexpected)`. `StripperEquivalenceCheck.swift` was then deleted and is not committed.
+  - After the rewrite, `SourceStripperContractTests` passed (10 tests, 0 failures) and the full `swift test` passed: `Executed 7108 tests, with 0 failures (0 unexpected) in 189.825 (190.133) seconds`, down from 270 s. Along the way: ChromeThemeSourceGatingTests 70.9 s (was 101.9 s), FoldingSourceGatingTests 25.0 s (was 41.6 s), MarkdownPreviewSourceGatingTests 28.6 s (was 40.1 s).
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
 
