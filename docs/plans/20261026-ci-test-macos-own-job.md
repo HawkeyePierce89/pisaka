@@ -321,9 +321,9 @@ weakened:
 
 ### Task 5: Final documentation check
 
-- [ ] README.md has no user-facing change. Confirm it still has no claim about
+- [x] README.md has no user-facing change. Confirm it still has no claim about
   which CI job runs the bundle.
-- [ ] CLAUDE.md is updated (Task 3). No new file was added, so no new index entry
+- [x] CLAUDE.md is updated (Task 3). No new file was added, so no new index entry
   is needed.
 
 ## Out-of-scope observation (recorded, not acted on)
@@ -405,6 +405,14 @@ this plan leaves all three as they are. Correcting them is a separate follow-up.
   - `git diff --exit-code master -- .github/workflows/release.yml`: empty;
     `shasum -a 256` = `56c8e0ce09e406356fc7f777cfb7902927d7609fcad80932d541eca0625769cb`,
     equal to the Task 1 baseline.
+- Final documentation check (Task 5).
+  - README.md: unchanged against master. Its only mention of the bundle (the
+    `# What swift test cannot see (PisakaAppTests):` command block and "CI runs
+    it too.") names no CI job, so it stays true after the split.
+  - `git diff --name-status master...HEAD`: only `ci.yml`, CLAUDE.md,
+    `DependencyPinTests.swift`, `ReleaseWorkflowTests.swift`, RELEASING.md and
+    this plan. No new source or test file was added, so CLAUDE.md needs no new
+    index entry.
 
 ## Post-Completion
 
