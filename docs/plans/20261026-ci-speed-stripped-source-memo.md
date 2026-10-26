@@ -70,15 +70,15 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 - Create: `Tests/PisakaCoreTests/SourceStripperContractTests.swift`
 - Modify: this plan file (Notes section)
 
-- [ ] On the unmodified tree, run `swift test 2>&1 | tee /tmp/ci-speed-before.log` and record in Notes:
+- [x] On the unmodified tree, run `swift test 2>&1 | tee /tmp/ci-speed-before.log` and record in Notes:
   - the overall `Executed N tests` line;
   - the `Test Suite '<name>' passed … Executed … in X seconds` lines for `ChromeThemeSourceGatingTests`, `MarkdownPreviewSourceGatingTests`, `FoldingSourceGatingTests`, `LeetCodeAccountSourceGatingTests`, `ZoomSourceGatingTests`, `MenuShortcutUniquenessTests`, `GitHubSourceGatingTests`.
-- [ ] Record the three hand-break baseline messages. For each one, insert the line, run the filtered test, record the failure message text (the part after `failed - `; the `file:line:` prefix may move later, the message must not), then `git checkout -- <file>`:
+- [x] Record the three hand-break baseline messages. For each one, insert the line, run the filtered test, record the failure message text (the part after `failed - `; the `file:line:` prefix may move later, the message must not), then `git checkout -- <file>`:
   - Folding: insert `let autosave = 0` right before the final `#endif` of `Sources/Pisaka/FoldController.swift`. Run `swift test --filter FoldingSourceGatingTests/testTheFoldLayerNamesNoWriterGate`.
   - Markdown: insert `let localChanges = 0` right before the final `#endif` of `Sources/Pisaka/MarkdownPreviewController.swift`. Run `swift test --filter MarkdownPreviewSourceGatingTests/testTheFeatureNamesNoWriterGate`.
   - ChromeTheme: insert `let probe = Color.red` right before the final `#endif` of `Sources/Pisaka/TabStripView.swift`. Run `swift test --filter ChromeThemeSourceGatingTests/testNoGatedFileNamesASystemSemanticColor`.
-- [ ] Confirm `git status` is clean after the three restores.
-- [ ] Write `SourceStripperContractTests`, with fixtures as Swift raw-string literals (`#"""…"""#`), so no fixture file and no `exclude:` change. Each case asserts the exact expected output string. The cases:
+- [x] Confirm `git status` is clean after the three restores.
+- [x] Write `SourceStripperContractTests`, with fixtures as Swift raw-string literals (`#"""…"""#`), so no fixture file and no `exclude:` change. Each case asserts the exact expected output string. The cases:
   - `//` line comments, with the newline kept;
   - a `/* */` block comment and a nested `/* /* */ */` block comment spanning lines, with newlines kept and nothing else;
   - an ordinary literal with escaped quotes (`"a \"b\" c"`) removed whole;
@@ -87,7 +87,7 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
   - `//` inside a literal not starting a comment;
   - the unterminated-literal bail-out: a line with a lone `"` returns to code at the newline, and the next line survives;
   - newlines kept through every construct, so line counts match the input.
-- [ ] Run `swift test --filter SourceStripperContractTests` green against the current, unmodified stripper, then run the full `swift test`.
+- [x] Run `swift test --filter SourceStripperContractTests` green against the current, unmodified stripper, then run the full `swift test`.
 
 ### Task 2: Rewrite the stripper for speed, byte-identical
 
@@ -195,7 +195,21 @@ Assertions, gated sets, rule counts, failure-message text, inventories and `allC
 ## Notes (filled in during execution)
 
 - Baseline (Task 1): overall test count; seven per-suite timings.
+  - Unmodified tree (`swift test 2>&1 | tee /tmp/ci-speed-before.log`, local arm64 machine): `Executed 7098 tests, with 0 failures (0 unexpected) in 270.003 (270.310) seconds`.
+  - Per-suite before-timings:
+    - `ChromeThemeSourceGatingTests`: Executed 75 tests … in 101.922 (101.927) seconds
+    - `MarkdownPreviewSourceGatingTests`: Executed 13 tests … in 40.098 (40.099) seconds
+    - `FoldingSourceGatingTests`: Executed 10 tests … in 41.586 (41.586) seconds
+    - `LeetCodeAccountSourceGatingTests`: Executed 9 tests … in 13.617 (13.618) seconds
+    - `ZoomSourceGatingTests`: Executed 10 tests … in 14.951 (14.952) seconds
+    - `MenuShortcutUniquenessTests`: Executed 8 tests … in 8.194 (8.194) seconds
+    - `GitHubSourceGatingTests`: Executed 19 tests … in 4.411 (4.412) seconds
+  - With `SourceStripperContractTests` added (10 tests), the full suite is 7108 tests, green against the unmodified stripper.
 - Hand-break baseline messages (Task 1) and after (Task 7).
+  - Baseline (Task 1), text after `failed - ` (each file restored with `git checkout --`; `git status` clean afterwards):
+    - Folding (`testTheFoldLayerNamesNoWriterGate`, `let autosave = 0` in `FoldController.swift`): `FoldController.swift must not name autosave: folding is a reader, like the symbol index. It writes nothing — not the buffer, not the session, not the disk — so there is nothing for a writer gate to order it against.`
+    - Markdown (`testTheFeatureNamesNoWriterGate`, `let localChanges = 0` in `MarkdownPreviewController.swift`): `MarkdownPreviewController.swift must not name localChanges: the preview is a reader, like the symbol index.`
+    - ChromeTheme (`testNoGatedFileNamesASystemSemanticColor`, `let probe = Color.red` in `TabStripView.swift`): `XCTAssertEqual failed: ("["TabStripView.swift: red"]") is not equal to ("[]") - a gated view must ask the palette for a role, never the system for a colour` (the part after `failed - ` is `a gated view must ask the palette for a role, never the system for a colour`; the offender list is `["TabStripView.swift: red"]`).
 - Stripper equivalence (Task 2): command, file count, result.
 - After timings (Task 7).
 - RELEASING.md finding (Task 8).
