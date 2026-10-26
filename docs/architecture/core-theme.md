@@ -714,7 +714,7 @@ full entry; what is **not** listed here has not been swept.
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
     `app-window.md`. Every row state answers with a role or with nothing, through
     the one mapping `TreeRowBackground.color(for:resolving:)` that both row kinds
-    read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
+    — and the sticky stack's pinned folder copy, hover only — read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
     `accent` at a composed 40 % before), and only `plain` paints nothing. Hover,
     selection and drop are all true at the moment a drag sits over a selected row
     (the pointer is inside it), so the drop treatment has to out-read

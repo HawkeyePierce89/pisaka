@@ -417,10 +417,10 @@ Task 3.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/FEATURES.md`, project-tree text: expanded ancestors stay pinned under the header
+- [x] `docs/FEATURES.md`, project-tree text: expanded ancestors stay pinned under the header
   while scrolling. They are pushed out as their contents end and capped at a third of the
   tree's height. Clicking one scrolls to its folder; its chevron collapses it.
-- [ ] `docs/architecture/app-window.md`, `ProjectTreeView.swift` entry, the mechanism:
+- [x] `docs/architecture/app-window.md`, `ProjectTreeView.swift` entry, the mechanism:
   - expanded-only folder reports in content space;
   - the offset holder observed by the overlay alone;
   - why scrolling re-renders no row and lists nothing;
@@ -435,13 +435,13 @@ Task 3.
   - hidden from accessibility;
   - the row extent assumed to be one `rowHeight`, so a folder whose own rename draft is open is
     measured as one row.
-- [ ] `docs/architecture/core-workspace.md`: a full `TreeStickyRule.swift` entry with the
+- [x] `docs/architecture/core-workspace.md`: a full `TreeStickyRule.swift` entry with the
   contract from Decisions 1–2 (including why the below-the-stack anchor counts eligible
   ancestors rather than reading the stack index) and its test suite.
-- [ ] `docs/architecture/core-theme.md`: rule thirty-five's inventory gains the new
+- [x] `docs/architecture/core-theme.md`: rule thirty-five's inventory gains the new
   expression, if it lists them.
-- [ ] `CLAUDE.md`: add `TreeStickyRule.swift` to the `core-workspace.md` index line only.
-- [ ] Re-run `swift test` (doc-reading suites included).
+- [x] `CLAUDE.md`: add `TreeStickyRule.swift` to the `core-workspace.md` index line only.
+- [x] Re-run `swift test` (doc-reading suites included).
 
 ## Execution notes
 
@@ -599,6 +599,16 @@ hosted-render measurements.)
   appears only as the toolchain in gate commands and these notes.
 - Execution notes cover every hand-break the plan names (Task 1: two, Task 2: one, Task 3:
   four, Task 4: two) and Task 3's hosted-render measurements.
+
+### Task 6
+
+- Docs: `FEATURES.md` (project-tree bullet), `app-window.md` (a new sticky-parent-folders
+  entry under `ProjectTreeView.swift`, plus the reveal anchor and the draft placement in
+  the existing entries), `core-workspace.md` (a full `TreeStickyRule.swift` entry),
+  `core-theme.md` (rule thirty-five's inventory already named the tree's third
+  `rowBackground` from Task 3; the tree-rows entry now names the pinned copy as a reader
+  of the mapping) and the `CLAUDE.md` index line (56,542 characters).
+- `swift test`: 7,153 tests, 0 failures, the doc-reading suites included.
 
 ## Post-Completion
 

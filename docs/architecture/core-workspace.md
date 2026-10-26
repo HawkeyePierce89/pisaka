@@ -957,6 +957,96 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     new listing, the rule staying local to each folder (with `{a, b}` separated,
     `a` offers nothing, its one child being separated); and a separated head
     loaded under a fresh revision is joined again with no new listing either.
+  - `TreeStickyRule.swift` — which expanded ancestors the macOS project tree
+    pins under its header while scrolling, in what order, where each copy is
+    drawn and how tall the stack is, plus the one answer to "where must a
+    scrolled-to row land so the stack does not cover it". Pure and
+    Foundation-only, a `public enum` of static functions; a navigation aid
+    whose answers change nothing about what the tree holds or addresses. The
+    app half — measurement, the overlay, the three scroll sites — is the
+    sticky-folders entry under `ProjectTreeView.swift` (`app-window.md`).
+    **Input.** `Folder` is one folder *node* as the tree measured it: `depth`
+    (`0` is the project root), `isExpanded`, and the `top` and `bottom` of the
+    whole node — its row plus its expanded subtree — in content coordinates. A
+    chain row is one node and one `Folder`, whatever its segment count. The row
+    itself is taken to be `[top, top + rowHeight)`, and `rowHeight` is also a
+    pinned copy's height. `Viewport` is `top` (the content offset at the
+    viewport's top edge) and `height`. The input order is **not trusted**: the
+    rule orders folders by `top`, then `depth`, then input index. The copy maps
+    back to its report through `Stack.Row.index`, the input index, so `Folder`
+    needs no identity of its own.
+    **Eligibility.** `depth ≥ 1` (the root never pins), expanded, and `bottom >
+    top + rowHeight` — at least one descendant row, so an expanded empty folder
+    never pins.
+    **Cap.** `maximumRows(viewportHeight:rowHeight:)` is `floor(H · capFraction
+    / h)` with `capFraction = 1.0/3.0`, and `0` for a non-positive row height
+    or viewport; with `0` nothing pins. The floor carries a `1e-9` tolerance so
+    an exact multiple (`66 / 3 / 22`) is not floored one row short by the
+    binary rounding of a third.
+    **The chain.** Level `i` has the nominal slot `S_i = viewport.top +
+    i·rowHeight`. One sorted forward pass takes the first eligible folder that
+    lies inside the previous member's subtree (deeper, `top ≥ previous.top +
+    rowHeight`, `bottom ≤ previous.bottom`; anything eligible for the first)
+    and satisfies `top < S_i < bottom`. Spans containing one point nest, so the
+    first match is the outermost and the members form an ancestor chain; a
+    sibling after a pinned folder's subtree fails the containment test and never
+    stacks under it. Once the chain holds `maximumRows`, a further candidate
+    must satisfy `top < S_(maximumRows−1) < bottom`, and then the **outermost**
+    member is dropped and the candidate appended, repeatedly — so capping drops
+    outer rows first, a capped row joins only once its real row is fully under
+    the stack, and a copy is never drawn while its real row shows below it.
+    **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom −
+    rowHeight)`, reported relative to the viewport top as `Stack.Row.top` —
+    negative, or above its nominal slot, while the end of its subtree pushes it
+    out — with `pushOffset = top − nominal` (`≤ 0`). `Stack.height` is the
+    largest drawn bottom, clamped to `≥ 0`, and `0` when empty. Rows come
+    outermost first and are drawn outermost on top, so a deeper row whose
+    subtree ends slides up under its parent; a child ending with its parent
+    slides under it, and the parent is then pushed by the row that follows.
+    `Stack.Row` is declared in an extension of `Stack`, the nesting depth the
+    style rule allows.
+    **Scroll anchors.** `anchorY(rowsAbove:rowHeight:viewportHeight:)` is the
+    `UnitPoint.y` landing a row of height `h` with its top `k` rows below the
+    viewport top: `scrollTo` aligns the same unit point of the row and of the
+    viewport, so the top lands at `y·(H − h)` and `y = k·h / (H − h)`, clamped
+    to `0…1`, `0` when `H ≤ h`. `eligibleAncestorCount(forRowAt:folders:
+    rowHeight:)` counts the eligible folders whose span contains the row's top
+    (`top < rowTop < bottom`); a folder's own row is not inside its span, so it
+    never counts itself. `scrollAnchorY(forRowAt:folders:viewportHeight:
+    rowHeight:)` — `anchorY` of that count capped at `maximumRows` — is **the
+    one below-the-stack anchor**: `stack(...)` fills every
+    `Stack.Row.scrollAnchorY` by asking it for the folder's top, and
+    `placement` asks it directly. **Why the count and not the index**: with
+    the cap dropping outer rows the index is wrong — with `maximumRows` 3 and
+    `a/b/c/d/e` nested, expanded and deep, the stack shows `[c, d, e]`;
+    clicking `e` (index 2) would land its real row in slot 2, but once it sits
+    there `a`…`d` all qualify again and fill slots 0–2 over it. The count gives
+    3 and lands it just under the stack. Uncapped, the two agree, which is why
+    only the capped case can tell them apart. `revealAnchorY = 0.5` keeps the
+    centre: a centred row's top `(H − h)/2` is never above the largest stack the
+    cap allows (`H/3` at most) for any viewport that pins at all (`H ≥ 3h`).
+    `placement(ofRowAt:folders:viewport:rowHeight:)` is `nil` when `[rowTop,
+    rowTop + h)` already lies inside `[viewport.top + stack.height,
+    viewport.top + H)` — no scroll — and otherwise `scrollAnchorY(forRowAt:)`,
+    the anchor the click uses; the app asks it for the create draft.
+    Covered by `TreeStickyRuleTests` (28 tests, `rowHeight` 22, viewports
+    giving caps of 1, 2, 3 and 4): nothing pins at offset 0 or while a real row
+    is at or below its slot; one row, several rows outermost first, shuffled
+    input, input indices; push-out and both slide-under orders; the cap
+    dropping the outermost first and a capped candidate joining only once fully
+    under the stack; `maximumRows` at and either side of exact multiples, and
+    `0` below three rows; a collapsed ancestor, the root and an expanded empty
+    folder never pinning; a chain as one row; siblings; `Stack.height` empty,
+    full and pushed. Anchors: `anchorY` for k = 0, 1, 3, clamping and `H ≤ h`;
+    the capped `a/b/c/d/e` fixture's anchors `[0.25, 0.375, 0.375]`, equal to a
+    direct `scrollAnchorY(forRowAt: e.top)` and **not** `anchorY(rowsAbove:
+    2)`; the uncapped stack's anchors equal to the index; the ancestor count
+    ignoring the root, collapsed folders and the row's own folder; the reveal
+    centre clearing the capped stack for every height from `3h` to `60h` in
+    one-point steps, the count of heights checked (1,255) asserted so the loop
+    cannot pass empty; and `placement` `nil` for clear rows, the shared anchor —
+    capped at `maximumRows` — for a row under the stack and one crossing the
+    viewport's bottom edge.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one
