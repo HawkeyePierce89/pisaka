@@ -2964,14 +2964,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `fileExists` probe asked only on that match, whose default
     (`DiagnosticsModel.isFile`) refuses a directory, so a folder recreated at a
     removed file's path is not the file coming back. A file found there lifts
-    every tombstone it lies at or under — its own and any removed folder above
-    it, which is evidently back — so a second report under that folder lands
-    without asking the disk again. A removal already recorded exactly appends
-    none (its clear still runs), so the list stays bounded by the distinct
-    removed paths; a finer tombstone under a folder one is always kept,
-    whichever was removed first — the delete and move call sites pass the
-    folder before the open files under it — because lifting the folder later
-    must not also lift a file that may still be gone.
+    its own tombstone only, and is remembered (`foundAgain`), so its next
+    report lands without asking the disk again; a removed folder above it is
+    **not** lifted, because one file back says nothing about its siblings —
+    the delete and move call sites tombstone the folder and the open files
+    under it alone, so a never-opened sibling has only the folder's tombstone
+    between a late report and a resurrected row. A sibling is therefore probed
+    on its own report, once per report until it too is found. A removal at or
+    above a remembered file forgets it, so the next report is probed again; a
+    remembered file later deleted outside the app takes reports, exactly as a
+    file whose own tombstone was lifted does. A removal already recorded
+    exactly appends none (its clear still runs), so the list stays bounded by
+    the distinct removed paths, and a finer tombstone under a folder one is
+    kept whichever was removed first.
     A kept **mapped** set is
     dropped on reopen by `noteDocumentShown(url:)`, its offsets describing a buffer
     that is gone, so the file shows nothing until the next push. The editor

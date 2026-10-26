@@ -186,13 +186,20 @@ public final class DiagnosticsModel: ObservableObject {
     /// exists again as a file (`fileExists`), so a report the server queued before the
     /// removal, or a stale one from a server never told about it, cannot
     /// resurrect the path. Cleared by the folder change. When the probe finds
-    /// the file, every tombstone it lies at or under is lifted — the file's own
-    /// and any removed folder above it, which is evidently back. A removal
-    /// already recorded exactly adds none, while a finer one under a folder
-    /// tombstone is always kept, whichever was removed first: lifting the
-    /// folder later must not also lift a file that may still be gone. Readable
-    /// by tests, which pin both halves through it.
+    /// the file, only the file's own tombstone is lifted: a removed folder
+    /// above it stays, because one file back says nothing about its siblings —
+    /// the delete and move call sites tombstone the folder and its open files
+    /// alone, so a never-opened file under it has no tombstone of its own to
+    /// fall back on. A removal already recorded exactly adds none. Readable by
+    /// tests, which pin both halves through it.
     private(set) var removedPaths: [[String]] = []
+
+    /// The files the probe found again at or under a tombstone since their
+    /// last removal, as standardized components: a later report for one lands
+    /// without asking the disk again, while a sibling under the same removed
+    /// folder is still probed. A removal at or above one forgets it, and the
+    /// folder change forgets them all. Readable by tests.
+    private(set) var foundAgain: Set<[String]> = []
 
     /// The existence probe behind the tombstones — the one file-system call
     /// in this model, made only for a positional report at or under a removed
@@ -533,26 +540,31 @@ public final class DiagnosticsModel: ObservableObject {
     /// (``noteDocumentClosed(url:)``), which the same call sites already reach.
     ///
     /// A path already recorded exactly adds no second tombstone; one under a
-    /// removed folder still adds its own, because the folder's is lifted as
-    /// soon as any file under it is found again. The clear runs regardless.
+    /// removed folder still adds its own. Every file found again at or under
+    /// the path is forgotten, so its next report is probed. The clear runs
+    /// regardless.
     public func noteItemRemoved(at url: URL) {
         let components = url.standardizedFileURL.pathComponents
         if !removedPaths.contains(components) {
             removedPaths.append(components)
         }
+        foundAgain = foundAgain.filter { !Self.lies($0, atOrUnder: components) }
         store.clear(under: url)
     }
 
     /// Whether `url` lies at or under a path the app removed and names no file
     /// now. Compared lexically by whole component, exactly as the removal's own
-    /// clear compares, and the disk is asked only once that matches. A file
-    /// found there lifts every tombstone it lies at or under.
+    /// clear compares, and the disk is asked only once that matches and the
+    /// file was not already found again. A file found there lifts its own
+    /// tombstone and is remembered in ``foundAgain``; a folder above it stays.
     private func isRemovedAndGone(_ url: URL) -> Bool {
         guard !removedPaths.isEmpty else { return false }
         let components = url.standardizedFileURL.pathComponents
         guard removedPaths.contains(where: { Self.lies(components, atOrUnder: $0) }) else { return false }
+        guard !foundAgain.contains(components) else { return false }
         guard fileExists(url) else { return true }
-        removedPaths.removeAll { Self.lies(components, atOrUnder: $0) }
+        removedPaths.removeAll { $0 == components }
+        foundAgain.insert(components)
         return false
     }
 
@@ -586,6 +598,7 @@ public final class DiagnosticsModel: ObservableObject {
         revisions.removeAll()
         heldPushes.removeAll()
         removedPaths.removeAll()
+        foundAgain.removeAll()
         store.clearAll()
     }
 
