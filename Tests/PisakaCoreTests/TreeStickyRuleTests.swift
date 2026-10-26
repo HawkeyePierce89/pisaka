@@ -229,6 +229,41 @@ final class TreeStickyRuleTests: XCTestCase {
         XCTAssertEqual(pinned(named, top: 30, height: capFour), [])
     }
 
+    func testMeasurementDriftChangesNoAnswer() {
+        // Measured at a fractional scale, a last child's bottom and its
+        // parent's — and a first child's top and its parent's row bottom — can
+        // differ in the last bit. `b` is a's last child, `c` b's.
+        let exact = [
+            folder("root", depth: 0, 0, 2_000),
+            folder("a", depth: 1, 22, 400),
+            folder("b", depth: 2, 44, 400),
+            folder("c", depth: 3, 66, 400),
+        ]
+        let drifted = [
+            folder("root", depth: 0, 0, 2_000),
+            folder("a", depth: 1, 22, 400),
+            folder("b", depth: 2, 44.0.nextDown, 400.0.nextUp),
+            folder("c", depth: 3, 66.0.nextDown, 400.0.nextUp.nextUp),
+        ]
+        XCTAssertEqual(pinned(exact, top: 100, height: capFour), [row("a", 0), row("b", 22), row("c", 44)])
+        XCTAssertEqual(pinned(drifted, top: 100, height: capFour).map(\.name), ["a", "b", "c"])
+        // The ancestor count: a following sibling's top one ulp short of a
+        // folder's bottom is still outside it.
+        let siblings = [
+            folder("a", depth: 1, 22, 400.0.nextUp),
+            folder("b", depth: 1, 400, 800),
+        ]
+        XCTAssertEqual(
+            TreeStickyRule.eligibleAncestorCount(forRowAt: 400, folders: siblings.map(\.folder), rowHeight: rowHeight),
+            0
+        )
+        // An expanded empty folder one ulp taller than its row stays ineligible.
+        let empty = [folder("root", depth: 0, 0, 2_000), folder("a", depth: 1, 22, 44.0.nextUp)]
+        XCTAssertEqual(pinned(empty, top: 30, height: capFour), [])
+        // The full chain's last slot: c's row a drift below it still joins.
+        XCTAssertEqual(pinned(nested, top: 44 - 1e-9, height: capTwo).map(\.name), ["b", "c"])
+    }
+
     func testAChainRowPinsAsExactlyOneRow() {
         // `a/b/c` is one row and one `Folder`; its tail's child `d` is depth 2.
         let named = [

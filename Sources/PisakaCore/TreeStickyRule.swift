@@ -54,6 +54,13 @@ import Foundation
 /// outer rows. Reveal keeps the centre (`revealAnchorY`), which always clears
 /// the largest stack the cap allows.
 ///
+/// **Tolerance.** The edges are measured, not counted, and drift in the last
+/// bit at a fractional scale. Eligibility, containment, the ancestor count and
+/// the full chain's `≤` each allow `measurementTolerance` across their
+/// boundary, so a last child whose bottom measured one ulp past its parent's is
+/// still inside it. The free slots' `<` stays strict: a drift there pins a
+/// copy exactly over its own row, which draws the same pixels.
+///
 /// Pure and Foundation-only; the stack is one sort plus one forward pass.
 public enum TreeStickyRule {
     /// The share of the viewport's height the stack may fill, in whole rows.
@@ -64,6 +71,17 @@ public enum TreeStickyRule {
     /// allows (`H / 3` at most) for any viewport that pins at all (`H ≥ 3h`),
     /// so a reveal always lands below the stack.
     public static let revealAnchorY = 0.5
+
+    /// How far two measured edges may differ and still be the same edge, in
+    /// points. The tree's frames are sums of scaled row heights, and at a
+    /// fractional interface scale SwiftUI adds them in a different order than
+    /// the rule would: a last child's bottom and its parent's can differ in the
+    /// last bit (`246.40000000000003` against `246.4` at scale 1.1). Every
+    /// comparison where equality is the boundary — eligibility, containment,
+    /// the ancestor count and the full chain's last slot — allows this much;
+    /// it is far above that drift and far below the smallest row (19.2 at the
+    /// interface scale's 0.8 floor), so no two distinct rows ever blur.
+    public static let measurementTolerance = 0.5
 
     /// One folder node as the tree measured it, in content coordinates.
     public struct Folder: Equatable {
@@ -138,7 +156,7 @@ public enum TreeStickyRule {
             // A free slot takes a row that has started under it; the full
             // chain's last slot is already drawn, so a row exactly under it
             // is covered and must join.
-            let hasReached = isFull ? candidate.top <= slot : candidate.top < slot
+            let hasReached = isFull ? candidate.top <= slot + measurementTolerance : candidate.top < slot
             guard hasReached, slot < candidate.bottom else { continue }
             if isFull { chain.removeFirst() }
             chain.append(index)
@@ -175,7 +193,9 @@ public enum TreeStickyRule {
     /// inside its span, so a folder never counts itself.
     public static func eligibleAncestorCount(forRowAt rowTop: Double, folders: [Folder], rowHeight: Double) -> Int {
         folders.reduce(0) { count, folder in
-            isEligible(folder, rowHeight: rowHeight) && folder.top < rowTop && rowTop < folder.bottom
+            isEligible(folder, rowHeight: rowHeight)
+                && folder.top + measurementTolerance < rowTop
+                && rowTop < folder.bottom - measurementTolerance
                 ? count + 1
                 : count
         }
@@ -214,14 +234,14 @@ public enum TreeStickyRule {
 
     /// Expanded, below the root, with at least one descendant row.
     private static func isEligible(_ folder: Folder, rowHeight: Double) -> Bool {
-        folder.depth >= 1 && folder.isExpanded && folder.bottom > folder.top + rowHeight
+        folder.depth >= 1 && folder.isExpanded && folder.bottom > folder.top + rowHeight + measurementTolerance
     }
 
     /// Whether `folder` lies inside `ancestor`'s subtree (below its row).
     private static func lies(_ folder: Folder, inside ancestor: Folder, rowHeight: Double) -> Bool {
         folder.depth > ancestor.depth
-            && folder.top >= ancestor.top + rowHeight
-            && folder.bottom <= ancestor.bottom
+            && folder.top >= ancestor.top + rowHeight - measurementTolerance
+            && folder.bottom <= ancestor.bottom + measurementTolerance
     }
 }
 

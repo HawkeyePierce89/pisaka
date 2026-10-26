@@ -1004,6 +1004,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     round trip: every copy, at every offset of the deep fixture under every
     cap, is scrolled to its anchor and the stack recomputed there, and neither
     the folder nor any ancestor the cap leaves room for may be covered.
+    **Tolerance.** The edges are measured, not counted: at a fractional
+    interface scale SwiftUI sums the scaled row heights in another order than
+    the rule would, so a last child's bottom can come back one ulp past its
+    parent's (`246.40000000000003` against `246.4` at scale 1.1) and exact
+    containment would drop it from the chain, pinning its child straight under
+    the grandparent. Eligibility, containment, the ancestor count and the full
+    chain's `≤` therefore each allow `measurementTolerance = 0.5` points across
+    their boundary — far above the drift, far below the smallest row (19.2 at
+    the interface scale's 0.8 floor), so no two distinct rows blur. The free
+    slots' `<` stays strict: a drift there pins a copy exactly over its own
+    row, the same pixels.
     **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom −
     rowHeight)`, reported relative to the viewport top as `Stack.Row.top` —
     negative, or above its nominal slot, while the end of its subtree pushes it
@@ -1038,14 +1049,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rowTop + h)` already lies inside `[viewport.top + stack.height,
     viewport.top + H)` — no scroll — and otherwise `scrollAnchorY(forRowAt:)`,
     the anchor the click uses; the app asks it for the create draft.
-    Covered by `TreeStickyRuleTests` (28 tests, `rowHeight` 22, viewports
+    Covered by `TreeStickyRuleTests` (31 tests, `rowHeight` 22, viewports
     giving caps of 1, 2, 3 and 4): nothing pins at offset 0 or while a real row
     is at or below its slot; one row, several rows outermost first, shuffled
     input, input indices; push-out and both slide-under orders; the cap
     dropping the outermost first and a capped candidate joining only once fully
     under the stack; `maximumRows` at and either side of exact multiples, and
     `0` below three rows; a collapsed ancestor, the root and an expanded empty
-    folder never pinning; a chain as one row; siblings; `Stack.height` empty,
+    folder never pinning; one-ulp drift in every tolerant comparison
+    changing no answer (each part failing with the tolerance at 0); a chain as
+    one row; siblings; `Stack.height` empty,
     full and pushed. Anchors: `anchorY` for k = 0, 1, 3, clamping and `H ≤ h`;
     the capped `a/b/c/d/e` fixture's anchors `[0.25, 0.375, 0.375]`, equal to a
     direct `scrollAnchorY(forRowAt: e.top)` and **not** `anchorY(rowsAbove:
