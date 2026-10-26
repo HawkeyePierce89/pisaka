@@ -125,15 +125,15 @@ Decisions made here, so nothing is left open at run time:
 - Modify: `Tests/PisakaCoreTests/LocalChangesModelTests.swift`
 - Modify: `docs/architecture/core-git-models.md`
 
-- [ ] Declare `FileStatus`, `ChangedFile` and `GitStatusSnapshot` `Sendable`. They are value types of `Sendable` members, so the snapshot can cross back from the non-isolated step.
-- [ ] Add a `nonisolated static` async step that awaits `gitService.statusSnapshot(root:)` and builds `TreeGitStatus(snapshot:repositoryRoot:openedFolder:)` in the same context, returning both. `refreshImpl` calls it in place of the bare snapshot await. The generation and root-generation guard stays exactly where it is, on the main actor and before anything is assigned, and the published lookup is the one carried back. The failure path is unchanged.
-- [ ] Rewrite the `projectPrefix(folder:repositoryRoot:)` comment to say the lookup builds its keys through it off the main actor, inside that step beside the status run. Update the matching sentence in `core-git-models.md`, including the 186 ms / 50 000-entry motivation in one clause.
-- [ ] Add `testASupersededRefreshsLookupIsNeverPublished`. It subscribes to `$treeGitStatus` and records every value. It stages two gated refreshes with distinct lists and releases the superseded one **first**, while the newer one is still held, then releases the newer one. It asserts:
+- [x] Declare `FileStatus`, `ChangedFile` and `GitStatusSnapshot` `Sendable`. They are value types of `Sendable` members, so the snapshot can cross back from the non-isolated step.
+- [x] Add a `nonisolated static` async step that awaits `gitService.statusSnapshot(root:)` and builds `TreeGitStatus(snapshot:repositoryRoot:openedFolder:)` in the same context, returning both. `refreshImpl` calls it in place of the bare snapshot await. The generation and root-generation guard stays exactly where it is, on the main actor and before anything is assigned, and the published lookup is the one carried back. The failure path is unchanged.
+- [x] Rewrite the `projectPrefix(folder:repositoryRoot:)` comment to say the lookup builds its keys through it off the main actor, inside that step beside the status run. Update the matching sentence in `core-git-models.md`, including the 186 ms / 50 000-entry motivation in one clause.
+- [x] Add `testASupersededRefreshsLookupIsNeverPublished`. It subscribes to `$treeGitStatus` and records every value. It stages two gated refreshes with distinct lists and releases the superseded one **first**, while the newer one is still held, then releases the newer one. It asserts:
   - the recorded values contain no lookup built from the older list;
   - the last recorded value is the newer one's.
 
   The existing newer-first test stays.
-- [ ] Run `swift test`; it must pass before Task 4.
+- [x] Run `swift test`; it must pass before Task 4.
 
 ### Task 4: Chain-row leftovers (1.5)
 

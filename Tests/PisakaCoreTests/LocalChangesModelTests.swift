@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import PisakaCore
 
@@ -2885,6 +2886,41 @@ final class LocalChangesModelTests: XCTestCase {
         await first.value
         XCTAssertEqual(model.treeGitStatus, expectedLookup(files: [newer]))
         XCTAssertEqual(model.treeGitStatus.state(for: root.appendingPathComponent("older.swift")), .plain)
+    }
+
+    func testASupersededRefreshsLookupIsNeverPublished() async {
+        // The other order from the test above: the superseded refresh's status
+        // run returns first, while the newer one is still held. Its lookup is
+        // built off the main actor beside the run, so the guard on the main
+        // actor is the only thing standing between it and the published value —
+        // every value ever published is recorded, not just the final one.
+        let git = StubGit()
+        let older = ChangedFile(path: "older.swift", status: .modified)
+        let newer = ChangedFile(path: "newer.swift", status: .added)
+        git.resultsPerChangedFilesCall = [[older], [newer]]
+        git.gateChangedFiles = true
+        let model = makeModel(git: git)
+        var recorded: [TreeGitStatus] = []
+        let sink = model.$treeGitStatus.sink { recorded.append($0) }
+        defer { sink.cancel() }
+
+        let first = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(1, in: git)
+        let second = Task { await model.refresh(root: root) }
+        await waitForGatedCalls(2, in: git)
+
+        git.release(call: 0)
+        await first.value
+        git.release(call: 1)
+        await second.value
+
+        let olderLookup = expectedLookup(files: [older])
+        XCTAssertFalse(recorded.contains(olderLookup), "the superseded refresh's lookup was published")
+        XCTAssertFalse(
+            recorded.contains { $0.state(for: root.appendingPathComponent("older.swift")) != .plain },
+            "a published lookup carried the superseded list's file"
+        )
+        XCTAssertEqual(recorded.last, expectedLookup(files: [newer]))
     }
 
     func testAFolderSwitchClearsTheLookupBeforeTheNewRootsRefreshLands() async {
