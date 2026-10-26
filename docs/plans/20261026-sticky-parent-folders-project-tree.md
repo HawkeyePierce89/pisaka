@@ -369,7 +369,7 @@ Task 3.
 - Modify: `Sources/PisakaCore/TreeStickyRule.swift`, `Tests/PisakaCoreTests/TreeStickyRuleTests.swift`
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - `anchorY` for k = 0, 1, 3, clamping, and `H ≤ h`;
   - `scrollAnchorY(forRowAt:…)` with the cap dropping outer rows: cap 3 (`H = 9h`), five nested
     expanded deep folders `a/b/c/d/e`, viewport placed so the stack is `[c, d, e]` (`a` and `b`
@@ -384,11 +384,11 @@ Task 3.
     one-point steps (charged as a loop over inputs, no clock);
   - `placement` returns `nil` for a clear row, `scrollAnchorY(forRowAt:…)` for a row under the
     stack and for a row below the viewport, and caps the ancestor count at `maximumRows`.
-- [ ] Implement `anchorY`, `scrollAnchorY(forRowAt:folders:viewportHeight:rowHeight:)`,
+- [x] Implement `anchorY`, `scrollAnchorY(forRowAt:folders:viewportHeight:rowHeight:)`,
   `revealAnchorY` and `placement` per Decision 2, and add `Stack.Row.scrollAnchorY`, filled
   inside `stack(...)` by calling `scrollAnchorY(forRowAt:)`. `placement` calls the same
   function. Neither path reads the index in the stack.
-- [ ] Wire them in:
+- [x] Wire them in:
   - the pinned-row tap scrolls with `UnitPoint(x: 0, y: row.scrollAnchorY)`, doing no
     arithmetic;
   - reveal uses `UnitPoint(x: 0, y: TreeStickyRule.revealAnchorY)` instead of `.center`;
@@ -397,11 +397,11 @@ Task 3.
   - when both the flag and a measured top are present, the tree asks `placement` once and
     scrolls only on a non-nil anchor, then clears the flag. This is causal, with no timed
     delay.
-- [ ] Hand-break and record:
+- [x] Hand-break and record:
   - `anchorY` without the `− h` term fails its test;
   - `Stack.Row.scrollAnchorY` built from the index in the stack instead of the eligible
     ancestor count fails the cap-dropped case.
-- [ ] Run `swift test` and the app bundle; both must pass before Task 5.
+- [x] Run `swift test` and the app bundle; both must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
 
@@ -549,6 +549,40 @@ hosted-render measurements.)
 - `TreeStickyScrollListingTests`' added capture at offset 1000 finds the pinned chevron in
   the first slot under the header, wider than a third of the chevron column, so it is not
   `a`'s one-point guide.
+
+### Task 4
+
+- Gates under Xcode 27.1 again (the pinned 26.3 is not installed here): the app bundle
+  passed 499 tests with 0 failures; `swift test` passed 7,153 tests, among them
+  `TreeStickyRuleTests` (28) and every source-gating suite; `swiftlint --strict` is clean.
+- Core: `revealAnchorY`, `anchorY(rowsAbove:rowHeight:viewportHeight:)`,
+  `eligibleAncestorCount(forRowAt:folders:rowHeight:)`,
+  `scrollAnchorY(forRowAt:folders:viewportHeight:rowHeight:)` and
+  `placement(ofRowAt:folders:viewport:rowHeight:)`; `Stack.Row.scrollAnchorY` is filled in
+  `stack(...)` by `scrollAnchorY(forRowAt: folder.top, …)`, and `placement` asks the same
+  function. The capped fixture is `a/b/c/d/e` at tops 22…110, viewport top 200, `H = 198`:
+  the stack is `[c, d, e]` and its anchors are `[0.25, 0.375, 0.375]` (`anchorY` 2, 3, 3).
+  The reveal-centre test checks 1,255 heights (66 … 1,320) and asserts that count.
+- App: the reveal scrolls to `UnitPoint(x: 0, y: TreeStickyRule.revealAnchorY)`. The pinned
+  row's body tap hands its `Stack.Row` and the folder's scroll id to the tree, which scrolls
+  to `UnitPoint(x: 0, y: row.scrollAnchorY)`; the chevron slot's own tap, overlaid on top,
+  still collapses. The draft row reports its content-space top through
+  `TreeStickyDraftTopKey` (read by `onPreferenceChange` inside the scroll view, as a
+  layout-only change it reaches it). `onDraftAppeared` sets `draftPlacementPending`.
+  `TreeStickyDraftPlacement` sits behind the stack inside the same `overlayPreferenceValue`
+  closure, where the reports and the viewport meet. It reads the offset object without
+  observing it, so scrolling never re-renders it. Its
+  `onChange(of: pending ? draftTop : nil, initial: true)` asks `placement` once, and
+  the tree scrolls only on a non-nil anchor and clears the flag either way.
+  `draftAppearedTrigger` and the anchor-less `scrollTo("draft-row")` are gone.
+- Hand-break 1, `anchorY` without the `− h` term (`let travel = viewportHeight`):
+  `testAnchorYLandsTheRowsTopKRowsBelowTheViewportTop` failed 6 assertions, among them
+  `0.111… ≠ 0.125`, `0.333… ≠ 0.375` and `1.0 ≠ 0.0` for `H ≤ h`. Restored.
+- Hand-break 2, `Stack.Row.scrollAnchorY` built from the index in the stack
+  (`anchorY(rowsAbove: level, …)`): `testTheClickAnchorCountsEligibleAncestorsNotTheIndexInACappedStack`
+  failed 4 assertions (`0.25 ≠ 0.375` for `e`; `[0.0, 0.125, 0.25] ≠ [0.25, 0.375, 0.375]`),
+  while the uncapped case stayed green, as it must. Restored, and the restored file
+  compared byte-identical to the saved copy.
 
 ## Post-Completion
 

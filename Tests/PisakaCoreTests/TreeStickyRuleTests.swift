@@ -2,9 +2,10 @@ import XCTest
 @testable import PisakaCore
 
 /// `TreeStickyRule`'s stack: which expanded ancestors pin, in what order, where
-/// each is drawn and how tall the stack is. Every extent is hand-computed with
-/// a row height of 22; the viewport heights 66, 132 and 264 make the cap one,
-/// two and four rows (a third of the height, in whole rows).
+/// each is drawn and how tall the stack is — and the scroll anchors that land
+/// a row below the stack. Every extent is hand-computed with a row height of
+/// 22; the viewport heights 66, 132, 198 and 264 make the cap one, two, three
+/// and four rows (a third of the height, in whole rows).
 final class TreeStickyRuleTests: XCTestCase {
 
     private let rowHeight = 22.0
@@ -268,5 +269,147 @@ final class TreeStickyRuleTests: XCTestCase {
         XCTAssertEqual(stack(nested, top: 50, height: capTwo).height, 44)
         let pushed = [folder("root", depth: 0, 0, 2_000), folder("a", depth: 1, 22, 300)]
         XCTAssertEqual(stack(pushed, top: 299, height: capFour).height, 1)
+    }
+
+    // MARK: - Scroll anchors
+
+    /// A viewport of nine rows: the cap is three.
+    private let capThree = 198.0
+
+    /// root ⊃ a ⊃ b ⊃ c ⊃ d ⊃ e, each a deep expanded folder.
+    private var deep: [Named] {
+        [
+            folder("root", depth: 0, 0, 5_000),
+            folder("a", depth: 1, 22, 4_000),
+            folder("b", depth: 2, 44, 3_500),
+            folder("c", depth: 3, 66, 3_000),
+            folder("d", depth: 4, 88, 2_500),
+            folder("e", depth: 5, 110, 2_000),
+        ]
+    }
+
+    private func anchorY(_ rowsAbove: Int, height: Double) -> Double {
+        TreeStickyRule.anchorY(rowsAbove: rowsAbove, rowHeight: rowHeight, viewportHeight: height)
+    }
+
+    private func scrollAnchorY(_ named: [Named], rowAt rowTop: Double, height: Double) -> Double {
+        TreeStickyRule.scrollAnchorY(
+            forRowAt: rowTop, folders: named.map(\.folder), viewportHeight: height, rowHeight: rowHeight
+        )
+    }
+
+    private func placement(_ named: [Named], rowAt rowTop: Double, top: Double, height: Double) -> Double? {
+        TreeStickyRule.placement(
+            ofRowAt: rowTop,
+            folders: named.map(\.folder),
+            viewport: TreeStickyRule.Viewport(top: top, height: height),
+            rowHeight: rowHeight
+        )
+    }
+
+    func testAnchorYLandsTheRowsTopKRowsBelowTheViewportTop() {
+        // k·h / (H − h): `scrollTo` aligns the same unit point of the row and
+        // of the viewport, so the row's top lands at y·(H − h).
+        XCTAssertEqual(anchorY(0, height: capThree), 0)
+        XCTAssertEqual(anchorY(1, height: capThree), 22.0 / 176.0)
+        XCTAssertEqual(anchorY(3, height: capThree), 66.0 / 176.0)
+        XCTAssertEqual(anchorY(3, height: capThree) * (capThree - rowHeight), 66, accuracy: 1e-9)
+        // Clamped to 0…1.
+        XCTAssertEqual(anchorY(8, height: capThree), 1)
+        XCTAssertEqual(anchorY(20, height: capThree), 1)
+        // A viewport no taller than one row has nowhere to place it.
+        XCTAssertEqual(anchorY(1, height: rowHeight), 0)
+        XCTAssertEqual(anchorY(1, height: 10), 0)
+    }
+
+    func testTheClickAnchorCountsEligibleAncestorsNotTheIndexInACappedStack() {
+        // Cap 3. At 200 the chain reaches a, b, c, then d and e each drop the
+        // outermost: the stack is [c, d, e].
+        let answer = stack(deep, top: 200, height: capThree)
+        XCTAssertEqual(answer.rows.map { deep[$0.index].name }, ["c", "d", "e"])
+        // e sits at index 2, but once its row is under the stack a, b, c and d
+        // all qualify and fill slots 0–2: it must land in slot 3.
+        let innermost = answer.rows[2]
+        XCTAssertEqual(innermost.scrollAnchorY, anchorY(3, height: capThree))
+        XCTAssertNotEqual(innermost.scrollAnchorY, anchorY(2, height: capThree))
+        XCTAssertEqual(innermost.scrollAnchorY, scrollAnchorY(deep, rowAt: 110, height: capThree))
+        // c has a and b above it (slot 2); d has a, b, c (slot 3, the cap).
+        XCTAssertEqual(
+            answer.rows.map(\.scrollAnchorY),
+            [anchorY(2, height: capThree), anchorY(3, height: capThree), anchorY(3, height: capThree)]
+        )
+    }
+
+    func testWithNothingCappedTheClickAnchorIsTheIndexInTheStack() {
+        let answer = stack(nested, top: 200, height: capFour)
+        XCTAssertEqual(answer.rows.map { nested[$0.index].name }, ["a", "b", "c"])
+        for (index, row) in answer.rows.enumerated() {
+            XCTAssertEqual(row.scrollAnchorY, anchorY(index, height: capFour), "row \(index)")
+        }
+    }
+
+    func testTheEligibleAncestorCountIgnoresTheRootCollapsedFoldersAndTheRowsOwnFolder() {
+        let named = [
+            folder("root", depth: 0, 0, 2_000),
+            folder("a", depth: 1, 22, 1_500),
+            folder("b", depth: 2, 44, 1_000, expanded: false),
+            folder("c", depth: 2, 1_000, 1_400),
+        ]
+        let folders = named.map(\.folder)
+        func count(_ rowTop: Double) -> Int {
+            TreeStickyRule.eligibleAncestorCount(forRowAt: rowTop, folders: folders, rowHeight: rowHeight)
+        }
+        // Inside the collapsed b's claimed span: only a counts.
+        XCTAssertEqual(count(66), 1)
+        // a's own row: the root does not count and a is not its own ancestor.
+        XCTAssertEqual(count(22), 0)
+        // c's own row counts a alone; a row inside c counts a and c.
+        XCTAssertEqual(count(1_000), 1)
+        XCTAssertEqual(count(1_022), 2)
+        // Past a's subtree: the root alone, which never counts.
+        XCTAssertEqual(count(1_600), 0)
+    }
+
+    func testTheRevealCentreClearsTheCappedStackForEveryViewportHeight() {
+        XCTAssertEqual(TreeStickyRule.revealAnchorY, 0.5)
+        var checked = 0
+        for height in stride(from: 3 * rowHeight, through: 60 * rowHeight, by: 1) {
+            let cap = TreeStickyRule.maximumRows(viewportHeight: height, rowHeight: rowHeight)
+            XCTAssertGreaterThanOrEqual(cap, 1, "viewport \(height)")
+            let centredTop = TreeStickyRule.revealAnchorY * (height - rowHeight)
+            XCTAssertGreaterThanOrEqual(centredTop, Double(cap) * rowHeight, "viewport \(height)")
+            checked += 1
+        }
+        // 66 … 1,320 in one-point steps.
+        XCTAssertEqual(checked, 1_255)
+    }
+
+    func testPlacementLeavesAClearRowAlone() {
+        // Nothing pins at 0: the whole viewport [0, 198) is clear.
+        XCTAssertNil(placement(deep, rowAt: 132, top: 0, height: capThree))
+        XCTAssertNil(placement(deep, rowAt: 176, top: 0, height: capThree))
+        // At 200 the stack [c, d, e] ends at 266: a row starting there is clear.
+        XCTAssertNil(placement(deep, rowAt: 266, top: 200, height: capThree))
+        XCTAssertNil(placement(deep, rowAt: 376, top: 200, height: capThree))
+    }
+
+    func testPlacementScrollsARowUnderTheStackBelowIt() {
+        // [230, 252) lies under the stack's 66 points. Five eligible ancestors
+        // contain it; the cap holds the anchor at three rows.
+        let anchor = placement(deep, rowAt: 230, top: 200, height: capThree)
+        XCTAssertEqual(anchor, scrollAnchorY(deep, rowAt: 230, height: capThree))
+        XCTAssertEqual(anchor, anchorY(3, height: capThree))
+        XCTAssertNotEqual(anchor, anchorY(5, height: capThree))
+    }
+
+    func testPlacementScrollsARowBelowTheViewport() {
+        // [377, 399) crosses the viewport's bottom edge at 398.
+        XCTAssertEqual(
+            placement(deep, rowAt: 377, top: 200, height: capThree),
+            scrollAnchorY(deep, rowAt: 377, height: capThree)
+        )
+        // Past every folder but the root: no ancestor counts, so the anchor is
+        // the viewport's top — non-nil, unlike a clear row.
+        XCTAssertEqual(placement(deep, rowAt: 4_500, top: 200, height: capThree), 0)
     }
 }

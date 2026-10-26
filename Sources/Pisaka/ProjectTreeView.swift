@@ -111,7 +111,13 @@ struct ProjectTreeView: View {
     @StateObject private var stickyViewport = TreeStickyViewportSource()
 
     @State private var draft: TreeEditDraft?
-    @State private var draftAppearedTrigger: Int = 0
+    /// Set when a create draft appears and cleared once it has been placed:
+    /// the draft is placed when this and its measured top (`draftTop`) are
+    /// both present, so the placement waits on the measurement, not a delay.
+    @State private var draftPlacementPending = false
+    /// The create draft's top in the content space, as its row reports it
+    /// (`TreeStickyDraftTopKey`); `nil` while no draft is shown.
+    @State private var draftTop: Double?
     /// The token of the last reveal whose target row reported itself on screen,
     /// or whose path an ancestor's listing turned out not to hold. From then on
     /// the request is withdrawn from the recursion, so a node the user collapses
@@ -261,7 +267,7 @@ struct ProjectTreeView: View {
                         onShowLocalHistory: onShowLocalHistory,
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
-                        onDraftAppeared: { draftAppearedTrigger += 1 },
+                        onDraftAppeared: { draftPlacementPending = true },
                         draft: $draft,
                         dragSession: dragSession,
                         selection: TreeSelection(model.selectedFile?.url),
@@ -272,8 +278,10 @@ struct ProjectTreeView: View {
                             guard completedRevealToken != token else { return }
                             completedRevealToken = token
                             guard let target else { return }
+                            // The centre, which always clears the largest
+                            // pinned stack (`TreeStickyRule.revealAnchorY`).
                             withAnimation {
-                                proxy.scrollTo(target, anchor: .center)
+                                proxy.scrollTo(target, anchor: UnitPoint(x: 0, y: TreeStickyRule.revealAnchorY))
                             }
                         },
                         isRoot: true,
@@ -305,11 +313,7 @@ struct ProjectTreeView: View {
                     }
                 }
                 .coordinateSpace(.named(TreeStickySpace.content))
-                .onChange(of: draftAppearedTrigger) { _ in
-                    withAnimation {
-                        proxy.scrollTo("draft-row")
-                    }
-                }
+                .onPreferenceChange(TreeStickyDraftTopKey.self) { draftTop = $0 }
             }
             .coordinateSpace(.named(TreeStickySpace.viewport))
             // The pinned stack, on the scroll view rather than in its content:
@@ -317,6 +321,8 @@ struct ProjectTreeView: View {
             // which is outside the scroll view — whatever the offset. It reads
             // the expanded folders' reports as they cross the scroll view, and
             // its own reader answers the viewport's height.
+            // The create draft is placed from here too, where the reports and
+            // the viewport meet.
             .overlayPreferenceValue(TreeStickyFoldersKey.self, alignment: .top) { reports in
                 GeometryReader { geometry in
                     TreeStickyStackView(
@@ -324,8 +330,28 @@ struct ProjectTreeView: View {
                         viewport: stickyViewport.viewport,
                         viewportHeight: Double(geometry.size.height),
                         gitStatus: gitStatus,
-                        diagnostics: diagnostics
+                        diagnostics: diagnostics,
+                        onScrollToFolder: { row, scrollID in
+                            withAnimation {
+                                proxy.scrollTo(scrollID, anchor: UnitPoint(x: 0, y: row.scrollAnchorY))
+                            }
+                        }
                     )
+                    .background {
+                        TreeStickyDraftPlacement(
+                            reports: reports,
+                            viewport: stickyViewport.viewport,
+                            viewportHeight: Double(geometry.size.height),
+                            request: draftPlacementPending ? draftTop : nil,
+                            onPlace: { anchorY in
+                                draftPlacementPending = false
+                                guard let anchorY else { return }
+                                withAnimation {
+                                    proxy.scrollTo("draft-row", anchor: UnitPoint(x: 0, y: anchorY))
+                                }
+                            }
+                        )
+                    }
                 }
             }
             .onChange(of: model.projectRoot) { _ in
@@ -724,6 +750,16 @@ private struct DirectoryNodeView: View {
                 }
                 .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
                 .id("draft-row")
+                // Its top in the content space, where the pinned stack's
+                // folder reports are measured, for the draft's placement.
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: TreeStickyDraftTopKey.self,
+                            value: Double(geometry.frame(in: .named(TreeStickySpace.content)).minY)
+                        )
+                    }
+                }
                 .onAppear {
                     onDraftAppeared()
                 }
@@ -1432,6 +1468,15 @@ private struct TreeStickyFoldersKey: PreferenceKey {
     static let defaultValue: [TreeStickyFolderReport] = []
     static func reduce(value: inout [TreeStickyFolderReport], nextValue: () -> [TreeStickyFolderReport]) {
         value.append(contentsOf: nextValue())
+    }
+}
+
+/// The create draft's top in `TreeStickySpace.content`; `nil` while no draft
+/// is shown. At most one draft exists, so the first value wins.
+private struct TreeStickyDraftTopKey: PreferenceKey {
+    static let defaultValue: Double? = nil
+    static func reduce(value: inout Double?, nextValue: () -> Double?) {
+        value = value ?? nextValue()
     }
 }
 
@@ -2383,6 +2428,9 @@ private struct TreeStickyStackView: View {
     /// The tree's lookups, read as the real rows read them.
     let gitStatus: TreeGitStatus
     let diagnostics: TreeDiagnostics
+    /// Scrolls the folder row with the given scroll id to the row's
+    /// `scrollAnchorY` — the rule's answer, so the copy does no arithmetic.
+    let onScrollToFolder: (TreeStickyRule.Stack.Row, String) -> Void
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -2400,10 +2448,15 @@ private struct TreeStickyStackView: View {
         }
         ZStack(alignment: .top) {
             ForEach(pinned) { pinnedRow in
-                TreeStickyRowView(report: pinnedRow.report, gitStatus: gitStatus, diagnostics: diagnostics)
-                    .offset(y: pinnedRow.row.top)
-                    // Outermost on top.
-                    .zIndex(Double(pinned.count - pinnedRow.level))
+                TreeStickyRowView(
+                    report: pinnedRow.report,
+                    gitStatus: gitStatus,
+                    diagnostics: diagnostics,
+                    onSelect: { onScrollToFolder(pinnedRow.row, pinnedRow.report.scrollID) }
+                )
+                .offset(y: pinnedRow.row.top)
+                // Outermost on top.
+                .zIndex(Double(pinned.count - pinnedRow.level))
             }
         }
         .frame(maxWidth: .infinity, minHeight: stack.height, maxHeight: stack.height, alignment: .top)
@@ -2442,11 +2495,13 @@ private struct TreeStickyPinnedRow: Identifiable {
 /// expanded chevron, because only expanded folders pin. A tap on the chevron
 /// slot collapses the folder through its node's own expansion binding — the
 /// very `@State` the real row toggles, so its collapse handler drops any draft
-/// below.
+/// below. A tap anywhere else scrolls the folder's real row to just under the
+/// stack (`onSelect`); it changes no selection and opens nothing.
 private struct TreeStickyRowView: View {
     let report: TreeStickyFolderReport
     let gitStatus: TreeGitStatus
     let diagnostics: TreeDiagnostics
+    let onSelect: () -> Void
 
     @State private var isHovering = false
 
@@ -2475,6 +2530,7 @@ private struct TreeStickyRowView: View {
             .background(rowBackground)
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
+            .onTapGesture { onSelect() }
             .overlay(alignment: .leading) {
                 // The chevron slot: the row's leading padding, the chevron
                 // column and its gap, each scaled as the row lays them out.
@@ -2501,6 +2557,37 @@ private struct TreeStickyRowView: View {
             isDropTarget: false
         )
         return TreeRowBackground.color(for: state, resolving: theme.color)
+    }
+}
+
+/// Places the create draft once it has appeared and been measured: asks
+/// `TreeStickyRule.placement` once per request and hands the answer to
+/// `onPlace` — `nil` when the draft already shows below the stack, so nothing
+/// scrolls. Draws nothing, and reads the scroll offset without observing it,
+/// so a scroll frame never re-renders it.
+private struct TreeStickyDraftPlacement: View {
+    let reports: [TreeStickyFolderReport]
+    let viewport: TreeStickyViewport
+    let viewportHeight: Double
+    /// The draft's measured top while a placement is pending, else `nil`.
+    let request: Double?
+    let onPlace: (Double?) -> Void
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    var body: some View {
+        Color.clear.onChange(of: request, initial: true) { _, draftTop in
+            guard let draftTop else { return }
+            onPlace(
+                TreeStickyRule.placement(
+                    ofRowAt: draftTop,
+                    folders: reports.map(\.folder),
+                    viewport: TreeStickyRule.Viewport(top: viewport.top, height: viewportHeight),
+                    rowHeight: Double(metrics.scaled(ChromeGeometry.rowHeight))
+                )
+            )
+        }
     }
 }
 
