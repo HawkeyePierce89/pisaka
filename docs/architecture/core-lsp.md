@@ -3083,8 +3083,8 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `.warning`, `nil`), which is what the tree hands
     `ChromeColorRole.diagnosticRole(for:)` so no view switches over a severity
     (the theme's rule fifteen, `core-theme.md`), and `spokenName` ("has errors",
-    "has warnings", `nil`), which `TreeGitState.accessibilityValue(state:mark:row:)`
-    composes after the git word — a file row joins the words that exist with
+    "has warnings", `nil`), which `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`
+    composes after the test row's word and the git word — a file row joins the words that exist with
     ", " or says `""`; a folder row leads with its expansion word.
     **Aggregation.** For each entry of **either kind** — a buffer's mapped set and
     a closed file's positional one alike — the worst severity is taken; the

@@ -683,13 +683,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     deletion counts as `modified` for the folders it vanished from, never as
     `conflict`. `spokenName` is "Conflicted" / "Modified" / "Added" / "Ignored",
     `nil` for `plain`, which has nothing to say; the pure
-    `accessibilityValue(state:mark:row:)` composes a row's value from the git
-    state's word and the diagnostic mark's words (`TreeDiagnosticMark`, "has
-    errors" / "has warnings", `core-lsp.md`), joined by `", "` — a file's words
-    that exist, or `""` when neither does; a folder's "expanded" / "collapsed"
-    first, then each word that exists — so both row kinds speak the state alike.
-    The mark parameter is non-defaulted, so no call site can forget it. The colour is a
-    separate Core answer, `ChromeColorRole.treeNameRole(for:)` (`core-theme.md`).
+    `accessibilityValue(state:mark:row:isTestRow:)` composes a row's value from
+    the test row's word ("Test", when `TreeTestRule` answers yes,
+    `core-workspace.md`), the git state's word and the diagnostic mark's words
+    (`TreeDiagnosticMark`, "has errors" / "has warnings", `core-lsp.md`), in that
+    order, joined by `", "` — a file's words that exist, or `""` when none does
+    (a plain, clean test file says just "Test"); a folder's "expanded" /
+    "collapsed" first, then each word that exists — so both row kinds speak the
+    state alike. The mark and `isTestRow` parameters are both non-defaulted, so no
+    call site can forget either; `isTestRow` matters because the tree's test wash
+    is colour alone, and the word is what carries it to a listener. A row that is
+    not a test row speaks exactly what it spoke before the word existed. The
+    colour is a separate Core answer, `ChromeColorRole.treeNameRole(for:)`
+    (`core-theme.md`).
     **`TreeGitStatus`** (`Equatable`, `Sendable`; `.empty` answers `plain`
     everywhere — outside a repository, before the first refresh and after a
     failed one) is **built** from the snapshot, the repository root and the
@@ -733,8 +739,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a whole-component prefix, ignore never upward, change outranks ignore, the
     empty lookup, a URL outside every spelling, an opened subfolder's prefix,
     lexical standardization, a symlinked folder spelling, the probe bound, the
-    spoken names, both accessibility compositions and the status mapping's
-    totality.
+    spoken names, both accessibility compositions, every position of the "Test"
+    word (a file alone, after a folder's expansion word, before the git and
+    diagnostics words), a non-test row's value unchanged over every state, mark
+    and row kind, and the status mapping's totality.
   - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
     `date(from:)` parses git's raw strict ISO-8601 `%aI` string
     (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`

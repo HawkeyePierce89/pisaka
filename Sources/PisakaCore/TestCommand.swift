@@ -35,10 +35,28 @@ public enum TestCommand {
         "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"
     ]
 
-    /// Whether `fileName` is a test file for its language, per each ecosystem's
-    /// naming convention. Drives the "Run Test" context-menu item and the ⌘U menu
-    /// enablement.
+    /// Whether `fileName` is a test file for its language: every `.rs` file, or a
+    /// name that follows its ecosystem's naming convention
+    /// (`followsTestNamingConvention`). Drives the "Run Test" context-menu item
+    /// and the ⌘U menu enablement.
+    ///
+    /// Rust is the one difference between the two predicates: its tests live
+    /// beside the code in `#[cfg(test)]` modules, so there is no name to match
+    /// and every `.rs` file is a test target. Defining this predicate through
+    /// the convention table keeps that table in one place, and what "Run Test"
+    /// offers is exactly what it was before the split.
     public static func isTestFile(fileName: String) -> Bool {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        return ext == "rs" || followsTestNamingConvention(fileName: fileName)
+    }
+
+    /// Whether `fileName`'s own name follows its ecosystem's test-naming
+    /// convention — the one table both this predicate and `isTestFile` read, so
+    /// a convention added here reaches both by construction. **`false` for every
+    /// `.rs` file**: Rust has no naming convention, which is why `isTestFile`
+    /// adds it back and why the project tree, which reads only this predicate
+    /// (`TreeTestRule`), marks a Rust file only through a test folder above it.
+    public static func followsTestNamingConvention(fileName: String) -> Bool {
         let ext = (fileName as NSString).pathExtension.lowercased()
         if jsExtensions.contains(ext) {
             return fileName.contains(".test.") || fileName.contains(".spec.")
@@ -56,8 +74,6 @@ public enum TestCommand {
             return fileName.hasSuffix("_test.go")
         case "swift":
             return fileName.hasSuffix("Tests.swift") || fileName.hasSuffix("Test.swift")
-        case "rs":
-            return true
         default:
             return false
         }

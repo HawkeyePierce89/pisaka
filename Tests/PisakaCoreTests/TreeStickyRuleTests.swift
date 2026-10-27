@@ -176,12 +176,15 @@ final class TreeStickyRuleTests: XCTestCase {
 
     func testACappedCandidateJoinsExactlyOnceFullyUnderTheStack() {
         // Cap 2, c's real row is [66, 88). At 43 it still crosses the stack
-        // [a, b]'s bottom edge (87): it shows itself and no copy is drawn.
+        // [a, b]'s bottom edge (87) by a whole point: it shows itself and no
+        // copy is drawn. At 43.4 it still crosses by more than half a point.
         XCTAssertEqual(pinned(nested, top: 43, height: capTwo), [row("a", 0), row("b", 22)])
-        // Half a point or a hair short of it, c's row still shows under the
-        // stack: the full chain's `≤` allows a drift, not a margin.
-        XCTAssertEqual(pinned(nested, top: 43.5, height: capTwo), [row("a", 0), row("b", 22)])
-        XCTAssertEqual(pinned(nested, top: 43.999, height: capTwo), [row("a", 0), row("b", 22)])
+        XCTAssertEqual(pinned(nested, top: 43.4, height: capTwo), [row("a", 0), row("b", 22)])
+        // Half a point or a hair short of the last slot, it joins: the full
+        // chain's `≤` allows the scroll's rounding, half a point, because a
+        // click can settle that far short of its target on a whole-pixel scroll.
+        XCTAssertEqual(pinned(nested, top: 43.5, height: capTwo), [row("b", 0), row("c", 22)])
+        XCTAssertEqual(pinned(nested, top: 43.999, height: capTwo), [row("b", 0), row("c", 22)])
         // At 44 it lies exactly under b's copy, the last slot [66, 88): left
         // out, c would show neither its row nor a copy. It joins, a drops.
         XCTAssertEqual(pinned(nested, top: 44, height: capTwo), [row("b", 0), row("c", 22)])
@@ -391,26 +394,55 @@ final class TreeStickyRuleTests: XCTestCase {
         // each is either pinned or shows its real row below the stack — never
         // covered by another folder's copy, as the direct parent was when a
         // capped candidate exactly under the last slot was left out.
-        let folders = deep.map(\.folder)
+        assertEveryClickLeavesItsFolderInSight(deep) { $0 }
+        // The same trip as the scroll actually settles it: `scrollTo` rounds a
+        // programmatic offset to the backing pixel, a whole point at scale 1,
+        // where rows lie on the half-point grid. `deep` shifted by half a
+        // point puts every anchor there, and flooring lands it half a point
+        // short — the capped candidate then lies that far below the last slot.
+        let shifted = deep.map { named in
+            var folder = named.folder
+            folder.top += 0.5
+            folder.bottom += 0.5
+            return (named.name, folder)
+        }
+        let moved = assertEveryClickLeavesItsFolderInSight(shifted) { $0.rounded(.down) }
+        // Not vacuous: the floor moved at least one landing off the exact one.
+        XCTAssertGreaterThan(moved, 0)
+    }
+
+    /// Clicks every pinned copy of `named` at every whole-point offset of four
+    /// viewport heights, scrolls to `settle(exact landing)`, and asserts the
+    /// clicked folder and its innermost `cap` ancestors are in sight. Answers
+    /// how many landings `settle` moved.
+    @discardableResult
+    private func assertEveryClickLeavesItsFolderInSight(
+        _ named: [Named], settle: (Double) -> Double, line: UInt = #line
+    ) -> Int {
+        let folders = named.map(\.folder)
+        var moved = 0
         for height in [capOne, capTwo, capThree, capFour] {
             let cap = TreeStickyRule.maximumRows(viewportHeight: height, rowHeight: rowHeight)
             for top in stride(from: 0.0, through: 400, by: 1) {
-                for clicked in stack(deep, top: top, height: height).rows {
-                    let landed = folders[clicked.index].top - clicked.scrollAnchorY * (height - rowHeight)
-                    let after = stack(deep, top: landed, height: height)
+                for clicked in stack(named, top: top, height: height).rows {
+                    let exact = folders[clicked.index].top - clicked.scrollAnchorY * (height - rowHeight)
+                    let landed = settle(exact)
+                    if landed != exact { moved += 1 }
+                    let after = stack(named, top: landed, height: height)
                     let pinned = Set(after.rows.map(\.index))
                     func inSight(_ index: Int) -> Bool {
                         pinned.contains(index) || folders[index].top - landed >= after.height - 1e-9
                     }
-                    let context = "\(deep[clicked.index].name) clicked at \(top), H \(height)"
-                    XCTAssertFalse(pinned.contains(clicked.index), context)
-                    XCTAssertTrue(inSight(clicked.index), context)
+                    let context = "\(named[clicked.index].name) clicked at \(top), H \(height), landed \(landed)"
+                    XCTAssertFalse(pinned.contains(clicked.index), context, line: line)
+                    XCTAssertTrue(inSight(clicked.index), context, line: line)
                     for ancestor in (1..<clicked.index).suffix(cap) {
-                        XCTAssertTrue(inSight(ancestor), "\(deep[ancestor].name) covered — \(context)")
+                        XCTAssertTrue(inSight(ancestor), "\(named[ancestor].name) covered — \(context)", line: line)
                     }
                 }
             }
         }
+        return moved
     }
 
     func testTheEligibleAncestorCountIsTheFoldersStrictlyContainingTheRow() {

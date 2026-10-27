@@ -297,6 +297,11 @@ import XCTest
 ///   is coloured by its git state through one Core mapping, read by the tree
 ///   alone; a second table in a view compiles, draws four plausible colours and
 ///   disagrees with the Local Changes panel the first time either is touched.
+/// - **The tree's test wash is Core's one answer, painted at the one row-background site.**
+///   Whether a project-tree row is washed as a test row is one Core answer,
+///   read by the tree alone and only inside `TreeRowBackground`, the site all
+///   three tree rows paint through; a second reader compiles, washes one row
+///   kind and leaves the other — or the pinned copy — plain.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -4502,6 +4507,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// passes `isSelected: false` because a folder is never the active tab, and
     /// `isDropTarget: false` because the copy accepts no drop — so it has no
     /// selection to yield, and only its hover goes through the shared mapping.
+    /// All three tree entries paint through `TreeRowBackground`'s layered
+    /// method, which lays the node's test-row wash beneath the state's tint
+    /// (rule fifty-two); the selection wash still paints over it.
     private static let chromeRowBackgrounds: [String: [String]] = [
         "AcknowledgementsView.swift": [
             "if isSelected { return theme.color(.accentTintStrong) } if isHovering { return theme.color(.hoverTint) } return .clear",
@@ -4522,13 +4530,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         "ProjectTreeView.swift": [
             "let state = TreeRowState.state( isSelected: false, isWindowKey: controlActiveState == .key, "
                 + "isHovering: isHovering, isDropTarget: isDropTarget ) "
-                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+                + "return TreeRowBackground.background(for: state, isTestRow: isTestRow, resolving: theme.color)",
             "let state = TreeRowState.state( isSelected: isSelected, isWindowKey: controlActiveState == .key, "
                 + "isHovering: isHovering, isDropTarget: false ) "
-                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+                + "return TreeRowBackground.background(for: state, isTestRow: isTestRow, resolving: theme.color)",
             "let state = TreeRowState.state( isSelected: false, isWindowKey: controlActiveState == .key, "
                 + "isHovering: isHovering, isDropTarget: false ) "
-                + "return TreeRowBackground.color(for: state, resolving: theme.color)",
+                + "return TreeRowBackground.background(for: state, isTestRow: report.isTestRow, "
+                + "resolving: theme.color)",
         ],
         "TabRowView.swift": [
             "if !isActive && isHovering { return theme.color(.hoverTint) } return Color.clear",
@@ -6078,6 +6087,62 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
+    // MARK: - Rule fifty-two: the tree's test wash is Core's one answer, painted at the one row-background site
+
+    /// The app files reading `ChromeColorRole.treeRowWashRole(isTestRow:)`: the
+    /// project tree alone, inside `TreeRowBackground`.
+    private static let treeRowWashRoleReaders: Set<String> = ["ProjectTreeView.swift"]
+
+    /// Rule fifty-two. Which role a project-tree test row is washed in has one
+    /// answer in Core — `ChromeColorRole.treeRowWashRole(isTestRow:)`, which
+    /// reuses `diffAddedBackground` — and one site paints it:
+    /// `TreeRowBackground.layers(for:isTestRow:)`, under the layered background
+    /// the folder row, the file row and the pinned copy all call. Rule nineteen
+    /// already keeps every app file but the palette from naming the role; this
+    /// keeps the answer from being asked anywhere else. Over stripped source:
+    ///
+    /// - no app file declares `func treeRowWashRole`;
+    /// - the app files spelling `treeRowWashRole(` equal `treeRowWashRoleReaders`;
+    /// - in `ProjectTreeView.swift`, every spelling lies inside
+    ///   `enum TreeRowBackground`'s brace-matched body, and there is at least one.
+    ///
+    /// A row kind that bypassed the site and painted `color(for:resolving:)`
+    /// instead would go unwashed without failing here; rule thirty-five's pinned
+    /// row-background bodies are what catch that.
+    func testTheTreesTestWashIsCoresOneAnswerPaintedAtTheOneRowBackgroundSite() throws {
+        var readers: Set<String> = []
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let name = url.lastPathComponent
+            let code = try RepositorySources.stripped(url)
+            XCTAssertFalse(
+                code.contains("func treeRowWashRole"),
+                "\(name) declares its own treeRowWashRole — the tree's test wash is Core's one answer"
+            )
+            if Self.spellsCall("treeRowWashRole(", in: code) { readers.insert(name) }
+        }
+        XCTAssertEqual(
+            readers, Self.treeRowWashRoleReaders,
+            "the app files reading ChromeColorRole.treeRowWashRole(isTestRow:) must be exactly its known readers"
+        )
+
+        let tree = try RepositorySources.stripped(Self.source(named: "ProjectTreeView.swift"))
+        let site = try XCTUnwrap(
+            Self.matchedBodyRange(after: "enum TreeRowBackground", in: tree),
+            "enum TreeRowBackground is gone or renamed — re-point this rule rather than losing it"
+        )
+        let calls = Self.callRanges("treeRowWashRole(", in: tree)
+        XCTAssertFalse(calls.isEmpty, "ProjectTreeView.swift no longer asks treeRowWashRole — no test row is washed")
+        for call in calls {
+            XCTAssertTrue(
+                site.contains(call.lowerBound),
+                """
+                ProjectTreeView.swift asks treeRowWashRole outside TreeRowBackground — the wash is painted at the \
+                one row-background site, through layers(for:isTestRow:)
+                """
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
@@ -6180,7 +6245,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
-        49: "forty-nine", 50: "fifty", 51: "fifty-one", 65: "sixty-five", 66: "sixty-six",
+        49: "forty-nine", 50: "fifty", 51: "fifty-one", 52: "fifty-two", 65: "sixty-five", 66: "sixty-six",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

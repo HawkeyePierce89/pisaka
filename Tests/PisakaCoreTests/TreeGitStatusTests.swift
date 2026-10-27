@@ -261,22 +261,22 @@ final class TreeGitStatusTests: XCTestCase {
     }
 
     func testAccessibilityValueForBothRowKinds() {
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .modified, mark: .none, row: .file), "Modified")
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .file), "")
+        XCTAssertEqual(TreeGitState.accessibilityValue(state: .modified, mark: .none, row: .file, isTestRow: false), "Modified")
+        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .file, isTestRow: false), "")
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .conflict, mark: .none, row: .folder(isExpanded: true)),
+            TreeGitState.accessibilityValue(state: .conflict, mark: .none, row: .folder(isExpanded: true), isTestRow: false),
             "expanded, Conflicted"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .ignored, mark: .none, row: .folder(isExpanded: false)),
+            TreeGitState.accessibilityValue(state: .ignored, mark: .none, row: .folder(isExpanded: false), isTestRow: false),
             "collapsed, Ignored"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: true)),
+            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: true), isTestRow: false),
             "expanded"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: false)),
+            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: false), isTestRow: false),
             "collapsed"
         )
     }
@@ -294,7 +294,7 @@ final class TreeGitStatusTests: XCTestCase {
             (.plain, .none, ""),
         ]
         for (state, mark, expected) in file {
-            XCTAssertEqual(TreeGitState.accessibilityValue(state: state, mark: mark, row: .file), expected)
+            XCTAssertEqual(TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: false), expected)
         }
         let folder: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
             (.modified, .error, true, "expanded, Modified, has errors"),
@@ -306,9 +306,65 @@ final class TreeGitStatusTests: XCTestCase {
         ]
         for (state, mark, isExpanded, expected) in folder {
             XCTAssertEqual(
-                TreeGitState.accessibilityValue(state: state, mark: mark, row: .folder(isExpanded: isExpanded)),
+                TreeGitState.accessibilityValue(state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: false),
                 expected
             )
+        }
+    }
+
+    /// Every position of the test row's `Test` word: after a folder's
+    /// expansion word, before the git word and the diagnostics words, and alone
+    /// on a plain, clean file.
+    func testAccessibilityValueSpeaksTheTestWordInItsPlace() {
+        let file: [(TreeGitState, TreeDiagnosticMark, String)] = [
+            (.plain, .none, "Test"),
+            (.modified, .none, "Test, Modified"),
+            (.added, .error, "Test, Added, has errors"),
+            (.plain, .warning, "Test, has warnings"),
+        ]
+        for (state, mark, expected) in file {
+            XCTAssertEqual(
+                TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: true), expected
+            )
+        }
+        let folder: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
+            (.plain, .none, true, "expanded, Test"),
+            (.plain, .none, false, "collapsed, Test"),
+            (.modified, .none, true, "expanded, Test, Modified"),
+            (.ignored, .none, false, "collapsed, Test, Ignored"),
+            (.plain, .error, true, "expanded, Test, has errors"),
+            (.conflict, .warning, false, "collapsed, Test, Conflicted, has warnings"),
+        ]
+        for (state, mark, isExpanded, expected) in folder {
+            XCTAssertEqual(
+                TreeGitState.accessibilityValue(
+                    state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: true
+                ),
+                expected
+            )
+        }
+    }
+
+    /// A row that is not a test row speaks exactly what it spoke before the
+    /// word existed: the value is the non-test composition, word for word, for
+    /// every state, mark and row kind.
+    func testAccessibilityValueOfANonTestRowIsUnchanged() {
+        let rows: [TreeGitState.RowKind] = [.file, .folder(isExpanded: true), .folder(isExpanded: false)]
+        for state in TreeGitState.allCases {
+            for mark in TreeDiagnosticMark.allCases {
+                for row in rows {
+                    let words = [state.spokenName, mark.spokenName].compactMap { $0 }
+                    let expected: String
+                    switch row {
+                    case .file: expected = words.joined(separator: ", ")
+                    case .folder(let isExpanded):
+                        expected = ([isExpanded ? "expanded" : "collapsed"] + words).joined(separator: ", ")
+                    }
+                    let value = TreeGitState.accessibilityValue(state: state, mark: mark, row: row, isTestRow: false)
+                    XCTAssertEqual(value, expected, "\(state) \(mark) \(row)")
+                    XCTAssertFalse(value.contains("Test"), "\(state) \(mark) \(row)")
+                }
+            }
         }
     }
 

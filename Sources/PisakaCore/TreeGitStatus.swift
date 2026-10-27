@@ -53,12 +53,19 @@ public enum TreeGitState: CaseIterable, Comparable, Hashable, Sendable {
         case folder(isExpanded: Bool)
     }
 
-    /// A row's accessibility value, its words joined by `", "`: for a file, the
-    /// git state's word and the diagnostic mark's words, each when there is
-    /// one, or `""` when neither is; for a folder, `"expanded"` /
-    /// `"collapsed"` first, then each of those that exists.
-    public static func accessibilityValue(state: TreeGitState, mark: TreeDiagnosticMark, row: RowKind) -> String {
-        let words = [state.spokenName, mark.spokenName].compactMap { $0 }
+    /// A row's accessibility value, its words joined by `", "`: for a file,
+    /// `"Test"` when the row is a test row (`TreeTestRule`), then the git
+    /// state's word, then the diagnostic mark's words, each when there is one,
+    /// or `""` when none is; for a folder, `"expanded"` / `"collapsed"` first,
+    /// then each of those that exists, in the same order.
+    ///
+    /// `isTestRow` is required, with no default, so no call site can silently
+    /// leave a test row unspoken: the wash the tree paints a test row with is
+    /// colour alone, and this word is what carries it to a listener.
+    public static func accessibilityValue(
+        state: TreeGitState, mark: TreeDiagnosticMark, row: RowKind, isTestRow: Bool
+    ) -> String {
+        let words = [isTestRow ? "Test" : nil, state.spokenName, mark.spokenName].compactMap { $0 }
         switch row {
         case .file:
             return words.joined(separator: ", ")

@@ -170,6 +170,20 @@ two new geometry tokens) and each with its readers pinned by a gating
     exists for it. Pinned over `allCases` in `ChromeRoleMappingTests`; rule
     fifty-one pins its one reader, `ProjectTreeView.swift`, which draws only the
     row's name in it (`app-window.md`).
+    **The project tree's test rows added a seventh**, `treeRowWashRole(isTestRow:
+    Bool) -> ChromeColorRole?` — `diffAddedBackground` for a test row
+    (`TreeTestRule`, `core-workspace.md`), nil otherwise, so a row that is not a
+    test row paints no wash and draws exactly as before. A reuse, not a new role:
+    `diffAddedBackground` is already the palette's faint green wash at its own
+    alpha, so a test row is tinted as an added diff line is, and no role and no
+    palette value exists for it. It is a Core answer rather than a spelling in the
+    tree because rule nineteen keeps `diffAddedBackground` out of every app file
+    but the palette — the role set stays closed against call sites. Both answers
+    are pinned in `ChromeRoleMappingTests`. Its one reader is
+    `ProjectTreeView.swift`'s `TreeRowBackground.layers(for:isTestRow:)`, the
+    layered background all three tree rows paint through (wash first, the
+    state's tint over it); rule fifty-two pins that reader and that site
+    (`app-window.md`).
   - `ChromeGeometry.swift` — the chrome's measurements as unscaled point values:
     row height and horizontal padding, the tree's indent step, the maximum
     corner radius, the hairline width, five row/strip/bar heights (the tab
@@ -713,8 +727,12 @@ full entry; what is **not** listed here has not been swept.
   - **The project tree rows** — `ProjectTreeView.swift` and
     `ProjectTreeDraftField.swift`, the geometry and row-state path. Full entry in
     `app-window.md`. Every row state answers with a role or with nothing, through
-    the one mapping `TreeRowBackground.color(for:resolving:)` that both row kinds
-    — and the sticky stack's pinned folder copy, hover only — read: a `dropTarget` row takes `dropTargetTint` (since part five (g); it was
+    the one mapping `TreeRowBackground.role(for:)` that both row kinds — and the
+    sticky stack's pinned folder copy, hover only — read, all three painting
+    through the one layered method `TreeRowBackground.background(for:isTestRow:resolving:)`:
+    a test row's `diffAddedBackground` wash (`treeRowWashRole`) lies beneath the
+    state's tint, each layer the palette's colour unchanged, while the commit
+    dialog's file row, never washed, keeps `color(for:resolving:)`. A `dropTarget` row takes `dropTargetTint` (since part five (g); it was
     `accent` at a composed 40 % before), and only `plain` paints nothing. Hover,
     selection and drop are all true at the moment a drag sits over a selected row
     (the pointer is inside it), so the drop treatment has to out-read
@@ -3167,7 +3185,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The fifty-one rules, each invisible to the compiler:
+The fifty-two rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -3912,6 +3930,8 @@ The fifty-one rules, each invisible to the compiler:
     declares, in source order, compared in both directions — today the Log's
     two, the problem browser's, Local Changes', the Problems panel's, the
     tree's three, the vertical tab row's and Acknowledgements'. The tree's
+    three all paint through `TreeRowBackground.background(for:isTestRow:resolving:)`,
+    the pinned copy with its node's own `report.isTestRow` (rule fifty-two). Its
     third is the pinned copy of an expanded folder's row (the sticky stack):
     `isSelected: false`, because a folder is never the active tab, and
     `isDropTarget: false`, because the copy accepts no drop, so only its hover
@@ -4205,6 +4225,21 @@ The fifty-one rules, each invisible to the compiler:
     localChanges.treeGitStatus`: the parameter defaults to an empty lookup, so
     a dropped argument compiles and draws every row plain.
     Matched against comment- and literal-stripped text.
+52. **The tree's test wash is Core's one answer, painted at the one
+    row-background site.** Whether a project-tree row is washed as a test row
+    is `ChromeColorRole.treeRowWashRole(isTestRow:)` — `diffAddedBackground` or
+    nothing, a reuse rather than a role of its own (rule nineteen keeps the role
+    out of every app file but the palette). No app file declares
+    `func treeRowWashRole`; the app files spelling `treeRowWashRole(` equal the
+    pinned `treeRowWashRoleReaders` — the project tree alone; and inside
+    `ProjectTreeView.swift` every spelling lies within `enum TreeRowBackground`'s
+    brace-matched body, at least one of them. That body's
+    `layers(for:isTestRow:)` is what the folder row, the file row and the pinned
+    copy all paint through, beneath their state tints; the commit dialog's file
+    row keeps `color(for:resolving:)` and is never washed. A row kind bypassing
+    the site would go unwashed without failing here — rule thirty-five's pinned
+    row-background bodies catch that. Matched against comment- and
+    literal-stripped text.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
 *name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten

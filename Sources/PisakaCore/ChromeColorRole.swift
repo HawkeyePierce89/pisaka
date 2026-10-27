@@ -184,6 +184,21 @@ extension ChromeColorRole {
         }
     }
 
+    /// A project-tree row's test-row answer (`TreeTestRule`) → the role its
+    /// wash is painted in, underneath the row-state tints, or `nil` for a row
+    /// that is not a test row, which paints no wash and draws exactly as before.
+    /// The chrome's **one** answer, read by the project tree's row-background
+    /// site alone.
+    ///
+    /// A reuse, not a new role: `diffAddedBackground` is already the palette's
+    /// faint green wash, at its own alpha, so a test row is tinted the way an
+    /// added diff line is. No role and no palette value is added for it, which
+    /// keeps the role set closed against call sites — the tree cannot spell the
+    /// diff role itself, so it asks this function instead.
+    public static func treeRowWashRole(isTestRow: Bool) -> ChromeColorRole? {
+        isTestRow ? .diffAddedBackground : nil
+    }
+
     /// A pull request's checks summary → its glyph's role. One answer for the
     /// Pull Requests panel's rows and the bottom-bar indicator.
     public static func checksRole(for summary: GitHubChecksSummary) -> ChromeColorRole {

@@ -1442,8 +1442,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     source app with it — behind a dialog. The highlight is **`dropTargetTint`**,
     reached at the *same* site and through the same rule as every
     other row state: the row asks `TreeRowState.state(isSelected:isWindowKey:
-    isHovering:isDropTarget:)` (`core-theme.md`) and maps the answer through
-    `TreeRowBackground.color(for:resolving:)`. Drop outranks hover there because
+    isHovering:isDropTarget:)` (`core-theme.md`) and paints the answer through
+    `TreeRowBackground.background(for:isTestRow:resolving:)`. Drop outranks hover there because
     the pointer is inside the row and both conditions are true at once, and "will
     this drop land here?" is the only question being asked; the wash is heavier
     than `accentTintStrong` for the same reason — a drop over a row that is also
@@ -1463,12 +1463,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `ProjectTreeView.swift`, **the chrome theme's third surface** — the rows are
     drawn from the colour roles through the geometry-and-state path
     (`core-theme.md`). Every row background is one expression: the row asks
-    `TreeRowState.state(...)` and maps the answer through the file-scope
-    `TreeRowBackground.color(for:resolving:)` — `hover` → `hoverTint`,
+    `TreeRowState.state(...)` and paints the answer through the file-scope
+    `TreeRowBackground.background(for:isTestRow:resolving:)`, whose state layer
+    is `role(for:)`'s answer — `hover` → `hoverTint`,
     `selectedFocused` → `accentTintStrong`, `selectedUnfocused` →
     `selectionInactive`, `dropTarget` → `dropTargetTint`, and `plain` →
-    `.clear`, the *absence* of a background rather than a colour of its own.
-    (`role(for:)` beneath it answers a role for every state but one, and `nil`
+    no layer, the *absence* of a background rather than a colour of its own
+    (the test-row wash beneath it is the **test rows** entry's, below).
+    (`role(for:)` answers a role for every state but one, and `nil`
     only for `plain`, which paints nothing; no state composes an alpha, the drop
     wash's strength coming from the palette — pinned by
     `TreeRowBackgroundTests`.) The theme arrives as a
@@ -1567,6 +1569,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chain row asks the chain variants**, `expands(anyOf:)` and
     `isUnreachable(belowChain:listing:)`, over its segments' reveal spellings
     (see the chain entry below). The `"draft-row"` scroll id is unchanged.
+    **Both `.onChange(of: reveal)` sites use the two-argument form**, whose
+    action reads the update it was called for: the deprecated one-argument
+    form's action reads the previous update's `reveal`, which for a node or
+    row already on screen is still `nil` — so a request never expanded an
+    on-screen folder nor scrolled to an on-screen row, and only `.onAppear`
+    ever honoured one. `TreeRevealOnScreenTests` (app bundle) pins the node
+    half — a request published to a hosted tree expands its already-drawn,
+    collapsed `t` — and `TreeStickyScrollRoundingTests`' second reveal (the
+    sticky entry) the row half.
   - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
     is drawn in its git state: conflict, modified, added, ignored or plain
     (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
@@ -1585,8 +1596,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
-    Core's `TreeGitState.accessibilityValue(state:mark:row:)` — the expansion word,
-    then the state's word and the diagnostic mark's words, each when there is one,
+    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)` — the
+    expansion word, then the test row's "Test", the state's word and the
+    diagnostic mark's words, each when there is one,
     joined by `", "` (still `""` while a
     rename draft is open); a file row becomes **one combined element** carrying
     those words as its value, `""` when plain and clean, and stays `.contain` while
@@ -1604,6 +1616,49 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     their names in `statusYellow`, an ignored file's in `textSecondary`, the
     glyph unchanged, and a plain row pixel-identical to the tree without git
     state.
+  - `ProjectTreeView.swift`, **test rows** — a row Core's `TreeTestRule`
+    (`core-workspace.md`) answers as a test row — under a test folder, a test
+    folder itself, or a file named by its ecosystem's test convention — is
+    washed in `ChromeColorRole.treeRowWashRole(isTestRow:)`'s answer, the
+    palette's faint green `diffAddedBackground`, **beneath** the row-state
+    tints. **Components down the recursion**: `DirectoryNodeView` carries
+    `relativeComponents`, the root-relative listing names of its contents
+    directory — `[]` for the root, which is therefore never a test row, and the
+    parent's plus `TreeNodeShape.segmentNames` (the folder's name, or every
+    segment's for a chain) for a child — so no canonicalization enters and the
+    cost is the row's depth. Each node asks the rule **once per render** with
+    `isFolder: true` (a chain is judged by its tail, so a test segment anywhere
+    in it washes the row); each file row is asked by the folder listing it with
+    `relativeComponents + [entry.name]` and `isFolder: false`. **One site**:
+    the folder row, the file row and the sticky stack's pinned copy all paint
+    through `TreeRowBackground.background(for:isTestRow:resolving:)`, which
+    lays `layers(for:isTestRow:)` — the wash role first, then `role(for:)`'s
+    state role, `nil`s dropped — bottom to top, each the resolver's colour
+    unchanged and composing no alpha; so hover, selection and a drop target
+    paint over the wash and a selected test row still reads as selected. The
+    commit dialog's file row keeps `color(for:resolving:)` and is never washed.
+    **The pinned copy** reads the node's own answer, carried on its
+    `TreeStickyFolderReport` (`isTestRow`). **Drafts**: the row being renamed
+    keeps its wash (the background ignores `isDrafted`) while its spoken value
+    stays `""`; the create draft row is not wired and is never washed.
+    **Accessibility**: a test row's value gains `Test` — after a folder's
+    expansion word and before the git and diagnostic words, a clean test file
+    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`,
+    `core-git-models.md`). Chrome gating rule fifty-two pins the wash's one
+    reader and that every ask lies inside `enum TreeRowBackground`
+    (`core-theme.md`); `TreeRowBackgroundTests` pins `layers(for:isTestRow:)`
+    over all ten combinations and the layered background's resolver use, and
+    `TreeTestRowWashTests` (app bundle) renders one tree per appearance and
+    pins that the `Tests` folder, its child and `a_test.go` are washed, an
+    unwashed sibling and the canvas are not, and a selected test file draws its
+    selection tint rather than the wash. That selected row is a file of its own
+    because the unfocused selection, `selectionInactive`, is **opaque**: a
+    selected test row in a window that is not key shows no wash, while hover,
+    the focused selection and a drop target are translucent and show it.
+    `TreeRowBackgroundTests` also renders `Layered` once to pin that the last
+    colour paints on top, and `TreeTestRowReportTests` (app bundle) that a
+    chain's node is judged by all its segments (`src/test/java` washed,
+    `lib/core` not) and that the pinned copy's report carries that answer.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`
@@ -1752,7 +1807,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `treeRevision` bump, as before, through the memo, and a node also reloads
     when the shape its parent hands it changes (`TreeNodeShape` is `Equatable`,
     chain listing included) — the memo already holding that listing, since the
-    parent's probe read it. **Extend**: `a/b/c` gaining a lone `d` becomes
+    parent's probe read it. **Both the `shape` and the `separated` handler use
+    the two-argument `onChange`**, for the reason the reveal sites do: the
+    deprecated one-argument form's action reads the previous update's `let`
+    properties, so a grown chain listed its *old* tail (`a/b/c` drawing `c`
+    as its one child) and a separation toggle re-ran the rule over the old
+    `separated` set. `TreeChainReshapeTests` (app bundle) pins the `shape`
+    half — `a/b` growing to `a/b/c` lists `c`'s files — and was seen red on
+    the one-argument form. **Extend**: `a/b/c` gaining a lone `d` becomes
     `a/b/c/d`, same head, still expanded, showing `d`'s listing. **Shorten**: a
     file appearing in `b` makes the row `a/b`, still expanded, with `c` (now a
     plain collapsed row) and the file as children. **Drafts after a reshape**:
@@ -1834,9 +1896,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeStickyFolderReport` through `TreeStickyFoldersKey` (an array, tree
     order): the whole node's frame in the named **content** space
     (`TreeStickySpace.content`, set on the padded content `VStack`), its depth
-    and expansion, its `TreeNodeShape`, its folder row's scroll id
+    and expansion, its `TreeNodeShape`, whether it is a test row (`isTestRow`,
+    the node's own `TreeTestRule` answer), its folder row's scroll id
     (`TreeRevealRequest.rowID(head)`, on `FolderDisclosureRow` alone so the
     anchor maths sees one row's height) and the node's own `$isExpanded`.
+    The report and its key are **internal** rather than private — the shape
+    alone stays `fileprivate`, its type being private — for the app-bundle
+    suites that read a node through them under `@testable import`, all hosting
+    the tree through `TreeRevealHost` / `TreeRevealHostState` (internal, in
+    `TreeStickyScrollRoundingTests.swift`: a wrapper republishing `reveal:` from
+    an `ObservableObject` and collecting `TreeStickyFoldersKey`):
+    `TreeStickyScrollRoundingTests` measures a folder's top,
+    `TreeRevealOnScreenTests` waits on a folder's expansion,
+    `TreeChainReshapeTests` measures a grown chain's node and
+    `TreeTestRowReportTests` reads a node's test-row answer.
     **Collapsed nodes attach no reader** — they have no subtree to measure —
     and a frame in content space does not move while scrolling, so a scroll
     changes no report. The **scroll offset** is read by one `GeometryReader` on
@@ -1890,7 +1963,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the row over its own background —
     `TreeRowState.state(isSelected: false, isWindowKey: controlActiveState ==
     .key, isHovering: isHovering, isDropTarget: false)` through
-    `TreeRowBackground.color(for:resolving:)`, the tree's third pinned entry in
+    `TreeRowBackground.background(for:isTestRow:resolving:)` with the report's
+    `isTestRow`, so a test folder's copy is washed as its row is — the tree's third pinned entry in
     chrome gating rule thirty-five (`core-theme.md`) — and a one-`hairline` rule
     `metrics.scaled(ChromeGeometry.hairlineWidth)` tall at the stack's bottom
     edge, `.allowsHitTesting(false)` so the last copy's bottom strip under it
@@ -1929,12 +2003,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **Tests.** `TreeStickyScrollListingTests` (app bundle) builds a project with
     `a/` of 60 files and `b/` of 5 over a counting `FileServicing` wrapper
     injected through `WorkspaceModel(fileService:)` — strictly stronger than a
-    listing count, since it also catches link queries — reveals `a/f45`, then
-    scrolls the hosting `NSScrollView`'s clip view to four offsets, and pins
-    that the file-service call count never moved while the clip view's origin
-    did; one capture at the final offset finds the pinned chevron inked in the
-    first slot under the header, proving SwiftUI observed the AppKit-driven
-    scroll, which is how a wheel scroll arrives. `TreeStickyStackLayoutTests`
+    listing count, since it also catches link queries — at interface scale 1,
+    dark, in a 240 × 300 window. It reveals `a/f00`, which expands `a` without
+    scrolling: the centre anchor clamps to the top, so nothing pins at the
+    landing and no animated scroll is left to race the ones below. Its first
+    assertions check exactly that — the clip view still at `0`, and one capture
+    finding no stack hairline. It then scrolls the hosting `NSScrollView`'s
+    clip view to four offsets and pins that the file-service call count never
+    moved while the clip view's origin did; one capture at the final offset
+    finds the stack's hairline at the first slot's bottom edge and `a`'s pinned
+    chevron inked in that slot at the depth-1 chevron column, proving SwiftUI
+    observed the AppKit-driven scroll, which is how a wheel scroll arrives. `TreeStickyStackLayoutTests`
     (app bundle, `HostedRender` at 1.8, dark) renders a project whose `a/`
     holds 40 files, a modified `a/f03` and an error in `a/f07`, twice: `a`
     collapsed, then `a/f30` revealed. It pins `a`'s chevron and glyph in the
@@ -1945,7 +2024,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     inside `TreeStickyStackView`'s declaration, line comments stripped —
     because headless the hosting view's `accessibilityChildren()` is empty and a
     hit test answers the hosting view itself, so a probe of the tree would pass
-    either way.
+    either way. `TreeStickyScrollRoundingTests` (app bundle, `HostedRender` at
+    1, one window resized once) pins the scroll rounding
+    `TreeStickyRule.slotTolerance` is sized against. Over sixty empty folders,
+    `t/x` and sixty root files, a first reveal of `t/x` in a window taller than
+    the document expands `t` without scrolling, so no animated scroll is left in
+    flight; `t`'s report gives its node's frame (asserted two rows tall), and
+    from it the window height is derived so that the centred target for `x` lies exactly
+    half a point off the whole-point grid — asserted before scrolling, along
+    with the target being inside the scrollable range, so the test fails rather
+    than passing on a scroll that rounded nothing. A raw scroll back to `0` and
+    a second reveal then go the real path, `scrollTo` at `revealAnchorY`, and
+    the wait is a condition on the clip view's origin. It reads the window's
+    backing scale at run time: at exactly 1 — the only scale measured, and the
+    one this headless host reports — the settled offset is on the whole-point
+    grid, exactly half a point short of the target and within the tolerance;
+    at any other scale only
+    `|settled − target| ≤ slotTolerance` is asserted.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,

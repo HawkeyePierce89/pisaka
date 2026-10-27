@@ -36,6 +36,18 @@ user sees it.
   folder with an error or a warning at or below it carries a small red or yellow
   dot on its glyph (see Diagnostics), and every
   expanded folder draws a hairline indent guide beside its children.
+  On macOS test files and test folders — and everything below a test folder —
+  are marked with a faint green row wash beneath the hover and selection tints
+  (the selection of a window that is not key is opaque and hides it).
+  A test folder is one named `test`, `tests`, `__tests__`, `spec` or `specs` in
+  any casing (the project root itself is never marked); a test file is one inside
+  such a folder or one whose name follows its language's test-naming convention,
+  the same conventions Run Test offers (`*.test.ts`/`*.spec.js`, `test_*.py`,
+  `*_test.py`, `*_spec.rb`/`*_test.rb`, `*Test.php`, `*_test.exs`, `*_test.go`,
+  `*Tests.swift`/`*Test.swift`). A Rust file is marked only inside a test folder,
+  since a `.rs` name says nothing about whether it holds tests. A pinned folder
+  row carries the same wash, a row being renamed keeps it, and the name colour
+  stays the git state's; VoiceOver speaks "Test" in the row's value.
   On macOS a run of folders that each hold only the next (`src/main/java/com`)
   is one `a/b/c` row, each segment coloured by its own git state, that expands
   straight to the last folder's contents; Delete and dragging act on the first
@@ -66,7 +78,9 @@ user sees it.
   highlights and that a left click acts on — for a context menu, which never
   changes a folder's expansion: directories offer New
   File, New Folder, Rename, and Delete; files offer Rename and Delete, plus a
-  "Run" item for runnable file types and a "Run Test" item for test files; the
+  "Run" item for runnable file types and a "Run Test" item for files named by
+  their language's test convention (and every Rust file) — a file washed only
+  for sitting in a test folder offers none; the
   project root offers the two create actions. None of the three names carries an
   ellipsis, because none of them opens a dialog: naming happens **inline, on the
   row itself**. A create swaps in a draft row (drawing the icon its future row

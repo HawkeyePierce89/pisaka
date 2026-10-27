@@ -32,10 +32,12 @@ import Foundation
 /// `top ≤ S_(maximumRows−1) < bottom` — `≤`, not `<`: at equality its real row
 /// lies exactly under the last copy, and leaving it out would hide that folder
 /// altogether; if it does, the **outermost** member is dropped and the
-/// candidate appended, repeatedly. So a capped row joins exactly once its real
-/// row is fully under the stack, and a copy is never drawn while its real row
-/// shows below the stack. The click anchor lands a capped folder's row at
-/// precisely that equality, so the folder above it is pinned, not covered.
+/// candidate appended, repeatedly. So a capped row joins once its real row is
+/// fully under the stack — or no more than `slotTolerance` short of it — and a
+/// copy is never drawn while more than that sliver of its real row shows below
+/// the stack. The click anchor aims a capped folder's row at that equality and
+/// the scroll settles it within the tolerance of it, so the folder above it is
+/// pinned, not covered.
 ///
 /// **Drawing.** Final index `j` is drawn at `min(S_j, folder.bottom − rowHeight)`,
 /// reported relative to the viewport top — negative, or above the nominal slot,
@@ -60,10 +62,15 @@ import Foundation
 /// `measurementTolerance` across its boundary, so a last child whose bottom
 /// measured one ulp past its parent's is still inside it. The full chain's `≤`
 /// compares an edge with the scroll offset, a continuous quantity, so it
-/// allows only `slotTolerance`, a drift's worth: a wider margin would join the
-/// candidate — and drop the outermost row — while part of its real row still
-/// shows. The free slots' `<` stays strict: a drift there pins a copy exactly
-/// over its own row, which draws the same pixels.
+/// allows `slotTolerance`, half a point: SwiftUI's `scrollTo` rounds the click's
+/// programmatic offset to the backing pixel, so at scale 1 the click can settle
+/// half a point short of the equality, and a narrower margin would leave the
+/// clicked folder's parent out and its row covered. The tolerance is sized to
+/// that rounding, not to the drift; its cost is that a candidate joins — and
+/// the outermost row drops — up to half a point early, while at most a
+/// half-point sliver of its real row shows under its copy. The free slots' `<`
+/// stays strict: a drift there pins a copy exactly over its own row, which
+/// draws the same pixels.
 ///
 /// Pure and Foundation-only. The stack is one sort and one forward pass; a
 /// non-empty one adds two more sorts for the ancestor count, then two binary
@@ -91,12 +98,21 @@ public enum TreeStickyRule {
     public static let measurementTolerance = 0.5
 
     /// How far a capped candidate's row may lie below the full chain's last
-    /// slot and still count as exactly under it, in points: the round-off of
-    /// the click anchor's `y·(H − h)` and of the measured edges, and no more.
-    /// AppKit keeps a programmatic scroll's fractional offset as asked rather
-    /// than snapping it to the backing pixel, so the click lands within this
-    /// of the equality; anything wider is a row still showing below the stack.
-    public static let slotTolerance = 1e-6
+    /// slot and still count as under it, in points. Sized to the scroll's
+    /// rounding, not to the measured edges' drift. The raw clip view keeps a
+    /// programmatic offset as asked — at backing scale 1, `48.4`, `66.25` and
+    /// `66.1` read back unchanged through `scroll(to:)` — but the click goes
+    /// through `ScrollViewProxy.scrollTo`, which settled a target of `1165.5`
+    /// at `1165.0` at backing scale 1: the backing pixel, rounding to the
+    /// nearest (ties down; `.6`–`.9` settled on the point above), not
+    /// flooring. Half a point is half a backing pixel at most for any
+    /// scale ≥ 1, so a clicked folder settles within this of the equality,
+    /// even off the half-point grid, and it stays far below the smallest row
+    /// (19.2 at the interface scale's 0.8 floor). The cost: a candidate joins
+    /// up to half a point early, so at most a half-point sliver of its real
+    /// row shows under the copy in its slot — the right trade against a
+    /// covered row after a click.
+    public static let slotTolerance = 0.5
 
     /// One folder node as the tree measured it, in content coordinates.
     public struct Folder: Equatable {
@@ -169,8 +185,8 @@ public enum TreeStickyRule {
             let isFull = chain.count == cap
             let slot = viewport.top + Double(min(chain.count, cap - 1)) * rowHeight
             // A free slot takes a row that has started under it; the full
-            // chain's last slot is already drawn, so a row exactly under it
-            // is covered and must join.
+            // chain's last slot is already drawn, so a row under it — up to
+            // the scroll's rounding short of it — is covered and must join.
             let hasReached = isFull ? candidate.top <= slot + slotTolerance : candidate.top < slot
             guard hasReached, slot < candidate.bottom else { continue }
             if isFull { chain.removeFirst() }
