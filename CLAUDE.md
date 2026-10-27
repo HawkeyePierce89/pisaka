@@ -452,6 +452,7 @@ silently, which is what keeps `swift test` dependency-free.
 `MainWindowFrameSourceGatingTests`, `LocalHistorySourceGatingTests`,
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `GitCLIArgumentSourceGatingTests`, `FoldingSourceGatingTests`,
+`ProjectTreeSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
 `DesignGlyphAssetTests`, `WelcomeShortcutPinTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for

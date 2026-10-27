@@ -294,15 +294,15 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `CLAUDE.md` (the suite list), `docs/architecture/app-window.md`
 
-- [ ] Write `ProjectTreeSourceGatingTests` first.
+- [x] Write `ProjectTreeSourceGatingTests` first.
   - Over `RepositorySources.stripped` text of `ProjectTreeView.swift`, it finds every `.onChange(of:`, balances parentheses to the argument list's close, and expects `{`.
   - It asserts that the closure's parameter list, up to `in`, has exactly two comma-separated names. A missing `in`, which is the zero-argument form, fails too.
   - It asserts at least one site was found, so the check cannot pass vacuously.
   - The doc comment is its inventory, and says why stripped text is read (the file's comments quote the old form).
-- [ ] Run it and see it fail on lines 367, 905, 914 and 944.
-- [ ] Move the four sites to `{ _, newValue in … }` / `{ _, _ in … }`. Each gets the reasoning comment the moved sites carry: the one-argument form's action reads the previous update's captured values. The `treeRevision` handler reads a captured `shape`; the others are moved so the file has one form.
-- [ ] Add `ProjectTreeSourceGatingTests` to `CLAUDE.md`'s list of repository-verifying suites, and name the pin in the tree's entry in `app-window.md`.
-- [ ] Run `swift test` and the app-layer bundle (tree suites unchanged); both must pass before Task 7.
+- [x] Run it and see it fail on lines 367, 905, 914 and 944.
+- [x] Move the four sites to `{ _, newValue in … }` / `{ _, _ in … }`. Each gets the reasoning comment the moved sites carry: the one-argument form's action reads the previous update's captured values. The `treeRevision` handler reads a captured `shape`; the others are moved so the file has one form.
+- [x] Add `ProjectTreeSourceGatingTests` to `CLAUDE.md`'s list of repository-verifying suites, and name the pin in the tree's entry in `app-window.md`.
+- [x] Run `swift test` and the app-layer bundle (tree suites unchanged); both must pass before Task 7.
 
 ### Task 7: Pin the scroll-rounding direction, or cut the claim
 

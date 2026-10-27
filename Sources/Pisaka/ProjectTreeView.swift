@@ -368,7 +368,10 @@ struct ProjectTreeView: View {
                     }
                 }
             }
-            .onChange(of: model.projectRoot) { _ in
+            // The two-argument `onChange`, the file's one form: the
+            // one-argument form's action reads the previous update's captured
+            // values (`ProjectTreeSourceGatingTests`).
+            .onChange(of: model.projectRoot) { _, _ in
                 draft = nil
                 listings.memo(listingThrough: model).reset()
                 separatedFolders = []
@@ -934,7 +937,10 @@ private struct DirectoryNodeView: View {
         // Asked about the contents directory, not the head: a chain's own rename
         // draft is anchored inside the head (at the tail's parent) and is drawn
         // in this row's label, which a collapse keeps on screen.
-        .onChange(of: isExpanded) { expanded in
+        //
+        // The two-argument `onChange`, the file's one form: the one-argument
+        // form's action reads the previous update's captured values.
+        .onChange(of: isExpanded) { _, expanded in
             if !expanded {
                 if draftIsBelow(contentsDirectory) {
                     draft = nil
@@ -943,7 +949,8 @@ private struct DirectoryNodeView: View {
                 loadChildren()
             }
         }
-        .onChange(of: draft) { newDraft in
+        // Two-argument, for the reason the `isExpanded` handler above gives.
+        .onChange(of: draft) { _, newDraft in
             if case .create(let parent, _) = newDraft, parent == contentsDirectory {
                 isExpanded = true
             }
@@ -973,7 +980,10 @@ private struct DirectoryNodeView: View {
         }
         // A file operation anywhere in the tree bumps `treeRevision`, so a
         // created / renamed / deleted entry appears without reopening the folder.
-        .onChange(of: model.treeRevision) { _ in reloadOrForget() }
+        // The two-argument `onChange`: `reloadOrForget` reads the captured
+        // `shape`, and the one-argument form's action reads the previous
+        // update's.
+        .onChange(of: model.treeRevision) { _, _ in reloadOrForget() }
         // The parent's rows re-ran and handed this node a different shape — a
         // chain that extended or shortened keeps its head, and so this node,
         // but now lists another tail. The memo already holds that listing

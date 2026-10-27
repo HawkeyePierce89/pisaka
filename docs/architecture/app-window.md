@@ -1577,7 +1577,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ever honoured one. `TreeRevealOnScreenTests` (app bundle) pins the node
     half — a request published to a hosted tree expands its already-drawn,
     collapsed `t` — and `TreeStickyScrollRoundingTests`' second reveal (the
-    sticky entry) the row half.
+    sticky entry) the row half. **Every `onChange` in the file is the
+    two-argument form**, not only the ones that read a captured value (the
+    reveal, `shape`, `separated` and `treeRevision` handlers, the last through
+    `reloadOrForget()`'s read of `shape`): the `projectRoot`, `isExpanded` and
+    `draft` handlers moved too, so a new handler copies the safe form.
+    `ProjectTreeSourceGatingTests` (Core) pins it over the file's stripped
+    text — every `onChange(` call, wrapped or not, must end in a trailing
+    closure naming exactly two parameters — and was seen red on the four
+    one-argument sites before they moved.
   - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
     is drawn in its git state: conflict, modified, added, ignored or plain
     (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
