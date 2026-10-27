@@ -280,6 +280,23 @@ runner keep their current predicate and behaviour.
       `T = floor(c − 150) + 0.5`, rather than from the first window's `H0`.
       Still one window, resized once. Stable over five iterations and the
       full bundle.
+11. **Task 7: acceptance gates, and the Xcode they ran under.**
+    - **The pinned Xcode 26.3 is not installed on this machine**; only
+      `/Applications/Xcode.app` (Xcode 27.1) is. Every Xcode gate below ran
+      under 27.1 with the single derived-data path. A run under 26.3 (CI's
+      pin) is still owed before the merge, because a newer toolchain accepts
+      what the pinned one refuses.
+    - `swift test`: 7,173 tests, 0 failures (the named suites included).
+    - `swiftlint --strict` at 0.65.1: exit 0, no violations; `xcodegen
+      generate` left the tree clean.
+    - App-layer bundle: 504 tests, 0 failures, `TreeTestRowWashTests`,
+      `TreeStickyScrollRoundingTests` and `TreeRevealOnScreenTests` among
+      them. The backing scale observed is the one recorded in note 10, `1.0`.
+    - macOS build (`-configuration Release`, as CI) and iOS build
+      (`generic/platform=iOS`, `CODE_SIGNING_ALLOWED=NO`): both succeeded.
+    - `CLAUDE.md`: 56,564 characters, under 60,000.
+    - Brand-name grep over `git diff master...HEAD`: no hits beyond "sized"
+      matching a short editor name as a substring.
 
 ## Implementation Steps
 
@@ -609,7 +626,7 @@ runner keep their current predicate and behaviour.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` green, including:
+- [x] `swift test` green, including:
   - `TreeTestRuleTests`;
   - the `TestCommand` agreement test;
   - the spoken-value positions;
@@ -617,19 +634,19 @@ runner keep their current predicate and behaviour.
   - the new slot boundary;
   - the floored round trip;
   - `ChromeThemeSourceGatingTests` with rule fifty-two and both summary counts.
-- [ ] `swiftlint --strict` from the repository root clean at the pinned version
+- [x] `swiftlint --strict` from the repository root clean at the pinned version
   (0.65.1); `xcodegen generate` clean.
-- [ ] App-layer bundle green under the pinned Xcode, with the derived-data path
-  above. This includes `TreeTestRowWashTests` and
+- [x] App-layer bundle green under the pinned Xcode, with the derived-data path
+  above (ran under Xcode 27.1; 26.3 is not installed here, see note 11). This includes `TreeTestRowWashTests` and
   `TreeStickyScrollRoundingTests`, whose observed backing scale is recorded in
   the execution notes.
-- [ ] macOS build and iOS build (`generic/platform=iOS`) green under the pinned
-  Xcode.
-- [ ] Coverage: every new Core function has direct tests, with the rule, the
+- [x] macOS build and iOS build (`generic/platform=iOS`) green under the pinned
+  Xcode (ran under Xcode 27.1, see note 11).
+- [x] Coverage: every new Core function has direct tests, with the rule, the
   predicate, the spoken value, the wash role and the tolerance boundary all
   covered.
-- [ ] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
-- [ ] Grep the diff for brand names and for references to other editors: none.
+- [x] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
+- [x] Grep the diff for brand names and for references to other editors: none.
 
 ### Task 8: Update documentation
 
