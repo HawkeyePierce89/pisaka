@@ -2886,7 +2886,7 @@ struct PisakaApp: App {
     /// so there is nothing to list, and that is a fact about the file rather than
     /// a failure to report.
     private func showLocalHistory(for url: URL) {
-        localHistoryBrowser.open(file: url, root: model.projectRoot, restorable: !model.opensAsViewer(url))
+        localHistoryBrowser.open(file: url, root: model.projectRoot, restorable: model.acceptsLocalHistoryRestore(url))
         let currentText = { [self] in currentTextForLocalHistory(of: url) }
         let content = LocalHistoryView(
             browser: localHistoryBrowser, settings: settings, currentText: currentText,
@@ -2899,7 +2899,7 @@ struct PisakaApp: App {
         // which re-asks the tab kind too — a renamed text tab closing hands a
         // `.db` path to the viewer.
         localHistoryWindows.show(title: "Local History — \(url.lastPathComponent)", content: content) {
-            localHistoryBrowser.refreshSelection(currentText: currentText(), restorable: !model.opensAsViewer(url))
+            localHistoryBrowser.refreshSelection(currentText: currentText(), restorable: model.acceptsLocalHistoryRestore(url))
         }
     }
 
@@ -3026,10 +3026,13 @@ struct PisakaApp: App {
     /// and stops, like the two refusals below. `isCurrentProjectRoot` is the
     /// model's own canonical comparison, which is the rule for "same folder?"
     /// everywhere else in this file. The same step refuses a path that opens as a
-    /// **viewer** tab (`WorkspaceModel.opensAsViewer`): a restore is a buffer
+    /// **viewer** tab or in the read-only source viewer window
+    /// (`WorkspaceModel.acceptsLocalHistoryRestore`): a restore is a buffer
     /// edit and a viewer holds no buffer, so it would file a capture of `""` and
-    /// — for a missing `.db` — leave only the empty file it created. The window
-    /// is opened non-restorable for such a path, so this is the backstop.
+    /// — for a missing `.db` — leave only the empty file it created; and the
+    /// direct `model.open` below would turn a file inside dependencies into a
+    /// writable tab. The window is opened non-restorable for such a path, so
+    /// this is the backstop.
     ///
     /// **The two refusals are asked before the open, for a file with a tab and for
     /// a file without one.** They judge the text a restore would displace, and
@@ -3045,7 +3048,7 @@ struct PisakaApp: App {
     /// file can move between the two reads; the pre-open ask is there to keep the
     /// refusal from costing a tab, not to decide it.
     private func restoreFromLocalHistory(_ plan: LocalHistoryRestore) {
-        guard model.isCurrentProjectRoot(plan.root), !model.opensAsViewer(plan.fileURL) else {
+        guard model.isCurrentProjectRoot(plan.root), model.acceptsLocalHistoryRestore(plan.fileURL) else {
             PlatformFeedback.warning()
             return
         }

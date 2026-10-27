@@ -1320,6 +1320,19 @@ public final class WorkspaceModel: ObservableObject {
         return viewerTabsEnabled && DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent)
     }
 
+    /// Whether a Local History restore may land on `url` — the one answer the
+    /// window's Restore enablement and the restore's own backstop both ask.
+    ///
+    /// A restore is a buffer edit that ends in `open(url:)`, so it is refused
+    /// for a path that is or would open as a **viewer** tab (no buffer to edit)
+    /// and for a path that opens in the read-only **source viewer window**
+    /// (`opensInSourceViewer`): opening it directly would make a file inside
+    /// dependencies a writable tab. A tab already holding the file takes the
+    /// restore, as that question already answers for a tab that pre-dates the rule.
+    public func acceptsLocalHistoryRestore(_ url: URL) -> Bool {
+        !opensAsViewer(url) && !opensInSourceViewer(url)
+    }
+
     /// Whether `url` opens in the read-only **source viewer window** rather than
     /// as a tab — the one question both of the app's routing sites ask (the open
     /// funnel, and the definition fork with the candidate's outside-root flag).

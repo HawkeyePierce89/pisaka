@@ -1753,7 +1753,7 @@ final class WorkspaceModelTests: XCTestCase {
         let model = WorkspaceModel(fileService: service)
         let good = try model.open(url: urlGood)
         let bad = try model.open(url: urlBad)
-        let clean = try model.open(url: urlClean)
+        _ = try model.open(url: urlClean)
         let untitled = model.newFile()
         model.updateText("good edited", for: good.id)
         model.updateText("bad edited", for: bad.id)
@@ -2689,6 +2689,36 @@ final class WorkspaceModelTests: XCTestCase {
 
         XCTAssertFalse(model.opensInSourceViewer(tree.url("node_modules/x/index.js")))
         XCTAssertEqual(tree.listedPaths, [])
+    }
+
+    func testLocalHistoryRestoreIsRefusedForAFileInsideDependenciesWithNoTab() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/index.js")))
+        // A deleted file, reached through Deleted Files, is refused the same way.
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/gone.js")))
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("src/a.swift")))
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("vendor/x.go")))
+    }
+
+    func testLocalHistoryRestoreIsAcceptedByAPreExistingTabInsideDependencies() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        _ = try model.open(url: tree.url("node_modules/x/index.js"))
+        model.openFolder(url: tree.root)
+
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/index.js")))
+    }
+
+    func testLocalHistoryRestoreIsRefusedForAViewerTabPath() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/data.sqlite")))
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("app.sqlite")))
     }
 
     func testRestoreSessionDropsATabInsideDependenciesAsForAMissingFile() {

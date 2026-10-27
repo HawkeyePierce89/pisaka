@@ -448,7 +448,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a url is — by an open tab's kind, found the same canonical way — or would
     be, by `open(url:)`'s own name routing, a viewer tab; asked without opening
     or probing anything, so Local History can refuse a restore no buffer could
-    take), `opensInSourceViewer(_:isOutsideProjectRoot:)` (**the routing
+    take), `acceptsLocalHistoryRestore(_:)` (the Local History restore's one
+    question — neither `opensAsViewer(_:)` nor `opensInSourceViewer(_:)` — so the
+    restore's direct `open(url:)` never makes a file inside dependencies a
+    writable tab, while a tab that pre-dates the rule still takes it), `opensInSourceViewer(_:isOutsideProjectRoot:)` (**the routing
     question** both of the app's routing sites ask — the open funnel with the
     default `false`, the definition fork with the candidate's own flag —
     answering whether a file opens in the read-only source viewer window rather
