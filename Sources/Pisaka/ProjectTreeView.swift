@@ -945,8 +945,11 @@ private struct DirectoryNodeView: View {
         // The parent's rows re-ran and handed this node a different shape — a
         // chain that extended or shortened keeps its head, and so this node,
         // but now lists another tail. The memo already holds that listing
-        // (the parent's probe read it), so this reload reads nothing new.
-        .onChange(of: shape) { _ in reloadOrForget() }
+        // (the parent's probe read it), so this reload reads nothing new. The
+        // two-argument `onChange`: the one-argument form's action reads the
+        // previous update's `shape` and so would list the old tail
+        // (`TreeChainReshapeTests`).
+        .onChange(of: shape) { _, _ in reloadOrForget() }
         // Which folders are separated changed: the same listing, new rows. The
         // rule re-runs against the memo alone, which holds every probe this
         // node's listing already caused, and nothing is listed — a probe that
@@ -963,8 +966,11 @@ private struct DirectoryNodeView: View {
         //
         // The remembered listing is the one the rows are computed from, and it
         // is stored as `children`: the rows and the listing the create draft
-        // and reveal read then always come from one read.
-        .onChange(of: separated) { _ in
+        // and reveal read then always come from one read. The two-argument
+        // `onChange`, for the reason the `shape` handler above gives: the
+        // one-argument form's action would compute the rows from the previous
+        // update's `separated`.
+        .onChange(of: separated) { _, _ in
             guard children != nil else { return }
             guard let listing = try? listingMemo.rememberedListing(
                 of: contentsDirectory, revision: model.treeRevision
@@ -1485,9 +1491,13 @@ private enum TreeStickySpace {
 /// row's scroll id and the node's own expansion binding, which the copy's
 /// chevron sets to collapse the very `@State` the real row toggles.
 ///
-/// Internal rather than private, with its key, for one reader outside this
-/// file: `TreeStickyScrollRoundingTests` measures a folder's top through it
-/// (`@testable import`). The shape stays `fileprivate`, its type being private.
+/// Internal rather than private, with its key, for the app-bundle suites that
+/// read a node through it under `@testable import`, all through the shared
+/// `TreeRevealHost`: `TreeStickyScrollRoundingTests` measures a folder's top,
+/// `TreeRevealOnScreenTests` waits on a folder's expansion,
+/// `TreeChainReshapeTests` measures a grown chain's node and
+/// `TreeTestRowReportTests` reads a node's test-row answer. The shape stays
+/// `fileprivate`, its type being private.
 struct TreeStickyFolderReport: Equatable {
     let frame: CGRect
     let depth: Int
@@ -1512,7 +1522,7 @@ struct TreeStickyFolderReport: Equatable {
     }
 }
 
-/// Every expanded folder node's report, in tree order. Internal for the test's
+/// Every expanded folder node's report, in tree order. Internal for the tests'
 /// read, as its value type is (`TreeStickyFolderReport`).
 struct TreeStickyFoldersKey: PreferenceKey {
     static let defaultValue: [TreeStickyFolderReport] = []

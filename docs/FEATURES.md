@@ -37,7 +37,8 @@ user sees it.
   dot on its glyph (see Diagnostics), and every
   expanded folder draws a hairline indent guide beside its children.
   On macOS test files and test folders — and everything below a test folder —
-  are marked with a faint green row wash beneath the hover and selection tints.
+  are marked with a faint green row wash beneath the hover and selection tints
+  (the selection of a window that is not key is opaque and hides it).
   A test folder is one named `test`, `tests`, `__tests__`, `spec` or `specs` in
   any casing (the project root itself is never marked); a test file is one inside
   such a folder or one whose name follows its language's test-naming convention,
@@ -77,7 +78,9 @@ user sees it.
   highlights and that a left click acts on — for a context menu, which never
   changes a folder's expansion: directories offer New
   File, New Folder, Rename, and Delete; files offer Rename and Delete, plus a
-  "Run" item for runnable file types and a "Run Test" item for test files; the
+  "Run" item for runnable file types and a "Run Test" item for files named by
+  their language's test convention (and every Rust file) — a file washed only
+  for sitting in a test folder offers none; the
   project root offers the two create actions. None of the three names carries an
   ellipsis, because none of them opens a dialog: naming happens **inline, on the
   row itself**. A create swaps in a draft row (drawing the icon its future row

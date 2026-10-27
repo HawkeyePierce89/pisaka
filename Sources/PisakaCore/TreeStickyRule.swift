@@ -103,9 +103,11 @@ public enum TreeStickyRule {
     /// programmatic offset as asked — at backing scale 1, `48.4`, `66.25` and
     /// `66.1` read back unchanged through `scroll(to:)` — but the click goes
     /// through `ScrollViewProxy.scrollTo`, which settled a target of `1165.5`
-    /// at `1165.0` at backing scale 1: the backing pixel. Half a point is half
-    /// a backing pixel at most for any scale ≥ 1, so a clicked folder settles
-    /// within this of the equality, and it stays far below the smallest row
+    /// at `1165.0` at backing scale 1: the backing pixel, rounding to the
+    /// nearest (ties down; `.6`–`.9` settled on the point above), not
+    /// flooring. Half a point is half a backing pixel at most for any
+    /// scale ≥ 1, so a clicked folder settles within this of the equality,
+    /// even off the half-point grid, and it stays far below the smallest row
     /// (19.2 at the interface scale's 0.8 floor). The cost: a candidate joins
     /// up to half a point early, so at most a half-point sliver of its real
     /// row shows under the copy in its slot — the right trade against a

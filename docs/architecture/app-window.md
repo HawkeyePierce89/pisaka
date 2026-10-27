@@ -1650,8 +1650,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     over all ten combinations and the layered background's resolver use, and
     `TreeTestRowWashTests` (app bundle) renders one tree per appearance and
     pins that the `Tests` folder, its child and `a_test.go` are washed, an
-    unwashed sibling and the canvas are not, and the selected test row still
-    shows its selection tint over the wash.
+    unwashed sibling and the canvas are not, and a selected test file draws its
+    selection tint rather than the wash. That selected row is a file of its own
+    because the unfocused selection, `selectionInactive`, is **opaque**: a
+    selected test row in a window that is not key shows no wash, while hover,
+    the focused selection and a drop target are translucent and show it.
+    `TreeRowBackgroundTests` also renders `Layered` once to pin that the last
+    colour paints on top, and `TreeTestRowReportTests` (app bundle) that a
+    chain's node is judged by all its segments (`src/test/java` washed,
+    `lib/core` not) and that the pinned copy's report carries that answer.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`
@@ -1800,7 +1807,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `treeRevision` bump, as before, through the memo, and a node also reloads
     when the shape its parent hands it changes (`TreeNodeShape` is `Equatable`,
     chain listing included) — the memo already holding that listing, since the
-    parent's probe read it. **Extend**: `a/b/c` gaining a lone `d` becomes
+    parent's probe read it. **Both the `shape` and the `separated` handler use
+    the two-argument `onChange`**, for the reason the reveal sites do: the
+    deprecated one-argument form's action reads the previous update's `let`
+    properties, so a grown chain listed its *old* tail (`a/b/c` drawing `c`
+    as its one child) and a separation toggle re-ran the rule over the old
+    `separated` set. `TreeChainReshapeTests` (app bundle) pins the `shape`
+    half — `a/b` growing to `a/b/c` lists `c`'s files — and was seen red on
+    the one-argument form. **Extend**: `a/b/c` gaining a lone `d` becomes
     `a/b/c/d`, same head, still expanded, showing `d`'s listing. **Shorten**: a
     file appearing in `b` makes the row `a/b`, still expanded, with `c` (now a
     plain collapsed row) and the file as children. **Drafts after a reshape**:
@@ -1887,9 +1901,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (`TreeRevealRequest.rowID(head)`, on `FolderDisclosureRow` alone so the
     anchor maths sees one row's height) and the node's own `$isExpanded`.
     The report and its key are **internal** rather than private — the shape
-    alone stays `fileprivate`, its type being private — for one reader outside
-    the file: `TreeStickyScrollRoundingTests` measures a folder through them
-    under `@testable import`.
+    alone stays `fileprivate`, its type being private — for the app-bundle
+    suites that read a node through them under `@testable import`, all hosting
+    the tree through `TreeRevealHost` / `TreeRevealHostState` (internal, in
+    `TreeStickyScrollRoundingTests.swift`: a wrapper republishing `reveal:` from
+    an `ObservableObject` and collecting `TreeStickyFoldersKey`):
+    `TreeStickyScrollRoundingTests` measures a folder's top,
+    `TreeRevealOnScreenTests` waits on a folder's expansion,
+    `TreeChainReshapeTests` measures a grown chain's node and
+    `TreeTestRowReportTests` reads a node's test-row answer.
     **Collapsed nodes attach no reader** — they have no subtree to measure —
     and a frame in content space does not move while scrolling, so a scroll
     changes no report. The **scroll offset** is read by one `GeometryReader` on

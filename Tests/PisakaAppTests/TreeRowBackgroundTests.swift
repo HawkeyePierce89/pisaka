@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import XCTest
 import PisakaCore
@@ -109,6 +110,22 @@ final class TreeRowBackgroundTests: XCTestCase {
                 )
             }
         }
+    }
+
+    /// "Bottom to top" is `Layered`'s drawing, not only its array's order: two
+    /// opaque colours, rendered once, show the last. Reversed, the wash would
+    /// paint over the state's tint and every bitmap suite comparing washed
+    /// rows to each other would still pass.
+    @MainActor
+    func testTheLayeredBackgroundPaintsItsLastColourOnTop() throws {
+        let render = try HostedRender(
+            size: CGSize(width: 20, height: 20),
+            root: TreeRowBackground.Layered(colors: [Color(red: 1, green: 0, blue: 0), Color(red: 0, green: 0, blue: 1)])
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let pixel = try XCTUnwrap(render.color(atX: 10, y: 10), "no pixel in the layered background")
+        XCTAssertGreaterThan(pixel.blueComponent, 0.9, "the last colour is not on top: \(pixel)")
+        XCTAssertLessThan(pixel.redComponent, 0.1, "the first colour shows over the last: \(pixel)")
     }
 }
 #endif

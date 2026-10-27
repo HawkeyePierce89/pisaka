@@ -36,6 +36,10 @@ final class TreeRevealOnScreenTests: XCTestCase {
             root: TreeRevealHost(model: model, state: state, metrics: InterfaceMetrics(scale: 1))
         )
         addTeardownBlock { @MainActor in render.window.close() }
+        // Seen, not assumed: the tree has reported (the root, expanded) and
+        // `t` is not among the expanded nodes, so the wait below has work to do.
+        XCTAssertTrue(state.reports.contains { $0.isExpanded && $0.scrollID.hasSuffix("/p") },
+                      "the tree reported no expanded root before the request")
         XCTAssertNil(expandedT(in: state), "t is expanded before any request")
 
         state.reveal = TreeRevealRequest(after: nil, revealing: root.appendingPathComponent("t/x"), root: root)
