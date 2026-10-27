@@ -733,7 +733,7 @@ The shape found in the tree, and now enforced:
   `MergeView.swift` (the merge result pane) and
   `iOS/CodeEditorCoordinator_iOS.swift` (the platform folding does not ship to).
 - **Two `reveal.reveal(` posters**: `PisakaApp.swift`, whose two sites
-  (`activateSearchMatch(url:range:)` and `openAndReveal(url:range:)`, the tail
+  (`activateSearchMatch(url:range:)` and `openAndReveal(url:viewerRange:range:)`, the tail
   `activateUsage(_:)` and `activateProblem(url:row:)` share — Find in Files, Go to
   Definition inside the project, the Problems rows, the Usages rows and the symbol
   jump all funnel through them) land in `applyReveal`; and

@@ -3194,6 +3194,17 @@ or a dependency checkout **structurally** cannot write outside the root. Targets
 inside the root keep the tab-open + `EditorRevealState` path unchanged. The flag
 lives on the candidate (`DefinitionCandidate.isOutsideProjectRoot`, defaulted
 `false`) because the project root is the provider's knowledge, not the view's.
+**A second reason opens a target in the same window: the file lies inside
+dependencies** (`DependencyFolderRule`, `core-workspace.md`) — a package
+manager's tree under the root, which no tab should autosave or restore. Both
+reasons are asked through **one Core question**,
+`WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`: the editor's
+definition fork hands it the candidate's flag through a closure the app wires,
+so a ⌘-click and a tree click on the same file land in the same place. The flag
+is asked first and holds whether or not a tab holds the file; the dependency
+reason yields to a tab already holding it and to a database file's viewer tab.
+On the tree-sitter path no candidate is outside the root, but one inside
+dependencies takes the window all the same.
 
 **D4 — Auto-import.** An LSP completion item carries its own edits
 (`CompletionItem.edits`, UTF-16 buffer ranges): the primary replacement plus any

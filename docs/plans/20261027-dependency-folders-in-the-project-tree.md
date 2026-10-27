@@ -109,6 +109,9 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - Record here the fractions observed, the settled offsets and the backing scale.
 11. **The pinned Xcode is not installed on this machine** (only Xcode 27.1 at `/Applications/Xcode.app`). Task 2's compile check of the two tree call sites ran under 27.1 (`build`, Debug, macOS, single derived-data path): green. Every later `xcodebuild` in this plan runs under 27.1 too, and a run of the app-layer bundle and both builds under the pin (Xcode 26.3) is owed before the merge.
 
+12. **Task 3 raised the `PisakaApp.swift` lint ceilings.** The funnel, the reveal paths' stop on its answer and the fork's closure measured four lines over (`file_length` 1982 → **1986**, `type_body_length` 1975 → **1979**), after compacting the new code. Both were raised to the measured numbers with the reason appended in `.swiftlint.yml`, `LintConfigurationTests.documentedRootThresholds` and `style-lint.md`, per that document's procedure.
+13. **Intermittent hosted-render crashes in the app bundle, not caused by Task 3.** Two of four full-bundle runs under Xcode 27.1 lost the test process once to an AppKit layout exception in a test this branch does not touch (`TreeStickyStackLayoutTests.testAPinnedFolderDrawsAsItsRealRowUnderTheHeader`, then `GitChangeControllerRepositoryTests.testALongHunksPopoverDrawsTheLimitAndCountsTheRest`). Each suite passed 3/3 in isolation, and the final full run passed 507/507.
+
 ## Implementation Steps
 
 ### Task 1: Core — the dependency-folder rule
@@ -198,15 +201,15 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/CodeEditorView.swift`
 - Modify: `docs/architecture/core-workspace.md` (the `WorkspaceModel.swift` entry), `docs/architecture/core-lsp.md` (D3), `docs/architecture/app-shell.md`, `docs/architecture/app-editor.md`
 
-- [ ] Add `WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`, with the order in note 3. Its listings go through `fileService.contentsOfDirectory(at:)` names, with a failure read as `nil`. The doc comment states the order and why each branch is where it is.
-- [ ] In `restoreSession`, skip a titled record whose path is inside dependencies under `projectRoot`, before `open(url:)` is called. The skip is silent and follows the same selection rules as a missing file. Update its doc comment's list of skipped records.
-- [ ] App funnel (note 4).
+- [x] Add `WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`, with the order in note 3. Its listings go through `fileService.contentsOfDirectory(at:)` names, with a failure read as `nil`. The doc comment states the order and why each branch is where it is.
+- [x] In `restoreSession`, skip a titled record whose path is inside dependencies under `projectRoot`, before `open(url:)` is called. The skip is silent and follows the same selection rules as a missing file. Update its doc comment's list of skipped records.
+- [x] App funnel (note 4).
   - `openFile(url:viewerRange:)`: when `model.opensInSourceViewer(url)` is true, it calls `sourceViewers.open(fileURL:range:settings:)` and beeps on `false`. Otherwise it keeps `model.open` as today.
   - `activateSearchMatch` and `openAndReveal` stop when no tab holds the file, as they already do.
   - `activateUsage` passes `row.range` through `openAndReveal`'s new `viewerRange:` parameter.
   - The doc comments name every caller and the new branch.
-- [ ] Definition fork. The coordinator's `navigate(to:)` asks a new closure, `opensInSourceViewer: (DefinitionCandidate) -> Bool`, instead of reading `candidate.isOutsideProjectRoot` alone. The app wires it to `model.opensInSourceViewer(candidate.fileURL, isOutsideProjectRoot: candidate.isOutsideProjectRoot)`. A `true` answer goes to `viewDefinitionOutsideProject`, and a `false` one to `onGoToDefinition`. Update the doc comment on the fork.
-- [ ] Tests in `WorkspaceModelTests`, using the existing stub file service or a stub listing:
+- [x] Definition fork. The coordinator's `navigate(to:)` asks a new closure, `opensInSourceViewer: (DefinitionCandidate) -> Bool`, instead of reading `candidate.isOutsideProjectRoot` alone. The app wires it to `model.opensInSourceViewer(candidate.fileURL, isOutsideProjectRoot: candidate.isOutsideProjectRoot)`. A `true` answer goes to `viewDefinitionOutsideProject`, and a `false` one to `onGoToDefinition`. Update the doc comment on the fork.
+- [x] Tests in `WorkspaceModelTests`, using the existing stub file service or a stub listing:
   - outside-root → `true`, including when a tab holds the file;
   - inside dependencies, no tab → `true`;
   - inside dependencies with a tab already open on the file → `false`;
@@ -215,12 +218,12 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
   - `vendor/x.go` beside no marker → `false`;
   - no project root → `false`;
   - `restoreSession`: a session holding an inside-dependencies tab, an ordinary tab and an untitled tab restores the latter two. `selectedIndex` naming the dropped record falls back as for a missing file. An inside-dependencies tab with no root set is restored.
-- [ ] Docs:
+- [x] Docs:
   - `WorkspaceModel.swift` entry in `core-workspace.md`: the routing question and the restore drop.
   - `core-lsp.md` D3: the second reason a target opens in the viewer window, asked through the same Core question.
   - `app-shell.md`: the funnel's new branch, its range, and the created-file case (note 5).
   - `app-editor.md`: the fork's closure.
-- [ ] Run `swift test` and the app-layer bundle under the pinned Xcode; both must pass before Task 4.
+- [x] Run `swift test` and the app-layer bundle under the pinned Xcode; both must pass before Task 4.
 
 ### Task 4: Diagnostics — drop reports about documents inside dependencies
 

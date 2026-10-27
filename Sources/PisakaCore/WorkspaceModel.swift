@@ -259,6 +259,12 @@ public final class WorkspaceModel: ObservableObject {
     ///
     /// - a titled record whose file is **missing or unreadable** (`fileService.read`
     ///   throws) — deleted, renamed, or on a volume that is not mounted;
+    /// - a titled record whose file lies **inside dependencies** under
+    ///   `projectRoot` (`DependencyFolderRule`), which opens in the read-only
+    ///   source viewer window rather than as a tab (`opensInSourceViewer`) and so
+    ///   has no tab to come back as. Asked *before* `open(url:)`, so nothing is
+    ///   read for it; with no `projectRoot` set nothing is inside dependencies and
+    ///   the record restores as before;
     /// - a record naming **neither a path nor text**. That is the *future-version
     ///   tab* (see `SessionTab`): a kind added by a later build, whose fields this
     ///   one has no property for, so the keyed decoder skipped them and nothing is
@@ -311,6 +317,9 @@ public final class WorkspaceModel: ObservableObject {
         for (index, record) in session.tabs.enumerated() {
             let id: UUID
             if let path = record.path {
+                // A file inside dependencies is never a tab (`opensInSourceViewer`),
+                // so its record is skipped exactly like a missing file.
+                guard !isInsideDependencies(URL(fileURLWithPath: path)) else { continue }
                 // Delegated to `open(url:)` rather than re-derived here, so the
                 // canonical-path tab identity has one implementation: `try?` is
                 // exactly the "skip a file this build cannot read" semantics wanted,
@@ -1305,6 +1314,43 @@ public final class WorkspaceModel: ObservableObject {
             return existing.kind == .viewer
         }
         return viewerTabsEnabled && DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent)
+    }
+
+    /// Whether `url` opens in the read-only **source viewer window** rather than
+    /// as a tab — the one question both of the app's routing sites ask (the open
+    /// funnel, and the definition fork with the candidate's outside-root flag).
+    /// Answered in this order, each branch where it is for a reason:
+    ///
+    /// 1. `isOutsideProjectRoot` → `true`: D3, a definition target outside the
+    ///    project, unchanged — and first, so it holds whether or not a tab holds
+    ///    the file. The funnel always asks with the default `false`, so a file
+    ///    outside the root reached through the Open panel or a recent file keeps
+    ///    opening as a tab.
+    /// 2. A tab already holds the file (canonical, as the open's own dedup) →
+    ///    `false`: a tab that pre-dates the rule is left alone until it is closed,
+    ///    rather than having the file appear in two places.
+    /// 3. A recognized database file with `viewerTabsEnabled` on → `false`: it
+    ///    holds no text the source viewer could show, and its viewer tab is a
+    ///    reader already.
+    /// 4. Otherwise, whether the file lies inside dependencies under
+    ///    `projectRoot` (`DependencyFolderRule`); `false` with no root.
+    ///
+    /// The listings go through `fileService.contentsOfDirectory(at:)`, a failure
+    /// read as no listing, and cost what the rule's bound states: none at all for
+    /// a path with no table-named ancestor.
+    public func opensInSourceViewer(_ url: URL, isOutsideProjectRoot: Bool = false) -> Bool {
+        if isOutsideProjectRoot { return true }
+        if fileID(forURL: url) != nil { return false }
+        if viewerTabsEnabled, DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent) { return false }
+        return isInsideDependencies(url)
+    }
+
+    /// Whether `url` lies inside dependencies under `projectRoot`, asking the
+    /// file service for the listings the rule needs.
+    private func isInsideDependencies(_ url: URL) -> Bool {
+        DependencyFolderRule.isInsideDependencies(fileURL: url, projectRoot: projectRoot) { directory in
+            (try? fileService.contentsOfDirectory(at: directory))?.map(\.name)
+        }
     }
 
     /// Canonical form of a url for identity comparison: resolves symlinks and

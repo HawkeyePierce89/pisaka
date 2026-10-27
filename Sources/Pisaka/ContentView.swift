@@ -145,6 +145,11 @@ struct ContentView: View {
     /// is the app's job — and threaded straight into `CodeEditorView`. Default
     /// no-op for previews/tests.
     var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+    /// Which of the two destinations above a chosen definition takes — the
+    /// workspace's `opensInSourceViewer` question, wired by `PisakaApp` and
+    /// threaded straight into `CodeEditorView`. Defaults to the candidate's
+    /// outside-root flag alone for previews/tests.
+    var opensDefinitionInSourceViewer: (DefinitionCandidate) -> Bool = { $0.isOutsideProjectRoot }
     /// Which bottom dock panel is shown (`nil` = none). Owned by
     /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
     /// view (previews/tests) with no panel shown.
@@ -1262,6 +1267,7 @@ struct ContentView: View {
             diagnostics: diagnostics,
             onGoToDefinition: onGoToDefinition,
             onViewDefinitionOutsideProject: onViewDefinitionOutsideProject,
+            opensDefinitionInSourceViewer: opensDefinitionInSourceViewer,
             onFindUsages: onFindUsages,
             onRenameSymbol: onRenameSymbol,
             onScrolled: onScrolled,
@@ -1505,7 +1511,7 @@ struct ContentView: View {
 
     /// Jump to a changed file's source in the editor, resolving the
     /// repo-relative path against the repository root. A `nil` root (no folder
-    /// open) or a deleted file is a silent no-op — the beep in `openFile(url:)`
+    /// open) or a deleted file is a silent no-op — the beep in `openFile(url:viewerRange:)`
     /// is the failure signal.
     private func jumpToSource(_ file: ChangedFile) {
         guard let root = localChanges.root,

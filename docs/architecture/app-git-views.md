@@ -985,7 +985,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the first `EditorTextView` descendant and `makeFirstResponder`s it, dispatched
     asynchronously on the main queue so the tab SwiftUI is about to build exists by
     then. Finding nothing (no folder open, or the open failed — which already beeps
-    in `openFile(url:)`) leaves focus where it is; one honest limitation: the
+    in `openFile(url:viewerRange:)`) leaves focus where it is; one honest limitation: the
     handoff cannot see whether the open succeeded, so a failed open with another
     tab already showing focuses that tab's editor — the beep is the failure signal.
     The context-menu "Jump to Source" item does *not* move focus, matching every

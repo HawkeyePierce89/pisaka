@@ -943,6 +943,7 @@ struct PisakaApp: App {
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)
                 },
+                opensDefinitionInSourceViewer: { model.opensInSourceViewer($0.fileURL, isOutsideProjectRoot: $0.isOutsideProjectRoot) },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onActivateProblem: { url, row in activateProblem(url: url, row: row) },
@@ -2070,14 +2071,32 @@ struct PisakaApp: App {
         openFile(url: url)
     }
 
-    /// Open a specific file in a tab, beeping on failure. Shared by the Open…
-    /// command and the project tree's file rows.
-    private func openFile(url: URL) {
-        do {
-            try model.open(url: url)
-        } catch {
-            PlatformFeedback.warning()
-        }
+    /// Open a specific file, beeping on failure — **the open funnel**. Returns
+    /// whether a tab now holds the file.
+    ///
+    /// A file **inside dependencies** (`WorkspaceModel.opensInSourceViewer`,
+    /// asked with its default: a file outside the root reached here keeps opening
+    /// as a tab) opens in the read-only source viewer window instead, revealing
+    /// `viewerRange` — the file's start unless the caller has a range — and no
+    /// tab holds it, so the caller's reveal stops. An unreadable one beeps, as
+    /// `viewDefinitionOutsideProject` does. The viewer has no model behind it, so
+    /// a package manager's tree never becomes an autosaved, session-restored tab.
+    ///
+    /// The callers: the Open… command, the window's `onOpenFile` (the project
+    /// tree's file rows, Local Changes' jump to source, the Markdown preview's
+    /// file links), `newFile(in:name:)`'s follow-up open (so a
+    /// file the tree creates inside dependencies shows in the viewer, its create
+    /// unchanged), `activateSearchMatch` (search hits and in-root definitions,
+    /// with their range) and `openAndReveal` (usages rows with the row's range,
+    /// Problems rows with the start).
+    @discardableResult
+    private func openFile(url: URL, viewerRange: NSRange = NSRange(location: 0, length: 0)) -> Bool {
+        let inViewer = model.opensInSourceViewer(url)
+        let opened = inViewer
+            ? sourceViewers.open(fileURL: url, range: viewerRange, settings: settings)
+            : (try? model.open(url: url)) != nil
+        if !opened { PlatformFeedback.warning() }
+        return opened && !inViewer
     }
 
     /// Ask for a folder and open it. The panel is the *only* thing this form adds:
@@ -3226,20 +3245,22 @@ struct PisakaApp: App {
 
     /// Open the file a search result names and select the match inside it.
     ///
-    /// The open goes through the ordinary `openFile(url:)` path (so an already-open
-    /// tab is re-selected rather than duplicated), and the range is handed to the
-    /// editor through `reveal` — the tab's `CodeEditorView` may not exist yet, and
-    /// the update that creates it is the one that installs the file's contents.
-    /// A file that failed to open beeps in `openFile` and resolves to no tab, so
-    /// nothing is revealed.
+    /// The open goes through the ordinary `openFile(url:viewerRange:)` funnel (so
+    /// an already-open tab is re-selected rather than duplicated), and the range
+    /// is handed to the editor through `reveal` — the tab's `CodeEditorView` may
+    /// not exist yet, and the update that creates it is the one that installs the
+    /// file's contents. A file that failed to open beeps in `openFile` and
+    /// resolves to no tab, so nothing is revealed; a file inside dependencies
+    /// opens in the viewer window at this same range, and no tab holds it either.
     ///
     /// Also the destination of **Go to Definition** (⌘-click / ⌃⌘J), which names a
     /// declaration's file and name range instead of a search hit: the two want the
     /// exact same three steps, and sharing them is what keeps a jump into the file
     /// already being edited on the same code path as a jump across the project.
     private func activateSearchMatch(url: URL, range: NSRange) {
-        openFile(url: url)
-        guard let id = model.fileID(forURL: url) else { return }
+        guard openFile(url: url, viewerRange: range),
+              let id = model.fileID(forURL: url)
+        else { return }
         reveal.reveal(fileID: id, range: range)
     }
 
@@ -3250,7 +3271,7 @@ struct PisakaApp: App {
     /// `activateSearchMatch(url:range:)`, which handles every target inside it.
     ///
     /// A jump into an SDK `.swiftinterface` or a dependency checkout deliberately
-    /// does *not* go through `openFile(url:)`: that would put a file the user
+    /// does *not* go through `openFile(url:viewerRange:)`: that would put a file the user
     /// cannot meaningfully edit into `WorkspaceModel`, where the autosave gate, the
     /// session snapshot and ⌘S all apply to it. The viewer has no model behind it,
     /// so a semantic jump outside the project cannot become a write outside the
@@ -3349,6 +3370,9 @@ struct PisakaApp: App {
     /// `DiagnosticStore.Row.rangeToReveal(in:)` answers, clamped, so this never
     /// beeps and never traps. A file that did not open (unreadable, gone)
     /// leaves no tab and returns silently.
+    ///
+    /// It passes no viewer range: `DiagnosticsModel` drops every report about a
+    /// document inside dependencies, so a Problems row cannot name one.
     private func activateProblem(url: URL, row: DiagnosticStore.Row) {
         openAndReveal(url: url) { row.rangeToReveal(in: $0) }
     }
@@ -3357,9 +3381,11 @@ struct PisakaApp: App {
     /// the text the tab holds once it is open — the shared tail of the two
     /// activations whose range depends on that text, a usages row and a
     /// Problems row. No tab, or no range, reveals nothing and returns silently.
-    private func openAndReveal(url: URL, range: (NSString) -> NSRange?) {
-        openFile(url: url)
-        guard let id = model.fileID(forURL: url),
+    /// `viewerRange` is what the funnel reveals when the file opens in the
+    /// viewer window instead (inside dependencies), where no tab holds it.
+    private func openAndReveal(url: URL, viewerRange: NSRange = NSRange(location: 0, length: 0), range: (NSString) -> NSRange?) {
+        guard openFile(url: url, viewerRange: viewerRange),
+              let id = model.fileID(forURL: url),
               let text = model.openFiles.first(where: { $0.id == id })?.text,
               let revealed = range(text as NSString)
         else { return }
@@ -3412,6 +3438,11 @@ struct PisakaApp: App {
     /// this are ordinary: Find Usages always scans the requesting file, even one
     /// opened from outside the root entirely (`FindUsagesModel.scanTextually`),
     /// and a semantic answer maps every location against the open buffers.
+    ///
+    /// A row **inside dependencies** under the root reaches the same viewer
+    /// through the funnel instead (`openFile(url:viewerRange:)`), at the row's
+    /// range as it stands and with the same reused-window limit — and, like the
+    /// branch above, only when no tab already holds the file.
     private func activateUsage(_ row: UsageResult) {
         if let root = model.projectRoot,
            !isInsideProject(row.fileURL, root: root),
@@ -3419,7 +3450,7 @@ struct PisakaApp: App {
             viewDefinitionOutsideProject(url: row.fileURL, range: row.range)
             return
         }
-        openAndReveal(url: row.fileURL) { row.revealRange(naming: usages.identifier, in: $0) }
+        openAndReveal(url: row.fileURL, viewerRange: row.range) { row.revealRange(naming: usages.identifier, in: $0) }
     }
 
     /// Rename the symbol the editor resolved: ask, then write.

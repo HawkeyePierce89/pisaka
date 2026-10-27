@@ -918,11 +918,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     because a closed file's row carries the server's position, which only becomes
     a range once the file is open. The app wires it to
     `PisakaApp.activateProblem(url:row:)` (`app-shell.md`), shaped like
-    `activateUsage`: `openFile(url:)` opens or re-selects the tab, the opened
+    `activateUsage`: `openFile(url:viewerRange:)` opens or re-selects the tab, the opened
     tab's text goes to Core's `Row.rangeToReveal(in:)` — the server's position
     mapped onto the buffer just opened, clamped, or the mapped offsets clamped
     into its length — and `reveal.reveal(fileID:range:)` lands the caret. The two
-    activations share one open-and-reveal tail, `openAndReveal(url:range:)`, so
+    activations share one open-and-reveal tail, `openAndReveal(url:viewerRange:range:)`, so
     they cannot stop agreeing; a file that did not open leaves no tab and the
     activation returns silently, never beeping and never trapping. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the

@@ -789,7 +789,7 @@ final class LocalChangesFocusAnchorView: NSView {
     /// hop is dispatched asynchronously so the tab SwiftUI is about to build
     /// exists by the time the responder change lands. If no editor is found
     /// (no folder open, or the open failed — which already beeps in
-    /// `openFile(url:)`) focus stays where it is. One honest limitation: the
+    /// `openFile(url:viewerRange:)`) focus stays where it is. One honest limitation: the
     /// handoff cannot see whether the open succeeded, so a failed open with
     /// another tab already showing focuses that tab's editor — the beep is
     /// the failure signal.

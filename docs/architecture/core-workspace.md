@@ -368,7 +368,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     selection. **Everything is silent** — a launch is the worst moment for a stack
     of alerts about files that moved — so a record this build cannot turn into a
     tab is skipped and the batch continues: a titled record whose file is missing
-    or unreadable, *and* a record naming **neither a path nor text**. That second
+    or unreadable; a titled record whose file lies **inside dependencies** under
+    `projectRoot` — it opens in the read-only source viewer window, never as a
+    tab (`opensInSourceViewer(_:isOutsideProjectRoot:)` below), so it has no tab
+    to come back as; asked *before* `open(url:)`, so nothing is read for it, and
+    with no `projectRoot` set nothing is inside dependencies and it restores as
+    before (the app sets the root before applying a session, and only the macOS
+    app applies one, so iOS is untouched without a platform switch); *and* a
+    record naming **neither a path nor text**. That second
     rule lives here rather than in the decoder because it is a decision about what
     a record *means*: it is the future-version tab (a kind a later build added,
     whose fields the keyed decoder skipped, leaving nothing), and skipping it here
@@ -441,7 +448,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a url is — by an open tab's kind, found the same canonical way — or would
     be, by `open(url:)`'s own name routing, a viewer tab; asked without opening
     or probing anything, so Local History can refuse a restore no buffer could
-    take), and `replaceText(_:for:)` — the
+    take), `opensInSourceViewer(_:isOutsideProjectRoot:)` (**the routing
+    question** both of the app's routing sites ask — the open funnel with the
+    default `false`, the definition fork with the candidate's own flag —
+    answering whether a file opens in the read-only source viewer window rather
+    than as a tab, in a fixed order: `isOutsideProjectRoot` → `true` (D3,
+    unchanged, first so it holds even when a tab holds the file; the funnel never
+    passes it, so a file outside the root reached through the Open panel or a
+    recent file keeps opening as a tab); a tab already holding the file,
+    canonically → `false` (a tab that pre-dates the rule is left alone until it is
+    closed); a recognized database file with `viewerTabsEnabled` on → `false` (no
+    text for the viewer, and its viewer tab is a reader already); otherwise
+    `DependencyFolderRule.isInsideDependencies(fileURL:projectRoot:listNames:)`
+    over `fileService.contentsOfDirectory(at:)` names, a failed listing read as
+    none — so an ordinary file costs no listing at all, and no root answers
+    `false`), and `replaceText(_:for:)` — the
     text-mutating counterpart of `updateText(_:for:)` for a writer that is *not*
     the user's typing (the project-wide Replace All's `applyBufferText`, and the
     on-save transform's off-screen path: the macOS funnel's fallback for a buffer

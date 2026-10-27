@@ -228,12 +228,17 @@ line_length:
 # after the tree's move and delete and the three resyncs' deleted-file
 # closes — a close keeps a file's set, a removal must not — and the
 # `serversRestart` flag that also hands a re-spelled re-open's root to the
-# diagnostics model. The number tracks the one file that
-# approaches it — measured, never rounded up for room — and is not a licence
-# to grow the others.
+# diagnostics model. Then 1986 with the open funnel's read-only routing: four
+# lines net, `openFile(url:viewerRange:)` sending a file inside dependencies to
+# the source viewer window and answering whether a tab now holds the file, the
+# reveal paths stopping on that answer, and the definition fork's
+# `opensDefinitionInSourceViewer` closure handed to `ContentView`; the routing
+# question itself is Core's `WorkspaceModel.opensInSourceViewer`. The number
+# tracks the one file that approaches it — measured, never rounded up for
+# room — and is not a licence to grow the others.
 file_length:
-  warning: 1982
-  error: 1982
+  warning: 1986
+  error: 1986
   ignore_comment_only_lines: true
 
 # Same reasoning as file_length, and one number behind it again: the viewer's
@@ -299,9 +304,11 @@ file_length:
 # `file_length` counts, all inside the struct body. Then to 1969 with the
 # tree's Refresh re-reading git state, the same one `file_length` counts. Then
 # to 1975 with removals clearing diagnostics, the same six `file_length` counts.
+# Then to 1979 with the open funnel's read-only routing, the same four
+# `file_length` counts, all inside the struct body.
 type_body_length:
-  warning: 1975
-  error: 1975
+  warning: 1979
+  error: 1979
 
 function_body_length:
   warning: 140
