@@ -117,7 +117,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Create: `Tests/PisakaCoreTests/DependencyFolderRuleTests.swift`
 - Modify: `docs/architecture/core-workspace.md`, `CLAUDE.md` (index)
 
-- [ ] Create `DependencyFolderRule`, a pure, Foundation-only enum beside `TreeTestRule`.
+- [x] Create `DependencyFolderRule`, a pure, Foundation-only enum beside `TreeTestRule`.
   - **The table.** `markers: [String: Set<String>]`, public, compared exactly:
     - `node_modules` → `package.json`
     - `vendor` → `composer.json`, `go.mod`, `Gemfile`
@@ -144,7 +144,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - the chain's "any segment" rule;
     - the cost bound;
     - that build-output folders are deliberately not in the table.
-- [ ] Write `DependencyFolderRuleTests` covering:
+- [x] Write `DependencyFolderRuleTests` covering:
   - **the table by set equality:** keys, and each key's marker set;
   - **every key with each of its markers** → root;
   - **the marker requirement:** each table name beside no marker → not a root, and `vendor` beside only `package.json` → not a root;
@@ -160,13 +160,13 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - `a/vendor/b/vendor/c.go`, with no marker anywhere, asks exactly twice;
     - a path whose first table-named ancestor is a root asks once and stops;
   - **the URL form:** a file under a symlinked root spelling → inside; outside the root → `false` with no listing asked.
-- [ ] Add the `DependencyFolderRule.swift` entry to `core-workspace.md`. It states:
+- [x] Add the `DependencyFolderRule.swift` entry to `core-workspace.md`. It states:
   - the contract, the table, the cost bound and the chain resolution;
   - its three readers;
   - one sentence that Find in Files and the symbol index are deliberately untouched (both walk `ProjectFileWalk`, which honours `.gitignore`, and a committed `vendor` tree is still worth searching), so no second exclusion is added later.
 
   Add `DependencyFolderRule.swift` to `CLAUDE.md`'s core-workspace index line.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Core — the spoken `Dependencies` word
 

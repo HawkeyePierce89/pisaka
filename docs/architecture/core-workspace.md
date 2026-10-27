@@ -1144,6 +1144,68 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     with its test segment first, middle or last, the Rust pair, and the file
     named `test`), with the agreement of the two `TestCommand` predicates
     pinned in `TestCommandTests`.
+  - `DependencyFolderRule.swift` — whether a folder is a **dependency root**
+    (a folder a package manager fills) and whether a path lies **inside
+    dependencies**. Pure and Foundation-only: it reads folder names and their
+    siblings' names, and every listing it needs is handed to it by the caller.
+    **The table is closed and compared exactly** (`markers`, pinned by set
+    equality): `node_modules` → `package.json`; `vendor` → `composer.json`,
+    `go.mod`, `Gemfile`; `.venv` and `venv` → `pyproject.toml`,
+    `requirements.txt`, `setup.py`, `setup.cfg`, `Pipfile`; `Pods` →
+    `Podfile`; `.build` → `Package.swift`. `isDependencyRoot(name:siblingNames:)`
+    holds when the name is in the table **and** one of its markers lies beside
+    it: a name alone never counts, because a hand-written `vendor` folder beside
+    no manifest is ordinary source the user edits. `Node_Modules` and `VENDOR`
+    are not roots. Build-output folders (`build`, `dist`, `target`) are
+    deliberately not in the table — they hold what the project produced, not
+    what it depends on.
+    **The project root is never a root**: the components are root-relative and
+    never spell it, so `[]` is never asked about. **Being inside is
+    inherited**: `State` (`.outside`, `.root`, `.inside`) answers `.inside` for
+    any node or file under a `.root` or `.inside` parent, so a package's own
+    nested `node_modules` is never a second root and a file is never a root.
+    `showsCaption` is `.root` alone; `showsTestWash(isTestRow:)` is `isTestRow`
+    only at `.outside`, which is how a vendored package's `test` folder washes
+    nothing while `TreeTestRule` stays untouched.
+    **A chain row is a root row when *any* segment is one**
+    (`isDependencyRootRow(segmentNames:siblingNames:)`), each segment asked
+    about its own siblings. `TreeChainRule` folds a folder only when its
+    listing is exactly one folder, so a root — which always has a marker file
+    beside it — can only be a chain's head; a tail-only rule could never fire,
+    and a `node_modules` holding one package (the chain `node_modules/lodash`)
+    would go uncaptioned. The row stands for its head the way its git colour
+    does; the tree hands the head its parent's listing names and a later
+    segment just its own name, a folded segment being its parent's sole entry.
+    **The path question**, `isInsideDependencies(components:siblingNames:)`,
+    walks the **ancestors** only (`components.dropLast()`), asks
+    `siblingNames(i)` only for a table-named component, reads a `nil` listing
+    as not a root and returns at the first root. Its URL form,
+    `isInsideDependencies(fileURL:projectRoot:listNames:)`, computes the
+    root-relative components canonically (`CanonicalPath.canonical` +
+    `relativeComponents(of:under:)`), lists the canonical root plus the
+    components before `i`, and answers `false` with no listing for a `nil`
+    root or a file not strictly under it. **The cost bound**: one listing per
+    table-named ancestor component of the asked path, stopping at the first
+    root; a path with no table-named ancestor costs no listing at all. Nothing
+    is memoized.
+    **Three readers ask it**: the macOS project tree, from listings it already
+    holds (the `dependencies` caption, its spoken `Dependencies`, the
+    suppressed test wash); `WorkspaceModel.opensInSourceViewer`, which routes a
+    file inside dependencies to the read-only source viewer window instead of a
+    tab, and the session restore, which drops such tabs; and
+    `DiagnosticsModel`, which drops every report naming a document inside
+    dependencies. Find in Files and the symbol index are **deliberately
+    untouched** — both walk `ProjectFileWalk`, which already honours
+    `.gitignore`, and a committed `vendor` tree is still worth searching — so
+    no second exclusion is to be added there later. Covered by
+    `DependencyFolderRuleTests`: the table by set equality, every key with each
+    of its markers, the marker requirement (and `vendor` beside only
+    `package.json`), exact comparison, the root exclusion, inheritance, every
+    `State` transition, the chain headed by a root and the chain whose later
+    segment is the root, the test-wash suppression, the listing-cost bound
+    through a counting closure (`src/a/b.swift` 0, `node_modules/x/y.js` 1,
+    `a/vendor/b/vendor/c.go` 2, a first-ancestor root 1), and the URL form
+    under a symlinked root spelling and outside the root.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one
