@@ -2085,9 +2085,9 @@ struct PisakaApp: App {
     /// a package manager's tree never becomes an autosaved, session-restored tab.
     ///
     /// The callers: the Open… command, the window's `onOpenFile` (the project
-    /// tree's file rows, Local Changes' jump to source, the Markdown preview's
-    /// file links), `newFile(in:name:)`'s follow-up open (so a
-    /// file the tree creates inside dependencies shows in the viewer, its create
+    /// tree's file rows, Local Changes' jump to source and its ⌘↓, the Markdown
+    /// preview's file links), `newFile(in:name:)`'s follow-up open (so a file
+    /// the tree creates inside dependencies shows in the viewer, its create
     /// unchanged), `activateSearchMatch` (search hits and in-root definitions,
     /// with their range) and `openAndReveal` (usages rows with the row's range,
     /// Problems rows with the start).

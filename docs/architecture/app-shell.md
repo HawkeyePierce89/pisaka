@@ -178,7 +178,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `activateUsage` passes `row.range`, `activateProblem` the start, since the
     diagnostics drop means a Problems row cannot name a dependency file; the
     Open… command, the window's `onOpenFile` (the project tree's file rows, Local
-    Changes' jump to source, the Markdown preview's file links) and
+    Changes' jump to source and its ⌘↓, the Markdown preview's file links) and
     `newFile(in:name:)` the start (`NSRange(location: 0, length: 0)`, the
     default). **A file the tree creates inside dependencies** is created exactly
     as before — the create is unchanged — and its follow-up open goes through the

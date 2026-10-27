@@ -120,6 +120,8 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 
 16. **Task 8 verification, all under Xcode 27.1 (the pin is still not installed, note 11).** `swift test` 7215/7215, including `DependencyFolderRuleTests`, `WorkspaceModelTests`, `DiagnosticsModelTests`, `TreeGitStatusTests`, `ProjectTreeSourceGatingTests`, `ChromeThemeSourceGatingTests` and `LintConfigurationTests`. `swiftlint --strict` 0.65.1 clean; `xcodegen generate` left the tree clean. App bundle 509/509, including `TreeDependencyCaptionTests` and `TreeStickyScrollRoundingTests`. macOS Release build and iOS `generic/platform=iOS` build (`CODE_SIGNING_ALLOWED=NO`) both succeeded. `CLAUDE.md` is 56,914 characters. Every public `DependencyFolderRule` member, `opensInSourceViewer`, the restore drop and the `listNames` seam has direct tests. The brand grep over the branch diff found none (its only hits were "-zed" word endings such as "resized"). The app bundle and both builds still owe one run under Xcode 26.3 before the merge.
 
+17. **Task 9 consistency pass: two drifts fixed.** The six architecture docs matched the merged code except for the funnel's caller list: Local Changes' ⌘↓ (`LocalChangesFocusAnchorView`) also reaches `openFile(url:viewerRange:)` through `onOpenFile`, and was missing from the list in `app-shell.md` and in the funnel's doc comment in `PisakaApp.swift` (rewrapped in place, line count unchanged). `app-git-views.md`'s ⌘↓ entry now says a file inside dependencies opens in the viewer window and the focus walk behaves as after a failed open. `ProjectTreeView.swift`'s type comment no longer says a file row always opens a tab. Comment-only app changes, so no `xcodebuild` was re-run; `swift test` 7215/7215 and `swiftlint --strict` clean. `CLAUDE.md` needed no change: the index carries `DependencyFolderRule.swift` and the suite list `ProjectTreeSourceGatingTests`.
+
 ## Implementation Steps
 
 ### Task 1: Core — the dependency-folder rule
@@ -347,7 +349,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 
 ### Task 9: Update documentation
 
-- [ ] `docs/FEATURES.md`: under the project tree, describe the `dependencies` caption: the table, the marker requirement and the boundary-only mark. Say that files inside open in the read-only viewer window, that they are not diagnosed, that a database file still opens as its viewer tab, and that search and the symbol index still include them.
-- [ ] `README.md`: one line in the project tree's bullet for the caption and the read-only opening.
-- [ ] `CLAUDE.md`: confirm the index carries `DependencyFolderRule.swift` and the suite list carries `ProjectTreeSourceGatingTests`. No other growth.
-- [ ] Final consistency pass over `core-workspace.md`, `core-git-models.md`, `core-lsp.md`, `app-window.md`, `app-shell.md` and `app-editor.md` against the code as merged. Record any drift fixed in the execution notes.
+- [x] `docs/FEATURES.md`: under the project tree, describe the `dependencies` caption: the table, the marker requirement and the boundary-only mark. Say that files inside open in the read-only viewer window, that they are not diagnosed, that a database file still opens as its viewer tab, and that search and the symbol index still include them.
+- [x] `README.md`: one line in the project tree's bullet for the caption and the read-only opening.
+- [x] `CLAUDE.md`: confirm the index carries `DependencyFolderRule.swift` and the suite list carries `ProjectTreeSourceGatingTests`. No other growth.
+- [x] Final consistency pass over `core-workspace.md`, `core-git-models.md`, `core-lsp.md`, `app-window.md`, `app-shell.md` and `app-editor.md` against the code as merged. Record any drift fixed in the execution notes.

@@ -6,7 +6,8 @@ import PisakaCore
 /// The project file tree on the left side of the window.
 ///
 /// Renders the directory rooted at `model.projectRoot`; clicking a file row
-/// calls `onOpenFile` (which opens it in a tab). When no folder is open a
+/// calls `onOpenFile` (the app's open funnel: a tab, or the read-only viewer
+/// window for a file inside dependencies). When no folder is open a
 /// placeholder is shown instead. The view holds no domain logic: directory
 /// listing goes through `model.children(of:)`. File operations (create / rename
 /// / delete) are surfaced as context menus that call back into the app
