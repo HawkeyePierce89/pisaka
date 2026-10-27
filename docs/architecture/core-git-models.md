@@ -683,17 +683,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     deletion counts as `modified` for the folders it vanished from, never as
     `conflict`. `spokenName` is "Conflicted" / "Modified" / "Added" / "Ignored",
     `nil` for `plain`, which has nothing to say; the pure
-    `accessibilityValue(state:mark:row:isTestRow:)` composes a row's value from
-    the test row's word ("Test", when `TreeTestRule` answers yes,
-    `core-workspace.md`), the git state's word and the diagnostic mark's words
-    (`TreeDiagnosticMark`, "has errors" / "has warnings", `core-lsp.md`), in that
-    order, joined by `", "` — a file's words that exist, or `""` when none does
-    (a plain, clean test file says just "Test"); a folder's "expanded" /
-    "collapsed" first, then each word that exists — so both row kinds speak the
-    state alike. The mark and `isTestRow` parameters are both non-defaulted, so no
-    call site can forget either; `isTestRow` matters because the tree's test wash
-    is colour alone, and the word is what carries it to a listener. A row that is
-    not a test row speaks exactly what it spoke before the word existed. The
+    `accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)` composes a
+    row's value from the test row's word ("Test", when `TreeTestRule` answers
+    yes, `core-workspace.md`), the git state's word and the diagnostic mark's
+    words (`TreeDiagnosticMark`, "has errors" / "has warnings", `core-lsp.md`), in
+    that order, joined by `", "` — a file's words that exist, or `""` when none
+    does (a plain, clean test file says just "Test"); a folder's "expanded" /
+    "collapsed" first, then "Dependencies" when the folder is a dependency root
+    (`DependencyFolderRule`, `core-workspace.md`), then each word that exists —
+    so both row kinds speak the state alike, and a dependency root that is also
+    a modified test folder says "expanded, Dependencies, Test, Modified, …". The
+    mark, `isTestRow` and `isDependencyRoot` parameters are all non-defaulted, so
+    no call site can forget any of them; `isTestRow` matters because the tree's
+    test wash is colour alone, and `isDependencyRoot` because the root's
+    `dependencies` caption is secondary text a listener never reaches — the
+    words are what carry both. `isDependencyRoot` is **ignored for `.file`**: a
+    file is never a dependency root, so a file's words are the same whatever it
+    is passed. A row that is neither a test row nor a dependency root speaks
+    exactly what it spoke before either word existed. The
     colour is a separate Core answer, `ChromeColorRole.treeNameRole(for:)`
     (`core-theme.md`).
     **`TreeGitStatus`** (`Equatable`, `Sendable`; `.empty` answers `plain`
@@ -741,8 +748,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     lexical standardization, a symlinked folder spelling, the probe bound, the
     spoken names, both accessibility compositions, every position of the "Test"
     word (a file alone, after a folder's expansion word, before the git and
-    diagnostics words), a non-test row's value unchanged over every state, mark
-    and row kind, and the status mapping's totality.
+    diagnostics words), every position of the "Dependencies" word (alone after
+    either expansion word, before "Test", the git and diagnostics words), a
+    file's value unchanged when passed `isDependencyRoot: true`, a row passed
+    neither word's flag unchanged over every state, mark and row kind, and the
+    status mapping's totality.
   - `RelativeCommitDate.swift` — the Log's date column, said relative to now.
     `date(from:)` parses git's raw strict ISO-8601 `%aI` string
     (`Date.ISO8601FormatStyle`, offset honoured); `text(for:now:calendar:locale:)`

@@ -1596,7 +1596,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
-    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)` — the
+    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)` — the
     expansion word, then the test row's "Test", the state's word and the
     diagnostic mark's words, each when there is one,
     joined by `", "` (still `""` while a
@@ -1643,7 +1643,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     stays `""`; the create draft row is not wired and is never washed.
     **Accessibility**: a test row's value gains `Test` — after a folder's
     expansion word and before the git and diagnostic words, a clean test file
-    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`,
+    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)`,
     `core-git-models.md`). Chrome gating rule fifty-two pins the wash's one
     reader and that every ask lies inside `enum TreeRowBackground`
     (`core-theme.md`); `TreeRowBackgroundTests` pins `layers(for:isTestRow:)`

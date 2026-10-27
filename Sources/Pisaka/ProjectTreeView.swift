@@ -1789,7 +1789,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
                 ? ""
                 : TreeGitState.accessibilityValue(
                     state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded),
-                    isTestRow: isTestRow
+                    isTestRow: isTestRow, isDependencyRoot: false
                 )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
@@ -2249,7 +2249,7 @@ private struct FileRowView: View {
             isDraftedRow
                 ? ""
                 : TreeGitState.accessibilityValue(
-                    state: gitState, mark: diagnosticMark, row: .file, isTestRow: isTestRow
+                    state: gitState, mark: diagnosticMark, row: .file, isTestRow: isTestRow, isDependencyRoot: false
                 )
         )
     }

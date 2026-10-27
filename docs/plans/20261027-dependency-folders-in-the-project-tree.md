@@ -107,6 +107,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - The tree sizes rows with `metrics.scaled(ChromeGeometry.rowHeight)`, and `ChromeGeometry.rowHeight` is `24` points at interface scale 1. At scale 1 rows therefore lie on a whole-point grid, and reveal targets end in `.0` or `.5` only through the centring arithmetic.
     - The direction measurement therefore runs at interface scale **1.1** (row height `26.4`). Different rows' centres there fall at different tenths, while the window stays one window at a whole-point height.
     - Record here the fractions observed, the settled offsets and the backing scale.
+11. **The pinned Xcode is not installed on this machine** (only Xcode 27.1 at `/Applications/Xcode.app`). Task 2's compile check of the two tree call sites ran under 27.1 (`build`, Debug, macOS, single derived-data path): green. Every later `xcodebuild` in this plan runs under 27.1 too, and a run of the app-layer bundle and both builds under the pin (Xcode 26.3) is owed before the merge.
 
 ## Implementation Steps
 
@@ -176,18 +177,18 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Modify: `Sources/Pisaka/ProjectTreeView.swift` (the call sites pass `isDependencyRoot: false` until Task 5)
 - Modify: `docs/architecture/core-git-models.md`
 
-- [ ] Give `TreeGitState.accessibilityValue` a required `isDependencyRoot: Bool` parameter.
+- [x] Give `TreeGitState.accessibilityValue` a required `isDependencyRoot: Bool` parameter.
   - A folder's words are `expanded`/`collapsed`, then `Dependencies`, then `Test`, then the git word, then the diagnostic words.
   - A file's words are unchanged: a file is never a root, and the parameter is ignored for `.file`, which the doc comment says.
   - Update the doc comment.
-- [ ] Update every call site to pass `false` for now: both tree rows, plus any iOS caller found by the compiler.
-- [ ] Tests in `TreeGitStatusTests`:
+- [x] Update every call site to pass `false` for now: both tree rows, plus any iOS caller found by the compiler.
+- [x] Tests in `TreeGitStatusTests`:
   - `Dependencies` alone on an expanded folder and on a collapsed one;
   - with git, with diagnostics, and with `Test`, which pins the position: `"expanded, Dependencies, Test, Modified, …"`;
   - a file passed `true` is unchanged;
   - existing values unchanged with `false`.
-- [ ] Update the `TreeGitStatus.swift` entry in `core-git-models.md`.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Update the `TreeGitStatus.swift` entry in `core-git-models.md`.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: Read-only routing — the Core answer, the funnel, the definition fork, session restore
 
