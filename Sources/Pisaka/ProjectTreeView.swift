@@ -256,6 +256,10 @@ struct ProjectTreeView: View {
                         // The root's own components: it is never a test row,
                         // whatever it is called on disk (`TreeTestRule`).
                         relativeComponents: [],
+                        // The root never evaluates itself: it is never a
+                        // dependency root, whatever it is called on disk
+                        // (`DependencyFolderRule`).
+                        dependencyState: .outside,
                         listingMemo: listings.memo(listingThrough: model),
                         separated: separatedFolders,
                         opensOnAppearance: opensOnAppearance,
@@ -592,6 +596,12 @@ private struct DirectoryNodeView: View {
     /// names alone, so no canonicalization enters and the cost is the row's
     /// depth; what `TreeTestRule` judges a row by.
     let relativeComponents: [String]
+    /// Where this row stands relative to dependencies
+    /// (`DependencyFolderRule.State`): `.outside` for the root, the parent's
+    /// answer over this row's segment names for a child. Computed from the
+    /// listing the parent already holds, so it costs no I/O. A `.root` row is
+    /// captioned; nothing at or below an `.inside` one is washed as a test row.
+    let dependencyState: DependencyFolderRule.State
     /// The tree's one listing memo, handed down the recursion.
     let listingMemo: TreeListingMemo
     /// The keys (`TreeChainRule.key(for:)`) of folders the user asked to see as
@@ -666,6 +676,7 @@ private struct DirectoryNodeView: View {
         revealURL: URL,
         depth: Int,
         relativeComponents: [String],
+        dependencyState: DependencyFolderRule.State,
         listingMemo: TreeListingMemo,
         separated: Set<String>,
         opensOnAppearance: Set<String>,
@@ -697,6 +708,7 @@ private struct DirectoryNodeView: View {
         self.revealURL = revealURL
         self.depth = depth
         self.relativeComponents = relativeComponents
+        self.dependencyState = dependencyState
         self.listingMemo = listingMemo
         self.separated = separated
         self.opensOnAppearance = opensOnAppearance
@@ -746,8 +758,11 @@ private struct DirectoryNodeView: View {
         let diagnosticMark = diagnostics.mark(for: shape.diagnosticMarkURL)
         // Asked once per render too, of the contents directory's components —
         // a chain is judged by its tail, so a test folder anywhere in it
-        // washes the row.
-        let isTestRow = TreeTestRule.isTestRow(components: relativeComponents, isFolder: true)
+        // washes the row — unless the row is inside dependencies, where
+        // nothing washes (`DependencyFolderRule.State.showsTestWash`).
+        let isTestRow = dependencyState.showsTestWash(
+            isTestRow: TreeTestRule.isTestRow(components: relativeComponents, isFolder: true)
+        )
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == contentsDirectory {
                 Group {
@@ -799,6 +814,16 @@ private struct DirectoryNodeView: View {
                         revealURL: contentsRevealURL.appendingPathComponent(childShape.head.lastPathComponent),
                         depth: depth + 1,
                         relativeComponents: relativeComponents + childShape.segmentNames,
+                        // A chain row is a dependency root row when any segment
+                        // is one. The head's siblings are this listing; a later
+                        // segment's are its own name alone, because
+                        // `TreeChainRule` folds a folder into a chain only when
+                        // it is its parent's sole entry.
+                        dependencyState: .node(
+                            segmentNames: childShape.segmentNames,
+                            siblingNames: { $0 == 0 ? currentChildrenNames : [childShape.segmentNames[$0]] },
+                            parent: dependencyState
+                        ),
                         listingMemo: listingMemo,
                         separated: separated,
                         opensOnAppearance: opensOnAppearance,
@@ -849,8 +874,10 @@ private struct DirectoryNodeView: View {
                         isSelected: selection.contains(entry.url),
                         gitState: gitStatus.state(for: entry.url),
                         diagnosticMark: diagnostics.mark(for: entry.url),
-                        isTestRow: TreeTestRule.isTestRow(
-                            components: relativeComponents + [entry.name], isFolder: false
+                        isTestRow: DependencyFolderRule.State.file(inParent: dependencyState).showsTestWash(
+                            isTestRow: TreeTestRule.isTestRow(
+                                components: relativeComponents + [entry.name], isFolder: false
+                            )
                         )
                     )
                     .padding(.leading, metrics.scaled(ChromeGeometry.treeIndentStep))
@@ -865,7 +892,11 @@ private struct DirectoryNodeView: View {
                 }
             }
         } label: {
-            TreeFolderLabel(isExpanded: isExpanded, diagnosticMark: diagnosticMark) {
+            // The caption stays while a rename draft replaces the name: the
+            // folder being renamed is still the dependency root.
+            TreeFolderLabel(
+                isExpanded: isExpanded, diagnosticMark: diagnosticMark, showsCaption: dependencyState.showsCaption
+            ) {
                 nameLabel(gitState: gitState)
             }
         }
@@ -884,6 +915,7 @@ private struct DirectoryNodeView: View {
                 gitState: gitState,
                 diagnosticMark: diagnosticMark,
                 isTestRow: isTestRow,
+                isDependencyRoot: dependencyState.showsCaption,
                 scrollID: TreeRevealRequest.rowID(shape.head),
                 onMove: onMove
             ) {
@@ -1029,7 +1061,8 @@ private struct DirectoryNodeView: View {
     /// draw and act. A collapsed node attaches no reader — it has no subtree
     /// to measure — and the frame it reports does not move while the tree
     /// scrolls, so a scroll changes no report and reads nothing. `isTestRow` is
-    /// the node's own answer, so the copy is washed exactly as the row is.
+    /// the node's own answer, so the copy is washed exactly as the row is, and
+    /// `isDependencyRoot` its own state's, so the copy is captioned as it is.
     @ViewBuilder
     private func stickyReport(isTestRow: Bool) -> some View {
         if isExpanded {
@@ -1040,6 +1073,7 @@ private struct DirectoryNodeView: View {
                     isExpanded: isExpanded,
                     shape: shape,
                     isTestRow: isTestRow,
+                    isDependencyRoot: dependencyState.showsCaption,
                     scrollID: TreeRevealRequest.rowID(shape.head),
                     expansion: $isExpanded
                 )
@@ -1504,6 +1538,8 @@ struct TreeStickyFolderReport: Equatable {
     let isExpanded: Bool
     fileprivate let shape: TreeNodeShape
     let isTestRow: Bool
+    /// Whether the node is a dependency root row, so its copy is captioned.
+    let isDependencyRoot: Bool
     let scrollID: String
     let expansion: Binding<Bool>
 
@@ -1518,7 +1554,8 @@ struct TreeStickyFolderReport: Equatable {
     /// same node's `@State` for as long as the other fields are.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.frame == rhs.frame && lhs.depth == rhs.depth && lhs.isExpanded == rhs.isExpanded
-            && lhs.shape == rhs.shape && lhs.isTestRow == rhs.isTestRow && lhs.scrollID == rhs.scrollID
+            && lhs.shape == rhs.shape && lhs.isTestRow == rhs.isTestRow
+            && lhs.isDependencyRoot == rhs.isDependencyRoot && lhs.scrollID == rhs.scrollID
     }
 }
 
@@ -1618,6 +1655,9 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
     /// Whether the folder is a test row (`TreeTestRule`): washed beneath its
     /// state tint, and `Test` spoken after its expansion word.
     let isTestRow: Bool
+    /// Whether the folder is a dependency root row: `Dependencies` spoken after
+    /// its expansion word.
+    let isDependencyRoot: Bool
     /// The row's scroll id — its head's `TreeRevealRequest.rowID` — so a click
     /// on its pinned copy scrolls to the *row*, whose height alone the anchor
     /// arithmetic assumes, rather than to the whole node.
@@ -1639,6 +1679,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 gitState: gitState,
                 diagnosticMark: diagnosticMark,
                 isTestRow: isTestRow,
+                isDependencyRoot: isDependencyRoot,
                 onMove: onMove,
                 menu: menu
             )
@@ -1712,6 +1753,8 @@ private struct FolderDisclosureRow<Menu: View>: View {
     /// Whether the folder is a test row. The wash is unaffected by `isDrafted`:
     /// a folder being renamed keeps it.
     let isTestRow: Bool
+    /// Whether the folder is a dependency root row, spoken as `Dependencies`.
+    let isDependencyRoot: Bool
     let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
@@ -1781,7 +1824,8 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
         .accessibilityElement(children: isDrafted ? .contain : .combine)
         .accessibilityAddTraits(isDrafted ? [] : .isButton)
-        // The expansion word, then `Test` for a test row, then the git state's
+        // The expansion word, then `Dependencies` for a dependency root row,
+        // then `Test` for a test row, then the git state's
         // and the diagnostics' words when there are any — Core's composition,
         // so the two row kinds speak the state alike.
         .accessibilityValue(
@@ -1789,7 +1833,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
                 ? ""
                 : TreeGitState.accessibilityValue(
                     state: gitState, mark: diagnosticMark, row: .folder(isExpanded: configuration.isExpanded),
-                    isTestRow: isTestRow, isDependencyRoot: false
+                    isTestRow: isTestRow, isDependencyRoot: isDependencyRoot
                 )
         )
         .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
@@ -1865,12 +1909,16 @@ private struct TreeFolderRowLayout<Label: View>: View {
     }
 }
 
-/// A folder row's label — the folder glyph, its diagnostic dot and the name —
-/// shared by the real row and the pinned copy. `name` is `TreeFolderName`, or
-/// the rename field the real row puts in its place.
+/// A folder row's label — the folder glyph, its diagnostic dot, the name and,
+/// on a dependency root row, the `dependencies` caption — shared by the real
+/// row and the pinned copy. `name` is `TreeFolderName`, or the rename field the
+/// real row puts in its place.
 private struct TreeFolderLabel<Name: View>: View {
     let isExpanded: Bool
     let diagnosticMark: TreeDiagnosticMark
+    /// Whether the row is a dependency root row
+    /// (`DependencyFolderRule.State.showsCaption`).
+    let showsCaption: Bool
     @ViewBuilder let name: () -> Name
 
     /// The interface zone's metrics, inherited from the window root.
@@ -1895,6 +1943,14 @@ private struct TreeFolderLabel<Name: View>: View {
                 diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
             )
             name()
+            // The secondary text role, at the label's own font, line limit
+            // and spacing. At its natural width, so a long name truncates
+            // first and the caption stays whole.
+            if showsCaption {
+                Text("dependencies")
+                    .foregroundStyle(theme.color(.textSecondary))
+                    .fixedSize()
+            }
         }
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
@@ -2658,7 +2714,11 @@ private struct TreeStickyRowView: View {
                     .background(alignment: .leading) { TreeIndentGuide() }
             }
             TreeFolderRowLayout(isExpanded: true, isDrafted: false) {
-                TreeFolderLabel(isExpanded: true, diagnosticMark: diagnostics.mark(for: shape.diagnosticMarkURL)) {
+                TreeFolderLabel(
+                    isExpanded: true,
+                    diagnosticMark: diagnostics.mark(for: shape.diagnosticMarkURL),
+                    showsCaption: report.isDependencyRoot
+                ) {
                     TreeFolderName(
                         shape: shape, gitState: gitStatus.state(for: shape.spokenGitStateURL), gitStatus: gitStatus
                     )

@@ -111,6 +111,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 
 12. **Task 3 raised the `PisakaApp.swift` lint ceilings.** The funnel, the reveal paths' stop on its answer and the fork's closure measured four lines over (`file_length` 1982 → **1986**, `type_body_length` 1975 → **1979**), after compacting the new code. Both were raised to the measured numbers with the reason appended in `.swiftlint.yml`, `LintConfigurationTests.documentedRootThresholds` and `style-lint.md`, per that document's procedure.
 13. **Intermittent hosted-render crashes in the app bundle, not caused by Task 3.** Two of four full-bundle runs under Xcode 27.1 lost the test process once to an AppKit layout exception in a test this branch does not touch (`TreeStickyStackLayoutTests.testAPinnedFolderDrawsAsItsRealRowUnderTheHeader`, then `GitChangeControllerRepositoryTests.testALongHunksPopoverDrawsTheLimitAndCountsTheRest`). Each suite passed 3/3 in isolation, and the final full run passed 507/507.
+14. **Task 5 shifted the four `onChange` sites Task 6 names.** The state carried down the recursion and its comments moved them from lines 367, 905, 914 and 944 to **371, 937, 946 and 976** (the `projectRoot`, `isExpanded`, `draft` and `treeRevision` handlers). `ChromeThemeSourceGatingTests` passed untouched: the caption adds no role, palette value or gated rule, and the three `rowBackground` bodies keep their text because the suppressed answer travels in the existing `isTestRow` fields. `TreeDependencyCaptionTests` was checked against both mutations (caption forced on everywhere: the unmarked row fails; forced off: the marked row fails).
 
 ## Implementation Steps
 
@@ -257,26 +258,26 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Create: `Tests/PisakaAppTests/TreeDependencyCaptionTests.swift`
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] Carry the state down the recursion.
+- [x] Carry the state down the recursion.
   - `DirectoryNodeView` gains `dependencyState: DependencyFolderRule.State`. The root passes `.outside` and never evaluates itself.
   - A child node gets `.node(segmentNames: childShape.segmentNames, siblingNames: { $0 == 0 ? currentChildrenNames : [childShape.segmentNames[$0]] }, parent: dependencyState)`, with a comment citing note 1.
   - A file row gets `.file(inParent: dependencyState)`.
   - No I/O: the names come from the listing the node already holds.
-- [ ] The test wash: every place that passed `TreeTestRule.isTestRow(...)` now passes `state.showsTestWash(isTestRow:)` of it (note 7). The node, the file rows and the sticky report all read the suppressed answer.
-- [ ] The caption.
+- [x] The test wash: every place that passed `TreeTestRule.isTestRow(...)` now passes `state.showsTestWash(isTestRow:)` of it (note 7). The node, the file rows and the sticky report all read the suppressed answer.
+- [x] The caption.
   - `TreeFolderLabel` gains `showsCaption: Bool`. When true, it draws `Text("dependencies")` in `theme.color(.textSecondary)` after `name()`. The label's font, line limit and spacing are inherited (note 8). The caption keeps its natural width (`.fixedSize()` / layout priority), so the name truncates first.
   - The real folder row passes `dependencyState.showsCaption`, which stays true while its rename draft replaces the name.
   - The create draft row is not a `TreeFolderLabel` and never shows a caption.
-- [ ] The pinned copy. `TreeStickyFolderReport` gains `isDependencyRoot` (included in its `==`), set from the node's own state. `TreeStickyRowView` passes it to `TreeFolderLabel`.
-- [ ] Spoken value. The folder row passes `isDependencyRoot: dependencyState.showsCaption`. File rows pass `false`. The draft row's value stays `""`.
-- [ ] Confirm that `ChromeThemeSourceGatingTests` passes untouched: no role and no palette value added, and the three `rowBackground` bodies unchanged. If a rule needs its inventory updated, update it and the documents it restates in this task, and record that in the execution notes.
-- [ ] Create `TreeDependencyCaptionTests` (app bundle, `HostedRender`, interface scale 1, one render per appearance, two windows in total).
+- [x] The pinned copy. `TreeStickyFolderReport` gains `isDependencyRoot` (included in its `==`), set from the node's own state. `TreeStickyRowView` passes it to `TreeFolderLabel`.
+- [x] Spoken value. The folder row passes `isDependencyRoot: dependencyState.showsCaption`. File rows pass `false`. The draft row's value stays `""`.
+- [x] Confirm that `ChromeThemeSourceGatingTests` passes untouched: no role and no palette value added, and the three `rowBackground` bodies unchanged. If a rule needs its inventory updated, update it and the documents it restates in this task, and record that in the execution notes.
+- [x] Create `TreeDependencyCaptionTests` (app bundle, `HostedRender`, interface scale 1, one render per appearance, two windows in total).
   - **Project:** a root holding `package.json` and `node_modules/` with two packages (so it does not chain), plus `other/` (expanded) holding `node_modules/` with two packages and no marker.
   - **Assertions in dark and light:**
     - the root-level `node_modules` row has text-coloured pixels in a band to the right of its name, where the caption is drawn;
     - the same band, offset by one indent step on `other/node_modules` (same name, no marker), holds only the row's background;
     - the caption pixels differ from the row background in each appearance.
-- [ ] Update the project tree's entry in `app-window.md`:
+- [x] Update the project tree's entry in `app-window.md`:
   - the caption and its role and font;
   - the boundary-versus-inheritance split (no caption and no wash inside);
   - the pinned copy;
@@ -284,7 +285,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
   - the spoken word and its position;
   - the state carried down the recursion;
   - the chain rule.
-- [ ] Run `swift test`, `swiftlint --strict`, `xcodegen generate` and the app-layer bundle under the pinned Xcode; all must pass before Task 6.
+- [x] Run `swift test`, `swiftlint --strict`, `xcodegen generate` and the app-layer bundle under the pinned Xcode; all must pass before Task 6.
 
 ### Task 6: The remaining one-argument `onChange` sites, and their pin
 

@@ -1597,8 +1597,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
     Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)` — the
-    expansion word, then the test row's "Test", the state's word and the
-    diagnostic mark's words, each when there is one,
+    expansion word, then a dependency root's "Dependencies", the test row's
+    "Test", the state's word and the diagnostic mark's words, each when there
+    is one,
     joined by `", "` (still `""` while a
     rename draft is open); a file row becomes **one combined element** carrying
     those words as its value, `""` when plain and clean, and stays `.contain` while
@@ -1629,7 +1630,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     cost is the row's depth. Each node asks the rule **once per render** with
     `isFolder: true` (a chain is judged by its tail, so a test segment anywhere
     in it washes the row); each file row is asked by the folder listing it with
-    `relativeComponents + [entry.name]` and `isFolder: false`. **One site**:
+    `relativeComponents + [entry.name]` and `isFolder: false`. Both answers
+    pass through the row's dependency state's
+    `showsTestWash(isTestRow:)` before they are used, so **nothing inside
+    dependencies is washed** (the **dependency folders** entry, below); the
+    fields keep their `isTestRow` names, which is what leaves the three gated
+    background bodies' text unchanged. **One site**:
     the folder row, the file row and the sticky stack's pinned copy all paint
     through `TreeRowBackground.background(for:isTestRow:resolving:)`, which
     lays `layers(for:isTestRow:)` — the wash role first, then `role(for:)`'s
@@ -1659,6 +1665,50 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     colour paints on top, and `TreeTestRowReportTests` (app bundle) that a
     chain's node is judged by all its segments (`src/test/java` washed,
     `lib/core` not) and that the pinned copy's report carries that answer.
+  - `ProjectTreeView.swift`, **dependency folders** — a folder Core's
+    `DependencyFolderRule` (`core-workspace.md`) answers as a **dependency
+    root** — a table name with one of its markers beside it — draws a
+    `dependencies` **caption** after its name: `Text("dependencies")` in
+    `theme.color(.textSecondary)`, the form the tree already uses for its
+    secondary text, inside `TreeFolderLabel`'s `HStack(spacing:
+    metrics.scaled(4))` after `name()`, inheriting the label's
+    `.font(metrics.scaledFont(.body))`, line limit and truncation. It is
+    `.fixedSize()`, so a long name truncates first and the caption stays
+    whole. No role, no palette value and no gated rule was added.
+    **Boundary versus inheritance**: only the root row is captioned; every row
+    below it is **inside dependencies**, uncaptioned, and never washed as a test
+    row — a vendored package's `test` folder washes nothing.
+    **State down the recursion**: `DirectoryNodeView` carries
+    `dependencyState: DependencyFolderRule.State` beside `relativeComponents`.
+    The root passes `.outside` and never evaluates itself, so it is never a
+    dependency root whatever it is called. A child node is
+    `.node(segmentNames:siblingNames:parent:)` — `.inside` under a `.root` or
+    `.inside` parent, otherwise `.root` exactly when the row is a root row — and
+    a file row is `.file(inParent:)`. The names come from the listing the node
+    already holds (`currentChildrenNames`), so the state costs **no I/O**.
+    **Chains**: a chain row is a root row when **any** segment is one, which in
+    practice is its head (a root always has a marker beside it, so it is never
+    a folder's sole entry). The head is asked about the parent's listing names;
+    a later segment about `[its own name]`, because `TreeChainRule` folds a
+    folder only when it is its parent's sole entry. The row stands for its head,
+    as its git colour does, and everything below the chain inherits.
+    **The pinned copy** reads the node's own answer from
+    `TreeStickyFolderReport.isDependencyRoot` (part of its `==`) and passes it
+    to `TreeFolderLabel`, so the copy is captioned as its row is. **Drafts**:
+    the row being renamed keeps its caption beside the rename field (the field
+    replaces only the name); the create draft row is not a `TreeFolderLabel`
+    and never shows one. **Accessibility**: a dependency root folder's value
+    gains `Dependencies` after its expansion word and before `Test`, the git
+    word and the diagnostic words (`TreeGitState.accessibilityValue(state:mark:
+    row:isTestRow:isDependencyRoot:)`, `core-git-models.md`); file rows pass
+    `false`, and a drafted row still says `""`. **Tests.**
+    `DependencyFolderRuleTests` (Core) pins the rule and the state;
+    `TreeDependencyCaptionTests` (app bundle) renders one tree per appearance —
+    a root `node_modules` beside `package.json` and an `other/node_modules`
+    beside no marker, two packages each so neither chains — and pins that the
+    band just right of the first name holds caption pixels differing from the
+    row background, while the same band one indent step in on the unmarked
+    row holds only its background.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`
