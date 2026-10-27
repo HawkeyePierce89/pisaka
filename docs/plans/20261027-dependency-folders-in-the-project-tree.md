@@ -233,22 +233,22 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Modify: `Sources/Pisaka/PisakaApp.swift` (the construction at ~436)
 - Modify: `docs/architecture/core-lsp.md` (the `DiagnosticsModel.swift` entry)
 
-- [ ] `DiagnosticsModel.init` gains `listNames: @escaping (URL) -> [String]? = { _ in nil }` beside `fileExists`.
-- [ ] `prepareForFolderChange(root:)` records the root URL.
-- [ ] `receive` drops `.published` and `.positional` events whose URL is inside dependencies under that root (`DependencyFolderRule.isInsideDependencies(fileURL:projectRoot:listNames:)`).
+- [x] `DiagnosticsModel.init` gains `listNames: @escaping (URL) -> [String]? = { _ in nil }` beside `fileExists`.
+- [x] `prepareForFolderChange(root:)` records the root URL.
+- [x] `receive` drops `.published` and `.positional` events whose URL is inside dependencies under that root (`DependencyFolderRule.isInsideDependencies(fileURL:projectRoot:listNames:)`).
   - The drop happens first, so a dropped published report is **not held**. It never reaches the store, the Problems panel, the tree or an editor.
   - `.cleared` events are untouched.
   - The doc comment states the drop, the reason (the positional lane, where a server reports on declaration files no tab holds) and the cost bound.
-- [ ] The app constructs the model with `listNames: { try? fileService.contentsOfDirectory(at: $0).map(\.name) }` over the app's existing file service.
-- [ ] Tests in `DiagnosticsModelTests`:
+- [x] The app constructs the model with `listNames: { try? fileService.contentsOfDirectory(at: $0).map(\.name) }` over the app's existing file service.
+- [x] Tests in `DiagnosticsModelTests`:
   - a positional report for `node_modules/x/index.d.ts`, with `package.json` at the root → dropped, and the store is empty;
   - a published report for the same path, with a sync record present → dropped, not held, and a later matching sync admits nothing;
   - `vendor/a.go` beside no marker → lands;
   - an ordinary report → lands, with zero listings asked;
   - no root prepared → lands;
   - existing tests stay green with the default seam.
-- [ ] Update the `DiagnosticsModel.swift` entry in `core-lsp.md`, and the D46 paragraph where it lists what reaches the Problems panel and the tree.
-- [ ] Run `swift test`; it must pass before Task 5.
+- [x] Update the `DiagnosticsModel.swift` entry in `core-lsp.md`, and the D46 paragraph where it lists what reaches the Problems panel and the tree.
+- [x] Run `swift test`; it must pass before Task 5.
 
 ### Task 5: App — the tree shows dependency roots
 

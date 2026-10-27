@@ -105,7 +105,12 @@ as an entry of a **second kind**. The kind is a type and not a placeholder:
 every editor-facing reader (squiggles, gutter, hover, the edit shift, *Next / Previous
 Problem*) reads `DiagnosticStore.Entry.mapped`, which is `nil` for a positional
 entry, so none of them can see one. The Problems panel, the header counts and the
-project tree read severity and position, which both kinds carry. Closing the last
+project tree read severity and position, which both kinds carry. **Neither lane
+admits a document inside dependencies** (`DependencyFolderRule`, `core-workspace.md`):
+`DiagnosticsModel` drops such a report at receive, published or positional, so the
+declaration files a server reports on under `node_modules` never reach the panel,
+the counts or the tree — such a file opens only in the read-only viewer window, where
+nobody can act on its problems. Closing the last
 tab now drops only the buffer's bookkeeping and keeps the file's set. A wholesale
 buffer replacement drops only a mapped entry, so a file being opened keeps its
 positional record until the first mapped report replaces it. One more Core file reads
@@ -2935,6 +2940,22 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     own publish beating its report home, which it admits; dropping would strand
     the document blank until the next interaction, the exact failure the hold
     exists to prevent.
+    **Documents inside dependencies** are dropped first, before the gate and
+    before any hold: `receive` asks `DependencyFolderRule.isInsideDependencies(
+    fileURL:projectRoot:listNames:)` of every `published` and `positional` event,
+    against the root `prepareForFolderChange(root:)` records (none before the first
+    folder, when nothing is dropped). A dropped published report is **not held**,
+    so no later sync can admit it, and nothing of it reaches the store, the
+    Problems panel, the tree's lookup or an editor; `.cleared` events are not
+    asked. The reason is the positional lane: a server reports unasked on the
+    declaration files under `node_modules` no tab holds, and such a file opens only
+    in the read-only viewer window anyway. The listing is an injected seam,
+    `listNames: (URL) -> [String]?`, beside `fileExists` and defaulting to
+    `{ _ in nil }` (nothing is a root, so every report lands as before); the app
+    passes its `FileService`'s `contentsOfDirectory(at:)` names. Its cost is the
+    rule's bound — one listing per table-named ancestor component of the reported
+    path, stopping at the first root found, none for a path with no table-named
+    ancestor, nothing memoized.
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,

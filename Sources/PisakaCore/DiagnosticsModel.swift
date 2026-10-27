@@ -53,6 +53,20 @@ import Foundation
 /// which is what lets a file being opened keep its positional record until the
 /// first mapped report replaces it.
 ///
+/// ## Documents inside dependencies
+///
+/// A report naming a document **inside dependencies** under the opened folder
+/// (``DependencyFolderRule``) is dropped at receive, published or positional,
+/// before anything else looks at it: such a file opens only in the read-only
+/// viewer window, so nobody can act on its problems, and the positional lane is
+/// exactly where a server reports on the declaration files under
+/// `node_modules` that no tab holds — a burst that would otherwise fill the
+/// Problems panel and mark the tree's dependency folders. A dropped published
+/// report is **not held**, so no later sync can admit it. Clears are untouched.
+/// The question costs one listing (the injected `listNames`) per table-named
+/// ancestor component of the reported path, stopping at the first root found; a
+/// report with no table-named ancestor costs none, and nothing is memoized.
+///
 /// ## What bounds what
 ///
 /// The bookkeeping — sync records, revisions, holds — is bounded by the open
@@ -208,6 +222,16 @@ public final class DiagnosticsModel: ObservableObject {
     /// count as the file coming back.
     private let fileExists: (URL) -> Bool
 
+    /// The names in one directory, `nil` when it cannot be listed — the
+    /// dependency-folder question's one file-system call (see "Documents inside
+    /// dependencies" on the type). The default lists nothing, so nothing is a
+    /// dependency root and every report lands as before.
+    private let listNames: (URL) -> [String]?
+
+    /// The opened folder, recorded by ``prepareForFolderChange(root:)`` for the
+    /// dependency-folder drop; `nil` until the first one, when nothing is dropped.
+    private var dependencyRoot: URL?
+
     /// The Problems panel's groups as last built for `root`, plus the
     /// documents a one-document mutation has touched since. The store
     /// republishes on every push and every keystroke's shift, and the panel
@@ -224,8 +248,12 @@ public final class DiagnosticsModel: ObservableObject {
     /// is pinned through, counted apart from the groups it returns.
     private(set) var panelFileBuilds = 0
 
-    public init(fileExists: @escaping (URL) -> Bool = DiagnosticsModel.isFile) {
+    public init(
+        fileExists: @escaping (URL) -> Bool = DiagnosticsModel.isFile,
+        listNames: @escaping (URL) -> [String]? = { _ in nil }
+    ) {
         self.fileExists = fileExists
+        self.listNames = listNames
     }
 
     /// Whether something other than a directory exists at `url` — diagnostics
@@ -436,9 +464,23 @@ public final class DiagnosticsModel: ObservableObject {
     /// no hold — and no existing hold is touched, since a hold waits for a
     /// record this push neither brings nor removes.
     ///
+    /// Both kinds are dropped first, before the gate and before any hold, when
+    /// they name a document inside dependencies under the opened folder — see
+    /// "Documents inside dependencies" on the type for why and what it costs.
+    ///
     /// The clears are applied as they come; each teardown path emits exactly
     /// one, and a late duplicate after a folder change finds nothing to clear.
     public func receive(_ event: LSPDiagnosticEvent) {
+        switch event {
+        case .published(let url, _, _, _, _), .positional(let url, _, _, _):
+            guard !DependencyFolderRule.isInsideDependencies(
+                fileURL: url,
+                projectRoot: dependencyRoot,
+                listNames: listNames
+            ) else { return }
+        case .cleared:
+            break
+        }
         switch event {
         case .published(let url, let serverID, let root, let version, let diagnostics):
             let key = url.standardizedFileURL
@@ -574,7 +616,8 @@ public final class DiagnosticsModel: ObservableObject {
     }
 
     /// The folder changed to `root`: record its two spellings for the tree's
-    /// lookup, then clear everything — both kinds of entry — and
+    /// lookup and the root itself for the dependency-folder drop, then clear
+    /// everything — both kinds of entry — and
     /// invalidate every sync record, so no mapped push routed from an old
     /// project's server can land (the gate does the dropping; this method just
     /// removes anything it could have matched).
@@ -594,6 +637,7 @@ public final class DiagnosticsModel: ObservableObject {
     /// lookup's one file-system call, made here and never per build or per row.
     public func prepareForFolderChange(root: URL) {
         treeRoot = TreeDiagnostics.Root(root)
+        dependencyRoot = root
         syncs.removeAll()
         revisions.removeAll()
         heldPushes.removeAll()

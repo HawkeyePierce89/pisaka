@@ -432,8 +432,10 @@ struct PisakaApp: App {
         // teardown path blanks the three surfaces synchronously — and the sync
         // controller is what makes pushes come at all. Captured directly rather
         // than through `self` for the registry closures' reason below: this runs
-        // during `init`, and the sink must outlive it holding the model.
-        let diagnostics = DiagnosticsModel()
+        // during `init`, and the sink must outlive it holding the model. The
+        // listing seam is what lets it drop reports about files inside
+        // dependencies, over the same stateless `FileService` as the tree's.
+        let diagnostics = DiagnosticsModel(listNames: { [fileService] in try? fileService.contentsOfDirectory(at: $0).map(\.name) })
         self.diagnostics = diagnostics
         lspWorkspace.onDiagnostics = { [diagnostics] event in
             diagnostics.receive(event)
