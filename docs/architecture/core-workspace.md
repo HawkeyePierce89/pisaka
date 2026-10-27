@@ -1053,8 +1053,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     rounds to the **nearest** pixel, ties down, not a floor: a plain
     `ScrollView` probed at backing scale 1 settled targets ending in `.1`–`.5`
     on the point below and `.6`–`.9` on the point above, so off the half-point
-    grid (any other interface scale) a landing is still at most half a point
-    from its target. With
+    grid a landing is still at most half a point from its target.
+    `TreeStickyScrollRoundingTests` pins that direction through the tree's own
+    reveal: the scaled metrics stay on the half-point grid at every interface
+    scale (`InterfaceMetrics.pt`), so the tree reaches quarter points at most,
+    and at interface scale 0.9 its targets ending in `.25` settle on the point
+    below and those ending in `.75` on the point above, beside the `.5` tie
+    settling below. With
     rows on the half-point grid at interface scale 1, a click therefore lands
     half a point short of the equality, and the former `1e-6` left the clicked
     folder's parent out and its row covered. Half a point is half a backing

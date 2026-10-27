@@ -112,6 +112,11 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 12. **Task 3 raised the `PisakaApp.swift` lint ceilings.** The funnel, the reveal paths' stop on its answer and the fork's closure measured four lines over (`file_length` 1982 → **1986**, `type_body_length` 1975 → **1979**), after compacting the new code. Both were raised to the measured numbers with the reason appended in `.swiftlint.yml`, `LintConfigurationTests.documentedRootThresholds` and `style-lint.md`, per that document's procedure.
 13. **Intermittent hosted-render crashes in the app bundle, not caused by Task 3.** Two of four full-bundle runs under Xcode 27.1 lost the test process once to an AppKit layout exception in a test this branch does not touch (`TreeStickyStackLayoutTests.testAPinnedFolderDrawsAsItsRealRowUnderTheHeader`, then `GitChangeControllerRepositoryTests.testALongHunksPopoverDrawsTheLimitAndCountsTheRest`). Each suite passed 3/3 in isolation, and the final full run passed 507/507.
 14. **Task 5 shifted the four `onChange` sites Task 6 names.** The state carried down the recursion and its comments moved them from lines 367, 905, 914 and 944 to **371, 937, 946 and 976** (the `projectRoot`, `isExpanded`, `draft` and `treeRevision` handlers). `ChromeThemeSourceGatingTests` passed untouched: the caption adds no role, palette value or gated rule, and the three `rowBackground` bodies keep their text because the suppressed answer travels in the existing `isTestRow` fields. `TreeDependencyCaptionTests` was checked against both mutations (caption forced on everywhere: the unmarked row fails; forced off: the marked row fails).
+15. **Task 7: note 10's premise did not hold, so the direction test runs at interface scale 0.9.**
+    - **What was measured.** `InterfaceMetrics.pt` rounds every scaled metric to the half-point grid, so at interface scale 1.1 a row is `26.5` points, not `26.4`. Each `tK` node measured `53.0` high (minY `1091.25`, `1144.25`, …), and every reveal target landed on a whole point (`981.0`, `1034.0`, `1087.0`, …), each settling exactly on itself. No fraction inside `(0, 0.5)` or `(0.5, 1)` was reachable there, so the non-vacuity precondition failed.
+    - **Resolution.** At interface scale 0.9 a row is `21.5`, so a row's centre lies on a quarter point. The odd `tK` folders also hold a file `w` (sorted above `x`), which alternates the targets between the two quarters. Same shape otherwise: one window, resized once to a 300-point viewport, forty padding folders and forty padding files.
+    - **Observed** at backing scale 1 (read from the window), identical across the probe runs and the five runs: `767.25` → `767`, `831.75` → `832`, `874.75` → `875`, `939.25` → `939`, `982.25` → `982`, `1046.75` → `1047`. Fractions `.25` and `.75` round to the nearest point. Together with the existing test's `.5` tie (`1165.5` → `1165.0`), this is the deterministic outcome matching the claim, so the doc sentences stay and the test is named beside them. The parenthetical "(any other interface scale)" in `core-workspace.md` was dropped as inaccurate, since other interface scales reach quarter points at most.
+    - **A second finding.** A raw scroll to `0` right after a settled reveal is sometimes undone: SwiftUI animates the clip back to the previous reveal's offset over about eight turns. The test therefore waits for the raw scroll causally: held still for ten turns, re-scrolled if it came to rest anywhere but `0`, and `XCTFail` after three seconds.
 
 ## Implementation Steps
 
@@ -311,7 +316,7 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 - Modify: `Sources/PisakaCore/TreeStickyRule.swift` (doc comment only)
 - Modify: `docs/architecture/core-workspace.md` (the Tolerance paragraph), `docs/architecture/app-window.md` (the sticky entry's Tests)
 
-- [ ] Add one test method: one `HostedRender` window at interface scale 1.1 (rows `26.4` points high, note 10), resized at most once, with no loop of windows. It reuses the suite's reveal host types.
+- [x] Add one test method: one `HostedRender` window at interface scale 1.1 (rows `26.4` points high, note 10), resized at most once, with no loop of windows. It reuses the suite's reveal host types.
   - **Project:** padding folders, then folders `t0`…`t5`, each holding one file, then padding files, so that each file's centred offset lies inside the scrollable range.
   - **Per target:** reveal `tK/x` through `TreeRevealRequest` with fresh tokens.
     - Measure `tK`'s report in content space, and compute the target with the suite's existing reveal arithmetic (`TreeStickyRule.revealAnchorY`).
@@ -319,14 +324,14 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - Wait causally until the clip view's `bounds.origin.y` has left `0` and held still across consecutive turns. On timeout, `XCTFail`; there are no sleeps.
   - **Non-vacuity, before asserting the direction:** at least one target's fraction lies strictly inside `(0, 0.5)` and at least one strictly inside `(0.5, 1)`. Fractions are compared with a `1e-6` slack.
   - **Assertions at backing scale 1** (read from `render.window.backingScaleFactor`): each settled offset is a whole point and equals the target rounded to the nearest whole point, ties down. At any other scale, assert only `|settled − target| ≤ TreeStickyRule.slotTolerance`.
-- [ ] Run the new test five times, plus once in the full bundle.
+- [x] Run the new test five times, plus once in the full bundle.
   - **Deterministic and matching the claim:** keep it, keep the doc sentences, and name the test beside them in both places.
   - **Deterministic but a different rule** (for example, floor): make the test assert the measured rule, and correct both sentences to match it.
   - **Not deterministic in the headless host:** remove the new method, and cut both the `slotTolerance` doc comment and the Tolerance paragraph down to the measured fact: `1165.5` settled at `1165.0` at backing scale 1, pinned by the existing test. The ties-down and `.6`–`.9` sentences are deleted.
 
   Record the outcome, the fractions, the settled offsets and the backing scale in the execution notes.
-- [ ] Update the sticky entry's **Tests** in `app-window.md` to match.
-- [ ] Run `swift test` and the app-layer bundle; both must pass before Task 8.
+- [x] Update the sticky entry's **Tests** in `app-window.md` to match.
+- [x] Run `swift test` and the app-layer bundle; both must pass before Task 8.
 
 ### Task 8: Verify acceptance criteria
 

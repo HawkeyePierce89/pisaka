@@ -48,6 +48,28 @@ import PisakaCore
 /// That second request reaches a row already drawn, so it also pins that an
 /// on-screen row reports a reveal from `.onChange(of: reveal)` — the row half of
 /// what `TreeRevealOnScreenTests` pins for a folder.
+///
+/// **The direction.** `testTheRevealScrollRoundsToTheNearestPointTiesDown`
+/// pins which pixel a target off the half-point grid settles on. The tree
+/// cannot produce an arbitrary fraction: `InterfaceMetrics.pt` puts every
+/// scaled metric on the half-point grid, so a row is `26.5` points at
+/// interface scale 1.1 (not `26.4`) and the reveal targets there all land on
+/// whole points. At interface scale 0.9 a row is `21.5`, so a row's centre
+/// lies on a quarter point, and alternating the revealed folders' heights by
+/// one row puts the targets on both quarters: `.25` and `.75`. One window, at
+/// that scale and resized once to a 300-point viewport, over forty empty
+/// folders, `t0/`…`t5/` (each holding `x`, an odd one also `w` above it) and
+/// forty root files. Every `tK` is expanded by a reveal while the window is
+/// taller than the document and measured; then, per target, the clip view is
+/// raw-scrolled to the top — again whenever SwiftUI animates it back to the
+/// previous reveal's offset, as it sometimes does — and a reveal of `tK/x`
+/// with a fresh token goes the real path. Before any scroll it asserts that
+/// at least one target's fraction lies strictly inside `(0, 0.5)` and one
+/// strictly inside `(0.5, 1)`. At backing scale 1 each settled offset is a
+/// whole point and the target rounded to the nearest, ties down (measured:
+/// `767.25` → `767`, `831.75` → `832`); with the `.5` tie above settling on
+/// the point below, that is the whole "nearest, ties down" claim. At any other
+/// scale only `|settled − target| ≤ slotTolerance` is asserted.
 @MainActor
 final class TreeStickyScrollRoundingTests: XCTestCase {
 
@@ -130,6 +152,99 @@ final class TreeStickyScrollRoundingTests: XCTestCase {
         }
     }
 
+    func testTheRevealScrollRoundsToTheNearestPointTiesDown() throws {
+        let metrics = InterfaceMetrics(scale: 0.9)
+        let root = try makeDirectionProject()
+        let model = WorkspaceModel()
+        model.openFolder(url: root)
+        let state = TreeRevealHostState(reveal: nil)
+
+        // Taller than the whole document, so each first reveal below expands
+        // its folder while its centred target clamps to the top: no animated
+        // scroll is left in flight to race the measurement.
+        let render = try HostedRender(
+            size: CGSize(width: 240, height: 3_200),
+            root: TreeRevealHost(model: model, state: state, metrics: metrics)
+        )
+        addTeardownBlock { @MainActor in render.window.close() }
+        let scrollView = try XCTUnwrap(Self.scrollView(in: render.host), "the tree hosts no NSScrollView")
+        let clip = scrollView.contentView
+
+        // Expand `t0`…`t5`, one reveal each, waited for as a condition.
+        var request: TreeRevealRequest?
+        for index in Self.targetIndices {
+            request = TreeRevealRequest(after: request, revealing: Self.targetFile(index, in: root), root: root)
+            state.reveal = request
+            let deadline = Date().addingTimeInterval(3)
+            while expanded(index, in: state) == nil, Date() < deadline {
+                render.host.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            }
+            XCTAssertNotNil(expanded(index, in: state), "no report for the expanded folder t\(index) arrived")
+        }
+        render.settle()
+        XCTAssertEqual(clip.bounds.origin.y, 0, "an expanding reveal scrolled a window taller than the document")
+
+        // Each `tK`'s node, measured once every folder above it is expanded:
+        // its own row and `x`'s, plus `w`'s for an odd `K`. `x` is the node's
+        // last row, so its centre is half a row above the node's bottom.
+        let h = metrics.scaled(ChromeGeometry.rowHeight)
+        var centres: [Int: CGFloat] = [:]
+        for index in Self.targetIndices {
+            let folder = try XCTUnwrap(expanded(index, in: state), "t\(index) is no longer reported expanded")
+            XCTAssertEqual(folder.frame.height, CGFloat(2 + index % 2) * h, accuracy: 1e-6,
+                           "t\(index)'s node is not the rows its listing holds")
+            centres[index] = folder.frame.maxY - h / 2
+        }
+
+        // A viewport of exactly 300 points, the window's one resize.
+        let initialHeight = clip.bounds.height
+        render.window.setContentSize(
+            NSSize(width: render.host.frame.width, height: render.host.frame.height + (300 - initialHeight))
+        )
+        render.settle()
+        let viewportHeight = clip.bounds.height
+        let documentHeight = try XCTUnwrap(scrollView.documentView, "the scroll view has no document").frame.height
+        let targets = Self.targetIndices.map { index in
+            (index, (centres[index] ?? 0) - viewportHeight * CGFloat(TreeStickyRule.revealAnchorY))
+        }
+
+        // Non-vacuity, before scrolling: fractions on both sides of the tie,
+        // and every target inside the scrollable range.
+        let fractions = targets.map { $0.1 - $0.1.rounded(.down) }
+        XCTAssertTrue(fractions.contains { $0 > 1e-6 && $0 < 0.5 - 1e-6 },
+                      "no target's fraction lies inside (0, 0.5): \(fractions)")
+        XCTAssertTrue(fractions.contains { $0 > 0.5 + 1e-6 && $0 < 1 - 1e-6 },
+                      "no target's fraction lies inside (0.5, 1): \(fractions)")
+        for (index, target) in targets {
+            XCTAssertGreaterThan(target, 0, "t\(index)'s target \(target) is above the scrollable range")
+            XCTAssertLessThan(target, documentHeight - viewportHeight,
+                              "t\(index)'s target \(target) is below the scrollable range (document \(documentHeight))")
+        }
+
+        let tolerance = CGFloat(TreeStickyRule.slotTolerance)
+        let scale = render.window.backingScaleFactor
+        for (index, target) in targets {
+            // The tree's real reveal path, from the top, with a fresh token.
+            try scrollToTop(scrollView, in: render)
+            request = TreeRevealRequest(after: request, revealing: Self.targetFile(index, in: root), root: root)
+            state.reveal = request
+            let settled = try waitForScrollToSettle(clip, in: render)
+
+            if scale == 1 {
+                let fraction = target - target.rounded(.down)
+                let nearest = abs(fraction - 0.5) <= 1e-6 ? target.rounded(.down) : target.rounded()
+                XCTAssertEqual(settled, settled.rounded(.down),
+                               "t\(index): the settled offset \(settled) is off the whole-point grid")
+                XCTAssertEqual(settled, nearest,
+                               "t\(index): the target \(target) settled at \(settled), not at the nearest point")
+            } else {
+                XCTAssertLessThanOrEqual(abs(settled - target), tolerance,
+                                         "t\(index): at backing scale \(scale) the scroll settled \(settled), target \(target)")
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func expandedT(in state: TreeRevealHostState) -> TreeStickyFolderReport? {
@@ -155,6 +270,40 @@ final class TreeStickyScrollRoundingTests: XCTestCase {
         return root
     }
 
+    /// The folders `t0`…`t5` the direction test reveals `x` in.
+    private static let targetIndices = Array(0..<6)
+
+    private static func targetFile(_ index: Int, in root: URL) -> URL {
+        root.appendingPathComponent("t\(index)/x")
+    }
+
+    private func expanded(_ index: Int, in state: TreeRevealHostState) -> TreeStickyFolderReport? {
+        state.reports.first { $0.isExpanded && $0.scrollID.hasSuffix("/p/t\(index)") }
+    }
+
+    /// A real temporary project `p`: forty empty folders `d00`…`d39`, `t0/`…`t5/`
+    /// each holding one file `x` — an odd one also `w`, sorted above it — and
+    /// forty root files `f00`…`f39`.
+    private func makeDirectionProject() throws -> URL {
+        let fm = FileManager.default
+        let holder = fm.temporaryDirectory.appendingPathComponent("tree-sticky-direction-\(UUID().uuidString)")
+        let root = holder.appendingPathComponent("p")
+        for index in 0..<40 {
+            try fm.createDirectory(
+                at: root.appendingPathComponent(String(format: "d%02d", index)), withIntermediateDirectories: true
+            )
+            try Data().write(to: root.appendingPathComponent(String(format: "f%02d", index)))
+        }
+        for index in Self.targetIndices {
+            let folder = root.appendingPathComponent("t\(index)")
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data().write(to: folder.appendingPathComponent("x"))
+            if !index.isMultiple(of: 2) { try Data().write(to: folder.appendingPathComponent("w")) }
+        }
+        addTeardownBlock { try? FileManager.default.removeItem(at: holder) }
+        return root
+    }
+
     /// Turns the run loop until the clip view's origin has left the top and
     /// held still for five turns, and answers it; `XCTFail` after three
     /// seconds. A condition, not a window: the animated reveal lands whenever
@@ -174,6 +323,33 @@ final class TreeStickyScrollRoundingTests: XCTestCase {
         }
         XCTFail("the reveal's scroll never settled")
         return clip.bounds.origin.y
+    }
+
+    /// Raw-scrolls the clip view to the top and turns the run loop until it has
+    /// held still there for ten turns; `XCTFail` after three seconds. A raw
+    /// scroll right after a settled reveal is sometimes undone: SwiftUI animates
+    /// the clip back to that reveal's offset on a later update. So an origin
+    /// that comes to rest anywhere but `0` is scrolled to the top again.
+    private func scrollToTop(_ scrollView: NSScrollView, in render: HostedRender) throws {
+        let clip = scrollView.contentView
+        let deadline = Date().addingTimeInterval(3)
+        var previous = CGFloat.nan
+        var stableTurns = 0
+        clip.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(clip)
+        while Date() < deadline {
+            render.host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            let origin = clip.bounds.origin.y
+            stableTurns = origin == previous ? stableTurns + 1 : 0
+            previous = origin
+            guard stableTurns >= 10 else { continue }
+            if origin == 0 { return }
+            clip.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(clip)
+            stableTurns = 0
+        }
+        XCTFail("the raw scroll back to the top never held")
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {

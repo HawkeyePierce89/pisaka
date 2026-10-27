@@ -105,10 +105,13 @@ public enum TreeStickyRule {
     /// through `ScrollViewProxy.scrollTo`, which settled a target of `1165.5`
     /// at `1165.0` at backing scale 1: the backing pixel, rounding to the
     /// nearest (ties down; `.6`–`.9` settled on the point above), not
-    /// flooring. Half a point is half a backing pixel at most for any
-    /// scale ≥ 1, so a clicked folder settles within this of the equality,
-    /// even off the half-point grid, and it stays far below the smallest row
-    /// (19.2 at the interface scale's 0.8 floor). The cost: a candidate joins
+    /// flooring — pinned through the tree's own reveal by
+    /// `TreeStickyScrollRoundingTests`, where `.25` and `.5` settle on the
+    /// point below and `.75` on the point above. Half a point is half a
+    /// backing pixel at most for any scale ≥ 1, so a clicked folder settles
+    /// within this of the equality, even off the half-point grid, and it stays
+    /// far below the smallest row (19.2 at the interface scale's 0.8 floor).
+    /// The cost: a candidate joins
     /// up to half a point early, so at most a half-point sliver of its real
     /// row shows under the copy in its slot — the right trade against a
     /// covered row after a click.
