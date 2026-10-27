@@ -227,6 +227,25 @@ runner keep their current predicate and behaviour.
    count stays 32.
 9. **Part 3 findings.** List here every sentence corrected in the two sticky
    entries, beyond the `a/f45` one.
+   - **`a/f45` (the named one).** `TreeStickyScrollListingTests` reveals
+     `a/f00`; the sentence now says so, and that it expands `a` without
+     scrolling (the centre anchor clamps to the top), which the suite's first
+     assertions check — the clip view at `0` and one capture finding no stack
+     hairline. The same sentence also gains the suite's setup it never stated
+     (interface scale 1, dark, 240 × 300) and the final capture's full content:
+     the stack's hairline at the first slot's bottom edge as well as `a`'s
+     chevron at the depth-1 chevron column.
+   - **The report's field list.** The **Measurement** paragraph listed the
+     `TreeStickyFolderReport` fields without `isTestRow`, which Task 3 added;
+     it now names it as the node's own `TreeTestRule` answer.
+   - Everything else re-read against the code and the three sticky app suites
+     (listing, stack layout, rounding) and the 32 `TreeStickyRuleTests`
+     holds: the stack layout suite's setup (1.8, dark, `a/` of forty files,
+     `a/f03` modified, an error in `a/f07`, `a/f30` revealed), the rounding
+     suite's description, and the `TreeStickyRule.swift` entry in
+     `core-workspace.md` (already corrected in Task 4: both tolerances, the
+     floored pass, the boundary values, the anchors `[0.25, 0.375, 0.375]`,
+     the 1,255 heights). No other fix was needed.
 10. **Task 5: what was observed, and two conflicts found.**
     - **Backing scale observed:** `render.window.backingScaleFactor` read
       `1.0` in this headless host, so the scale-1 branch ran: the measured
@@ -576,16 +595,16 @@ runner keep their current predicate and behaviour.
 - Modify: `docs/architecture/app-window.md`,
   `docs/architecture/core-workspace.md`
 
-- [ ] In the sticky parent folders entry's **Tests**, correct
+- [x] In the sticky parent folders entry's **Tests**, correct
   `TreeStickyScrollListingTests` "reveals `a/f45`". The suite reveals `a/f00`,
   which expands `a` without scrolling (the centre anchor clamps to the top),
   so nothing pins at the landing. That is what its first assertion checks.
-- [ ] Re-read the whole sticky entry in `app-window.md` and the
+- [x] Re-read the whole sticky entry in `app-window.md` and the
   `TreeStickyRule.swift` entry in `core-workspace.md` against the merged code
   and both sticky app suites. Fix every other sentence the implementation
   contradicts, for example a described suite setup, a revealed file, a scale
   or a count, and list each fix in the execution notes.
-- [ ] Run `swift test` (the documentation-reading suites,
+- [x] Run `swift test` (the documentation-reading suites,
   `LintConfigurationTests` among them); it must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria

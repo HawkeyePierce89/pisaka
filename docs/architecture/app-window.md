@@ -1882,7 +1882,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeStickyFolderReport` through `TreeStickyFoldersKey` (an array, tree
     order): the whole node's frame in the named **content** space
     (`TreeStickySpace.content`, set on the padded content `VStack`), its depth
-    and expansion, its `TreeNodeShape`, its folder row's scroll id
+    and expansion, its `TreeNodeShape`, whether it is a test row (`isTestRow`,
+    the node's own `TreeTestRule` answer), its folder row's scroll id
     (`TreeRevealRequest.rowID(head)`, on `FolderDisclosureRow` alone so the
     anchor maths sees one row's height) and the node's own `$isExpanded`.
     The report and its key are **internal** rather than private — the shape
@@ -1982,12 +1983,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     **Tests.** `TreeStickyScrollListingTests` (app bundle) builds a project with
     `a/` of 60 files and `b/` of 5 over a counting `FileServicing` wrapper
     injected through `WorkspaceModel(fileService:)` — strictly stronger than a
-    listing count, since it also catches link queries — reveals `a/f45`, then
-    scrolls the hosting `NSScrollView`'s clip view to four offsets, and pins
-    that the file-service call count never moved while the clip view's origin
-    did; one capture at the final offset finds the pinned chevron inked in the
-    first slot under the header, proving SwiftUI observed the AppKit-driven
-    scroll, which is how a wheel scroll arrives. `TreeStickyStackLayoutTests`
+    listing count, since it also catches link queries — at interface scale 1,
+    dark, in a 240 × 300 window. It reveals `a/f00`, which expands `a` without
+    scrolling: the centre anchor clamps to the top, so nothing pins at the
+    landing and no animated scroll is left to race the ones below. Its first
+    assertions check exactly that — the clip view still at `0`, and one capture
+    finding no stack hairline. It then scrolls the hosting `NSScrollView`'s
+    clip view to four offsets and pins that the file-service call count never
+    moved while the clip view's origin did; one capture at the final offset
+    finds the stack's hairline at the first slot's bottom edge and `a`'s pinned
+    chevron inked in that slot at the depth-1 chevron column, proving SwiftUI
+    observed the AppKit-driven scroll, which is how a wheel scroll arrives. `TreeStickyStackLayoutTests`
     (app bundle, `HostedRender` at 1.8, dark) renders a project whose `a/`
     holds 40 files, a modified `a/f03` and an error in `a/f07`, twice: `a`
     collapsed, then `a/f30` revealed. It pins `a`'s chevron and glyph in the
