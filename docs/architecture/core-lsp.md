@@ -2947,7 +2947,13 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     folder, when nothing is dropped). A dropped published report is **not held**,
     so no later sync can admit it, and nothing of it reaches the store, the
     Problems panel, the tree's lookup or an editor; `.cleared` events are not
-    asked. The reason is the positional lane: a server reports unasked on the
+    asked. A drop also **forgets what the document already had** — its store
+    entry and any hold, from before a marker appeared beside its folder — so the
+    report that would have replaced or emptied a set never leaves it stale; the
+    store is touched only when it holds an entry, so the burst republishes
+    nothing. The drop asks nothing about tabs: a tab that pre-dates the rule,
+    which `WorkspaceModel.opensInSourceViewer` leaves alone, shows no problems
+    either. The reason is the positional lane: a server reports unasked on the
     declaration files under `node_modules` no tab holds, and such a file opens only
     in the read-only viewer window anyway. The listing is an injected seam,
     `listNames: (URL) -> [String]?`, beside `fileExists` and defaulting to

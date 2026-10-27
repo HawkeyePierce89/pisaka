@@ -106,7 +106,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and `onViewDefinitionOutsideProject`, wired to the read-only source viewer
     window (D3). The last two are separate closures rather than one with a flag,
     because opening a tab and opening a model-less window are different app-level
-    operations that happen to be reached from the same click.
+    operations that happen to be reached from the same click. Which of the two a
+    candidate takes is asked through `opensDefinitionInSourceViewer`, also passed
+    straight through: the app wires it to
+    `WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`, and its default
+    reads the candidate's `isOutsideProjectRoot` alone so previews compile
+    (`app-editor.md`).
     The controller is deliberately **not** `@ObservedObject` — it publishes nothing,
     and the index model behind it republishes after every chunk of a walk, which is
     exactly the per-update cost `BreadcrumbBarView`'s inner `.equatable()` view and the non-observed
@@ -1090,7 +1095,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `SourceViewerWindowController.swift` — owns the separate, non-modal **source
     viewer** windows a Go to Definition opens when the declaration lives *outside*
     the opened folder (`core-lsp.md`'s D3): an SDK `.swiftinterface`, a dependency
-    checkout, a generated header. Same shape as `DiffWindowController` — an
+    checkout, a generated header — and, through the open funnel
+    `PisakaApp.openFile(url:viewerRange:)`, every file inside dependencies under
+    the opened folder (`WorkspaceModel.opensInSourceViewer`, `app-shell.md`). Same shape as `DiffWindowController` — an
     `NSHostingController` inside an `EscClosableWindow`, retained for its lifetime,
     released on `windowWillClose` through a per-window delegate held alongside
     (because `NSWindow.delegate` is `weak`), and `closeAll()` from the app's
@@ -1101,13 +1108,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file read, and doing it up front is what lets an unreadable target — a path the
     server named that has since moved, a permission the app does not have, a binary
     or oversize file — be reported as *nothing happened*: `open` returns `false`
-    having created nothing, and `PisakaApp.viewDefinitionOutsideProject` beeps,
-    exactly as a ⌘-click that resolved nothing does. It reads through
+    having created nothing, and the caller — `PisakaApp.viewDefinitionOutsideProject`
+    or the funnel — beeps, exactly as a ⌘-click that resolved nothing does. It reads through
     `FileService.readTextIfNotBinary` under
     `LSPIntelligenceProvider.maximumTargetFileBytes` — deliberately the same door and
     the same cap the provider already used to turn the server's `(line, character)`
-    into an offset, so a file the provider refused produced no candidate at all and
-    the viewer can never be asked for something larger. *It reuses a window per file.*
+    into an offset, so on the D3 route a file the provider refused produced no
+    candidate at all and the viewer is never asked for something larger. On the
+    funnel's route the cap is a **real limit**: a file inside dependencies over
+    16 MB, or one that reads as binary, opens nothing and beeps, where before the
+    dependency rule it opened as a tab. *It reuses a window per file.*
     Diff windows state outright that they do not dedup, and are right not to — two
     diffs of one file at different commits are different documents — but a viewer
     shows a *file*, so ⌘-clicking three `Foundation` symbols must not leave three

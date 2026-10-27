@@ -989,8 +989,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     handoff cannot see whether the open succeeded, so a failed open with another
     tab already showing focuses that tab's editor — the beep is the failure signal.
     A file inside dependencies opens in the read-only viewer window instead
-    (`openFile(url:viewerRange:)`, `app-shell.md`), and the walk, which looks only
-    in the main window, behaves as after a failed open.
+    (`openFile(url:viewerRange:)`, `app-shell.md`), which takes key, so the hop —
+    which hands focus only while the main window is still key — leaves the list
+    focused for when the viewer closes, rather than moving it to an unrelated
+    tab's editor.
     The context-menu "Jump to Source" item does *not* move focus, matching every
     existing item in this menu (Show Diff, Resolve…, Commit…), which is
     pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at

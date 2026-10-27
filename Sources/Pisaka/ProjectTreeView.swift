@@ -1956,11 +1956,14 @@ private struct TreeFolderLabel<Name: View>: View {
             name()
             // The secondary text role, at the label's own font, line limit
             // and spacing. At its natural width, so a long name truncates
-            // first and the caption stays whole.
+            // first and the caption stays whole. Hidden from accessibility like
+            // the glyph: the row's combined element would otherwise read it in
+            // its label, and the value already speaks `Dependencies`.
             if showsCaption {
                 Text("dependencies")
                     .foregroundStyle(theme.color(.textSecondary))
                     .fixedSize()
+                    .accessibilityHidden(true)
             }
         }
         .font(metrics.scaledFont(.body))

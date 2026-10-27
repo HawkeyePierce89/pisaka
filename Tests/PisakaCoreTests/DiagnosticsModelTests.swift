@@ -1516,6 +1516,29 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertTrue(model.store.entriesByURL.isEmpty)
     }
 
+    /// A marker created beside the folder mid-session: the set that landed
+    /// while the folder was ordinary source is forgotten by the next report
+    /// about that document, which is dropped, so no stale row outlives it.
+    func testADroppedReportForgetsTheSetThatLandedBeforeTheMarkerAppeared() {
+        var listing = ["vendor"]
+        let rootName = root.lastPathComponent
+        model = DiagnosticsModel(listNames: { directory in
+            directory.lastPathComponent == rootName ? listing : nil
+        })
+        model.prepareForFolderChange(root: root)
+        let file = root.appendingPathComponent("vendor/a.go")
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "before")], url: file))
+        XCTAssertNotNil(entry(file))
+
+        listing.append("go.mod")
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "after")], url: file))
+
+        XCTAssertNil(entry(file))
+        XCTAssertTrue(model.rows(relativeTo: root).isEmpty)
+        XCTAssertEqual(model.treeDiagnostics.lookup, .empty)
+    }
+
     /// A name alone is never enough: a `vendor` folder beside no marker is
     /// ordinary source, so its report lands, after the one listing that said so.
     func testAReportUnderAVendorFolderBesideNoMarkerLands() {

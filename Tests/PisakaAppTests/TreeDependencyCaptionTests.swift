@@ -63,6 +63,12 @@ final class TreeDependencyCaptionTests: XCTestCase {
 
             XCTAssertGreaterThan(try inkCount(row: 1, shift: 0), 0,
                                  "node_modules beside package.json draws no caption after its name (\(appearance))")
+            // Row 3 is `other/node_modules` only if the reveal expanded `other`;
+            // collapsed, the tree has four rows and row 3 is `package.json`,
+            // whose short name would leave the band blank whatever the caption
+            // does. The sixth row, `package.json`, exists only when expanded.
+            XCTAssertGreaterThan(try inkCount(row: 5, shift: -(nameEnd - nameStart)), 0,
+                                 "other/ was not expanded, so row 3 is not other/node_modules (\(appearance))")
             XCTAssertEqual(try inkCount(row: 3, shift: indent), 0,
                            "other/node_modules, beside no marker, draws something after its name (\(appearance))")
         }

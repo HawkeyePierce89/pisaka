@@ -225,7 +225,8 @@ because nothing else states them.
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
   open/switch. Reports about files no tab holds land positionally (D46) and are shown by the
-  Problems panel and the project tree, never by the editor surfaces. Fallback to tree-sitter is per request and **silent, with no alert ever**, and
+  Problems panel and the project tree, never by the editor surfaces; reports about files
+  inside dependencies are dropped at receive, both lanes (`DependencyFolderRule`). Fallback to tree-sitter is per request and **silent, with no alert ever**, and
   four failures mark that `(server, root)` unavailable for the app run. A **reader**;
   `Process` lives only in `Sources/Pisaka` behind `LSPTransport`, which a gating suite
   asserts. **Three questions are exceptions to the silent fallback**: hover and rename have no

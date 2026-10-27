@@ -60,9 +60,13 @@ user sees it.
   VoiceOver speaks "Dependencies" in its value; the folders and files below it
   carry no caption and no test wash. A file inside dependencies opens in the
   same **read-only viewer window** a Go to Definition outside the project uses,
-  never as a tab, whether you reach it from the tree, a search hit, a definition
-  or a usage (a tab already open on it stays a tab until closed, and a session
-  restore leaves such tabs out silently). A database file inside dependencies
+  never as a tab, whether you reach it from the tree, a search hit, a definition,
+  a usage, the Open… command, Local Changes' jump to source, a Markdown link, or
+  a file you just created there in the tree (a tab already open on it stays a
+  tab until closed, and a session restore leaves such tabs out silently). So such
+  files cannot be edited in Pisaka: the folder table is fixed, with no setting
+  and no per-folder override. A file the viewer cannot show — over 16 MB, or
+  binary — does not open, with a beep. A database file inside dependencies
   still opens as its viewer tab. Language-server errors and warnings about files
   inside dependencies are not shown anywhere. Find in Files and the symbol index
   still include them.
@@ -866,7 +870,8 @@ user sees it.
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. The list covers **closed
   files too**: what a server reports about a file no tab holds is listed with the
-  server's own line numbers. Closing a file keeps its set in the app, and the
+  server's own line numbers — except files inside dependency folders, which are
+  never diagnosed. Closing a file keeps its set in the app, and the
   server decides what happens next: typescript-language-server (5.3.0, probed)
   clears the file when it is closed, sourcekit-lsp sends nothing so its last
   report stays listed, and yaml-language-server's behaviour on close is

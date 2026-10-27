@@ -1134,7 +1134,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     capped at `maximumRows` — for a row under the stack and one crossing the
     viewport's bottom edge.
   - `TreeTestRule.swift` — whether a macOS project-tree row is a **test row**,
-    the rows the tree paints with a wash underneath the row-state tints. Pure
+    the rows the tree paints with a wash underneath the row-state tints —
+    except inside dependencies, where the tree passes this answer through
+    `DependencyFolderRule.State.showsTestWash(isTestRow:)` and washes nothing;
+    the rule itself is unchanged. Pure
     and Foundation-only: `TreeTestRule.isTestRow(components:isFolder:)` takes
     the row's **root-relative path components** — `[]` is the project root —
     and whether the last one is a folder (a chain row passes its tail's path),
@@ -1232,6 +1235,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     through a counting closure (`src/a/b.swift` 0, `node_modules/x/y.js` 1,
     `a/vendor/b/vendor/c.go` 2, a first-ancestor root 1), and the URL form
     under a symlinked root spelling and outside the root.
+    **A symlink is judged at its target**, per the project's path rule: the URL
+    form resolves the path before splitting it, while the tree judges the names
+    it lists. So a linked package — a workspace's `node_modules/@scope/pkg`
+    pointing at the project's own `packages/pkg`, or at a folder outside the
+    root — is drawn inside dependencies (no caption, no test wash), yet its
+    files open as ordinary tabs and keep their diagnostics, because the file
+    they name is the user's own source or lies outside the root.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one

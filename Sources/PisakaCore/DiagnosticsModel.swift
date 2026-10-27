@@ -62,7 +62,12 @@ import Foundation
 /// exactly where a server reports on the declaration files under
 /// `node_modules` that no tab holds — a burst that would otherwise fill the
 /// Problems panel and mark the tree's dependency folders. A dropped published
-/// report is **not held**, so no later sync can admit it. Clears are untouched.
+/// report is **not held**, so no later sync can admit it, and a drop also
+/// forgets what the document already had — a set or a hold from before a
+/// marker appeared beside its folder — so nothing stale outlives it. The drop
+/// asks no question about tabs: a tab that pre-dates the rule (left alone by
+/// `WorkspaceModel.opensInSourceViewer`) shows no problems either. Clears are
+/// untouched.
 /// The question costs one listing (the injected `listNames`) per table-named
 /// ancestor component of the reported path, stopping at the first root found; a
 /// report with no table-named ancestor costs none, and nothing is memoized.
@@ -477,7 +482,10 @@ public final class DiagnosticsModel: ObservableObject {
                 fileURL: url,
                 projectRoot: dependencyRoot,
                 listNames: listNames
-            ) else { return }
+            ) else {
+                forgetInsideDependencies(url)
+                return
+            }
         case .cleared:
             break
         }
@@ -535,6 +543,18 @@ public final class DiagnosticsModel: ObservableObject {
         case .cleared(.document(let url)):
             noteDocumentClosed(url: url)
         }
+    }
+
+    /// A report about `url` was dropped as inside dependencies: whatever the
+    /// document already had — a set that landed, or a hold, before its folder
+    /// became a dependency root (a marker created beside it mid-session) — is
+    /// forgotten too, since the report that would have replaced or emptied it
+    /// will never land. Touches the store only when it holds an entry, so the
+    /// burst the drop exists for republishes nothing.
+    private func forgetInsideDependencies(_ url: URL) {
+        heldPushes[url.standardizedFileURL] = nil
+        guard store.entry(for: url) != nil else { return }
+        mutateStore(touching: url) { $0.clear(under: url) }
     }
 
     /// The document left the editor: forget all of its bookkeeping, and keep

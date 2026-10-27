@@ -261,10 +261,12 @@ public final class WorkspaceModel: ObservableObject {
     ///   throws) — deleted, renamed, or on a volume that is not mounted;
     /// - a titled record whose file lies **inside dependencies** under
     ///   `projectRoot` (`DependencyFolderRule`), which opens in the read-only
-    ///   source viewer window rather than as a tab (`opensInSourceViewer`) and so
-    ///   has no tab to come back as. Asked *before* `open(url:)`, so nothing is
-    ///   read for it; with no `projectRoot` set nothing is inside dependencies and
-    ///   the record restores as before;
+    ///   source viewer window rather than as a tab (`opensInSourceViewer`, the
+    ///   funnel's own question) and so has no tab to come back as. A database
+    ///   file there with `viewerTabsEnabled` on opens as its viewer tab and so
+    ///   restores, and a file a tab already holds restores onto that tab. Asked
+    ///   *before* `open(url:)`, so nothing is read for it; with no `projectRoot`
+    ///   set nothing is inside dependencies and the record restores as before;
     /// - a record naming **neither a path nor text**. That is the *future-version
     ///   tab* (see `SessionTab`): a kind added by a later build, whose fields this
     ///   one has no property for, so the keyed decoder skipped them and nothing is
@@ -317,9 +319,11 @@ public final class WorkspaceModel: ObservableObject {
         for (index, record) in session.tabs.enumerated() {
             let id: UUID
             if let path = record.path {
-                // A file inside dependencies is never a tab (`opensInSourceViewer`),
-                // so its record is skipped exactly like a missing file.
-                guard !isInsideDependencies(URL(fileURLWithPath: path)) else { continue }
+                // A file the funnel would show in the source viewer is never a tab,
+                // so its record is skipped exactly like a missing file — the
+                // funnel's own question, so a database file inside dependencies
+                // (a viewer tab there) comes back as one.
+                guard !opensInSourceViewer(URL(fileURLWithPath: path)) else { continue }
                 // Delegated to `open(url:)` rather than re-derived here, so the
                 // canonical-path tab identity has one implementation: `try?` is
                 // exactly the "skip a file this build cannot read" semantics wanted,

@@ -2727,6 +2727,45 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
     }
 
+    func testRestoreSessionKeepsADatabaseViewerTabInsideDependencies() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        model.openFolder(url: tree.root)
+
+        let restored = model.restoreSession(EditorSession(
+            tabs: [
+                .file(path: tree.url("node_modules/x/data.sqlite").path),
+                .file(path: tree.url("node_modules/x/index.js").path),
+            ],
+            selectedIndex: 0
+        ))
+
+        // The funnel opens the database as its viewer tab, so the restore keeps
+        // it; the text file beside it is still dropped.
+        XCTAssertTrue(restored)
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["data.sqlite"])
+        XCTAssertEqual(model.openFiles.map(\.kind), [.viewer])
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+    }
+
+    func testRestoreSessionOfOnlyDroppedRecordsRestoresNothingAndKeepsTheSelection() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+        let carried = try model.open(url: tree.url("src/a.swift"))
+        let readsBefore = tree.readPaths
+
+        let restored = model.restoreSession(EditorSession(
+            tabs: [.file(path: tree.url("node_modules/x/index.js").path)],
+            selectedIndex: 0
+        ))
+
+        XCTAssertFalse(restored)
+        XCTAssertEqual(model.openFiles.map(\.id), [carried.id])
+        XCTAssertEqual(model.selectedID, carried.id)
+        XCTAssertEqual(tree.readPaths, readsBefore)
+    }
+
     // MARK: - Viewer tabs (database files), behind the platform switch
 
     /// A stub tree holding one database and one text file, rooted under `/tmp`
