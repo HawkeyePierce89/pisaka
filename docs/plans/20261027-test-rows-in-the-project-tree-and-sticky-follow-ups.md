@@ -297,6 +297,12 @@ runner keep their current predicate and behaviour.
     - `CLAUDE.md`: 56,564 characters, under 60,000.
     - Brand-name grep over `git diff master...HEAD`: no hits beyond "sized"
       matching a short editor name as a substring.
+12. **Task 8: the final consistency pass.** The four architecture docs agree
+    with the merged code. The one drift found was in code: the doc comment on
+    `TreeRowBackground.color(for:resolving:)` still said both tree row kinds
+    call it, while they now paint through `background(for:isTestRow:resolving:)`
+    and only the commit dialog's file row calls it. The comment was corrected;
+    the method's body is unchanged.
 
 ## Implementation Steps
 
@@ -650,16 +656,16 @@ runner keep their current predicate and behaviour.
 
 ### Task 8: Update documentation
 
-- [ ] `docs/FEATURES.md`: under the project tree, say that test files and test
+- [x] `docs/FEATURES.md`: under the project tree, say that test files and test
   folders, and everything below a test folder, are marked with a faint green
   row wash. Name the folder set and the naming conventions, note that Rust
   files are marked only inside a test folder, and note that the name colour
   stays the git state's.
-- [ ] `README.md`: one line in the project tree's feature bullet for the
+- [x] `README.md`: one line in the project tree's feature bullet for the
   test-row mark.
-- [ ] `CLAUDE.md`: confirm the index carries `TreeTestRule.swift` (Task 1) and
+- [x] `CLAUDE.md`: confirm the index carries `TreeTestRule.swift` (Task 1) and
   the rule count reads fifty-two (Task 3). No other change, and no growth
   beyond those words.
-- [ ] Final consistency pass over `app-window.md`, `core-workspace.md`,
+- [x] Final consistency pass over `app-window.md`, `core-workspace.md`,
   `core-theme.md` and `core-services.md` against the code as merged on the
   branch.

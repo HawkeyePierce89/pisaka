@@ -1985,8 +1985,10 @@ enum TreeRowBackground {
 
     /// The colour a row actually paints: the state's role where it has one, and
     /// `.clear` for `.plain`. Nothing is composed on top — every wash's alpha is
-    /// the palette's. Both row kinds call this one method, which is what keeps
-    /// the two treatments from drifting apart.
+    /// the palette's. The commit dialog's file row calls it; the tree rows paint
+    /// through `background(for:isTestRow:resolving:)`, whose state layer is the
+    /// same `role(for:)` answer, which is what keeps the treatments from
+    /// drifting apart.
     ///
     /// The theme arrives as `resolving`, a role-to-colour function the row hands
     /// over, rather than as the theme value itself: a view file that named the
