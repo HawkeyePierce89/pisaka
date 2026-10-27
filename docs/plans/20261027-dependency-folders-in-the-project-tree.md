@@ -118,6 +118,8 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
     - **Observed** at backing scale 1 (read from the window), identical across the probe runs and the five runs: `767.25` → `767`, `831.75` → `832`, `874.75` → `875`, `939.25` → `939`, `982.25` → `982`, `1046.75` → `1047`. Fractions `.25` and `.75` round to the nearest point. Together with the existing test's `.5` tie (`1165.5` → `1165.0`), this is the deterministic outcome matching the claim, so the doc sentences stay and the test is named beside them. The parenthetical "(any other interface scale)" in `core-workspace.md` was dropped as inaccurate, since other interface scales reach quarter points at most.
     - **A second finding.** A raw scroll to `0` right after a settled reveal is sometimes undone: SwiftUI animates the clip back to the previous reveal's offset over about eight turns. The test therefore waits for the raw scroll causally: held still for ten turns, re-scrolled if it came to rest anywhere but `0`, and `XCTFail` after three seconds.
 
+16. **Task 8 verification, all under Xcode 27.1 (the pin is still not installed, note 11).** `swift test` 7215/7215, including `DependencyFolderRuleTests`, `WorkspaceModelTests`, `DiagnosticsModelTests`, `TreeGitStatusTests`, `ProjectTreeSourceGatingTests`, `ChromeThemeSourceGatingTests` and `LintConfigurationTests`. `swiftlint --strict` 0.65.1 clean; `xcodegen generate` left the tree clean. App bundle 509/509, including `TreeDependencyCaptionTests` and `TreeStickyScrollRoundingTests`. macOS Release build and iOS `generic/platform=iOS` build (`CODE_SIGNING_ALLOWED=NO`) both succeeded. `CLAUDE.md` is 56,914 characters. Every public `DependencyFolderRule` member, `opensInSourceViewer`, the restore drop and the `listNames` seam has direct tests. The brand grep over the branch diff found none (its only hits were "-zed" word endings such as "resized"). The app bundle and both builds still owe one run under Xcode 26.3 before the merge.
+
 ## Implementation Steps
 
 ### Task 1: Core — the dependency-folder rule
@@ -335,13 +337,13 @@ Nothing changes on iOS. There is no setting, no toggle and no manual marking. Fi
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` green, including `DependencyFolderRuleTests`, the spoken positions, the routing answer, the restore drop, the diagnostics drop for both lanes, `ProjectTreeSourceGatingTests` and `ChromeThemeSourceGatingTests`.
-- [ ] `swiftlint --strict` clean at the pinned version (0.65.1); `xcodegen generate` leaves the tree clean.
-- [ ] App-layer bundle green under the pinned Xcode with the single derived-data path, including `TreeDependencyCaptionTests` and the rounding outcome from Task 7.
-- [ ] macOS build (`-configuration Release`) and iOS build (`generic/platform=iOS`) green under the pinned Xcode.
-- [ ] Coverage: every new Core function has direct tests.
-- [ ] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
-- [ ] Grep the branch diff for brand names and references to other editors: none.
+- [x] `swift test` green, including `DependencyFolderRuleTests`, the spoken positions, the routing answer, the restore drop, the diagnostics drop for both lanes, `ProjectTreeSourceGatingTests` and `ChromeThemeSourceGatingTests`.
+- [x] `swiftlint --strict` clean at the pinned version (0.65.1); `xcodegen generate` leaves the tree clean.
+- [x] App-layer bundle green (under Xcode 27.1; the pinned 26.3 run is owed, note 16) with the single derived-data path, including `TreeDependencyCaptionTests` and the rounding outcome from Task 7.
+- [x] macOS build (`-configuration Release`) and iOS build (`generic/platform=iOS`) green (under Xcode 27.1; the pinned 26.3 run is owed, note 16).
+- [x] Coverage: every new Core function has direct tests.
+- [x] `CLAUDE.md` under 60,000 characters (`LintConfigurationTests`).
+- [x] Grep the branch diff for brand names and references to other editors: none.
 
 ### Task 9: Update documentation
 
