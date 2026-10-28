@@ -499,7 +499,7 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
 `ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc`,
-`DesignGlyphRecord`, `XcodePin` and `RepositorySources` — the once-per-process
+`DesignGlyphRecord`, `XcodePin`, `RunnerPin` and `RepositorySources` — the once-per-process
 walk and raw/stripped text of repository Swift files the source-gating suites
 read through (non-Swift files are still read directly). A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it

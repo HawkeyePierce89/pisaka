@@ -746,9 +746,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     excluded like the vertical one — with the frame top-leading aligned, so the
     content is never shorter than the viewport and there is nothing to centre.
     **The default scroll anchor is not the fix**: `.defaultScrollAnchor(.topLeading)`
-    moved the content to the top on macOS 26 and did nothing on macOS 15, where
-    CI runs — the measured minimum height is what holds on every supported
-    macOS. The placeholders are a separate view that keeps its centred layout.
+    moved the content to the top on macOS 26 and did nothing on macOS 15, which
+    the app still supports (macOS 14+) — the measured minimum height is what
+    holds on every supported macOS. The placeholders are a separate view that keeps its centred layout.
     `CommitUnifiedDiffWashTests`' `testAShortDiffStartsAtThePanesTop` renders
     one `.added` row in a tall pane and asserts the wash's first painted row lies
     within the 2-point vertical padding of the top edge (it measured 141 points

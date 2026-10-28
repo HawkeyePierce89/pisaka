@@ -241,16 +241,16 @@ explicit versioned macOS image.
 - Modify: `docs/architecture/app-git-views.md`
 - Modify: `CLAUDE.md`
 
-- [ ] In `app-git-views.md` around line 749, "did nothing on macOS 15, where CI runs" stops
+- [x] In `app-git-views.md` around line 749, "did nothing on macOS 15, where CI runs" stops
   being true. Rewrite it so it no longer says CI runs on macOS 15, while keeping the
   observation and its reasoning. The observation: `.defaultScrollAnchor(.topLeading)`
   worked on macOS 26 and did nothing on macOS 15, which the app still supports (macOS 14+),
   so the measured minimum height is what holds on every supported macOS.
-- [ ] Add `RunnerPin` to `CLAUDE.md`'s list of shared helpers in
+- [x] Add `RunnerPin` to `CLAUDE.md`'s list of shared helpers in
   `Tests/PisakaCoreTests/Support/`, next to `XcodePin`, so the list is still complete.
   Change nothing else in `CLAUDE.md`, which names no runner label. `LintConfigurationTests`
   keeps it under the 60,000-character limit; it is about 56,750 characters today.
-- [ ] Run `swift test`; it must pass, including the `CLAUDE.md` size rule.
+- [x] Run `swift test`; it must pass, including the `CLAUDE.md` size rule.
 
 ### Task 5: Verify acceptance criteria
 
