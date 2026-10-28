@@ -267,9 +267,9 @@ explicit versioned macOS image.
 
 ### Task 6: Update documentation
 
-- [ ] `README.md` needs no change: it names no runner.
-- [ ] `CLAUDE.md` gets only the helper-list addition from Task 4.
-- [ ] Re-read the doc comments of `RunnerPin`, `ReleaseWorkflowTests` and
+- [x] `README.md` needs no change: it names no runner (its one "runner" is the test runner detected from config files, line 60).
+- [x] `CLAUDE.md` gets only the helper-list addition from Task 4 (`git diff master -- CLAUDE.md` is that one line).
+- [x] Re-read the doc comments of `RunnerPin`, `ReleaseWorkflowTests` and
   `LintConfigurationTests` and confirm each inventory matches what the code now asserts.
 
 ## Post-Completion
