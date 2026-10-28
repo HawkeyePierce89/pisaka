@@ -10,8 +10,8 @@ import XCTest
 /// document far wider and taller than the pane, so a horizontal scroll has room; no
 /// window. The suite pins **the invariant, not the mechanism**: where the framework
 /// tiles by narrowing the clip view's frame the inset is 0 and home is 0, so it
-/// passes on the older CI runner untouched; on macOS 26+, where the ruler's
-/// thickness arrives as a leading `contentInsets.left`, it exercises the
+/// passes on macOS 14–15 untouched (no CI gate runs there); on macOS 26+, where
+/// the ruler's thickness arrives as a leading `contentInsets.left`, it exercises the
 /// correction — first tile, a widened ruler, a narrowed one (each keeping the
 /// vertical position, since the gutter widens mid-file as the line count crosses a
 /// digit), a document narrower than the pane (the usual short-line file), and a
@@ -60,7 +60,7 @@ final class CodeScrollViewHomeTests: XCTestCase {
     /// The assertion is deliberately weaker than exact preservation of
     /// `bounds.origin.x`: what the framework does to a scrolled view's origin when
     /// its inset changes is the framework's, not ours, and it can differ between
-    /// frame tiling on the CI runner and inset tiling on macOS 26+. The property
+    /// frame tiling on macOS 14–15 and inset tiling on macOS 26+. The property
     /// this change owns is narrower — the offset from home shrinks by at most the
     /// inset's own change, so a scrolled pane is never re-homed.
     func testAPaneScrolledRightIsNotSentHomeByARulerChange() {

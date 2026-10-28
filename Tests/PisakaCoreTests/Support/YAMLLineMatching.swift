@@ -94,11 +94,7 @@ func workflowJobs(in text: String) -> [String] {
 /// `- ` line that opens it). One reading shared by every suite that asks what a
 /// job's steps are, so two rules can never read the same workflow differently.
 func workflowJobSteps(_ job: String, in text: String) -> [[String]] {
-    let lines = indentedActiveYAMLLines(of: text)
-    guard let jobs = lines.firstIndex(of: "jobs:") else { return [] }
-    let jobsBody = lines[(jobs + 1)...].prefix { yamlIndent($0) > 0 }
-    guard let start = jobsBody.firstIndex(of: "  \(job):") else { return [] }
-    let body = jobsBody[(start + 1)...].prefix { yamlIndent($0) > 2 }
+    let body = workflowJobBody(job, in: text)
     guard let stepsKey = body.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "steps:" }) else {
         return []
     }
@@ -123,11 +119,17 @@ func workflowJobSteps(_ job: String, in text: String) -> [[String]] {
 /// a step's `with:` or an `env:` block is not one of them. The level is the
 /// indentation of the job's first body line, read rather than assumed.
 func workflowJobKeyLines(_ job: String, in text: String) -> [String] {
+    let body = workflowJobBody(job, in: text)
+    guard let keyIndent = body.first.map(yamlIndent) else { return [] }
+    return body.filter { yamlIndent($0) == keyIndent }.map { $0.trimmingCharacters(in: .whitespaces) }
+}
+
+/// One job's body under the top-level `jobs:` — its indented active lines below
+/// the `  <job>:` header — the one slicing both readings above share.
+private func workflowJobBody(_ job: String, in text: String) -> ArraySlice<String> {
     let lines = indentedActiveYAMLLines(of: text)
     guard let jobs = lines.firstIndex(of: "jobs:") else { return [] }
     let jobsBody = lines[(jobs + 1)...].prefix { yamlIndent($0) > 0 }
     guard let start = jobsBody.firstIndex(of: "  \(job):") else { return [] }
-    let body = jobsBody[(start + 1)...].prefix { yamlIndent($0) > 2 }
-    guard let keyIndent = body.first.map(yamlIndent) else { return [] }
-    return body.filter { yamlIndent($0) == keyIndent }.map { $0.trimmingCharacters(in: .whitespaces) }
+    return jobsBody[(start + 1)...].prefix { yamlIndent($0) > 2 }
 }

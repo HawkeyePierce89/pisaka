@@ -28,9 +28,18 @@ import Foundation
 /// - `docs/RELEASING.md`'s anchored ``Pinned runner: `X` `` phrase, which must
 ///   occur exactly once (`ReleaseWorkflowTests.testReleasingDocNamesTheRunnerPin`).
 ///
+/// Two prose sites also spell the image and are deliberately **not** readers:
+/// they record what one move reached and what its first release must show, not
+/// which image is pinned, so no rule holds them equal to this value and a move
+/// owes each a hand revisit — the rest of `docs/RELEASING.md`'s runner
+/// paragraph (the OS the move reached and the older ones it left ungated) and
+/// its owed-verification entry for the first release on the image.
+///
 /// `ReleaseWorkflowTests.testEveryWorkflowJobRunsOnThePinnedRunner` holds the
 /// workflows themselves to it: the set of jobs by set equality, one `runs-on:`
-/// each, no stray line, and `pinnedLabel()` succeeding.
+/// each, no stray line, the set of values equal to `[label]`, and
+/// `pinnedLabel()` succeeding; `testRunnerPinRefusesWhatItExistsToRefuse` holds
+/// the reading and the refusal to inline workflows the real ones never show.
 ///
 /// The workflows are read through `#filePath` with Foundation only, through the
 /// shared `workflowJobs(in:)` / `workflowJobKeyLines(_:in:)` reading — so a
@@ -47,7 +56,7 @@ enum RunnerPin {
     /// One job: where it sits and every `runs-on:` written directly under its
     /// header (exactly one, when the workflow is well-formed — kept as a list so
     /// a job with none or two is reportable rather than silently collapsed).
-    struct Job: Hashable, CustomStringConvertible {
+    struct Job: CustomStringConvertible {
         let workflow: String
         let job: String
         let labels: [String]
@@ -92,7 +101,11 @@ enum RunnerPin {
     /// carries none or two, the jobs carry more than one value, the one value is
     /// not an explicit versioned image, or it is not `label`.
     static func pinnedLabel() throws -> String {
-        let all = try jobs()
+        try pinnedLabel(of: jobs())
+    }
+
+    /// `pinnedLabel()`'s decision over a given set of jobs.
+    static func pinnedLabel(of all: [Job]) throws -> String {
         let values = Set(all.flatMap(\.labels))
         guard !all.isEmpty, all.allSatisfy({ $0.labels.count == 1 }), values.count == 1, let only = values.first,
               only.range(of: #"^macos-[0-9]+$"#, options: .regularExpression) != nil, only == label else {

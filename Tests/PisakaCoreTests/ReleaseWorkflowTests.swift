@@ -3040,9 +3040,11 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// it is named — a job silently left on an older image is the drift this
     /// exists to refuse. The line count closes the other side: a `runs-on:`
     /// sitting outside any job's header level would satisfy nothing and mislead
-    /// every reader. `pinnedLabel()` is the one-value, versioned-label and
-    /// equals-`RunnerPin.label` checks together; `RunnerPin`'s doc comment is the
-    /// authority and lists the assertions checked against it.
+    /// every reader. The set of values is held equal to `[RunnerPin.label]`
+    /// directly, and `pinnedLabel()` must succeed besides — the one-value,
+    /// versioned-label and equals-`RunnerPin.label` checks together, whose
+    /// refusals the next test drives; `RunnerPin`'s doc comment is the authority
+    /// and lists the assertions checked against it.
     func testEveryWorkflowJobRunsOnThePinnedRunner() throws {
         let jobs = try RunnerPin.jobs()
 
@@ -3070,12 +3072,60 @@ final class ReleaseWorkflowTests: XCTestCase {
             Move it under its job or delete it.
             """)
 
-        do {
-            let pinned = try RunnerPin.pinnedLabel()
-            XCTAssertEqual(pinned, RunnerPin.label)
-        } catch {
-            XCTFail("\(error)")
+        let values = Set(jobs.flatMap(\.labels))
+        XCTAssertEqual(values, [RunnerPin.label], """
+            Every job in ci.yml and release.yml must run on `\(RunnerPin.label)` (RunnerPin.label). \
+            Found: \(jobs.map(\.description)).
+            """)
+        XCTAssertNoThrow(try RunnerPin.pinnedLabel())
+    }
+
+    /// `RunnerPin`'s reading and refusal, held to inline workflows the real ones
+    /// never show — so a weakened clause cannot hide behind two agreeing files.
+    /// The reading counts only a job's own `runs-on:` (not one nested under a
+    /// step or an `env:`), strips quotes and a trailing comment, and reports a
+    /// job with none or two; the refusal throws on each of those, on a
+    /// half-move, on a moving alias and on a versioned label other than `label`.
+    func testRunnerPinRefusesWhatItExistsToRefuse() throws {
+        let workflow = """
+            jobs:
+              quoted:
+                env:
+                  runs-on: nested-env
+                runs-on: 'macos-26' # the pinned one
+                steps:
+                  - with:
+                      runs-on: nested-step
+              absent:
+                timeout-minutes: 5
+              twice:
+                runs-on: macos-26
+                runs-on: macos-26
+            """
+        let jobs = RunnerPin.jobs(in: workflow, workflow: "inline.yml")
+        XCTAssertEqual(jobs.map(\.job), ["quoted", "absent", "twice"])
+        XCTAssertEqual(jobs.map(\.labels), [["macos-26"], [], ["macos-26", "macos-26"]])
+
+        func job(_ id: String, _ labels: [String]) -> RunnerPin.Job {
+            RunnerPin.Job(workflow: "inline.yml", job: id, labels: labels)
         }
+        let refused: [String: [RunnerPin.Job]] = [
+            "no job": [],
+            "a job without runs-on:": [job("a", ["macos-26"]), job("b", [])],
+            "a job with two runs-on:": [job("a", ["macos-26", "macos-26"])],
+            "a half-move": [job("a", ["macos-26"]), job("b", ["macos-15"])],
+            "a moving alias": [job("a", ["macos-latest"]), job("b", ["macos-latest"])],
+            "a sized variant": [job("a", ["macos-26-large"])],
+            "a matrix expression": [job("a", ["${{ matrix.os }}"])],
+            "another versioned image": [job("a", ["macos-27"]), job("b", ["macos-27"])],
+        ]
+        for (name, jobs) in refused {
+            XCTAssertThrowsError(try RunnerPin.pinnedLabel(of: jobs), "\(name) must be refused") {
+                XCTAssertTrue($0 is RunnerPin.Disagreement, "\(name): \($0)")
+            }
+        }
+        XCTAssertEqual(try RunnerPin.pinnedLabel(of: [job("a", ["macos-26"]), job("b", ["macos-26"])]),
+                       RunnerPin.label)
     }
 
     /// `docs/RELEASING.md` names the toolchain once, in an anchored phrase, and

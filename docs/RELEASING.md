@@ -477,18 +477,22 @@ carries the same `DEVELOPER_DIR` prefix — the Sparkle re-derive below resolves
 packages, and a resolution under another Xcode can rewrite the committed
 `Package.resolved` into a schema CI then refuses.
 
-**Pinned runner: `macos-26`.** Every job in both workflows — the five in
-`ci.yml` and the two here — runs on the `macos-26` image (macOS 26), and
-`ReleaseWorkflowTests` holds all seven to that one label, with this sentence
-held equal to it, the same way it holds the six `setup-xcode` steps to one
-Xcode (the jobs are the authority; `RunnerPin`, beside `XcodePin`, lists every
-reader checked against it). The label is an explicit versioned image rather
-than `macos-latest`, so GitHub cannot change the OS under the pin without a
-commit. The image matters as much as the Xcode: SwiftUI ships with the OS, not
-with Xcode, so a runner two major versions behind the development machine draws
-some layouts differently, and the app-layer gates then measure an OS no
-developer runs. Moving the jobs onto the macOS 26 image narrowed that gap from
-two major versions to one.
+**Pinned runner: `macos-26`.** Every job in both workflows runs on that one
+image, and `ReleaseWorkflowTests` holds the set of jobs and their one label by
+set equality, with this sentence held equal to it, the same way it holds the
+`setup-xcode` steps to one Xcode (the jobs are the authority; `RunnerPin`,
+beside `XcodePin`, lists every reader checked against it). The label is an
+explicit versioned image rather than `macos-latest`, so GitHub cannot change the
+OS under the pin without a commit. The image matters as much as the Xcode:
+SwiftUI ships with the OS, not with Xcode, so a runner two major versions behind
+the development machine draws some layouts differently, and the app-layer gates
+then measure an OS no developer runs. Moving the jobs from macOS 15 to macOS 26
+narrowed that gap from two major versions to one. The cost, recorded rather than
+fixed: no gate runs on a macOS older than the image while the app supports
+macOS 14 and later, so behaviour that differs by OS below it — SwiftUI layout,
+AppKit's frame versus inset ruler tiling (`core-zoom.md`), the commit dialog's
+scroll anchor (`app-git-views.md`) — is held by those design notes and by hand,
+not by CI.
 
 The workflow then, in order:
 
