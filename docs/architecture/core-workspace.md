@@ -1052,21 +1052,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     unchanged through `scroll(to:)`, `setBoundsOrigin` and
     `constrainBoundsRect`. But the click goes through SwiftUI's
     `ScrollViewProxy.scrollTo`, not the raw clip view, and that settled a
-    target of `1165.5` at `1165.0` at backing scale 1 — the backing pixel. It
-    rounds to the **nearest** pixel, ties down, not a floor: a plain
-    `ScrollView` probed at backing scale 1 settled targets ending in `.1`–`.5`
-    on the point below and `.6`–`.9` on the point above, so off the half-point
-    grid a landing is still at most half a point from its target.
-    `TreeStickyScrollRoundingTests` pins that direction through the tree's own
-    reveal: the scaled metrics stay on the half-point grid at every interface
-    scale (`InterfaceMetrics.pt`), so the tree reaches quarter points at most,
-    and at interface scale 0.9 its targets ending in `.25` settle on the point
-    below and those ending in `.75` on the point above, beside the `.5` tie
-    settling below. With
+    target of `1165.5` at `1165.0` at backing scale 1 — the backing pixel.
+    `TreeStickyScrollRoundingTests` pins that fact through the tree's own
+    reveal at backing scale 1, and on any other backing scale asserts only
+    `|settled − target| ≤ slotTolerance`. With
     rows on the half-point grid at interface scale 1, a click therefore lands
     half a point short of the equality, and the former `1e-6` left the clicked
-    folder's parent out and its row covered. Half a point is half a backing
-    pixel at most for any scale ≥ 1, and far below the smallest row. Its cost,
+    folder's parent out and its row covered. Half a point is far below the
+    smallest row. Its cost,
     stated: a candidate joins — and the outermost row drops — up to half a
     point early, so at most a half-point sliver of its real row shows under
     the copy in its slot, the right trade against a covered row after a click.

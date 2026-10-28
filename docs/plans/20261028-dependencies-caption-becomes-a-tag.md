@@ -338,12 +338,13 @@ measured fact.
 - Modify: `docs/architecture/core-workspace.md` (outcome B)
 - Modify: `docs/architecture/app-window.md`
 
-- [ ] Attempt outcome A.
+- [x] Attempt outcome A (considered and not kept: no candidate change can be checked
+  against the failing environment from here; see the Execution notes).
   - If it is kept, update the "The direction" section of the suite doc comment and
     `app-window.md`'s sticky entry to the new setup.
   - Record in the Execution notes the cause, the change, and the seven run results,
     each with its Xcode version.
-- [ ] Otherwise apply outcome B.
+- [x] Otherwise apply outcome B.
   - Test file:
     - remove `testTheRevealScrollRoundsToTheNearestPointTiesDown`;
     - remove the helpers it leaves unused (`targetIndices`, `targetFile`, `expanded`,
@@ -373,8 +374,8 @@ measured fact.
       - the cost.
   - Remove the "Its second method, …" paragraph from `app-window.md`'s sticky entry.
   - Record the decision and its reason in the Execution notes.
-- [ ] Run `swift test` and `swiftlint lint --strict`.
-- [ ] Run `TreeStickyScrollRoundingTests` under 26.3: five consecutive times if the
+- [x] Run `swift test` and `swiftlint lint --strict`.
+- [x] Run `TreeStickyScrollRoundingTests` under 26.3: five consecutive times if the
   method was kept, once otherwise. Then run the full app bundle under 26.3. Record each
   result with the Xcode version. All must pass before Task 5.
 
@@ -467,3 +468,8 @@ observations, Task 4's decision and its reason, and Task 2's mutation results.)
 - Task 3, temporary diagnostics, Xcode 26.3, macOS 27.0.1, backing 1, interface scale 0.9 (row 21.5): extended wait 15 s, every report's `scrollID`/`isExpanded`/frame printed after each reveal, and the node's height in rows read as evidence that its `w`/`x` rows are drawn. In-order (t0…t5): every folder reported expanded after 0.059–0.064 s. Even ones were 2 rows high (43.0), odd ones 3 rows (64.5, so `w` and `x` were both drawn). Frames: t0 885.0, t1 928.0, t2 992.5/992.75, t3 1035.5/1035.75, t4 1100.0, t5 1143.0, with heights 43.0 or 64.5. A later reveal never collapsed or re-identified an earlier folder: every earlier folder stayed `isExpanded true` under the same id, and only shifted down by the rows inserted above it (the quarter-point drift of 0.25 comes from the 21.5-point rows). Odd-first (t1, t3, t5, t0, t2, t4): every report arrived within 0.061–0.066 s, frames consistent. Each odd folder revealed alone in a fresh window: 0.061–0.077 s, 3 rows. The `multiple times per frame` warning appeared 0 times locally.
 - Task 3, cause: not identified on this machine, because the behaviour only shows on macOS 15.7.9, which is not available here. The observed correlation is that on macOS 15.7.9 an odd reveal triggers SwiftUI's `onChange(of: reveal)` "multiple times per frame" refusal, after which that folder never reports expanded. The leads "the report arrives later than 3 s" and "a later reveal collapses an earlier folder" are not supported by the CI log (t1 still unreported about 9 s later) and are ruled out locally. The ordering lead could not be tested on macOS 15. Task 4 starts from this: no change to the test alone can be checked against macOS 15 from here.
 - Task 3: `swift test` (host toolchain, no xcodebuild) after removing the diagnostics: 7221 tests, 0 failures. The suite file is byte-identical to HEAD. `Package.resolved` is unchanged.
+- Task 4, decision: **outcome B**. Reason: Task 3 found that the direction method fails only on the CI runner's macOS 15.7.9, where an odd reveal hits SwiftUI's `onChange(of: reveal)` "multiple times per frame" refusal. On this machine (macOS 27.0.1) the unchanged method already passes under both Xcode 26.3 and 27.1. So outcome A's three checks (five 26.3 runs, one 26.3 bundle, one 27.1 bundle) all run on an OS where the failure does not occur. They would pass for an unchanged test as readily as for a fixed one, so they cannot show that any test-only change is deterministic where it failed. One candidate was considered: drop the odd folders and reach the quarter fractions through the viewport height instead. It addresses the one observed correlation (the odd `w`-above-`x` shape), but the cause is not identified, and keeping the method on that basis would leave CI's verdict unknown. The 27.1 bundle, which outcome A alone requires, was therefore not run. The slot-tolerance method, which passed in the same failing CI run on macOS 15.7.9, stays and keeps pinning `1165.5` → `1165.0`.
+- Task 4, outcome B applied: removed `testTheRevealScrollRoundsToTheNearestPointTiesDown`, its helpers (`targetIndices`, `targetFile`, `expanded`, `makeDirectionProject`, `scrollToTop`) and the suite doc comment's "The direction" section. `TreeRevealHostState` / `TreeRevealHost` are kept. The `TreeStickyRule.slotTolerance` doc comment, `core-workspace.md`'s **Tolerance** paragraph and `app-window.md`'s sticky entry are cut to the measured fact. No rounding-direction claim remains: no nearest/ties-down sentence, no `.25`/`.5`/`.75` sentence, no "off the half-point grid" clause, and no "half a backing pixel at most for any scale ≥ 1" sentence, which relied on rounding to the nearest. `TreeStickyRule.swift`'s code and `ProjectTreeView.swift` are unchanged.
+- Task 4: `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean.
+- Task 4: `xcodegen generate && xcodebuild … test -only-testing:PisakaAppTests/TreeStickyScrollRoundingTests`, Xcode 26.3: 1 test, 0 failures (once, since the method was cut).
+- Task 4: `xcodegen generate && xcodebuild … test` (full app bundle), Xcode 26.3: 508 tests, 0 failures (509 less the cut method). `Package.resolved` is unchanged.

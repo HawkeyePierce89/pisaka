@@ -2129,24 +2129,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     one this headless host reports — the settled offset is on the whole-point
     grid, exactly half a point short of the target and within the tolerance;
     at any other scale only
-    `|settled − target| ≤ slotTolerance` is asserted. Its second method,
-    `testTheRevealScrollRoundsToTheNearestPointTiesDown` (one more window,
-    resized once), pins the direction of that rounding. The tree's metrics
-    stay on the half-point grid at every interface scale
-    (`InterfaceMetrics.pt`: a row is `26.5` at 1.1, so every target there is
-    a whole point), so it runs at interface scale **0.9**, where a row is
-    `21.5` and a row's centre lies on a quarter point. Over forty empty
-    folders, `t0/`…`t5/` (each holding `x`, an odd one also `w`, so the
-    targets alternate between the two quarters) and forty root files, every
-    `tK` is expanded by a reveal in a window taller than the document and
-    measured, the window is resized to a 300-point viewport, and each target
-    is revealed from the top with a fresh token. The raw scroll to the top is
-    itself a condition, held for ten turns and repeated when SwiftUI animates
-    the clip back to the previous reveal's offset, which it sometimes does.
-    Before scrolling it asserts a target fraction strictly inside `(0, 0.5)`
-    and one strictly inside `(0.5, 1)`; at backing scale 1 each settled offset
-    is the whole point nearest its target, ties down (`767.25` → `767`,
-    `831.75` → `832`), and at any other scale only the tolerance is asserted.
+    `|settled − target| ≤ slotTolerance` is asserted.
   - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
     the tree's inline naming, in five types: `TreeEditDraft` (what is being
     named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
