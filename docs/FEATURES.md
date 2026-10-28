@@ -67,9 +67,11 @@ user sees it.
   files cannot be edited in Pisaka: the folder table is fixed, with no setting
   and no per-folder override. A file the viewer cannot show — over 16 MB, or
   binary — does not open, with a beep. A database file inside dependencies
-  still opens as its viewer tab. Language-server errors and warnings about files
-  inside dependencies are not shown anywhere. Find in Files and the symbol index
-  still include them.
+  still opens as its viewer tab. New language-server errors and warnings about
+  files inside dependencies are not shown; a set listed before the folder became
+  a dependency folder stays until the server next reports on that file, and
+  clicking it opens the read-only viewer at the file's start. Find in Files and
+  the symbol index still include them.
   On macOS a run of folders that each hold only the next (`src/main/java/com`)
   is one `a/b/c` row, each segment coloured by its own git state, that expands
   straight to the last folder's contents; Delete and dragging act on the first
@@ -870,8 +872,9 @@ user sees it.
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. The list covers **closed
   files too**: what a server reports about a file no tab holds is listed with the
-  server's own line numbers — except files inside dependency folders, which are
-  never diagnosed. Closing a file keeps its set in the app, and the
+  server's own line numbers — except files inside dependency folders, whose new
+  reports are dropped (a set listed before the folder became one stays until
+  the server's next report about that file). Closing a file keeps its set in the app, and the
   server decides what happens next: typescript-language-server (5.3.0, probed)
   clears the file when it is closed, sourcekit-lsp sends nothing so its last
   report stays listed, and yaml-language-server's behaviour on close is

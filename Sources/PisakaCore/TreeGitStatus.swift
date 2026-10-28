@@ -63,7 +63,7 @@ public enum TreeGitState: CaseIterable, Comparable, Hashable, Sendable {
     ///
     /// `isTestRow` and `isDependencyRoot` are required, with no default, so no
     /// call site can silently leave either unspoken: the wash the tree paints a
-    /// test row with is colour alone, the dependency root's caption is a
+    /// test row with is colour alone, the dependency root's tag is a
     /// secondary-text word hidden from accessibility (the row's combined
     /// label would otherwise read it a second time), and these words are what
     /// carry them. `isDependencyRoot` is ignored for `.file` — a file is never

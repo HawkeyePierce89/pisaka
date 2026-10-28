@@ -72,7 +72,7 @@ public enum DependencyFolderRule {
     public enum State: Equatable, Sendable {
         /// Not inside dependencies, and not a root.
         case outside
-        /// A dependency root row: captioned.
+        /// A dependency root row: tagged.
         case root
         /// Below a dependency root.
         case inside
@@ -102,7 +102,7 @@ public enum DependencyFolderRule {
             isTestRow && self == .outside
         }
 
-        /// Whether the row shows the `dependencies` caption.
+        /// Whether the row shows the `dependencies` tag.
         public var showsCaption: Bool { self == .root }
     }
 

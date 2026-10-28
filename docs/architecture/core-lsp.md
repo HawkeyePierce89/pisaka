@@ -110,7 +110,9 @@ admits a document inside dependencies** (`DependencyFolderRule`, `core-workspace
 `DiagnosticsModel` drops such a report at receive, published or positional, so the
 declaration files a server reports on under `node_modules` never reach the panel,
 the counts or the tree — such a file opens only in the read-only viewer window, where
-nobody can act on its problems. Closing the last
+nobody can act on its problems. A set that landed before a marker appeared beside the
+folder stays until the next dropped report about that file forgets it
+(`forgetInsideDependencies`). Closing the last
 tab now drops only the buffer's bookkeeping and keeps the file's set. A wholesale
 buffer replacement drops only a mapped entry, so a file being opened keeps its
 positional record until the first mapped report replaces it. One more Core file reads
