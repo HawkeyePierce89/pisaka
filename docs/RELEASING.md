@@ -1403,8 +1403,8 @@ downloaded the app rather than built it.
   this failed.
 - **The first release on the `macos-26` image.** `release.yml` runs only on a
   `v*` tag, so its two jobs first run on the [pinned runner](#cutting-a-release)
-  at the next release. The pull request that moved the label proved `ci.yml` on
-  the new image by its own CI run; for `release.yml` the static suites prove the
+  at the next release. The pull request that moves the label is what proves `ci.yml`
+  on the new image, once its own CI run passes; for `release.yml` the static suites prove the
   shape — every job on the one versioned label — and not that it runs. On that
   run, check that each job log's "Runner Image" group names a macOS 26 image,
   and that the archive, notarize, staple and smoke-launch steps all pass.

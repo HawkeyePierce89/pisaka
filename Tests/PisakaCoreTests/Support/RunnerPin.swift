@@ -21,12 +21,16 @@ import Foundation
 /// Nothing else states the label on its own authority; every other spelling of
 /// it is a reader checked against this value:
 ///
-/// - `ReleaseWorkflowTests.testTheReleaseJobIsGatedOnTheTestJob`'s consecutive
-///   `test:` / `runs-on:` pair in `release.yml`.
+/// - `ReleaseWorkflowTests.testTheReleaseJobIsGatedOnTheTestJob`'s `test:` job
+///   in `release.yml`, whose `runs-on:` values must be exactly the pinned one.
 /// - `LintConfigurationTests.testCIDeclaresALintJobIndependentOfTheBuildGraph`'s
-///   lint job, whose `runs-on:` lines must be exactly the one pinned line.
+///   lint job, whose `runs-on:` values must be exactly the pinned one.
 /// - `docs/RELEASING.md`'s anchored ``Pinned runner: `X` `` phrase, which must
 ///   occur exactly once (`ReleaseWorkflowTests.testReleasingDocNamesTheRunnerPin`).
+///
+/// The two workflow readers compare values through `labelValue(of:)`, never a
+/// spelled line, so a quoted label or a trailing comment the rule accepts cannot
+/// fail them.
 ///
 /// Two prose sites also spell the image and are deliberately **not** readers:
 /// they record what one move reached and what its first release must show, not

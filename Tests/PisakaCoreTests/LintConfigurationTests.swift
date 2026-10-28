@@ -387,7 +387,7 @@ final class LintConfigurationTests: XCTestCase {
     func testCIDeclaresALintJobIndependentOfTheBuildGraph() throws {
         let block = try ciLintJobBlock()
         let runner = try RunnerPin.pinnedLabel()
-        XCTAssertEqual(block.filter { $0.hasPrefix("runs-on:") }, ["runs-on: \(runner)"],
+        XCTAssertEqual(block.compactMap(RunnerPin.labelValue(of:)), [runner],
                        "the lint job must run on the runner every other job runs on (RunnerPin: \(runner))")
         let budgetLine = try XCTUnwrap(
             block.first { $0.hasPrefix("timeout-minutes:") },

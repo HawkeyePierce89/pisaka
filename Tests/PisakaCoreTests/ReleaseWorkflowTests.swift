@@ -281,10 +281,11 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
 
         let runner = try RunnerPin.pinnedLabel()
-        XCTAssertTrue(lines.contains(consecutively: """
-            test:
-            runs-on: \(runner)
-            """), "release.yml no longer declares a `test:` job for the release job to depend on")
+        let testJob = try XCTUnwrap(
+            RunnerPin.jobs().first { $0.workflow == "release.yml" && $0.job == "test" },
+            "release.yml no longer declares a `test:` job for the release job to depend on")
+        XCTAssertEqual(testJob.labels, [runner],
+                       "release.yml's `test:` job must run on the pinned runner (RunnerPin: \(runner))")
         XCTAssertTrue(lines.contains("run: swift test"), """
             release.yml's `test:` job must actually run `swift test`. A job named `test` that runs \
             something else satisfies `needs:` and gates nothing.
