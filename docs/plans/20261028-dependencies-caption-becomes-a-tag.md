@@ -414,24 +414,24 @@ What actually happens:
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test`: green.
-- [ ] `swiftlint lint --strict` at 0.65.1: clean.
-- [ ] `xcodegen generate` leaves `git status` clean.
-- [ ] The version check under 26.3 prints `Xcode 26.3`. The full app bundle then passes
+- [x] `swift test`: green.
+- [x] `swiftlint lint --strict` at 0.65.1: clean.
+- [x] `xcodegen generate` leaves `git status` clean.
+- [x] The version check under 26.3 prints `Xcode 26.3`. The full app bundle then passes
   under 26.3, including the rewritten `TreeDependencyCaptionTests` and whichever outcome
   Task 4 produced.
-- [ ] If the direction method was kept, `TreeStickyScrollRoundingTests` passes five
-  consecutive times under 26.3.
-- [ ] macOS Release build under 26.3: green.
-- [ ] iOS build (`generic/platform=iOS`) under 26.3: green.
-- [ ] `Package.resolved` is unchanged after all of them.
-- [ ] `ChromeThemeSourceGatingTests` is green and its inventory is true:
+- [x] If the direction method was kept, `TreeStickyScrollRoundingTests` passes five
+  consecutive times under 26.3. (Not applicable: Task 4 applied outcome B and cut the method.)
+- [x] macOS Release build under 26.3: green.
+- [x] iOS build (`generic/platform=iOS`) under 26.3: green.
+- [x] `Package.resolved` is unchanged after all of them.
+- [x] `ChromeThemeSourceGatingTests` is green and its inventory is true:
   - no new role and no new palette value;
   - `ChromeTag.swift` is in the gated set;
   - both summaries spell sixty-seven.
-- [ ] Every app-layer gate line in the Execution notes names its Xcode version. Only
+- [x] Every app-layer gate line in the Execution notes names its Xcode version. Only
   Task 4's labelled 27.1 bundle names a different one.
-- [ ] Grep the diff for brand names and references to other editors: none.
+- [x] Grep the diff for brand names and references to other editors: none.
 
 ### Task 7: Final documentation pass
 
@@ -474,3 +474,10 @@ observations, Task 4's decision and its reason, and Task 2's mutation results.)
 - Task 4: `xcodegen generate && xcodebuild … test -only-testing:PisakaAppTests/TreeStickyScrollRoundingTests`, Xcode 26.3: 1 test, 0 failures (once, since the method was cut).
 - Task 4: `xcodegen generate && xcodebuild … test` (full app bundle), Xcode 26.3: 508 tests, 0 failures (509 less the cut method). `Package.resolved` is unchanged.
 - Task 5: `activateProblem(url:row:)`'s doc comment and `app-shell.md`'s open-funnel clause now say a Problems row can name a dependency file until `forgetInsideDependencies` runs on the next dropped report, and that activating it opens the read-only viewer at the file's start. No behaviour change. `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean. No app-layer gate in this task.
+- Task 6: `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean (0 violations in 800 files).
+- Task 6: `xcodegen generate` left `git status --porcelain` empty.
+- Task 6: `xcodegen generate && xcodebuild … test` (full app bundle), version check printed Xcode 26.3 (17C529): 508 tests, 0 failures, `TreeDependencyCaptionTests` and `TreeStickyScrollRoundingTests` (outcome B, slot-tolerance method only) among the passing suites. `Package.resolved` is unchanged.
+- Task 6: `xcodebuild … -configuration Release -destination 'platform=macOS' … build`, version check printed Xcode 26.3: BUILD SUCCEEDED. `Package.resolved` is unchanged.
+- Task 6: `xcodebuild … -destination 'generic/platform=iOS' … build`, version check printed Xcode 26.3: BUILD SUCCEEDED. `Package.resolved` is unchanged.
+- Task 6: the five-run criterion does not apply, because Task 4 applied outcome B. No 27.1 run happened on this branch, so every app-layer gate line above names Xcode 26.3.
+- Task 6: `ChromeThemeSourceGatingTests` is green in `swift test`. `ChromeTag.swift` is in `gatedFiles`, and `core-theme.md` and `CLAUDE.md` both spell sixty-seven. This plan's commits (`f860ac3f..HEAD`) do not touch `ChromeColorRole.swift` or `ChromePalette.swift`, so no new role or palette value was added. A grep of the added lines and the commit messages for editor brand names finds none.
