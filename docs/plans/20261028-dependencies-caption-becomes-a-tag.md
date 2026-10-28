@@ -435,18 +435,18 @@ What actually happens:
 
 ### Task 7: Final documentation pass
 
-- [ ] Re-read the entries this branch touched against the code. Each must state what
+- [x] Re-read the entries this branch touched against the code. Each must state what
   the code does after Tasks 1–5:
   - `app-window.md` (dependency folders, sticky);
   - `core-theme.md` (`ChromeTag`, `ChromeGeometry`, the running total);
   - `core-github.md`;
   - `core-workspace.md` (Tolerance);
   - `app-shell.md`.
-- [ ] Grep `README.md` and `docs/FEATURES.md` for "caption" (case-insensitive). No
+- [x] Grep `README.md` and `docs/FEATURES.md` for "caption" (case-insensitive). No
   user-facing doc may still call the mark a caption.
-- [ ] Check that `CLAUDE.md` carries the new index name and "sixty-seven", and stays
+- [x] Check that `CLAUDE.md` carries the new index name and "sixty-seven", and stays
   under 60,000 characters (`LintConfigurationTests`).
-- [ ] Run `swift test` one last time after any doc edit: green.
+- [x] Run `swift test` one last time after any doc edit: green.
 
 ## Execution notes
 
@@ -481,3 +481,4 @@ observations, Task 4's decision and its reason, and Task 2's mutation results.)
 - Task 6: `xcodebuild … -destination 'generic/platform=iOS' … build`, version check printed Xcode 26.3: BUILD SUCCEEDED. `Package.resolved` is unchanged.
 - Task 6: the five-run criterion does not apply, because Task 4 applied outcome B. No 27.1 run happened on this branch, so every app-layer gate line above names Xcode 26.3.
 - Task 6: `ChromeThemeSourceGatingTests` is green in `swift test`. `ChromeTag.swift` is in `gatedFiles`, and `core-theme.md` and `CLAUDE.md` both spell sixty-seven. This plan's commits (`f860ac3f..HEAD`) do not touch `ChromeColorRole.swift` or `ChromePalette.swift`, so no new role or palette value was added. A grep of the added lines and the commit messages for editor brand names finds none.
+- Task 7: re-read `app-window.md` (dependency folders, sticky), `core-theme.md` (`ChromeTag`, `ChromeGeometry`, the running total), `core-github.md`, `core-workspace.md` (Tolerance) and `app-shell.md` against the code. One correction: `app-window.md` and the `TreeDependencyCaptionTests` doc comment said the "case is real" check reads the name's "most saturated" ink pixel, but the code reads the pixel farthest from the row background. Both now say that. The test change is a comment only. No rounding-direction claim and no reference to `PullRequestsLayout.tagPadding*` or the panel's old `tag(_:role:)` remains. `README.md` and `docs/FEATURES.md` contain no "caption". `CLAUDE.md` carries `ChromeTag.swift` and "sixty-seven" at 56,750 characters. `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean. No app-layer gate in this task.

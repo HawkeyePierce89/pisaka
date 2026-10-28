@@ -35,8 +35,8 @@ import PisakaCore
 /// later, and is the word's width at the caption font plus both insets wide.
 /// In each appearance:
 ///
-/// - **the case is real** — the name's most saturated ink pixel is nearer the
-///   resolved `textSecondary` than `textPrimary`;
+/// - **the case is real** — the name's pixel farthest from the row background
+///   is nearer the resolved `textSecondary` than `textPrimary`;
 /// - **ring** — on the row's centre line, a narrow window at each end of the
 ///   tag holds a pixel off the row's background, both clear of the word, which
 ///   starts one horizontal inset inside the ring;

@@ -1733,8 +1733,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a root `node_modules` beside `package.json` and an `other/node_modules`
     beside no marker, two packages each so neither chains — with a git lookup
     marking the root `node_modules` **ignored**, the common real case. It pins,
-    in both appearances: that the case is real (the name's most saturated ink
-    is nearer `textSecondary` than `textPrimary`); the **ring** (on the row's
+    in both appearances: that the case is real (the name's pixel farthest from
+    the row background is nearer `textSecondary` than `textPrimary`); the **ring** (on the row's
     centre line a narrow window at each end of the tag, clear of the word,
     holds a pixel off the background); the **size** (the word's vertical ink
     band is strictly shorter than the name's — read on the central half of the
