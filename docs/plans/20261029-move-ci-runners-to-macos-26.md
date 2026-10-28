@@ -254,14 +254,14 @@ explicit versioned macOS image.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `grep -n "runs-on" .github/workflows/*.yml` prints seven lines, all `macos-26`.
-- [ ] `grep -n "xcode-version" .github/workflows/*.yml` prints six lines, all `'26.3'`.
-- [ ] `git diff master -- .github/workflows` shows only the seven `runs-on:` changes.
-- [ ] `swift test` passes in full.
-- [ ] `swiftlint lint --strict` from the repository root is clean under 0.65.1.
-- [ ] `grep -rn "macos-15" docs/RELEASING.md docs/architecture CLAUDE.md .github` prints
+- [x] `grep -n "runs-on" .github/workflows/*.yml` prints seven lines, all `macos-26`.
+- [x] `grep -n "xcode-version" .github/workflows/*.yml` prints six lines, all `'26.3'`.
+- [x] `git diff master -- .github/workflows` shows only the seven `runs-on:` changes.
+- [x] `swift test` passes in full.
+- [x] `swiftlint lint --strict` from the repository root is clean under 0.65.1.
+- [x] `grep -rn "macos-15" docs/RELEASING.md docs/architecture CLAUDE.md .github` prints
   nothing.
-- [ ] The app-layer gates (`make test-app`, `make build`) are not re-run locally: no Swift
+- [x] The app-layer gates (`make test-app`, `make build`) are not re-run locally: no Swift
   source outside `Tests/PisakaCoreTests` changes, and the PR's CI run covers them on the new
   image.
 
