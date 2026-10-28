@@ -289,9 +289,9 @@ The product code is not changed in this task or the next.
   diagnostics only, removed before the task ends)
 - Modify: this plan's `## Execution notes`
 
-- [ ] Run `TreeStickyScrollRoundingTests` alone under 26.3, unchanged, and record the
+- [x] Run `TreeStickyScrollRoundingTests` alone under 26.3, unchanged, and record the
   result.
-- [ ] Add temporary diagnostics to the direction method, printed to the test log. After
+- [x] Add temporary diagnostics to the direction method, printed to the test log. After
   each reveal, record:
   - every report's `scrollID`, `isExpanded` and frame;
   - how long each folder's expanded report took to arrive, or that it never arrived
@@ -302,13 +302,13 @@ The product code is not changed in this task or the next.
     - whether the report arrives later than 3 s;
     - whether a later reveal collapses or re-identifies an earlier folder;
     - whether the order of reveals matters (each odd folder revealed alone, or first).
-- [ ] Record in the Execution notes:
+- [x] Record in the Execution notes:
   - which folders report, after how long, and what each report's `isExpanded` and frame
     say;
   - the Xcode version;
   - the cause, if one is identified.
-- [ ] Remove the temporary diagnostics.
-- [ ] Run `swift test`. It must pass before Task 4. This task leaves the suite as it
+- [x] Remove the temporary diagnostics.
+- [x] Run `swift test`. It must pass before Task 4. This task leaves the suite as it
   found it.
 
 ### Task 4: Apply Part 2's decision rule: make the direction test deterministic, or cut it to the measured fact
@@ -461,3 +461,9 @@ observations, Task 4's decision and its reason, and Task 2's mutation results.)
 - Task 2: `xcodebuild … test -only-testing:PisakaAppTests/TreeDependencyCaptionTests`, Xcode 26.3: 1 test, 0 failures.
 - Task 2: `xcodegen generate && xcodebuild … test` (full app bundle), Xcode 26.3: 509 tests, 0 failures. In this run `TreeStickyScrollRoundingTests.testTheRevealScrollRoundsToTheNearestPointTiesDown` passed (4.9 s). That is one passing run, an input for Task 3, not a reproduction of the CI failure. `Package.resolved` is unchanged.
 - Task 2, wording beyond the listed files: "caption" became "tag" where the mark is described in `core-git-models.md` (accessibility words) and `core-workspace.md` (the chain, readers and outside-symlink paragraphs). In `ProjectTreeView.swift`, four comments now say "tagged" instead of "captioned". Identifiers are unchanged.
+- Task 3: `xcodebuild … test -only-testing:PisakaAppTests/TreeStickyScrollRoundingTests`, unchanged suite, Xcode 26.3, on macOS 27.0.1 (26A434), backing scale 1: 2 tests, 0 failures. The direction method passed (4.4 s). The CI failure is not reproduced here.
+- Task 3, the CI run (PR #122, run 40599670822, Xcode 26.3): the runner image is `macos-15-arm64` 20260907.0337.1, macOS **15.7.9** (24G830). SwiftUI ships with the OS, not with Xcode, so the earlier "fails under 26.3, passes under 27.1" was confounded: every 26.3 failure ran on macOS 15.7.9 in CI, and every pass under either Xcode ran on macOS 27 on this machine. This branch's failing run is the only CI run the direction method has had. Its commit (65e35c1a) is on this branch only and has never run on master's CI.
+- Task 3, what the CI log shows: t0, t2 and t4 reported expanded. t1, t3 and t5 each got no expanded report within 3 s (failing at 21.73, 24.94 and 28.13), and t1 still had none after all six reveals. Each odd reveal began with a SwiftUI runtime warning from the test host: `[Invalid Configuration] onChange(of: Optional<TreeRevealRequest>) action tried to update multiple times per frame`. There were 87 of them between 18.75 and 18.80 (t1's reveal began around 18.73), one at 21.97 (t3's began around 21.94) and one at 25.13 (t5's began around 25.13). None appeared during an even reveal or in the slot-tolerance method, which passed in the same run. The log carries no frames for the missing reports, because none arrived.
+- Task 3, temporary diagnostics, Xcode 26.3, macOS 27.0.1, backing 1, interface scale 0.9 (row 21.5): extended wait 15 s, every report's `scrollID`/`isExpanded`/frame printed after each reveal, and the node's height in rows read as evidence that its `w`/`x` rows are drawn. In-order (t0…t5): every folder reported expanded after 0.059–0.064 s. Even ones were 2 rows high (43.0), odd ones 3 rows (64.5, so `w` and `x` were both drawn). Frames: t0 885.0, t1 928.0, t2 992.5/992.75, t3 1035.5/1035.75, t4 1100.0, t5 1143.0, with heights 43.0 or 64.5. A later reveal never collapsed or re-identified an earlier folder: every earlier folder stayed `isExpanded true` under the same id, and only shifted down by the rows inserted above it (the quarter-point drift of 0.25 comes from the 21.5-point rows). Odd-first (t1, t3, t5, t0, t2, t4): every report arrived within 0.061–0.066 s, frames consistent. Each odd folder revealed alone in a fresh window: 0.061–0.077 s, 3 rows. The `multiple times per frame` warning appeared 0 times locally.
+- Task 3, cause: not identified on this machine, because the behaviour only shows on macOS 15.7.9, which is not available here. The observed correlation is that on macOS 15.7.9 an odd reveal triggers SwiftUI's `onChange(of: reveal)` "multiple times per frame" refusal, after which that folder never reports expanded. The leads "the report arrives later than 3 s" and "a later reveal collapses an earlier folder" are not supported by the CI log (t1 still unreported about 9 s later) and are ruled out locally. The ordering lead could not be tested on macOS 15. Task 4 starts from this: no change to the test alone can be checked against macOS 15 from here.
+- Task 3: `swift test` (host toolchain, no xcodebuild) after removing the diagnostics: 7221 tests, 0 failures. The suite file is byte-identical to HEAD. `Package.resolved` is unchanged.
