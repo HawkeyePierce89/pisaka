@@ -3376,8 +3376,11 @@ struct PisakaApp: App {
     /// beeps and never traps. A file that did not open (unreadable, gone)
     /// leaves no tab and returns silently.
     ///
-    /// It passes no viewer range: `DiagnosticsModel` drops every report about a
-    /// document inside dependencies, so a Problems row cannot name one.
+    /// It passes no viewer range, so the funnel's default, the file's start,
+    /// applies. `DiagnosticsModel` forgets a dependency file's set only when the
+    /// next report about that file is dropped; until then a row naming such a
+    /// file — a set that landed before a marker appeared beside its folder — can
+    /// exist, and activating it opens the read-only viewer window at the start.
     private func activateProblem(url: URL, row: DiagnosticStore.Row) {
         openAndReveal(url: url) { row.rangeToReveal(in: $0) }
     }

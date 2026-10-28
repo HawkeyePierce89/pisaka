@@ -397,17 +397,17 @@ What actually happens:
 - Modify: `Sources/Pisaka/PisakaApp.swift` (the `activateProblem(url:row:)` doc comment)
 - Modify: `docs/architecture/app-shell.md` (the open-funnel paragraph)
 
-- [ ] Rewrite the last paragraph of the doc comment to say exactly what happens:
+- [x] Rewrite the last paragraph of the doc comment to say exactly what happens:
   - the method passes no viewer range, so the funnel's default, the file's start,
     applies;
   - the drop forgets a dependency file's set only when the next report about that file
     is dropped;
   - until then a row naming such a file can exist, and activating it opens the
     read-only viewer window at the file's start.
-- [ ] In `app-shell.md`, replace the clause "since the diagnostics drop means a Problems
+- [x] In `app-shell.md`, replace the clause "since the diagnostics drop means a Problems
   row cannot name a dependency file" with the same statement, naming
   `forgetInsideDependencies`.
-- [ ] No behaviour changes, so no new test is needed. Run `swift test` and `swiftlint
+- [x] No behaviour changes, so no new test is needed. Run `swift test` and `swiftlint
   lint --strict`. `swift test` reads `PisakaApp.swift` through several source-gating
   suites, and the `type_body_length` ceiling must still hold. Both must pass before
   Task 6.
@@ -473,3 +473,4 @@ observations, Task 4's decision and its reason, and Task 2's mutation results.)
 - Task 4: `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean.
 - Task 4: `xcodegen generate && xcodebuild … test -only-testing:PisakaAppTests/TreeStickyScrollRoundingTests`, Xcode 26.3: 1 test, 0 failures (once, since the method was cut).
 - Task 4: `xcodegen generate && xcodebuild … test` (full app bundle), Xcode 26.3: 508 tests, 0 failures (509 less the cut method). `Package.resolved` is unchanged.
+- Task 5: `activateProblem(url:row:)`'s doc comment and `app-shell.md`'s open-funnel clause now say a Problems row can name a dependency file until `forgetInsideDependencies` runs on the next dropped report, and that activating it opens the read-only viewer at the file's start. No behaviour change. `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean. No app-layer gate in this task.

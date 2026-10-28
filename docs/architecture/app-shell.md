@@ -175,8 +175,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     otherwise it is `model.open(url:)` as before, beeping on a throw. Its callers
     and the range each passes: `activateSearchMatch` (search hits and in-root
     definitions) its own range; `openAndReveal` its new `viewerRange:` —
-    `activateUsage` passes `row.range`, `activateProblem` the start, since the
-    diagnostics drop means a Problems row cannot name a dependency file; the
+    `activateUsage` passes `row.range`, `activateProblem` the start — a Problems
+    row *can* name a dependency file, because `DiagnosticsModel` forgets such a
+    file's set (`forgetInsideDependencies`) only when the next report about it is
+    dropped, so a set that landed before a marker appeared beside its folder
+    stays until then, and activating its row opens the read-only viewer window at
+    the file's start; the
     Open… command, the window's `onOpenFile` (the project tree's file rows, Local
     Changes' jump to source and its ⌘↓, the Markdown preview's file links) and
     `newFile(in:name:)` the start (`NSRange(location: 0, length: 0)`, the
