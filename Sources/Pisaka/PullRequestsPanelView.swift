@@ -480,10 +480,10 @@ private struct PullRequestRow: View {
                 .truncationMode(.tail)
 
             if pullRequest.isDraft {
-                tag("Draft", role: .textSecondary)
+                ChromeTag("Draft", role: .textSecondary, style: .subheadline)
             }
             if let review = Self.reviewLabel(pullRequest.reviewDecision) {
-                tag(review.text, role: review.role)
+                ChromeTag(review.text, role: review.role, style: .subheadline)
             }
 
             Text(pullRequest.authorLogin)
@@ -597,22 +597,6 @@ private struct PullRequestRow: View {
 
     private var branchLabel: String {
         "\(pullRequest.headRefName) → \(pullRequest.baseRefName)"
-    }
-
-    /// A tag: role-coloured text inside a `hairline`-bordered capsule, no fill.
-    private func tag(_ text: String, role: ChromeColorRole) -> some View {
-        Text(text)
-            .font(metrics.scaledFont(.subheadline))
-            .foregroundStyle(theme.color(role))
-            .lineLimit(1)
-            .padding(.horizontal, metrics.scaled(PullRequestsLayout.tagPaddingX))
-            .padding(.vertical, metrics.scaled(PullRequestsLayout.tagPaddingY))
-            .overlay(
-                Capsule().strokeBorder(
-                    theme.color(.hairline),
-                    lineWidth: metrics.scaled(ChromeGeometry.hairlineWidth)
-                )
-            )
     }
 
     /// The per-job list of the expanded row. `nil` is "still reading" and an
@@ -791,10 +775,6 @@ private enum PullRequestsLayout {
     static let chevronWidth: Double = 10
     /// Between the armed wait's spinner, elapsed time and Cancel.
     static let waitGap: Double = 6
-    /// A tag's horizontal inset inside its capsule.
-    static let tagPaddingX: Double = 6
-    /// A tag's vertical inset inside its capsule.
-    static let tagPaddingY: Double = 1
     /// An expanded job row's height.
     static let jobRowHeight: Double = 22
     /// An expanded job row's leading inset.

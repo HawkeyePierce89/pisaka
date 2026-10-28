@@ -214,7 +214,11 @@ two new geometry tokens) and each with its readers pinned by a gating
     header and the merge window's status strip, one measurement on two edges),
     `checkboxSide` (14) and `checkboxCornerRadius` (3), the shared checkbox's box.
     The checkbox's *glyph* is deliberately not a token: exactly one definition
-    draws it, so it is a named private constant in `ChromeControls.swift`. Two
+    draws it, so it is a named private constant in `ChromeControls.swift`. The
+    shared tag (`ChromeTag.swift`, below) added `tagPaddingX` (6) and
+    `tagPaddingY` (1), a tag's horizontal and vertical inset inside its capsule,
+    moved here from the Pull Requests panel's private layout table when the
+    project tree became the form's second user. Two
     rules, both load-bearing. **Every token is scaled at its use site**, through
     `InterfaceMetrics.scaled(_:)`: nothing here is pre-scaled and no view
     multiplies a token by anything of its own, because the interface zoom's
@@ -3006,6 +3010,28 @@ hairline width between the panes, the leading pane at its ideal and the 5-pt
 strip, and at narrow widths the panes keeping their minimums and, when both
 cannot fit, the trailing pane's minimum winning.
 
+#### The shared tag — `ChromeTag.swift`
+
+The chrome's one tag: a short word in a role colour inside a capsule outlined in
+`hairline`, with **no fill**. The form was first drawn by a private helper in
+`PullRequestsPanelView.swift`; it became a shared view when the project tree's
+`dependencies` mark on a dependency root took the same form, so the two users
+cannot drift apart and neither restates the other's numbers. It joins the gated
+set, taking it from sixty-six to **sixty-seven**, and spends **no new role and
+no new palette value**. `ChromeTag(_:role:style:)` takes the text, the
+`ChromeColorRole` the text is drawn in and an `InterfaceTextStyle`, and reads
+the metrics and the theme from the environment as every gated view does. It
+draws the text at `metrics.scaledFont(style)` in `theme.color(role)` with
+`.lineLimit(1)`, pads it by the scaled `ChromeGeometry.tagPaddingX` (6)
+horizontally and `tagPaddingY` (1) vertically, and overlays
+`Capsule().strokeBorder` in `hairline` at the scaled `hairlineWidth`. **What the
+tag does inside its row is the call site's**: the view carries no
+`.fixedSize()` and no accessibility modifier, so the panel draws exactly what
+its private helper drew and the tree adds both itself. Its two users: the Pull
+Requests panel's Draft and review-decision tags at `.subheadline`
+(`core-github.md`), and the project tree's dependency-root mark at `.caption`
+in `textSecondary` (`app-window.md`).
+
 #### The terminal's ground and inset
 
 The design sets the terminal into its panel rather than edge to edge: a
@@ -3177,7 +3203,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more — sixty-five — and the external-change bar, `ExternalChangeBar.swift`, one more: **sixty-six** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more — sixty-five — and the external-change bar, `ExternalChangeBar.swift`, one more — sixty-six — and the shared tag, `ChromeTag.swift`, one more: **sixty-seven** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -4292,8 +4318,8 @@ document spelling it checked against that. The gated set's size is held the
 same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
 `gatedFiles.count`, spelled from the same `spelled` table, must appear in both
 summaries in the sentence naming it — the running total in the gated-files
-entry above, ending on "**sixty-six** in all today", and `CLAUDE.md`'s "pins
-which files obey the rule (sixty-six, by set equality)". Before it only prose
+entry above, ending on "**sixty-seven** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-seven, by set equality)". Before it only prose
 stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'

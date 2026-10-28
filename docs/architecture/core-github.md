@@ -1598,10 +1598,11 @@ hidden from accessibility while the row speaks the bucket's words; the name in
 secondary washes are gone); the glyph carries the message's own `.subheadline`
 through the interface metrics — until part five (b)'s review round it carried no
 font and drew at the system default at every interface scale (chrome rule
-thirty-four). Review decisions are role-coloured text in a
-`hairline`-bordered capsule with no fill — approved `statusGreen`, changes
-requested `statusRed`, review required `statusYellow` — and neutral tags are
-`textSecondary`. No `Divider()` remains. Rules eighteen and twenty of the chrome
+thirty-four). The Draft and review-decision tags are drawn through the shared
+`ChromeTag` at `.subheadline` — role-coloured text in a `hairline`-bordered
+capsule with no fill, its insets `ChromeGeometry.tagPaddingX` / `tagPaddingY`
+(`core-theme.md`) — approved `statusGreen`, changes requested `statusRed`,
+review required `statusYellow` — and neutral tags are `textSecondary`. No `Divider()` remains. Rules eighteen and twenty of the chrome
 suite pin the reads and the accessibility (`core-theme.md`).
 
 ### `NewPullRequestSheet.swift`

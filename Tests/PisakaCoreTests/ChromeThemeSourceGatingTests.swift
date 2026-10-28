@@ -449,6 +449,9 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The external-change bar above the editor: its ground, rule, glyph,
         // message and three equally weighted secondary buttons.
         "ExternalChangeBar.swift",
+        // The shared tag: a word inside a hairline capsule, drawn by the pull
+        // request rows and the project tree's dependency root.
+        "ChromeTag.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -6246,6 +6249,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
         49: "forty-nine", 50: "fifty", 51: "fifty-one", 52: "fifty-two", 65: "sixty-five", 66: "sixty-six",
+        67: "sixty-seven",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {
