@@ -213,9 +213,20 @@ struct CodeEditorView: NSViewRepresentable {
     /// A separate closure rather than a flag on `onGoToDefinition`, because the two
     /// destinations are different app-level operations: one opens a tab through
     /// `WorkspaceModel`, the other opens a window that has no model behind it at
-    /// all. Only the LSP provider ever marks a candidate out-of-root, so on the
-    /// tree-sitter path this is never called.
+    /// all. Only the LSP provider ever marks a candidate out-of-root, but a
+    /// candidate inside dependencies takes this destination too, on either path
+    /// (`opensDefinitionInSourceViewer`).
     var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+
+    /// Whether a chosen definition lands in the read-only source viewer window
+    /// (`onViewDefinitionOutsideProject`) rather than in a tab
+    /// (`onGoToDefinition`). Wired to `WorkspaceModel.opensInSourceViewer(_:
+    /// isOutsideProjectRoot:)` with the candidate's own outside-root flag, so the
+    /// fork asks the one Core question the app's open funnel asks: outside the
+    /// project (D3), or inside dependencies with no tab already holding the file.
+    /// The default reads the flag alone, so a default-constructed view
+    /// (previews/tests) forks exactly as before.
+    var opensDefinitionInSourceViewer: (DefinitionCandidate) -> Bool = { $0.isOutsideProjectRoot }
 
     /// Ask "where is this name used" about the identifier the caret (or a
     /// right-click) resolved. Wired to `PisakaApp`, which owns the
@@ -546,6 +557,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.attachDiagnostics(model: diagnostics)
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        context.coordinator.opensInSourceViewer = opensDefinitionInSourceViewer
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
         context.coordinator.reportScrolled = onScrolled
@@ -1003,6 +1015,7 @@ struct CodeEditorView: NSViewRepresentable {
         // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        context.coordinator.opensInSourceViewer = opensDefinitionInSourceViewer
         context.coordinator.requestUsages = onFindUsages
         context.coordinator.requestRename = onRenameSymbol
         // A listener arriving is one of the two moments a scroll must be
@@ -1574,6 +1587,11 @@ struct CodeEditorView: NSViewRepresentable {
         /// like `navigateToDefinition`, and for the same reason.
         var viewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
 
+        /// The fork's question: whether a candidate lands in the viewer window.
+        /// Assigned from `CodeEditorView` on every update, like
+        /// `navigateToDefinition`, because it asks the app's workspace.
+        var opensInSourceViewer: (DefinitionCandidate) -> Bool = { $0.isOutsideProjectRoot }
+
         /// Jump to the declaration of the identifier at `offset` — the single
         /// entry point behind both ⌘-click and the ⌃⌘J menu item, so the two can
         /// never disagree about what counts as an identifier or how a jump is made.
@@ -1761,16 +1779,20 @@ struct CodeEditorView: NSViewRepresentable {
             requestRename(query)
         }
 
-        /// Land on a chosen declaration: a tab for a file inside the opened folder,
-        /// the read-only viewer window for one outside it (D3).
+        /// Land on a chosen declaration: the read-only viewer window for one
+        /// outside the opened folder (D3) or inside dependencies, a tab otherwise.
         ///
-        /// The fork is the candidate's own `isOutsideProjectRoot` — the provider
-        /// knows the project root, this view does not — and it is applied in one
-        /// place so the single-candidate jump and the picker's choice can never
-        /// disagree about where a target opens. Every tree-sitter candidate takes
-        /// the first branch: the index only ever walks the opened folder.
+        /// The fork asks `opensInSourceViewer`, which the app wires to
+        /// `WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)` with the
+        /// candidate's own `isOutsideProjectRoot` — the provider knows the project
+        /// root, this view does not, and the dependency rule is the workspace's —
+        /// so a definition lands where the open funnel would put the same file.
+        /// It is applied in one place so the single-candidate jump and the
+        /// picker's choice can never disagree about where a target opens. A
+        /// tree-sitter candidate is never outside the root (the index only walks
+        /// the opened folder), but one inside dependencies takes the viewer too.
         private func navigate(to candidate: DefinitionCandidate) {
-            if candidate.isOutsideProjectRoot {
+            if opensInSourceViewer(candidate) {
                 viewDefinitionOutsideProject(candidate.fileURL, candidate.range)
             } else {
                 navigateToDefinition(candidate.fileURL, candidate.range)

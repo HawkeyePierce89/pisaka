@@ -37,7 +37,8 @@ import Foundation
 /// `popoverListPaddingBottom`, `popoverFieldBlockPadding`, `popoverFieldGlyphGap`,
 /// `popoverRowPaddingX`, `popoverRowGap`, `popoverProjectRowLineGap`, `popoverSectionHeaderPaddingTop`,
 /// `popoverSectionHeaderPaddingX`, `popoverSectionHeaderPaddingBottom`,
-/// `popoverMessagePaddingY`, `popoverMessagePaddingX`) and they
+/// `popoverMessagePaddingY`, `popoverMessagePaddingX`, `tagPaddingX`,
+/// `tagPaddingY`) and they
 /// are deliberately distinct tokens for distinct measurements, even where two
 /// values coincide; see `barPaddingX`'s own comment. The list carries no count:
 /// a stated count fell behind the table twice, and the test's set is the count.
@@ -246,4 +247,8 @@ public enum ChromeGeometry {
     public static let popoverMessagePaddingY: Double = 8
     /// A popover message line's horizontal padding.
     public static let popoverMessagePaddingX: Double = 12
+    /// A tag's horizontal inset inside its capsule.
+    public static let tagPaddingX: Double = 6
+    /// A tag's vertical inset inside its capsule.
+    public static let tagPaddingY: Double = 1
 }

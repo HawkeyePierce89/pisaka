@@ -57,20 +57,27 @@ public enum TreeGitState: CaseIterable, Comparable, Hashable, Sendable {
     /// `"Test"` when the row is a test row (`TreeTestRule`), then the git
     /// state's word, then the diagnostic mark's words, each when there is one,
     /// or `""` when none is; for a folder, `"expanded"` / `"collapsed"` first,
-    /// then each of those that exists, in the same order.
+    /// then `"Dependencies"` when the row is a dependency root
+    /// (`DependencyFolderRule`), then each of the file's words that exists, in
+    /// the same order.
     ///
-    /// `isTestRow` is required, with no default, so no call site can silently
-    /// leave a test row unspoken: the wash the tree paints a test row with is
-    /// colour alone, and this word is what carries it to a listener.
+    /// `isTestRow` and `isDependencyRoot` are required, with no default, so no
+    /// call site can silently leave either unspoken: the wash the tree paints a
+    /// test row with is colour alone, the dependency root's tag is a
+    /// secondary-text word hidden from accessibility (the row's combined
+    /// label would otherwise read it a second time), and these words are what
+    /// carry them. `isDependencyRoot` is ignored for `.file` — a file is never
+    /// a dependency root, so a file's words are the same whatever it is passed.
     public static func accessibilityValue(
-        state: TreeGitState, mark: TreeDiagnosticMark, row: RowKind, isTestRow: Bool
+        state: TreeGitState, mark: TreeDiagnosticMark, row: RowKind, isTestRow: Bool, isDependencyRoot: Bool
     ) -> String {
         let words = [isTestRow ? "Test" : nil, state.spokenName, mark.spokenName].compactMap { $0 }
         switch row {
         case .file:
             return words.joined(separator: ", ")
         case .folder(let isExpanded):
-            return ([isExpanded ? "expanded" : "collapsed"] + words).joined(separator: ", ")
+            let lead = [isExpanded ? "expanded" : "collapsed", isDependencyRoot ? "Dependencies" : nil]
+            return (lead.compactMap { $0 } + words).joined(separator: ", ")
         }
     }
 }

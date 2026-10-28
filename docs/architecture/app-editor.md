@@ -578,14 +578,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     project — the one outcome all of those gates exist to prevent. Superseded means
     *silence*, not a beep: the user asked for a different folder, and a warning sound
     for an answer they are no longer waiting on is noise. Where a
-    chosen candidate *lands* is the coordinator's `navigate(to:)`, and the fork is
-    the candidate's own `isOutsideProjectRoot` — the provider knows the project
-    root, this view does not: an in-root target goes through today's
-    `navigateToDefinition`, an out-of-root one through
+    chosen candidate *lands* is the coordinator's `navigate(to:)`, and the fork asks
+    the coordinator's `opensInSourceViewer: (DefinitionCandidate) -> Bool` closure,
+    assigned on every update from `CodeEditorView.opensDefinitionInSourceViewer`
+    (threaded through `ContentView`) and wired by the app to
+    `model.opensInSourceViewer(candidate.fileURL, isOutsideProjectRoot:
+    candidate.isOutsideProjectRoot)` — the provider knows the project root, this
+    view does not, and the dependency rule is the workspace's. A `false` answer
+    goes through `navigateToDefinition` as before, a `true` one — a target
+    outside the root, or one inside dependencies that no tab holds — through
     `viewDefinitionOutsideProject` to the read-only source viewer window (D3, see
-    `app-window.md`). It is one place precisely so the single-candidate jump and the
-    picker's choice cannot disagree, and every tree-sitter candidate takes the first
-    branch, since the index only ever walks the opened folder. `CodeEditorView`
+    `app-window.md` and `core-lsp.md`), so a definition lands where the open
+    funnel would put the same file. The closure's default reads the candidate's
+    flag alone, so a default-constructed view forks exactly as before. It is one
+    place precisely so the single-candidate jump and the picker's choice cannot
+    disagree; a tree-sitter candidate is never outside the root, since the index
+    only ever walks the opened folder, but one inside dependencies takes the
+    window all the same. `CodeEditorView`
     exposes the second destination as its own `onViewDefinitionOutsideProject`
     closure rather than as a flag on `onGoToDefinition`, because the two are
     different app-level operations — one opens a tab through `WorkspaceModel`, the

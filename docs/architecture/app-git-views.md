@@ -985,9 +985,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the first `EditorTextView` descendant and `makeFirstResponder`s it, dispatched
     asynchronously on the main queue so the tab SwiftUI is about to build exists by
     then. Finding nothing (no folder open, or the open failed — which already beeps
-    in `openFile(url:)`) leaves focus where it is; one honest limitation: the
+    in `openFile(url:viewerRange:)`) leaves focus where it is; one honest limitation: the
     handoff cannot see whether the open succeeded, so a failed open with another
     tab already showing focuses that tab's editor — the beep is the failure signal.
+    A file inside dependencies opens in the read-only viewer window instead
+    (`openFile(url:viewerRange:)`, `app-shell.md`), which takes key, so the hop —
+    which hands focus only while the main window is still key — leaves the list
+    focused for when the viewer closes, rather than moving it to an unrelated
+    tab's editor.
     The context-menu "Jump to Source" item does *not* move focus, matching every
     existing item in this menu (Show Diff, Resolve…, Commit…), which is
     pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at

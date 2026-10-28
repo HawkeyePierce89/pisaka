@@ -106,7 +106,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and `onViewDefinitionOutsideProject`, wired to the read-only source viewer
     window (D3). The last two are separate closures rather than one with a flag,
     because opening a tab and opening a model-less window are different app-level
-    operations that happen to be reached from the same click.
+    operations that happen to be reached from the same click. Which of the two a
+    candidate takes is asked through `opensDefinitionInSourceViewer`, also passed
+    straight through: the app wires it to
+    `WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`, and its default
+    reads the candidate's `isOutsideProjectRoot` alone so previews compile
+    (`app-editor.md`).
     The controller is deliberately **not** `@ObservedObject` — it publishes nothing,
     and the index model behind it republishes after every chunk of a walk, which is
     exactly the per-update cost `BreadcrumbBarView`'s inner `.equatable()` view and the non-observed
@@ -918,11 +923,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     because a closed file's row carries the server's position, which only becomes
     a range once the file is open. The app wires it to
     `PisakaApp.activateProblem(url:row:)` (`app-shell.md`), shaped like
-    `activateUsage`: `openFile(url:)` opens or re-selects the tab, the opened
+    `activateUsage`: `openFile(url:viewerRange:)` opens or re-selects the tab, the opened
     tab's text goes to Core's `Row.rangeToReveal(in:)` — the server's position
     mapped onto the buffer just opened, clamped, or the mapped offsets clamped
     into its length — and `reveal.reveal(fileID:range:)` lands the caret. The two
-    activations share one open-and-reveal tail, `openAndReveal(url:range:)`, so
+    activations share one open-and-reveal tail, `openAndReveal(url:viewerRange:range:)`, so
     they cannot stop agreeing; a file that did not open leaves no tab and the
     activation returns silently, never beeping and never trapping. An empty
     list draws a centered "No problems" placeholder rather than collapsing, so the
@@ -1090,7 +1095,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `SourceViewerWindowController.swift` — owns the separate, non-modal **source
     viewer** windows a Go to Definition opens when the declaration lives *outside*
     the opened folder (`core-lsp.md`'s D3): an SDK `.swiftinterface`, a dependency
-    checkout, a generated header. Same shape as `DiffWindowController` — an
+    checkout, a generated header — and, through the open funnel
+    `PisakaApp.openFile(url:viewerRange:)`, every file inside dependencies under
+    the opened folder (`WorkspaceModel.opensInSourceViewer`, `app-shell.md`). Same shape as `DiffWindowController` — an
     `NSHostingController` inside an `EscClosableWindow`, retained for its lifetime,
     released on `windowWillClose` through a per-window delegate held alongside
     (because `NSWindow.delegate` is `weak`), and `closeAll()` from the app's
@@ -1101,13 +1108,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     file read, and doing it up front is what lets an unreadable target — a path the
     server named that has since moved, a permission the app does not have, a binary
     or oversize file — be reported as *nothing happened*: `open` returns `false`
-    having created nothing, and `PisakaApp.viewDefinitionOutsideProject` beeps,
-    exactly as a ⌘-click that resolved nothing does. It reads through
+    having created nothing, and the caller — `PisakaApp.viewDefinitionOutsideProject`
+    or the funnel — beeps, exactly as a ⌘-click that resolved nothing does. It reads through
     `FileService.readTextIfNotBinary` under
     `LSPIntelligenceProvider.maximumTargetFileBytes` — deliberately the same door and
     the same cap the provider already used to turn the server's `(line, character)`
-    into an offset, so a file the provider refused produced no candidate at all and
-    the viewer can never be asked for something larger. *It reuses a window per file.*
+    into an offset, so on the D3 route a file the provider refused produced no
+    candidate at all and the viewer is never asked for something larger. On the
+    funnel's route the cap is a **real limit**: a file inside dependencies over
+    16 MB, or one that reads as binary, opens nothing and beeps, where before the
+    dependency rule it opened as a tab. *It reuses a window per file.*
     Diff windows state outright that they do not dedup, and are right not to — two
     diffs of one file at different commits are different documents — but a viewer
     shows a *file*, so ⌘-clicking three `Foundation` symbols must not leave three
@@ -1577,7 +1587,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     ever honoured one. `TreeRevealOnScreenTests` (app bundle) pins the node
     half — a request published to a hosted tree expands its already-drawn,
     collapsed `t` — and `TreeStickyScrollRoundingTests`' second reveal (the
-    sticky entry) the row half.
+    sticky entry) the row half. **Every `onChange` in the file is the
+    two-argument form**, not only the ones that read a captured value (the
+    reveal, `shape`, `separated` and `treeRevision` handlers, the last through
+    `reloadOrForget()`'s read of `shape`): the `projectRoot`, `isExpanded` and
+    `draft` handlers moved too, so a new handler copies the safe form.
+    `ProjectTreeSourceGatingTests` (Core) pins it over the file's stripped
+    text — every `onChange(` call, wrapped or not, must end in a trailing
+    closure naming exactly two parameters — and was seen red on the four
+    one-argument sites before they moved.
   - `ProjectTreeView.swift`, **git-status name colouring** — each row's *name*
     is drawn in its git state: conflict, modified, added, ignored or plain
     (`TreeGitStatus`, `core-git-models.md`). `ProjectTreeView` takes the lookup
@@ -1596,9 +1614,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
-    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)` — the
-    expansion word, then the test row's "Test", the state's word and the
-    diagnostic mark's words, each when there is one,
+    Core's `TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)` — the
+    expansion word, then a dependency root's "Dependencies", the test row's
+    "Test", the state's word and the diagnostic mark's words, each when there
+    is one,
     joined by `", "` (still `""` while a
     rename draft is open); a file row becomes **one combined element** carrying
     those words as its value, `""` when plain and clean, and stays `.contain` while
@@ -1629,7 +1648,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     cost is the row's depth. Each node asks the rule **once per render** with
     `isFolder: true` (a chain is judged by its tail, so a test segment anywhere
     in it washes the row); each file row is asked by the folder listing it with
-    `relativeComponents + [entry.name]` and `isFolder: false`. **One site**:
+    `relativeComponents + [entry.name]` and `isFolder: false`. Both answers
+    pass through the row's dependency state's
+    `showsTestWash(isTestRow:)` before they are used, so **nothing inside
+    dependencies is washed** (the **dependency folders** entry, below); the
+    fields keep their `isTestRow` names, which is what leaves the three gated
+    background bodies' text unchanged. **One site**:
     the folder row, the file row and the sticky stack's pinned copy all paint
     through `TreeRowBackground.background(for:isTestRow:resolving:)`, which
     lays `layers(for:isTestRow:)` — the wash role first, then `role(for:)`'s
@@ -1643,7 +1667,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     stays `""`; the create draft row is not wired and is never washed.
     **Accessibility**: a test row's value gains `Test` — after a folder's
     expansion word and before the git and diagnostic words, a clean test file
-    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`,
+    saying just `Test` (`TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)`,
     `core-git-models.md`). Chrome gating rule fifty-two pins the wash's one
     reader and that every ask lies inside `enum TreeRowBackground`
     (`core-theme.md`); `TreeRowBackgroundTests` pins `layers(for:isTestRow:)`
@@ -1659,6 +1683,71 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     colour paints on top, and `TreeTestRowReportTests` (app bundle) that a
     chain's node is judged by all its segments (`src/test/java` washed,
     `lib/core` not) and that the pinned copy's report carries that answer.
+  - `ProjectTreeView.swift`, **dependency folders** — a folder Core's
+    `DependencyFolderRule` (`core-workspace.md`) answers as a **dependency
+    root** — a table name with one of its markers beside it — draws a
+    `dependencies` **tag** after its name, drawn through the shared
+    `ChromeTag` (`core-theme.md`): the word in `textSecondary` at the
+    `.caption` interface style, inset by `ChromeGeometry.tagPaddingX` /
+    `tagPaddingY` inside a `Capsule().strokeBorder` in `hairline` at
+    `hairlineWidth`, with no fill — the form the Pull Requests panel's state
+    tags already take. It sits inside `TreeFolderLabel`'s `HStack(spacing:
+    metrics.scaled(4))` after `name()`, at the `HStack`'s default centre
+    alignment, so it stays vertically centred on the row. The call site adds
+    `.fixedSize()`, so a long name truncates first and the tag stays whole,
+    and `.accessibilityHidden(true)`. **Why a tag and not a plain word**: the
+    common real dependency root is gitignored, so its *name* is already drawn
+    in `textSecondary`; a word in that role at the name's own font read as
+    more of the name. The ring and the smaller style make it read as a mark.
+    No role, no palette value and no gated rule was added; the two padding
+    tokens moved into `ChromeGeometry` from the panel's layout table.
+    **Boundary versus inheritance**: only the root row is tagged; every row
+    below it is **inside dependencies**, untagged, and never washed as a test
+    row — a vendored package's `test` folder washes nothing.
+    **State down the recursion**: `DirectoryNodeView` carries
+    `dependencyState: DependencyFolderRule.State` beside `relativeComponents`.
+    The root passes `.outside` and never evaluates itself, so it is never a
+    dependency root whatever it is called. A child node is
+    `.node(segmentNames:siblingNames:parent:)` — `.inside` under a `.root` or
+    `.inside` parent, otherwise `.root` exactly when the row is a root row — and
+    a file row is `.file(inParent:)`. The names come from the listing the node
+    already holds (`currentChildrenNames`), so the state costs **no I/O**.
+    **Chains**: a chain row is a root row when **any** segment is one, which in
+    practice is its head (a root always has a marker beside it, so it is never
+    a folder's sole entry). The head is asked about the parent's listing names;
+    a later segment about `[its own name]`, because `TreeChainRule` folds a
+    folder only when it is its parent's sole entry. The row stands for its head,
+    as its git colour does, and everything below the chain inherits.
+    **The pinned copy** reads the node's own answer from
+    `TreeStickyFolderReport.isDependencyRoot` (part of its `==`) and passes it
+    to `TreeFolderLabel`, so the copy is tagged as its row is. **Drafts**:
+    the row being renamed keeps its tag beside the rename field (the field
+    replaces only the name); the create draft row is not a `TreeFolderLabel`
+    and never shows one. **Accessibility**: a dependency root folder's value
+    gains `Dependencies` after its expansion word and before `Test`, the git
+    word and the diagnostic words (`TreeGitState.accessibilityValue(state:mark:
+    row:isTestRow:isDependencyRoot:)`, `core-git-models.md`); file rows pass
+    `false`, and a drafted row still says `""`. **Tests.**
+    `DependencyFolderRuleTests` (Core) pins the rule and the state;
+    `TreeDependencyCaptionTests` (app bundle) renders one tree per appearance —
+    a root `node_modules` beside `package.json` and an `other/node_modules`
+    beside no marker, two packages each so neither chains — with a git lookup
+    marking the root `node_modules` **ignored**, the common real case. It pins,
+    in both appearances: that the case is real (the name's pixel farthest from
+    the row background is nearer `textSecondary` than `textPrimary`); the **ring** (on the row's
+    centre line a narrow window at each end of the tag, clear of the word,
+    holds a pixel off the background); the **size** (the word's vertical ink
+    band is strictly shorter than the name's — read on the central half of the
+    word's columns, because the capsule's end radius exceeds the horizontal
+    inset, strictly between the ring's top and bottom lines found on those
+    columns, and on the name's first letters `nod`, an ascender and no
+    descender like the word's central columns, because the underscore's drop
+    below the baseline otherwise let a tag drawn at `.body` pass); and the
+    **unmarked row** (the band where a tag would sit, one indent step further
+    right on `other/node_modules`, holds only its background, with the sixth
+    row proving the reveal expanded `other/`). Each bitmap assertion was
+    checked against its mutation under the pinned Xcode: no `strokeBorder`
+    fails the ring, `.body` fails the size, no tag at all fails the ring.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`

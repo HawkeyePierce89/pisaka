@@ -4,7 +4,8 @@ import SwiftUI
 import PisakaCore
 
 /// Owns the separate, non-modal **source viewer** windows a Go to Definition opens
-/// when the declaration lives outside the opened folder (D3).
+/// when the declaration lives outside the opened folder (D3), and the open funnel
+/// opens for every file inside dependencies (`WorkspaceModel.opensInSourceViewer`).
 ///
 /// The same shape as `DiffWindowController`: an `NSHostingController` inside an
 /// `EscClosableWindow`, retained for its lifetime, released when the user closes it
@@ -137,9 +138,11 @@ final class SourceViewerWindowController {
     /// Read through the same `FileServicing` door — and under the same byte cap —
     /// that `LSPIntelligenceProvider` already used to turn the server's
     /// `(line, character)` answer into a buffer offset. Sharing the limit is the
-    /// point: a file the provider refused to read produced no candidate at all, so
-    /// the viewer can never be asked for something larger than that, and a file it
-    /// did read is one this can show.
+    /// point for D3: a file the provider refused to read produced no candidate at
+    /// all, so a definition never asks for something larger, and a file it did
+    /// read is one this can show. The open funnel's files inside dependencies meet
+    /// the cap as a real limit — over it, or binary, nothing opens and the funnel
+    /// beeps.
     private static func readText(at url: URL) -> String? {
         (try? FileService().readTextIfNotBinary(
             url: url,

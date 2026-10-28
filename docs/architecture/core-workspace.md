@@ -368,7 +368,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     selection. **Everything is silent** — a launch is the worst moment for a stack
     of alerts about files that moved — so a record this build cannot turn into a
     tab is skipped and the batch continues: a titled record whose file is missing
-    or unreadable, *and* a record naming **neither a path nor text**. That second
+    or unreadable; a titled record whose file lies **inside dependencies** under
+    `projectRoot` — it opens in the read-only source viewer window, never as a
+    tab (`opensInSourceViewer(_:isOutsideProjectRoot:)` below), so it has no tab
+    to come back as; asked *before* `open(url:)`, so nothing is read for it, and
+    with no `projectRoot` set nothing is inside dependencies and it restores as
+    before (the app sets the root before applying a session, and only the macOS
+    app applies one, so iOS is untouched without a platform switch); *and* a
+    record naming **neither a path nor text**. That second
     rule lives here rather than in the decoder because it is a decision about what
     a record *means*: it is the future-version tab (a kind a later build added,
     whose fields the keyed decoder skipped, leaving nothing), and skipping it here
@@ -441,7 +448,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     a url is — by an open tab's kind, found the same canonical way — or would
     be, by `open(url:)`'s own name routing, a viewer tab; asked without opening
     or probing anything, so Local History can refuse a restore no buffer could
-    take), and `replaceText(_:for:)` — the
+    take), `acceptsLocalHistoryRestore(_:)` (the Local History restore's one
+    question — neither `opensAsViewer(_:)` nor `opensInSourceViewer(_:)` — so the
+    restore's direct `open(url:)` never makes a file inside dependencies a
+    writable tab, while a tab that pre-dates the rule still takes it), `opensInSourceViewer(_:isOutsideProjectRoot:)` (**the routing
+    question** both of the app's routing sites ask — the open funnel with the
+    default `false`, the definition fork with the candidate's own flag —
+    answering whether a file opens in the read-only source viewer window rather
+    than as a tab, in a fixed order: `isOutsideProjectRoot` → `true` (D3,
+    unchanged, first so it holds even when a tab holds the file; the funnel never
+    passes it, so a file outside the root reached through the Open panel or a
+    recent file keeps opening as a tab); a tab already holding the file,
+    canonically → `false` (a tab that pre-dates the rule is left alone until it is
+    closed); a recognized database file with `viewerTabsEnabled` on → `false` (no
+    text for the viewer, and its viewer tab is a reader already); otherwise
+    `DependencyFolderRule.isInsideDependencies(fileURL:projectRoot:listNames:)`
+    over `fileService.contentsOfDirectory(at:)` names, a failed listing read as
+    none — so an ordinary file costs no listing at all, and no root answers
+    `false`), and `replaceText(_:for:)` — the
     text-mutating counterpart of `updateText(_:for:)` for a writer that is *not*
     the user's typing (the project-wide Replace All's `applyBufferText`, and the
     on-save transform's off-screen path: the macOS funnel's fallback for a buffer
@@ -1028,16 +1052,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     unchanged through `scroll(to:)`, `setBoundsOrigin` and
     `constrainBoundsRect`. But the click goes through SwiftUI's
     `ScrollViewProxy.scrollTo`, not the raw clip view, and that settled a
-    target of `1165.5` at `1165.0` at backing scale 1 — the backing pixel. It
-    rounds to the **nearest** pixel, ties down, not a floor: a plain
-    `ScrollView` probed at backing scale 1 settled targets ending in `.1`–`.5`
-    on the point below and `.6`–`.9` on the point above, so off the half-point
-    grid (any other interface scale) a landing is still at most half a point
-    from its target. With
+    target of `1165.5` at `1165.0` at backing scale 1 — the backing pixel.
+    `TreeStickyScrollRoundingTests` pins that fact through the tree's own
+    reveal at backing scale 1, and on any other backing scale asserts only
+    `|settled − target| ≤ slotTolerance`. With
     rows on the half-point grid at interface scale 1, a click therefore lands
     half a point short of the equality, and the former `1e-6` left the clicked
-    folder's parent out and its row covered. Half a point is half a backing
-    pixel at most for any scale ≥ 1, and far below the smallest row. Its cost,
+    folder's parent out and its row covered. Half a point is far below the
+    smallest row. Its cost,
     stated: a candidate joins — and the outermost row drops — up to half a
     point early, so at most a half-point sliver of its real row shows under
     the copy in its slot, the right trade against a covered row after a click.
@@ -1108,7 +1130,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     capped at `maximumRows` — for a row under the stack and one crossing the
     viewport's bottom edge.
   - `TreeTestRule.swift` — whether a macOS project-tree row is a **test row**,
-    the rows the tree paints with a wash underneath the row-state tints. Pure
+    the rows the tree paints with a wash underneath the row-state tints —
+    except inside dependencies, where the tree passes this answer through
+    `DependencyFolderRule.State.showsTestWash(isTestRow:)` and washes nothing;
+    the rule itself is unchanged. Pure
     and Foundation-only: `TreeTestRule.isTestRow(components:isFolder:)` takes
     the row's **root-relative path components** — `[]` is the project root —
     and whether the last one is a folder (a chain row passes its tail's path),
@@ -1144,6 +1169,75 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     with its test segment first, middle or last, the Rust pair, and the file
     named `test`), with the agreement of the two `TestCommand` predicates
     pinned in `TestCommandTests`.
+  - `DependencyFolderRule.swift` — whether a folder is a **dependency root**
+    (a folder a package manager fills) and whether a path lies **inside
+    dependencies**. Pure and Foundation-only: it reads folder names and their
+    siblings' names, and every listing it needs is handed to it by the caller.
+    **The table is closed and compared exactly** (`markers`, pinned by set
+    equality): `node_modules` → `package.json`; `vendor` → `composer.json`,
+    `go.mod`, `Gemfile`; `.venv` and `venv` → `pyproject.toml`,
+    `requirements.txt`, `setup.py`, `setup.cfg`, `Pipfile`; `Pods` →
+    `Podfile`; `.build` → `Package.swift`. `isDependencyRoot(name:siblingNames:)`
+    holds when the name is in the table **and** one of its markers lies beside
+    it: a name alone never counts, because a hand-written `vendor` folder beside
+    no manifest is ordinary source the user edits. `Node_Modules` and `VENDOR`
+    are not roots. Build-output folders (`build`, `dist`, `target`) are
+    deliberately not in the table — they hold what the project produced, not
+    what it depends on.
+    **The project root is never a root**: the components are root-relative and
+    never spell it, so `[]` is never asked about. **Being inside is
+    inherited**: `State` (`.outside`, `.root`, `.inside`) answers `.inside` for
+    any node or file under a `.root` or `.inside` parent, so a package's own
+    nested `node_modules` is never a second root and a file is never a root.
+    `showsCaption` is `.root` alone; `showsTestWash(isTestRow:)` is `isTestRow`
+    only at `.outside`, which is how a vendored package's `test` folder washes
+    nothing while `TreeTestRule` stays untouched.
+    **A chain row is a root row when *any* segment is one**
+    (`isDependencyRootRow(segmentNames:siblingNames:)`), each segment asked
+    about its own siblings. `TreeChainRule` folds a folder only when its
+    listing is exactly one folder, so a root — which always has a marker file
+    beside it — can only be a chain's head; a tail-only rule could never fire,
+    and a `node_modules` holding one package (the chain `node_modules/lodash`)
+    would go untagged. The row stands for its head the way its git colour
+    does; the tree hands the head its parent's listing names and a later
+    segment just its own name, a folded segment being its parent's sole entry.
+    **The path question**, `isInsideDependencies(components:siblingNames:)`,
+    walks the **ancestors** only (`components.dropLast()`), asks
+    `siblingNames(i)` only for a table-named component, reads a `nil` listing
+    as not a root and returns at the first root. Its URL form,
+    `isInsideDependencies(fileURL:projectRoot:listNames:)`, computes the
+    root-relative components canonically (`CanonicalPath.canonical` +
+    `relativeComponents(of:under:)`), lists the canonical root plus the
+    components before `i`, and answers `false` with no listing for a `nil`
+    root or a file not strictly under it. **The cost bound**: one listing per
+    table-named ancestor component of the asked path, stopping at the first
+    root; a path with no table-named ancestor costs no listing at all. Nothing
+    is memoized.
+    **Three readers ask it**: the macOS project tree, from listings it already
+    holds (the `dependencies` tag, its spoken `Dependencies`, the
+    suppressed test wash); `WorkspaceModel.opensInSourceViewer`, which routes a
+    file inside dependencies to the read-only source viewer window instead of a
+    tab, and the session restore, which drops such tabs; and
+    `DiagnosticsModel`, which drops every report naming a document inside
+    dependencies. Find in Files and the symbol index are **deliberately
+    untouched** — both walk `ProjectFileWalk`, which already honours
+    `.gitignore`, and a committed `vendor` tree is still worth searching — so
+    no second exclusion is to be added there later. Covered by
+    `DependencyFolderRuleTests`: the table by set equality, every key with each
+    of its markers, the marker requirement (and `vendor` beside only
+    `package.json`), exact comparison, the root exclusion, inheritance, every
+    `State` transition, the chain headed by a root and the chain whose later
+    segment is the root, the test-wash suppression, the listing-cost bound
+    through a counting closure (`src/a/b.swift` 0, `node_modules/x/y.js` 1,
+    `a/vendor/b/vendor/c.go` 2, a first-ancestor root 1), and the URL form
+    under a symlinked root spelling and outside the root.
+    **A symlink is judged at its target**, per the project's path rule: the URL
+    form resolves the path before splitting it, while the tree judges the names
+    it lists. So a linked package — a workspace's `node_modules/@scope/pkg`
+    pointing at the project's own `packages/pkg`, or at a folder outside the
+    root — is drawn inside dependencies (no tag, no test wash), yet its
+    files open as ordinary tabs and keep their diagnostics, because the file
+    they name is the user's own source or lies outside the root.
   - `MoveDropRule.swift` — the one engine behind the project tree's
     drag-and-drop move: *may this drop land, and where?* `public enum
     MoveDropRule`, Foundation-only, two static functions returning one

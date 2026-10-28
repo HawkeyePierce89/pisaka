@@ -259,6 +259,14 @@ public final class WorkspaceModel: ObservableObject {
     ///
     /// - a titled record whose file is **missing or unreadable** (`fileService.read`
     ///   throws) — deleted, renamed, or on a volume that is not mounted;
+    /// - a titled record whose file lies **inside dependencies** under
+    ///   `projectRoot` (`DependencyFolderRule`), which opens in the read-only
+    ///   source viewer window rather than as a tab (`opensInSourceViewer`, the
+    ///   funnel's own question) and so has no tab to come back as. A database
+    ///   file there with `viewerTabsEnabled` on opens as its viewer tab and so
+    ///   restores, and a file a tab already holds restores onto that tab. Asked
+    ///   *before* `open(url:)`, so nothing is read for it; with no `projectRoot`
+    ///   set nothing is inside dependencies and the record restores as before;
     /// - a record naming **neither a path nor text**. That is the *future-version
     ///   tab* (see `SessionTab`): a kind added by a later build, whose fields this
     ///   one has no property for, so the keyed decoder skipped them and nothing is
@@ -311,6 +319,11 @@ public final class WorkspaceModel: ObservableObject {
         for (index, record) in session.tabs.enumerated() {
             let id: UUID
             if let path = record.path {
+                // A file the funnel would show in the source viewer is never a tab,
+                // so its record is skipped exactly like a missing file — the
+                // funnel's own question, so a database file inside dependencies
+                // (a viewer tab there) comes back as one.
+                guard !opensInSourceViewer(URL(fileURLWithPath: path)) else { continue }
                 // Delegated to `open(url:)` rather than re-derived here, so the
                 // canonical-path tab identity has one implementation: `try?` is
                 // exactly the "skip a file this build cannot read" semantics wanted,
@@ -1305,6 +1318,56 @@ public final class WorkspaceModel: ObservableObject {
             return existing.kind == .viewer
         }
         return viewerTabsEnabled && DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent)
+    }
+
+    /// Whether a Local History restore may land on `url` — the one answer the
+    /// window's Restore enablement and the restore's own backstop both ask.
+    ///
+    /// A restore is a buffer edit that ends in `open(url:)`, so it is refused
+    /// for a path that is or would open as a **viewer** tab (no buffer to edit)
+    /// and for a path that opens in the read-only **source viewer window**
+    /// (`opensInSourceViewer`): opening it directly would make a file inside
+    /// dependencies a writable tab. A tab already holding the file takes the
+    /// restore, as that question already answers for a tab that pre-dates the rule.
+    public func acceptsLocalHistoryRestore(_ url: URL) -> Bool {
+        !opensAsViewer(url) && !opensInSourceViewer(url)
+    }
+
+    /// Whether `url` opens in the read-only **source viewer window** rather than
+    /// as a tab — the one question both of the app's routing sites ask (the open
+    /// funnel, and the definition fork with the candidate's outside-root flag).
+    /// Answered in this order, each branch where it is for a reason:
+    ///
+    /// 1. `isOutsideProjectRoot` → `true`: D3, a definition target outside the
+    ///    project, unchanged — and first, so it holds whether or not a tab holds
+    ///    the file. The funnel always asks with the default `false`, so a file
+    ///    outside the root reached through the Open panel or a recent file keeps
+    ///    opening as a tab.
+    /// 2. A tab already holds the file (canonical, as the open's own dedup) →
+    ///    `false`: a tab that pre-dates the rule is left alone until it is closed,
+    ///    rather than having the file appear in two places.
+    /// 3. A recognized database file with `viewerTabsEnabled` on → `false`: it
+    ///    holds no text the source viewer could show, and its viewer tab is a
+    ///    reader already.
+    /// 4. Otherwise, whether the file lies inside dependencies under
+    ///    `projectRoot` (`DependencyFolderRule`); `false` with no root.
+    ///
+    /// The listings go through `fileService.contentsOfDirectory(at:)`, a failure
+    /// read as no listing, and cost what the rule's bound states: none at all for
+    /// a path with no table-named ancestor.
+    public func opensInSourceViewer(_ url: URL, isOutsideProjectRoot: Bool = false) -> Bool {
+        if isOutsideProjectRoot { return true }
+        if fileID(forURL: url) != nil { return false }
+        if viewerTabsEnabled, DatabaseFileRule.isDatabaseFile(named: url.lastPathComponent) { return false }
+        return isInsideDependencies(url)
+    }
+
+    /// Whether `url` lies inside dependencies under `projectRoot`, asking the
+    /// file service for the listings the rule needs.
+    private func isInsideDependencies(_ url: URL) -> Bool {
+        DependencyFolderRule.isInsideDependencies(fileURL: url, projectRoot: projectRoot) { directory in
+            (try? fileService.contentsOfDirectory(at: directory))?.map(\.name)
+        }
     }
 
     /// Canonical form of a url for identity comparison: resolves symlinks and

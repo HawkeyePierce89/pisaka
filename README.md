@@ -154,7 +154,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
 - **Projects** — open a folder (Cmd+Shift+O), create/rename/move/delete right
   in the tree, whose expanded parent folders stay pinned under its header as
   you scroll (macOS) and whose test files and folders carry a faint green row
-  wash (macOS), or switch between recent projects from the bottom bar; external
+  wash (macOS) and whose dependency folders (`node_modules`, `vendor`, `Pods`…
+  beside their manifest) carry a `dependencies` tag and open their files in
+  a read-only viewer window (macOS), or switch between recent projects from the bottom bar; external
   changes show up on their own via FSEvents. If you attempt to switch to a
   recent project folder that has been deleted or moved, Pisaka will display a
   warning alert and leave your current workspace unchanged.

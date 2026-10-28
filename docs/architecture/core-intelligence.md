@@ -863,8 +863,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     dialog show the same string and neither view decides what a candidate reads as.
     `relativePath` stays **precomputed** (the project root is the provider's
     knowledge, not the text view's), and `isOutsideProjectRoot` is precomputed for
-    the same reason and one more: it decides *where the jump lands*, since D3 opens
-    an out-of-root target in a separate read-only window instead of a tab. It is
+    the same reason and one more: it is one of the two inputs that decide *where
+    the jump lands* — the other is the dependency rule, both asked through
+    `WorkspaceModel.opensInSourceViewer` (`core-lsp.md` D3) — since D3 opens an
+    out-of-root target in a separate read-only window instead of a tab. It is
     always `false` on the tree-sitter path — the index only ever walks the opened
     folder, so everything it can name is inside it.
     `CompletionRequest` carries the prefix, the file, and the buffer's **live

@@ -81,7 +81,7 @@ entry when you change behavior.**
 All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
-  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `ExternalChangeRule.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`, `TreeChainRule.swift`, `TreeStickyRule.swift`, `TreeTestRule.swift`
+  `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `ExternalChangeRule.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`, `TreeChainRule.swift`, `TreeStickyRule.swift`, `TreeTestRule.swift`, `DependencyFolderRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
   `ColumnSelectionEngine.swift`, `RangeEditPlan.swift`, `BlockIndentEngine.swift`, `MoveLineEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `BlockCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
@@ -169,7 +169,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`, `ChromePopover.swift`, `ChromePopoverPresenter.swift`, `ChromeSplitView.swift`
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`, `ChromePopover.swift`, `ChromePopoverPresenter.swift`, `ChromeSplitView.swift`, `ChromeTag.swift`
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
   `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
@@ -225,7 +225,8 @@ because nothing else states them.
   down. Sync is request-driven — the live buffer travels with the request — except for the
   diagnostics push channel, which re-syncs each open served buffer on a debounce and on tab
   open/switch. Reports about files no tab holds land positionally (D46) and are shown by the
-  Problems panel and the project tree, never by the editor surfaces. Fallback to tree-sitter is per request and **silent, with no alert ever**, and
+  Problems panel and the project tree, never by the editor surfaces; reports about files
+  inside dependencies are dropped at receive, both lanes (`DependencyFolderRule`). Fallback to tree-sitter is per request and **silent, with no alert ever**, and
   four failures mark that `(server, root)` unavailable for the app run. A **reader**;
   `Process` lives only in `Sources/Pisaka` behind `LSPTransport`, which a gating suite
   asserts. **Three questions are exceptions to the silent fallback**: hover and rename have no
@@ -324,7 +325,7 @@ because nothing else states them.
   colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
   surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
   therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-six, by set
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-seven, by set
   equality) and its fifty-two rules, inventoried in that suite's own header and
   `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
@@ -452,6 +453,7 @@ silently, which is what keeps `swift test` dependency-free.
 `MainWindowFrameSourceGatingTests`, `LocalHistorySourceGatingTests`,
 `LeetCodeAccountSourceGatingTests`, `DatabaseViewerSourceGatingTests`,
 `GitHubSourceGatingTests`, `GitCLIArgumentSourceGatingTests`, `FoldingSourceGatingTests`,
+`ProjectTreeSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
 `DesignGlyphAssetTests`, `WelcomeShortcutPinTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for

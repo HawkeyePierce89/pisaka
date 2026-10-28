@@ -261,22 +261,35 @@ final class TreeGitStatusTests: XCTestCase {
     }
 
     func testAccessibilityValueForBothRowKinds() {
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .modified, mark: .none, row: .file, isTestRow: false), "Modified")
-        XCTAssertEqual(TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .file, isTestRow: false), "")
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .conflict, mark: .none, row: .folder(isExpanded: true), isTestRow: false),
+            TreeGitState.accessibilityValue(state: .modified, mark: .none, row: .file, isTestRow: false, isDependencyRoot: false),
+            "Modified"
+        )
+        XCTAssertEqual(
+            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .file, isTestRow: false, isDependencyRoot: false), ""
+        )
+        XCTAssertEqual(
+            TreeGitState.accessibilityValue(
+                state: .conflict, mark: .none, row: .folder(isExpanded: true), isTestRow: false, isDependencyRoot: false
+            ),
             "expanded, Conflicted"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .ignored, mark: .none, row: .folder(isExpanded: false), isTestRow: false),
+            TreeGitState.accessibilityValue(
+                state: .ignored, mark: .none, row: .folder(isExpanded: false), isTestRow: false, isDependencyRoot: false
+            ),
             "collapsed, Ignored"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: true), isTestRow: false),
+            TreeGitState.accessibilityValue(
+                state: .plain, mark: .none, row: .folder(isExpanded: true), isTestRow: false, isDependencyRoot: false
+            ),
             "expanded"
         )
         XCTAssertEqual(
-            TreeGitState.accessibilityValue(state: .plain, mark: .none, row: .folder(isExpanded: false), isTestRow: false),
+            TreeGitState.accessibilityValue(
+                state: .plain, mark: .none, row: .folder(isExpanded: false), isTestRow: false, isDependencyRoot: false
+            ),
             "collapsed"
         )
     }
@@ -294,7 +307,10 @@ final class TreeGitStatusTests: XCTestCase {
             (.plain, .none, ""),
         ]
         for (state, mark, expected) in file {
-            XCTAssertEqual(TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: false), expected)
+            XCTAssertEqual(
+                TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: false, isDependencyRoot: false),
+                expected
+            )
         }
         let folder: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
             (.modified, .error, true, "expanded, Modified, has errors"),
@@ -306,7 +322,9 @@ final class TreeGitStatusTests: XCTestCase {
         ]
         for (state, mark, isExpanded, expected) in folder {
             XCTAssertEqual(
-                TreeGitState.accessibilityValue(state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: false),
+                TreeGitState.accessibilityValue(
+                    state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: false, isDependencyRoot: false
+                ),
                 expected
             )
         }
@@ -324,7 +342,8 @@ final class TreeGitStatusTests: XCTestCase {
         ]
         for (state, mark, expected) in file {
             XCTAssertEqual(
-                TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: true), expected
+                TreeGitState.accessibilityValue(state: state, mark: mark, row: .file, isTestRow: true, isDependencyRoot: false),
+                expected
             )
         }
         let folder: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
@@ -338,7 +357,8 @@ final class TreeGitStatusTests: XCTestCase {
         for (state, mark, isExpanded, expected) in folder {
             XCTAssertEqual(
                 TreeGitState.accessibilityValue(
-                    state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: true
+                    state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: true,
+                    isDependencyRoot: false
                 ),
                 expected
             )
@@ -360,9 +380,64 @@ final class TreeGitStatusTests: XCTestCase {
                     case .folder(let isExpanded):
                         expected = ([isExpanded ? "expanded" : "collapsed"] + words).joined(separator: ", ")
                     }
-                    let value = TreeGitState.accessibilityValue(state: state, mark: mark, row: row, isTestRow: false)
+                    let value = TreeGitState.accessibilityValue(
+                        state: state, mark: mark, row: row, isTestRow: false, isDependencyRoot: false
+                    )
                     XCTAssertEqual(value, expected, "\(state) \(mark) \(row)")
                     XCTAssertFalse(value.contains("Test"), "\(state) \(mark) \(row)")
+                    XCTAssertFalse(value.contains("Dependencies"), "\(state) \(mark) \(row)")
+                }
+            }
+        }
+    }
+
+    /// A dependency root folder's `Dependencies` word, alone after the
+    /// expansion word on either expansion, and in its place among the others:
+    /// after the expansion word, before `Test`, the git word and the
+    /// diagnostics words.
+    func testAccessibilityValueSpeaksTheDependenciesWordInItsPlace() {
+        let alone: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
+            (.plain, .none, true, "expanded, Dependencies"),
+            (.plain, .none, false, "collapsed, Dependencies"),
+            (.modified, .none, true, "expanded, Dependencies, Modified"),
+            (.ignored, .none, false, "collapsed, Dependencies, Ignored"),
+            (.plain, .error, true, "expanded, Dependencies, has errors"),
+            (.added, .warning, false, "collapsed, Dependencies, Added, has warnings"),
+        ]
+        let withTest: [(TreeGitState, TreeDiagnosticMark, Bool, String)] = [
+            (.plain, .none, true, "expanded, Dependencies, Test"),
+            (.modified, .none, true, "expanded, Dependencies, Test, Modified"),
+            (.conflict, .error, false, "collapsed, Dependencies, Test, Conflicted, has errors"),
+            (.modified, .warning, true, "expanded, Dependencies, Test, Modified, has warnings"),
+        ]
+        for (isTestRow, cases) in [(false, alone), (true, withTest)] {
+            for (state, mark, isExpanded, expected) in cases {
+                XCTAssertEqual(
+                    TreeGitState.accessibilityValue(
+                        state: state, mark: mark, row: .folder(isExpanded: isExpanded), isTestRow: isTestRow,
+                        isDependencyRoot: true
+                    ),
+                    expected
+                )
+            }
+        }
+    }
+
+    /// A file is never a dependency root, so `isDependencyRoot` is ignored for
+    /// `.file`: passed `true`, a file speaks exactly what it speaks passed
+    /// `false`, for every state, mark and test answer.
+    func testAccessibilityValueOfAFileIgnoresTheDependencyRootFlag() {
+        for state in TreeGitState.allCases {
+            for mark in TreeDiagnosticMark.allCases {
+                for isTestRow in [false, true] {
+                    let flagged = TreeGitState.accessibilityValue(
+                        state: state, mark: mark, row: .file, isTestRow: isTestRow, isDependencyRoot: true
+                    )
+                    let unflagged = TreeGitState.accessibilityValue(
+                        state: state, mark: mark, row: .file, isTestRow: isTestRow, isDependencyRoot: false
+                    )
+                    XCTAssertEqual(flagged, unflagged, "\(state) \(mark) \(isTestRow)")
+                    XCTAssertFalse(flagged.contains("Dependencies"), "\(state) \(mark) \(isTestRow)")
                 }
             }
         }

@@ -48,6 +48,30 @@ user sees it.
   since a `.rs` name says nothing about whether it holds tests. A pinned folder
   row carries the same wash, a row being renamed keeps it, and the name colour
   stays the git state's; VoiceOver speaks "Test" in the row's value.
+  On macOS a folder of installed dependencies carries a `dependencies` tag
+  after its name. A folder counts only when its name is one of a fixed
+  set and that name's manifest lies beside it: `node_modules` beside
+  `package.json`; `vendor` beside `composer.json`, `go.mod` or `Gemfile`;
+  `.venv` or `venv` beside `pyproject.toml`, `requirements.txt`, `setup.py`,
+  `setup.cfg` or `Pipfile`; `Pods` beside `Podfile`; `.build` beside
+  `Package.swift`. Names compare exactly, a `vendor` folder beside no manifest is
+  ordinary source, and the project root itself is never one. Only that boundary
+  row is tagged — on its pinned copy and while it is being renamed too — and
+  VoiceOver speaks "Dependencies" in its value; the folders and files below it
+  carry no tag and no test wash. A file inside dependencies opens in the
+  same **read-only viewer window** a Go to Definition outside the project uses,
+  never as a tab, whether you reach it from the tree, a search hit, a definition,
+  a usage, the Open… command, Local Changes' jump to source, a Markdown link, or
+  a file you just created there in the tree (a tab already open on it stays a
+  tab until closed, and a session restore leaves such tabs out silently). So such
+  files cannot be edited in Pisaka: the folder table is fixed, with no setting
+  and no per-folder override. A file the viewer cannot show — over 16 MB, or
+  binary — does not open, with a beep. A database file inside dependencies
+  still opens as its viewer tab. New language-server errors and warnings about
+  files inside dependencies are not shown; a set listed before the folder became
+  a dependency folder stays until the server next reports on that file, and
+  clicking it opens the read-only viewer at the file's start. Find in Files and
+  the symbol index still include them.
   On macOS a run of folders that each hold only the next (`src/main/java/com`)
   is one `a/b/c` row, each segment coloured by its own git state, that expands
   straight to the last folder's contents; Delete and dragging act on the first
@@ -848,7 +872,9 @@ user sees it.
   message and line number, ordered top-to-bottom through each file with the most
   serious finding first where several share a position. The list covers **closed
   files too**: what a server reports about a file no tab holds is listed with the
-  server's own line numbers. Closing a file keeps its set in the app, and the
+  server's own line numbers — except files inside dependency folders, whose new
+  reports are dropped (a set listed before the folder became one stays until
+  the server's next report about that file). Closing a file keeps its set in the app, and the
   server decides what happens next: typescript-language-server (5.3.0, probed)
   clears the file when it is closed, sourcekit-lsp sends nothing so its last
   report stays listed, and yaml-language-server's behaviour on close is

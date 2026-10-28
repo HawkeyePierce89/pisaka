@@ -86,7 +86,16 @@ with a state shape of its own went into `DatabaseViewerTabs.swift`, so
 `PisakaApp` paid four lines of wiring plus the tab-kind skips its own text-shaped
 passes needed, and not four hundred (`core-database-viewer.md`).
 
-The most recent bump is removals clearing diagnostics, `file_length` 1976 →
+The most recent bump is the open funnel's read-only routing, `file_length`
+1982 → **1986** and `type_body_length` 1975 → **1979**: four lines net in
+`PisakaApp`. `openFile(url:viewerRange:)` sends a file inside dependencies to
+the read-only source viewer window and answers whether a tab now holds the
+file, the reveal paths stop on that answer, and the definition fork's
+`opensDefinitionInSourceViewer` closure is handed to `ContentView`; the routing
+question itself is Core's `WorkspaceModel.opensInSourceViewer`
+(`app-shell.md`, `core-workspace.md`).
+
+The bump before it is removals clearing diagnostics, `file_length` 1976 →
 **1982** and `type_body_length` 1969 → **1975**: six lines in `PisakaApp`.
 `diagnostics.noteItemRemoved(at:)` after the tree's move and delete and after
 each of the three resyncs' deleted-file closes — a close keeps a file's
@@ -94,7 +103,7 @@ diagnostics (D46), a removal must not leave them under a path that no longer
 exists — and the `serversRestart` flag that hands a folder re-opened under
 another spelling to the diagnostics model too (`app-shell.md`).
 
-The bump before it is the project tree's Refresh re-reading git state,
+The one before it is the project tree's Refresh re-reading git state,
 `file_length` 1975 → **1976** and `type_body_length` 1968 → **1969**: one line
 in `PisakaApp`, the `onRefreshGitStatus` closure handed to `ContentView`, which
 calls the existing generation-pinned `refreshLocalChanges()` (`app-window.md`).

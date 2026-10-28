@@ -1753,7 +1753,7 @@ final class WorkspaceModelTests: XCTestCase {
         let model = WorkspaceModel(fileService: service)
         let good = try model.open(url: urlGood)
         let bad = try model.open(url: urlBad)
-        let clean = try model.open(url: urlClean)
+        _ = try model.open(url: urlClean)
         let untitled = model.newFile()
         model.updateText("good edited", for: good.id)
         model.updateText("bad edited", for: bad.id)
@@ -2598,6 +2598,202 @@ final class WorkspaceModelTests: XCTestCase {
                 XCTAssertEqual(now, previous, "expected \(id) to record no disk change", file: file, line: line)
             }
         }
+    }
+
+    // MARK: - Source-viewer routing (outside the root, inside dependencies)
+
+    /// A stub project holding a `node_modules` dependency root (its marker,
+    /// `package.json`, beside it), a `vendor` folder beside no marker, and an
+    /// ordinary source file. Rooted at a path that does not exist on disk, so
+    /// the canonical form is the spelling and the listings land in the stub.
+    private func makeDependencyTree() -> StubFileTree {
+        StubFileTree(
+            root: URL(fileURLWithPath: "/pisaka-dependency-routing-tests"),
+            files: [
+                "package.json": "{}",
+                "node_modules/x/index.js": "module.exports = 1",
+                "node_modules/x/data.sqlite": "SQLite format 3",
+                "vendor/x.go": "package x",
+                "src/a.swift": "let a = 1",
+            ]
+        )
+    }
+
+    func testOpensInSourceViewerForAnOutsideRootTargetEvenWhenATabHoldsIt() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertTrue(model.opensInSourceViewer(tree.url("src/a.swift"), isOutsideProjectRoot: true))
+        _ = try model.open(url: tree.url("src/a.swift"))
+        // The outside-root reason is asked first, so a tab does not override it.
+        XCTAssertTrue(model.opensInSourceViewer(tree.url("src/a.swift"), isOutsideProjectRoot: true))
+        XCTAssertEqual(tree.listedPaths, [])
+    }
+
+    func testOpensInSourceViewerForAFileInsideDependenciesWithNoTab() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertTrue(model.opensInSourceViewer(tree.url("node_modules/x/index.js")))
+        // One listing: the root's entries, where the marker lies.
+        XCTAssertEqual(tree.listedPaths, [""])
+    }
+
+    func testOpensInSourceViewerLeavesAPreExistingTabAlone() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        // Opened before any root is set, so it became an ordinary tab.
+        _ = try model.open(url: tree.url("node_modules/x/index.js"))
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.opensInSourceViewer(tree.url("node_modules/x/index.js")))
+        XCTAssertEqual(tree.listedPaths, [])
+    }
+
+    func testOpensInSourceViewerKeepsADatabaseFileInsideDependenciesAsItsViewerTab() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.opensInSourceViewer(tree.url("node_modules/x/data.sqlite")))
+        XCTAssertTrue(model.opensAsViewer(tree.url("node_modules/x/data.sqlite")))
+        // With the switch off it is no viewer tab, and the dependency rule decides.
+        let switchedOff = WorkspaceModel(fileService: tree)
+        switchedOff.openFolder(url: tree.root)
+        XCTAssertTrue(switchedOff.opensInSourceViewer(tree.url("node_modules/x/data.sqlite")))
+    }
+
+    func testOpensInSourceViewerIsFalseForAnOrdinaryFileWithoutAListing() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.opensInSourceViewer(tree.url("src/a.swift")))
+        XCTAssertEqual(tree.listedPaths, [])
+    }
+
+    func testOpensInSourceViewerIsFalseForAVendorFolderBesideNoMarker() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.opensInSourceViewer(tree.url("vendor/x.go")))
+        XCTAssertEqual(tree.listedPaths, [""])
+    }
+
+    func testOpensInSourceViewerIsFalseWithNoProjectRoot() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+
+        XCTAssertFalse(model.opensInSourceViewer(tree.url("node_modules/x/index.js")))
+        XCTAssertEqual(tree.listedPaths, [])
+    }
+
+    func testLocalHistoryRestoreIsRefusedForAFileInsideDependenciesWithNoTab() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/index.js")))
+        // A deleted file, reached through Deleted Files, is refused the same way.
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/gone.js")))
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("src/a.swift")))
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("vendor/x.go")))
+    }
+
+    func testLocalHistoryRestoreIsAcceptedByAPreExistingTabInsideDependencies() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        _ = try model.open(url: tree.url("node_modules/x/index.js"))
+        model.openFolder(url: tree.root)
+
+        XCTAssertTrue(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/index.js")))
+    }
+
+    func testLocalHistoryRestoreIsRefusedForAViewerTabPath() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        model.openFolder(url: tree.root)
+
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("node_modules/x/data.sqlite")))
+        XCTAssertFalse(model.acceptsLocalHistoryRestore(tree.url("app.sqlite")))
+    }
+
+    func testRestoreSessionDropsATabInsideDependenciesAsForAMissingFile() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+
+        let restored = model.restoreSession(EditorSession(
+            tabs: [
+                .file(path: tree.url("node_modules/x/index.js").path),
+                .file(path: tree.url("src/a.swift").path),
+                .untitled(text: "scratch"),
+            ],
+            selectedIndex: 0
+        ))
+
+        XCTAssertTrue(restored)
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["a.swift", "Untitled"])
+        // Nothing was read for the dropped record: the skip comes before the open.
+        XCTAssertEqual(tree.readPaths, ["src/a.swift"])
+        // The selection named the dropped record, so it falls back to the last
+        // restored tab, as for a missing file.
+        XCTAssertEqual(model.selectedID, model.openFiles.last?.id)
+    }
+
+    func testRestoreSessionKeepsATabInsideDependenciesWithNoProjectRoot() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+
+        model.restoreSession(EditorSession(
+            tabs: [.file(path: tree.url("node_modules/x/index.js").path)],
+            selectedIndex: 0
+        ))
+
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["index.js"])
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+    }
+
+    func testRestoreSessionKeepsADatabaseViewerTabInsideDependencies() {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree, viewerTabsEnabled: true)
+        model.openFolder(url: tree.root)
+
+        let restored = model.restoreSession(EditorSession(
+            tabs: [
+                .file(path: tree.url("node_modules/x/data.sqlite").path),
+                .file(path: tree.url("node_modules/x/index.js").path),
+            ],
+            selectedIndex: 0
+        ))
+
+        // The funnel opens the database as its viewer tab, so the restore keeps
+        // it; the text file beside it is still dropped.
+        XCTAssertTrue(restored)
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["data.sqlite"])
+        XCTAssertEqual(model.openFiles.map(\.kind), [.viewer])
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+    }
+
+    func testRestoreSessionOfOnlyDroppedRecordsRestoresNothingAndKeepsTheSelection() throws {
+        let tree = makeDependencyTree()
+        let model = WorkspaceModel(fileService: tree)
+        model.openFolder(url: tree.root)
+        let carried = try model.open(url: tree.url("src/a.swift"))
+        let readsBefore = tree.readPaths
+
+        let restored = model.restoreSession(EditorSession(
+            tabs: [.file(path: tree.url("node_modules/x/index.js").path)],
+            selectedIndex: 0
+        ))
+
+        XCTAssertFalse(restored)
+        XCTAssertEqual(model.openFiles.map(\.id), [carried.id])
+        XCTAssertEqual(model.selectedID, carried.id)
+        XCTAssertEqual(tree.readPaths, readsBefore)
     }
 
     // MARK: - Viewer tabs (database files), behind the platform switch

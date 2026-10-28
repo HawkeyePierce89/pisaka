@@ -867,11 +867,16 @@ changes.)
     could not tell from a bug: nothing selected, its content not in hand (a
     revision reclaimed between the listing and the click), a target opened with
     `restorable: false`, and a revision whose text the buffer already holds. The
-    app opens a path non-restorable when `WorkspaceModel.opensAsViewer(_:)` says
-    it is — or would open as — a **viewer** tab: a restore is a buffer edit, a
-    viewer holds none, and a `.db` reached through the tree's context menu or
-    Deleted Files (history carried there by a move, or captured while it was a
-    text tab) would otherwise be recreated as an empty file and left that way.
+    app opens a path non-restorable when `WorkspaceModel.acceptsLocalHistoryRestore(_:)`
+    says no: the path is — or would open as — a **viewer** tab
+    (`opensAsViewer(_:)`), or it opens in the read-only source viewer window
+    (`opensInSourceViewer(_:)`, a file inside dependencies no tab holds). A
+    restore is a buffer edit, a viewer holds none, and a `.db` reached through
+    the tree's context menu or Deleted Files (history carried there by a move,
+    or captured while it was a text tab) would otherwise be recreated as an
+    empty file and left that way; and a file inside dependencies — history from
+    a tree delete or a gated operation's capture of a committed `vendor/` — would
+    otherwise be opened by the restore's direct `model.open` as a writable tab.
     The listing and the diff still show, so the bytes stay readable; refusing the identical case is what keeps a
     restore from marking a clean tab dirty and writing a `.restore` snapshot of
     bytes that are already the newest revision. **A file missing from disk is
@@ -1185,7 +1190,8 @@ changes.)
     old root while every later save of that buffer keys to nothing, making the
     restore the one edit in that file with no history behind it. So it beeps and
     stops, like the two refusals below; the same first step refuses a path that
-    `model.opensAsViewer(_:)` answers for, the backstop behind the window's
+    `model.acceptsLocalHistoryRestore(_:)` refuses (a viewer tab, or a file the
+    source viewer window would show), the backstop behind the window's
     non-restorable open. **Then the recreate exception: a restore
     is a buffer edit, except that a restore into a path with no file first
     creates an empty file, under `revertInFlight()`.** The action asks

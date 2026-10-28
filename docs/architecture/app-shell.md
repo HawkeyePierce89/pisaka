@@ -162,10 +162,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     retention, so a sweep landing after a folder switch is not a stale answer that
     could land over a newer one, it is work that was owed anyway
     (`core-local-history.md`).
-    `activateSearchMatch(url:range:)` opens the file through the ordinary
-    `openFile(url:)` path (so an already-open tab is re-selected, not duplicated),
-    resolves the tab id, and records the range with `reveal.reveal(fileID:range:)` —
-    a failed open resolves to no tab, so nothing is revealed. It is **also the
+    **`openFile(url:viewerRange:)` is the open funnel**, and returns whether a
+    tab now holds the file. It asks `model.opensInSourceViewer(url)` with the
+    default `isOutsideProjectRoot: false` — so a file outside the root reached
+    through the Open panel or a recent file keeps opening as a tab, the
+    outside-root reason belonging to definition candidates and to
+    `activateUsage(_:)`'s own fork alone — and a file **inside dependencies**
+    (`DependencyFolderRule`, `core-workspace.md`) with no tab already holding it
+    opens in the read-only source viewer window
+    (`sourceViewers.open(fileURL:range:settings:)`) at `viewerRange`, beeping when
+    the viewer cannot read it exactly as `viewDefinitionOutsideProject` does;
+    otherwise it is `model.open(url:)` as before, beeping on a throw. Its callers
+    and the range each passes: `activateSearchMatch` (search hits and in-root
+    definitions) its own range; `openAndReveal` its new `viewerRange:` —
+    `activateUsage` passes `row.range`, `activateProblem` the start — a Problems
+    row *can* name a dependency file, because `DiagnosticsModel` forgets such a
+    file's set (`forgetInsideDependencies`) only when the next report about it is
+    dropped, so a set that landed before a marker appeared beside its folder
+    stays until then, and activating its row opens the read-only viewer window at
+    the file's start; the
+    Open… command, the window's `onOpenFile` (the project tree's file rows, Local
+    Changes' jump to source and its ⌘↓, the Markdown preview's file links) and
+    `newFile(in:name:)` the start (`NSRange(location: 0, length: 0)`, the
+    default). **A file the tree creates inside dependencies** is created exactly
+    as before — the create is unchanged — and its follow-up open goes through the
+    funnel, so the new file shows in the viewer window rather than as a tab. The
+    two direct `model.open` sites, the LeetCode solution and the Local History
+    restore, stay as they are: neither can name a file inside dependencies in
+    practice, and both are writes.
+    `activateSearchMatch(url:range:)` opens the file through the funnel (so an
+    already-open tab is re-selected, not duplicated), resolves the tab id, and
+    records the range with `reveal.reveal(fileID:range:)` — a failed open, or one
+    that went to the viewer window, resolves to no tab, so nothing is revealed. It is **also the
     destination of Go to Definition** (⌘-click / ⌃⌘J), which names a declaration's
     file and name range instead of a search hit: the two want the same three steps,
     and sharing them is what keeps a jump inside the file already being edited on
@@ -173,9 +201,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     longer its caller**: a closed file's row carries the server's position rather
     than offsets (`core-lsp.md`, D46), which only becomes a range against the text
     the file opens with, so a row activation goes to
-    `activateProblem(url:row:)` instead — `openFile(url:)`, then the opened tab's
+    `activateProblem(url:row:)` instead — `openFile(url:viewerRange:)`, then the opened tab's
     text through Core's `DiagnosticStore.Row.rangeToReveal(in:)`, clamped, then
-    `reveal.reveal(fileID:range:)`. Its tail, `openAndReveal(url:range:)`, is the
+    `reveal.reveal(fileID:range:)`. Its tail, `openAndReveal(url:viewerRange:range:)`, is the
     one `activateUsage(_:)` now shares, so the two text-dependent activations
     open and reveal identically; a file that did not open leaves no tab, and the
     activation returns silently, never beeping and never trapping.
@@ -558,7 +586,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `usages.prepareForFolderChange(root:)` in the same synchronous turn as
     `projectSearch.prepareForSearch` and the commit dialog's own registration, and
     for the same reason. `activateUsage(_:)` opens through
-    `openAndReveal(url:range:)`, the tail it shares with the Problems panel's
+    `openAndReveal(url:viewerRange:range:)` — passing `row.range` as the viewer
+    range, so a row inside dependencies opens the viewer window at the row's
+    range as it stands, with the same reused-window limit as below — the tail it shares with the Problems panel's
     `activateProblem(url:row:)`, and asks `UsageResult.revealRange(naming:in:)` against the buffer the
     click actually lands in: a row that no longer holds its identifier degrades to
     opening the file with nothing selected — never a crash on an out-of-bounds

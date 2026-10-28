@@ -115,6 +115,8 @@ final class ChromeThemeTests: XCTestCase {
         XCTAssertEqual(ChromeGeometry.popoverSectionHeaderPaddingBottom, 4)
         XCTAssertEqual(ChromeGeometry.popoverMessagePaddingY, 8)
         XCTAssertEqual(ChromeGeometry.popoverMessagePaddingX, 12)
+        XCTAssertEqual(ChromeGeometry.tagPaddingX, 6)
+        XCTAssertEqual(ChromeGeometry.tagPaddingY, 1)
     }
 
     /// `ChromeGeometry` is a namespace of `static let`s, so its membership is
@@ -148,7 +150,7 @@ final class ChromeThemeTests: XCTestCase {
             "popoverProjectRowHeight", "popoverRowPaddingX", "popoverRowGap", "popoverRowGlyphSlot",
             "popoverProjectRowLineGap", "popoverSectionHeaderPaddingTop",
             "popoverSectionHeaderPaddingX", "popoverSectionHeaderPaddingBottom",
-            "popoverMessagePaddingY", "popoverMessagePaddingX",
+            "popoverMessagePaddingY", "popoverMessagePaddingX", "tagPaddingX", "tagPaddingY",
         ])
         for suspect in ["font", "Font", "fontSize", "textSize"] {
             XCTAssertFalse(

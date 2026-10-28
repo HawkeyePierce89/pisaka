@@ -105,7 +105,14 @@ as an entry of a **second kind**. The kind is a type and not a placeholder:
 every editor-facing reader (squiggles, gutter, hover, the edit shift, *Next / Previous
 Problem*) reads `DiagnosticStore.Entry.mapped`, which is `nil` for a positional
 entry, so none of them can see one. The Problems panel, the header counts and the
-project tree read severity and position, which both kinds carry. Closing the last
+project tree read severity and position, which both kinds carry. **Neither lane
+admits a document inside dependencies** (`DependencyFolderRule`, `core-workspace.md`):
+`DiagnosticsModel` drops such a report at receive, published or positional, so the
+declaration files a server reports on under `node_modules` never reach the panel,
+the counts or the tree — such a file opens only in the read-only viewer window, where
+nobody can act on its problems. A set that landed before a marker appeared beside the
+folder stays until the next dropped report about that file forgets it
+(`forgetInsideDependencies`). Closing the last
 tab now drops only the buffer's bookkeeping and keeps the file's set. A wholesale
 buffer replacement drops only a mapped entry, so a file being opened keeps its
 positional record until the first mapped report replaces it. One more Core file reads
@@ -2935,6 +2942,28 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     own publish beating its report home, which it admits; dropping would strand
     the document blank until the next interaction, the exact failure the hold
     exists to prevent.
+    **Documents inside dependencies** are dropped first, before the gate and
+    before any hold: `receive` asks `DependencyFolderRule.isInsideDependencies(
+    fileURL:projectRoot:listNames:)` of every `published` and `positional` event,
+    against the root `prepareForFolderChange(root:)` records (none before the first
+    folder, when nothing is dropped). A dropped published report is **not held**,
+    so no later sync can admit it, and nothing of it reaches the store, the
+    Problems panel, the tree's lookup or an editor; `.cleared` events are not
+    asked. A drop also **forgets what the document already had** — its store
+    entry and any hold, from before a marker appeared beside its folder — so the
+    report that would have replaced or emptied a set never leaves it stale; the
+    store is touched only when it holds an entry, so the burst republishes
+    nothing. The drop asks nothing about tabs: a tab that pre-dates the rule,
+    which `WorkspaceModel.opensInSourceViewer` leaves alone, shows no problems
+    either. The reason is the positional lane: a server reports unasked on the
+    declaration files under `node_modules` no tab holds, and such a file opens only
+    in the read-only viewer window anyway. The listing is an injected seam,
+    `listNames: (URL) -> [String]?`, beside `fileExists` and defaulting to
+    `{ _ in nil }` (nothing is a root, so every report lands as before); the app
+    passes its `FileService`'s `contentsOfDirectory(at:)` names. Its cost is the
+    rule's bound — one listing per table-named ancestor component of the reported
+    path, stopping at the first root found, none for a path with no table-named
+    ancestor, nothing memoized.
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,
@@ -3083,7 +3112,7 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     `.warning`, `nil`), which is what the tree hands
     `ChromeColorRole.diagnosticRole(for:)` so no view switches over a severity
     (the theme's rule fifteen, `core-theme.md`), and `spokenName` ("has errors",
-    "has warnings", `nil`), which `TreeGitState.accessibilityValue(state:mark:row:isTestRow:)`
+    "has warnings", `nil`), which `TreeGitState.accessibilityValue(state:mark:row:isTestRow:isDependencyRoot:)`
     composes after the test row's word and the git word — a file row joins the words that exist with
     ", " or says `""`; a folder row leads with its expansion word.
     **Aggregation.** For each entry of **either kind** — a buffer's mapped set and
@@ -3194,6 +3223,17 @@ or a dependency checkout **structurally** cannot write outside the root. Targets
 inside the root keep the tab-open + `EditorRevealState` path unchanged. The flag
 lives on the candidate (`DefinitionCandidate.isOutsideProjectRoot`, defaulted
 `false`) because the project root is the provider's knowledge, not the view's.
+**A second reason opens a target in the same window: the file lies inside
+dependencies** (`DependencyFolderRule`, `core-workspace.md`) — a package
+manager's tree under the root, which no tab should autosave or restore. Both
+reasons are asked through **one Core question**,
+`WorkspaceModel.opensInSourceViewer(_:isOutsideProjectRoot:)`: the editor's
+definition fork hands it the candidate's flag through a closure the app wires,
+so a ⌘-click and a tree click on the same file land in the same place. The flag
+is asked first and holds whether or not a tab holds the file; the dependency
+reason yields to a tab already holding it and to a database file's viewer tab.
+On the tree-sitter path no candidate is outside the root, but one inside
+dependencies takes the window all the same.
 
 **D4 — Auto-import.** An LSP completion item carries its own edits
 (`CompletionItem.edits`, UTF-16 buffer ranges): the primary replacement plus any

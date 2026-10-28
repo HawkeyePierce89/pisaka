@@ -1451,4 +1451,151 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "fresh")], version: 3))
         XCTAssertEqual(entry()?.mapped?.map(\.message), ["fresh"])
     }
+
+    // MARK: - Documents inside dependencies
+
+    /// A model whose listing seam answers the root's listing with
+    /// `rootListing` and every other directory with nothing, recording the
+    /// last component of each directory asked. Keyed by last component because
+    /// the rule asks with the canonical root, whose spelling of `/tmp` is the
+    /// resolver's, not this suite's.
+    private func dependencyModel(rootListing: [String]) -> (DiagnosticsModel, () -> [String]) {
+        var asked: [String] = []
+        let rootName = root.lastPathComponent
+        let model = DiagnosticsModel(listNames: { directory in
+            asked.append(directory.lastPathComponent)
+            return directory.lastPathComponent == rootName ? rootListing : nil
+        })
+        return (model, { asked })
+    }
+
+    private var declarationFile: URL {
+        root.appendingPathComponent("node_modules/x/index.d.ts")
+    }
+
+    /// The burst the drop exists for: a server reporting positionally on a
+    /// declaration file under `node_modules`, beside `package.json`. Nothing
+    /// lands — not the store, so not the panel's rows nor the tree's lookup —
+    /// and the question cost one listing, the root's.
+    func testAPositionalReportInsideDependenciesIsDropped() {
+        let (dependencyModel, asked) = dependencyModel(rootListing: ["package.json", "node_modules", "Sources"])
+        model = dependencyModel
+        model.prepareForFolderChange(root: root)
+
+        model.receive(positional(
+            [positionalDiagnostic(line: 0, character: 0, message: "in a dependency")],
+            url: declarationFile
+        ))
+
+        XCTAssertNil(entry(declarationFile))
+        XCTAssertTrue(model.store.entriesByURL.isEmpty)
+        XCTAssertTrue(model.rows(relativeTo: root).isEmpty)
+        XCTAssertEqual(model.treeDiagnostics.lookup, .empty)
+        XCTAssertEqual(asked(), ["pkg"], "one listing per table-named ancestor, the root's")
+    }
+
+    /// A published report about the same file is dropped before the gate, and
+    /// is **not held**: neither with a current record present nor with none, so
+    /// a later matching sync — the hold's admission moment — admits nothing.
+    func testAPublishedReportInsideDependenciesIsDroppedAndNotHeld() {
+        let (dependencyModel, _) = dependencyModel(rootListing: ["package.json", "node_modules"])
+        model = dependencyModel
+        model.prepareForFolderChange(root: root)
+        let set = [diagnostic(declarationFile, at: 0, length: 3, line: 0, message: "in a dependency")]
+
+        syncAtVersionOne(declarationFile)
+        model.receive(published(set, version: 1, url: declarationFile))
+        XCTAssertNil(entry(declarationFile), "dropped even against a current record")
+
+        let unsynced = root.appendingPathComponent("node_modules/x/other.d.ts")
+        model.receive(published(set, version: 1, url: unsynced))
+        model.noteSynced(url: unsynced, version: 1, revision: 0)
+        model.noteSynced(url: declarationFile, version: 1, revision: 0)
+        XCTAssertNil(entry(unsynced), "nothing was held for the matching sync to admit")
+        XCTAssertNil(entry(declarationFile))
+        XCTAssertTrue(model.store.entriesByURL.isEmpty)
+    }
+
+    /// A marker created beside the folder mid-session: the set that landed
+    /// while the folder was ordinary source is forgotten by the next report
+    /// about that document, which is dropped, so no stale row outlives it.
+    func testADroppedReportForgetsTheSetThatLandedBeforeTheMarkerAppeared() {
+        var listing = ["vendor"]
+        let rootName = root.lastPathComponent
+        model = DiagnosticsModel(listNames: { directory in
+            directory.lastPathComponent == rootName ? listing : nil
+        })
+        model.prepareForFolderChange(root: root)
+        let file = root.appendingPathComponent("vendor/a.go")
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "before")], url: file))
+        XCTAssertNotNil(entry(file))
+
+        listing.append("go.mod")
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "after")], url: file))
+
+        XCTAssertNil(entry(file))
+        XCTAssertTrue(model.rows(relativeTo: root).isEmpty)
+        XCTAssertEqual(model.treeDiagnostics.lookup, .empty)
+    }
+
+    /// A name alone is never enough: a `vendor` folder beside no marker is
+    /// ordinary source, so its report lands, after the one listing that said so.
+    func testAReportUnderAVendorFolderBesideNoMarkerLands() {
+        let (dependencyModel, asked) = dependencyModel(rootListing: ["vendor", "README.md"])
+        model = dependencyModel
+        model.prepareForFolderChange(root: root)
+        let file = root.appendingPathComponent("vendor/a.go")
+
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "mine")], url: file))
+
+        XCTAssertNotNil(entry(file))
+        XCTAssertEqual(asked(), ["pkg"])
+    }
+
+    /// An ordinary report, both kinds, lands and asks no listing at all: no
+    /// component of its path is a table name.
+    func testAnOrdinaryReportLandsWithoutAListing() {
+        let (dependencyModel, asked) = dependencyModel(rootListing: ["package.json", "node_modules"])
+        model = dependencyModel
+        model.prepareForFolderChange(root: root)
+
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "mapped")], version: 1))
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "closed")], url: otherURL))
+
+        XCTAssertEqual(entry()?.mapped?.map(\.message), ["mapped"])
+        XCTAssertNotNil(entry(otherURL))
+        XCTAssertEqual(asked(), [])
+    }
+
+    /// With no folder prepared there is no root to be inside dependencies
+    /// under, so even a `node_modules` report lands, and nothing is listed.
+    func testWithNoRootPreparedAReportInsideNodeModulesLands() {
+        let (dependencyModel, asked) = dependencyModel(rootListing: ["package.json", "node_modules"])
+        model = dependencyModel
+
+        model.receive(positional(
+            [positionalDiagnostic(line: 0, character: 0, message: "no root")],
+            url: declarationFile
+        ))
+
+        XCTAssertNotNil(entry(declarationFile))
+        XCTAssertEqual(asked(), [])
+    }
+
+    /// Clears are untouched by the drop: a server's teardown still empties
+    /// what it reported, and a document clear asks no listing either.
+    func testClearsAreNotAskedAboutDependencies() {
+        let (dependencyModel, asked) = dependencyModel(rootListing: ["package.json", "node_modules"])
+        model = dependencyModel
+        model.prepareForFolderChange(root: root)
+        model.receive(positional([positionalDiagnostic(line: 0, character: 0, message: "kept")], url: otherURL))
+
+        model.receive(.cleared(.document(url: declarationFile)))
+        model.receive(.cleared(.server(serverID: serverID, root: root.path)))
+
+        XCTAssertNil(entry(otherURL))
+        XCTAssertEqual(asked(), [])
+    }
 }
