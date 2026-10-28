@@ -7,7 +7,8 @@ import XCTest
 /// It reaches beyond that one file where an invariant does: `ci.yml` for the
 /// pairs the two workflows must agree on — the action pins, the one Xcode every
 /// `setup-xcode` step installs (`XcodePin`) and the one runner image every job
-/// in both runs on (`RunnerPin`) — and — since the build output roots
+/// in both runs on (`RunnerPin`), each also held equal to its one anchored
+/// phrase in `docs/RELEASING.md` — and — since the build output roots
 /// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
 /// in a command a reader runs, all pinned together in
 /// `// MARK: - The build output roots`. Why the `excluded:` half is pinned there
@@ -3108,6 +3109,25 @@ final class ReleaseWorkflowTests: XCTestCase {
         XCTAssertEqual(commands.filter { !$0.hasPrefix(prefix) }, [], """
             every xcodebuild command in docs/RELEASING.md must start `\(prefix)`, or it runs under \
             whatever Xcode xcode-select names
+            """)
+    }
+
+    /// `docs/RELEASING.md` names the runner image once, in an anchored phrase
+    /// held equal to the workflows' `runs-on:` pin — the same shape as the
+    /// toolchain phrase above, so prose mentioning some image in passing cannot
+    /// satisfy it and a second anchored phrase fails. `RunnerPin`'s doc comment
+    /// lists this reader.
+    func testReleasingDocNamesTheRunnerPin() throws {
+        let pinned = try RunnerPin.pinnedLabel()
+        let doc = try text(atRepositoryPath: "docs/RELEASING.md")
+
+        let regex = try NSRegularExpression(pattern: #"Pinned runner: `([^`]+)`"#)
+        let matches = regex.matches(in: doc, range: NSRange(doc.startIndex ..< doc.endIndex, in: doc))
+        let named = matches.compactMap { Range($0.range(at: 1), in: doc).map { String(doc[$0]) } }
+
+        XCTAssertEqual(named, [pinned], """
+            docs/RELEASING.md must carry exactly one ``Pinned runner: `\(pinned)` `` — the image every \
+            job in ci.yml and release.yml runs on. It carries \(named).
             """)
     }
 

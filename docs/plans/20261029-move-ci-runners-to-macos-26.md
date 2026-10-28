@@ -201,7 +201,7 @@ explicit versioned macOS image.
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 - Modify: `Tests/PisakaCoreTests/Support/RunnerPin.swift` (doc comment reader list)
 
-- [ ] Rewrite the "Pinned toolchain: Xcode `26.3`" paragraph:
+- [x] Rewrite the "Pinned toolchain: Xcode `26.3`" paragraph:
   - Keep the anchored phrase ``Pinned toolchain: Xcode `26.3` `` exactly as written, because
     `testReleasingDocNamesTheWorkflowPin` reads it.
   - Drop "on the `macos-15` runner", "the newest Xcode present on both the `macos-15` and
@@ -220,11 +220,11 @@ explicit versioned macOS image.
     - why moving narrowed the gap: SwiftUI ships with the OS, not with Xcode, so a runner
       two major versions behind the development machine draws some layouts differently
   - Keep the CommandsBuilder history and the `Makefile` / `DEVELOPER_DIR` sentences.
-- [ ] Extend `testReleasingDocNamesTheWorkflowPin`, or add a sibling test beside it, so the
+- [x] Extend `testReleasingDocNamesTheWorkflowPin`, or add a sibling test beside it, so the
   doc carries exactly one ``Pinned runner: `X` `` phrase and `X` equals
   `RunnerPin.pinnedLabel()`. This is the same anchored-phrase shape as the Xcode phrase. Add
   this reader to `RunnerPin`'s doc comment and to the suite's doc comment inventory.
-- [ ] Add an entry to "### Manual verification owed for this feature" covering the first
+- [x] Add an entry to "### Manual verification owed for this feature" covering the first
   release on `macos-26`:
   - `release.yml` runs only on a `v*` tag, so its two jobs first run on `macos-26` at the
     next release.
@@ -232,7 +232,7 @@ explicit versioned macOS image.
     `release.yml`'s shape, but not that it runs.
   - What to check on that run: the job log's "Runner Image" group names a macOS 26 image,
     and the archive, notarize, staple and smoke-launch steps all pass.
-- [ ] Run `swift test`; it must pass. Also confirm the new doc rule fails when the phrase is
+- [x] Run `swift test`; it must pass. Also confirm the new doc rule fails when the phrase is
   temporarily set to `macos-15`, then revert.
 
 ### Task 4: Correct the one claim the move makes false

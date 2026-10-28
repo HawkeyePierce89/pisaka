@@ -25,6 +25,8 @@ import Foundation
 ///   `test:` / `runs-on:` pair in `release.yml`.
 /// - `LintConfigurationTests.testCIDeclaresALintJobIndependentOfTheBuildGraph`'s
 ///   lint job, whose `runs-on:` lines must be exactly the one pinned line.
+/// - `docs/RELEASING.md`'s anchored ``Pinned runner: `X` `` phrase, which must
+///   occur exactly once (`ReleaseWorkflowTests.testReleasingDocNamesTheRunnerPin`).
 ///
 /// `ReleaseWorkflowTests.testEveryWorkflowJobRunsOnThePinnedRunner` holds the
 /// workflows themselves to it: the set of jobs by set equality, one `runs-on:`
