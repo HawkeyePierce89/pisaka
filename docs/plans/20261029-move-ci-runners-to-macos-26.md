@@ -155,17 +155,44 @@ explicit versioned macOS image.
   `.github/workflows/release.yml`
 - Modify: this plan file (task notes)
 
-- [ ] Throwaway edit: set only `ci.yml`'s `build-ios` job back to `runs-on: macos-15`, run
+- [x] Throwaway edit: set only `ci.yml`'s `build-ios` job back to `runs-on: macos-15`, run
   `swift test` (filtered to `ReleaseWorkflowTests` and `LintConfigurationTests`), and record
   the failure messages.
-- [ ] Throwaway edit: set only `release.yml`'s `release` job to `runs-on: macos-latest`, run
+- [x] Throwaway edit: set only `release.yml`'s `release` job to `runs-on: macos-latest`, run
   the same tests, and record the failure messages.
-- [ ] Throwaway edit: set only `ci.yml`'s `lint` job to `runs-on: macos-15`, and confirm
+- [x] Throwaway edit: set only `ci.yml`'s `lint` job to `runs-on: macos-15`, and confirm
   both the cross-workflow rule and the lint suite's rewired assertion fail.
-- [ ] Revert every throwaway edit. Confirm `git diff` on the workflows shows only the seven
+- [x] Revert every throwaway edit. Confirm `git diff` on the workflows shows only the seven
   `macos-15` → `macos-26` changes, then run `swift test` and confirm it passes.
-- [ ] Write the observed failure messages into a "Notes" block under this task in the plan
+- [x] Write the observed failure messages into a "Notes" block under this task in the plan
   file.
+
+**Notes** (observed 2026-10-29, `swift test --filter 'ReleaseWorkflowTests|LintConfigurationTests'`):
+
+- Every experiment failed the same three tests and nothing else: 100 tests ran, 3 failed.
+  The three were `ReleaseWorkflowTests.testEveryWorkflowJobRunsOnThePinnedRunner` (the
+  cross-workflow rule), `ReleaseWorkflowTests.testTheReleaseJobIsGatedOnTheTestJob` and
+  `LintConfigurationTests.testCIDeclaresALintJobIndependentOfTheBuildGraph` (the two
+  rewired assertions). All three report the same `RunnerPin.Disagreement`, whose message
+  names every job and its value. Only the `Found:` part differed between experiments:
+  - Message: "Every job in ci.yml and release.yml must run on one runner, `macos-26`
+    (RunnerPin.label), and carry exactly one `runs-on:`. The label must be an explicit
+    versioned image (`macos-<N>`), never `macos-latest` or an -intel / -large variant, so
+    GitHub cannot change the OS under the pin without a commit. Found: <seven sites>. Set
+    every one to the same label."
+- Half-move (`ci.yml` `build-ios` back to `macos-15`): "Found: ci.yml job `test`: runs-on
+  macos-26; ci.yml job `build-macos`: runs-on macos-26; ci.yml job `test-macos`: runs-on
+  macos-26; ci.yml job `build-ios`: runs-on macos-15; ci.yml job `lint`: runs-on macos-26;
+  release.yml job `test`: runs-on macos-26; release.yml job `release`: runs-on macos-26."
+- Moving alias (`release.yml` `release` set to `macos-latest`): "Found: … release.yml job
+  `test`: runs-on macos-26; release.yml job `release`: runs-on macos-latest." Every
+  `ci.yml` job reads `macos-26`.
+- Lint job (`ci.yml` `lint` back to `macos-15`): "Found: … ci.yml job `lint`: runs-on
+  macos-15; …". The cross-workflow rule and the lint suite's rewired assertion both
+  failed, along with the release-gate assertion.
+- After reverting, `git diff master -- .github/workflows` shows exactly seven
+  `-    runs-on: macos-15` / `+    runs-on: macos-26` pairs, and the full `swift test`
+  passes (7222 tests, 0 failures).
 
 ### Task 3: docs/RELEASING.md tells the truth about the runner
 
