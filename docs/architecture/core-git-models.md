@@ -696,7 +696,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     mark, `isTestRow` and `isDependencyRoot` parameters are all non-defaulted, so
     no call site can forget any of them; `isTestRow` matters because the tree's
     test wash is colour alone, and `isDependencyRoot` because the root's
-    `dependencies` caption is secondary text a listener never reaches — the
+    `dependencies` tag is secondary text a listener never reaches — the
     words are what carry both. `isDependencyRoot` is **ignored for `.file`**: a
     file is never a dependency root, so a file's words are the same whatever it
     is passed. A row that is neither a test row nor a dependency root speaks

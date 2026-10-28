@@ -48,17 +48,17 @@ user sees it.
   since a `.rs` name says nothing about whether it holds tests. A pinned folder
   row carries the same wash, a row being renamed keeps it, and the name colour
   stays the git state's; VoiceOver speaks "Test" in the row's value.
-  On macOS a folder of installed dependencies carries a quiet `dependencies`
-  caption after its name. A folder counts only when its name is one of a fixed
+  On macOS a folder of installed dependencies carries a `dependencies` tag
+  after its name. A folder counts only when its name is one of a fixed
   set and that name's manifest lies beside it: `node_modules` beside
   `package.json`; `vendor` beside `composer.json`, `go.mod` or `Gemfile`;
   `.venv` or `venv` beside `pyproject.toml`, `requirements.txt`, `setup.py`,
   `setup.cfg` or `Pipfile`; `Pods` beside `Podfile`; `.build` beside
   `Package.swift`. Names compare exactly, a `vendor` folder beside no manifest is
   ordinary source, and the project root itself is never one. Only that boundary
-  row is captioned — on its pinned copy and while it is being renamed too — and
+  row is tagged — on its pinned copy and while it is being renamed too — and
   VoiceOver speaks "Dependencies" in its value; the folders and files below it
-  carry no caption and no test wash. A file inside dependencies opens in the
+  carry no tag and no test wash. A file inside dependencies opens in the
   same **read-only viewer window** a Go to Definition outside the project uses,
   never as a tab, whether you reach it from the tree, a search hit, a definition,
   a usage, the Open… command, Local Changes' jump to source, a Markdown link, or

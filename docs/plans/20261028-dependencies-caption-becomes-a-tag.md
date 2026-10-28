@@ -198,10 +198,10 @@ Requirements for the caption. Only its form changes:
 - Modify: `docs/FEATURES.md`
 - Modify: `README.md`
 
-- [ ] In `TreeFolderLabel`, replace the caption's `Text` with the `ChromeTag` call
+- [x] In `TreeFolderLabel`, replace the caption's `Text` with the `ChromeTag` call
   above. Update the comment next to it, and the type's doc comment if it describes the
   caption's form.
-- [ ] Rewrite `TreeDependencyCaptionTests` (the suite doc comment is its inventory).
+- [x] Rewrite `TreeDependencyCaptionTests` (the suite doc comment is its inventory).
   - Setup:
     - The same project as today (`p` holding `package.json`, `node_modules/{a,b}`,
       `other/node_modules/{a,b}` and `other/readme.txt`), with the same reveal of
@@ -240,12 +240,12 @@ Requirements for the caption. Only its form changes:
     - **Unmarked row.** The unmarked `other/node_modules` row holds only its background
       in the band where a tag would sit, one indent step further right. The row-5
       expansion check stays.
-- [ ] Mutation checks. Run each once, record it in the Execution notes with the Xcode
+- [x] Mutation checks. Run each once, record it in the Execution notes with the Xcode
   version, and revert it afterwards:
   - remove the `strokeBorder` overlay: the ring assertion fails;
   - draw the tag at `.body`: the size assertion fails;
   - drop the tree's `ChromeTag` entirely: the ring assertion fails.
-- [ ] Docs:
+- [x] Docs:
   - `app-window.md`'s dependency-folders entry. It describes:
     - the tag's form, drawn through `ChromeTag`;
     - its roles: `textSecondary` text and a `hairline` ring;
@@ -266,8 +266,8 @@ Requirements for the caption. Only its form changes:
     - README.md line 158: "carry a `dependencies` caption" becomes "carry a
       `dependencies` tag".
   - Code identifiers (`showsCaption`, `TreeDependencyCaptionTests`) stay as they are.
-- [ ] Run `swift test` and `swiftlint lint --strict`.
-- [ ] Run `TreeDependencyCaptionTests` alone under 26.3, then the full app bundle under
+- [x] Run `swift test` and `swiftlint lint --strict`.
+- [x] Run `TreeDependencyCaptionTests` alone under 26.3, then the full app bundle under
   26.3. Record both with the Xcode version. Both must pass before Task 3.
 
 ### Task 3: Reproduce the rounding-direction failure under Xcode 26.3 and record what is observed
@@ -453,3 +453,11 @@ What actually happens:
 observations, Task 4's decision and its reason, and Task 2's mutation results.)
 
 - Task 1: `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures, including ChromeThemeSourceGatingTests, ChromeThemeTests, ZoomSourceGatingTests and LintConfigurationTests. `swiftlint lint --strict` at 0.65.1: clean. No app-layer gate in this task.
+- Task 2, size-assertion refinement: with the name's band read over the whole name `node_modules`, the `.body` mutation passed (word band 10 pt against name band 11 pt), because the underscore drops below the baseline. The name's band is therefore read on its first letters `nod`: an ascender and no descender, like the word's central columns, and clear of the underscore, which starts where `node`'s advance ends. Measured under Xcode 26.3, at bitmap pixel scale 1, in both appearances: ring lines 65 and 79, word band 69...75 (6), name band 67...76 (9).
+- Task 2 mutation, `strokeBorder` overlay removed from `ChromeTag`: `TreeDependencyCaptionTests` alone, Xcode 26.3: 1 test, 3 failures. "the tag draws no ring at its left end", "... at its right end", and "no ring line above the word", all in dark. Reverted.
+- Task 2 mutation, tree tag drawn at `.body`: `TreeDependencyCaptionTests` alone, Xcode 26.3: 1 test, 2 failures. "the tag's word is not smaller than the name beside it", 10 against 9, in dark and in light. Reverted.
+- Task 2 mutation, the tree's `ChromeTag` dropped entirely: `TreeDependencyCaptionTests` alone, Xcode 26.3: 1 test, 3 failures. Both ring ends and "no ring line above the word", in dark. Reverted.
+- Task 2: `swift test` (host toolchain, no xcodebuild): 7221 tests, 0 failures. `swiftlint lint --strict` at 0.65.1: clean.
+- Task 2: `xcodebuild … test -only-testing:PisakaAppTests/TreeDependencyCaptionTests`, Xcode 26.3: 1 test, 0 failures.
+- Task 2: `xcodegen generate && xcodebuild … test` (full app bundle), Xcode 26.3: 509 tests, 0 failures. In this run `TreeStickyScrollRoundingTests.testTheRevealScrollRoundsToTheNearestPointTiesDown` passed (4.9 s). That is one passing run, an input for Task 3, not a reproduction of the CI failure. `Package.resolved` is unchanged.
+- Task 2, wording beyond the listed files: "caption" became "tag" where the mark is described in `core-git-models.md` (accessibility words) and `core-workspace.md` (the chain, readers and outside-symlink paragraphs). In `ProjectTreeView.swift`, four comments now say "tagged" instead of "captioned". Identifiers are unchanged.

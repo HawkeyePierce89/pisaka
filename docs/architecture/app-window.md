@@ -1686,15 +1686,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `ProjectTreeView.swift`, **dependency folders** — a folder Core's
     `DependencyFolderRule` (`core-workspace.md`) answers as a **dependency
     root** — a table name with one of its markers beside it — draws a
-    `dependencies` **caption** after its name: `Text("dependencies")` in
-    `theme.color(.textSecondary)`, the form the tree already uses for its
-    secondary text, inside `TreeFolderLabel`'s `HStack(spacing:
-    metrics.scaled(4))` after `name()`, inheriting the label's
-    `.font(metrics.scaledFont(.body))`, line limit and truncation. It is
-    `.fixedSize()`, so a long name truncates first and the caption stays
-    whole. No role, no palette value and no gated rule was added.
-    **Boundary versus inheritance**: only the root row is captioned; every row
-    below it is **inside dependencies**, uncaptioned, and never washed as a test
+    `dependencies` **tag** after its name, drawn through the shared
+    `ChromeTag` (`core-theme.md`): the word in `textSecondary` at the
+    `.caption` interface style, inset by `ChromeGeometry.tagPaddingX` /
+    `tagPaddingY` inside a `Capsule().strokeBorder` in `hairline` at
+    `hairlineWidth`, with no fill — the form the Pull Requests panel's state
+    tags already take. It sits inside `TreeFolderLabel`'s `HStack(spacing:
+    metrics.scaled(4))` after `name()`, at the `HStack`'s default centre
+    alignment, so it stays vertically centred on the row. The call site adds
+    `.fixedSize()`, so a long name truncates first and the tag stays whole,
+    and `.accessibilityHidden(true)`. **Why a tag and not a plain word**: the
+    common real dependency root is gitignored, so its *name* is already drawn
+    in `textSecondary`; a word in that role at the name's own font read as
+    more of the name. The ring and the smaller style make it read as a mark.
+    No role, no palette value and no gated rule was added; the two padding
+    tokens moved into `ChromeGeometry` from the panel's layout table.
+    **Boundary versus inheritance**: only the root row is tagged; every row
+    below it is **inside dependencies**, untagged, and never washed as a test
     row — a vendored package's `test` folder washes nothing.
     **State down the recursion**: `DirectoryNodeView` carries
     `dependencyState: DependencyFolderRule.State` beside `relativeComponents`.
@@ -1712,8 +1720,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     as its git colour does, and everything below the chain inherits.
     **The pinned copy** reads the node's own answer from
     `TreeStickyFolderReport.isDependencyRoot` (part of its `==`) and passes it
-    to `TreeFolderLabel`, so the copy is captioned as its row is. **Drafts**:
-    the row being renamed keeps its caption beside the rename field (the field
+    to `TreeFolderLabel`, so the copy is tagged as its row is. **Drafts**:
+    the row being renamed keeps its tag beside the rename field (the field
     replaces only the name); the create draft row is not a `TreeFolderLabel`
     and never shows one. **Accessibility**: a dependency root folder's value
     gains `Dependencies` after its expansion word and before `Test`, the git
@@ -1723,10 +1731,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `DependencyFolderRuleTests` (Core) pins the rule and the state;
     `TreeDependencyCaptionTests` (app bundle) renders one tree per appearance —
     a root `node_modules` beside `package.json` and an `other/node_modules`
-    beside no marker, two packages each so neither chains — and pins that the
-    band just right of the first name holds caption pixels differing from the
-    row background, while the same band one indent step in on the unmarked
-    row holds only its background.
+    beside no marker, two packages each so neither chains — with a git lookup
+    marking the root `node_modules` **ignored**, the common real case. It pins,
+    in both appearances: that the case is real (the name's most saturated ink
+    is nearer `textSecondary` than `textPrimary`); the **ring** (on the row's
+    centre line a narrow window at each end of the tag, clear of the word,
+    holds a pixel off the background); the **size** (the word's vertical ink
+    band is strictly shorter than the name's — read on the central half of the
+    word's columns, because the capsule's end radius exceeds the horizontal
+    inset, strictly between the ring's top and bottom lines found on those
+    columns, and on the name's first letters `nod`, an ascender and no
+    descender like the word's central columns, because the underscore's drop
+    below the baseline otherwise let a tag drawn at `.body` pass); and the
+    **unmarked row** (the band where a tag would sit, one indent step further
+    right on `other/node_modules`, holds only its background, with the sixth
+    row proving the reveal expanded `other/`). Each bitmap assertion was
+    checked against its mutation under the pinned Xcode: no `strokeBorder`
+    fails the ring, `.body` fails the size, no tag at all fails the ring.
   - `ProjectTreeView.swift`, **diagnostic severity dots** — a row whose file or
     folder has an error or a warning at or below it carries a **6 pt dot** in
     its glyph's bottom-trailing corner. The lookup is Core's `TreeDiagnostics`

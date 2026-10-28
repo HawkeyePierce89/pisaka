@@ -604,7 +604,7 @@ private struct DirectoryNodeView: View {
     /// (`DependencyFolderRule.State`): `.outside` for the root, the parent's
     /// answer over this row's segment names for a child. Computed from the
     /// listing the parent already holds, so it costs no I/O. A `.root` row is
-    /// captioned; nothing at or below an `.inside` one is washed as a test row.
+    /// tagged; nothing at or below an `.inside` one is washed as a test row.
     let dependencyState: DependencyFolderRule.State
     /// The tree's one listing memo, handed down the recursion.
     let listingMemo: TreeListingMemo
@@ -896,7 +896,7 @@ private struct DirectoryNodeView: View {
                 }
             }
         } label: {
-            // The caption stays while a rename draft replaces the name: the
+            // The tag stays while a rename draft replaces the name: the
             // folder being renamed is still the dependency root.
             TreeFolderLabel(
                 isExpanded: isExpanded, diagnosticMark: diagnosticMark, showsCaption: dependencyState.showsCaption
@@ -1073,7 +1073,7 @@ private struct DirectoryNodeView: View {
     /// to measure — and the frame it reports does not move while the tree
     /// scrolls, so a scroll changes no report and reads nothing. `isTestRow` is
     /// the node's own answer, so the copy is washed exactly as the row is, and
-    /// `isDependencyRoot` its own state's, so the copy is captioned as it is.
+    /// `isDependencyRoot` its own state's, so the copy is tagged as it is.
     @ViewBuilder
     private func stickyReport(isTestRow: Bool) -> some View {
         if isExpanded {
@@ -1549,7 +1549,7 @@ struct TreeStickyFolderReport: Equatable {
     let isExpanded: Bool
     fileprivate let shape: TreeNodeShape
     let isTestRow: Bool
-    /// Whether the node is a dependency root row, so its copy is captioned.
+    /// Whether the node is a dependency root row, so its copy is tagged.
     let isDependencyRoot: Bool
     let scrollID: String
     let expansion: Binding<Bool>
@@ -1921,7 +1921,7 @@ private struct TreeFolderRowLayout<Label: View>: View {
 }
 
 /// A folder row's label — the folder glyph, its diagnostic dot, the name and,
-/// on a dependency root row, the `dependencies` caption — shared by the real
+/// on a dependency root row, the `dependencies` tag — shared by the real
 /// row and the pinned copy. `name` is `TreeFolderName`, or the rename field the
 /// real row puts in its place.
 private struct TreeFolderLabel<Name: View>: View {
@@ -1954,14 +1954,15 @@ private struct TreeFolderLabel<Name: View>: View {
                 diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
             )
             name()
-            // The secondary text role, at the label's own font, line limit
-            // and spacing. At its natural width, so a long name truncates
-            // first and the caption stays whole. Hidden from accessibility like
-            // the glyph: the row's combined element would otherwise read it in
-            // its label, and the value already speaks `Dependencies`.
+            // A tag, `ChromeTag`: the word in the secondary text role at the
+            // caption style inside a hairline capsule, so it reads as a mark
+            // even beside an ignored name drawn in that same role. At its
+            // natural width, so a long name truncates first and the tag stays
+            // whole. Hidden from accessibility like the glyph: the row's
+            // combined element would otherwise read it in its label, and the
+            // value already speaks `Dependencies`.
             if showsCaption {
-                Text("dependencies")
-                    .foregroundStyle(theme.color(.textSecondary))
+                ChromeTag("dependencies", role: .textSecondary, style: .caption)
                     .fixedSize()
                     .accessibilityHidden(true)
             }

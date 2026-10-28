@@ -1205,7 +1205,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     listing is exactly one folder, so a root — which always has a marker file
     beside it — can only be a chain's head; a tail-only rule could never fire,
     and a `node_modules` holding one package (the chain `node_modules/lodash`)
-    would go uncaptioned. The row stands for its head the way its git colour
+    would go untagged. The row stands for its head the way its git colour
     does; the tree hands the head its parent's listing names and a later
     segment just its own name, a folded segment being its parent's sole entry.
     **The path question**, `isInsideDependencies(components:siblingNames:)`,
@@ -1221,7 +1221,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     root; a path with no table-named ancestor costs no listing at all. Nothing
     is memoized.
     **Three readers ask it**: the macOS project tree, from listings it already
-    holds (the `dependencies` caption, its spoken `Dependencies`, the
+    holds (the `dependencies` tag, its spoken `Dependencies`, the
     suppressed test wash); `WorkspaceModel.opensInSourceViewer`, which routes a
     file inside dependencies to the read-only source viewer window instead of a
     tab, and the session restore, which drops such tabs; and
@@ -1242,7 +1242,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     form resolves the path before splitting it, while the tree judges the names
     it lists. So a linked package — a workspace's `node_modules/@scope/pkg`
     pointing at the project's own `packages/pkg`, or at a folder outside the
-    root — is drawn inside dependencies (no caption, no test wash), yet its
+    root — is drawn inside dependencies (no tag, no test wash), yet its
     files open as ordinary tabs and keep their diagnostics, because the file
     they name is the user's own source or lies outside the root.
   - `MoveDropRule.swift` — the one engine behind the project tree's
