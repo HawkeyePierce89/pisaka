@@ -74,7 +74,7 @@ jobs:
   # `swift test` must not produce a release, and the static suites here are what
   # assert this very file's shape (ReleaseWorkflowTests).
   test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,7 +86,7 @@ jobs:
 
   release:
     needs: test
-    runs-on: macos-15
+    runs-on: macos-26
     # Archive (~20 minutes, whole-module optimization across the app and every
     # linked dependency) plus a notary submission this job is willing to wait
     # `--timeout 30m` for. Sized so the notary wait always fails with the

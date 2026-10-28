@@ -5,7 +5,9 @@ import XCTest
 /// workflow that archives, signs and publishes the macOS build.
 ///
 /// It reaches beyond that one file where an invariant does: `ci.yml` for the
-/// pairs the two workflows must agree on, and — since the build output roots
+/// pairs the two workflows must agree on — the action pins, the one Xcode every
+/// `setup-xcode` step installs (`XcodePin`) and the one runner image every job
+/// in both runs on (`RunnerPin`) — and — since the build output roots
 /// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
 /// in a command a reader runs, all pinned together in
 /// `// MARK: - The build output roots`. Why the `excluded:` half is pinned there
@@ -277,9 +279,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             keys and this very file.
             """)
 
+        let runner = try RunnerPin.pinnedLabel()
         XCTAssertTrue(lines.contains(consecutively: """
             test:
-            runs-on: macos-15
+            runs-on: \(runner)
             """), "release.yml no longer declares a `test:` job for the release job to depend on")
         XCTAssertTrue(lines.contains("run: swift test"), """
             release.yml's `test:` job must actually run `swift test`. A job named `test` that runs \
@@ -3025,6 +3028,53 @@ final class ReleaseWorkflowTests: XCTestCase {
             ci.yml and release.yml carry an active `xcode-version:` line outside any setup-xcode \
             step. Move it into a step or delete it.
             """)
+    }
+
+    /// Every job in both workflows runs on the same runner image, the one
+    /// `RunnerPin` pins, so the OS that gates a pull request is the OS that
+    /// archives the release — the toolchain pin's counterpart, since SwiftUI
+    /// ships with the OS rather than with Xcode.
+    ///
+    /// The set of jobs is pinned by set equality, so a new job fails here until
+    /// it is named — a job silently left on an older image is the drift this
+    /// exists to refuse. The line count closes the other side: a `runs-on:`
+    /// sitting outside any job's header level would satisfy nothing and mislead
+    /// every reader. `pinnedLabel()` is the one-value, versioned-label and
+    /// equals-`RunnerPin.label` checks together; `RunnerPin`'s doc comment is the
+    /// authority and lists the assertions checked against it.
+    func testEveryWorkflowJobRunsOnThePinnedRunner() throws {
+        let jobs = try RunnerPin.jobs()
+
+        let sites = Set(jobs.map { "\($0.workflow): \($0.job)" })
+        XCTAssertEqual(sites, [
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: test-macos", "ci.yml: build-ios", "ci.yml: lint",
+            "release.yml: test", "release.yml: release",
+        ], """
+            The jobs in ci.yml and release.yml changed. Found: \(sites.sorted()). A new one must be \
+            named here — and run on the pinned runner — before it can run.
+            """)
+        XCTAssertEqual(jobs.count, sites.count, """
+            ci.yml and release.yml declare a job id twice: \(jobs.map(\.description)).
+            """)
+
+        for job in jobs {
+            XCTAssertEqual(job.labels.count, 1, """
+                \(job.workflow)'s job `\(job.job)` must carry exactly one `runs-on:` directly under \
+                its header; it carries \(job.labels).
+                """)
+        }
+
+        XCTAssertEqual(try RunnerPin.runsOnLineCount(), jobs.count, """
+            ci.yml and release.yml carry an active `runs-on:` line outside any job's header level. \
+            Move it under its job or delete it.
+            """)
+
+        do {
+            let pinned = try RunnerPin.pinnedLabel()
+            XCTAssertEqual(pinned, RunnerPin.label)
+        } catch {
+            XCTFail("\(error)")
+        }
     }
 
     /// `docs/RELEASING.md` names the toolchain once, in an anchored phrase, and

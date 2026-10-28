@@ -117,3 +117,17 @@ func workflowJobSteps(_ job: String, in text: String) -> [[String]] {
     }
     return steps
 }
+
+/// The keys written directly under one job's header — its trimmed active lines
+/// at exactly one indentation level below the job, so a `runs-on:` nested inside
+/// a step's `with:` or an `env:` block is not one of them. The level is the
+/// indentation of the job's first body line, read rather than assumed.
+func workflowJobKeyLines(_ job: String, in text: String) -> [String] {
+    let lines = indentedActiveYAMLLines(of: text)
+    guard let jobs = lines.firstIndex(of: "jobs:") else { return [] }
+    let jobsBody = lines[(jobs + 1)...].prefix { yamlIndent($0) > 0 }
+    guard let start = jobsBody.firstIndex(of: "  \(job):") else { return [] }
+    let body = jobsBody[(start + 1)...].prefix { yamlIndent($0) > 2 }
+    guard let keyIndent = body.first.map(yamlIndent) else { return [] }
+    return body.filter { yamlIndent($0) == keyIndent }.map { $0.trimmingCharacters(in: .whitespaces) }
+}

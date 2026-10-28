@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,7 @@ jobs:
   # its `needs: test`, because publishing must be gated on a green suite — a
   # separate question from when feedback arrives.
   build-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     # Higher than the iOS job's: this one builds Release, so it pays for
     # whole-module optimization across the app and every linked dependency.
     timeout-minutes: 45
@@ -297,7 +297,7 @@ jobs:
   # builds the product, and build-macos's smoke launch still executes the
   # shipped product after its build.
   test-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     # A Debug build plus the bundle, 4–7.5 minutes measured; the iOS job's
     # budget is the ceiling.
     timeout-minutes: 30
@@ -360,7 +360,7 @@ jobs:
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
 
   build-ios:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -425,7 +425,7 @@ jobs:
   # the same pin `.swiftlint.yml` declares and the pre-commit hook reads.
   # LintConfigurationTests fails if those three ever disagree.
   lint:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

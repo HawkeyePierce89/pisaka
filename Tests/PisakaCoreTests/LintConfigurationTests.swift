@@ -46,8 +46,10 @@ import XCTest
 ///    (`|| true`-style escapes are absent), and every refusal branch reaches
 ///    `exit 1`;
 ///  * the CI lint job is the half that actually refuses a pull request — hooks
-///    are not cloned and are bypassable — so it must download exactly the
-///    pinned release (its URL's version component **equals**
+///    are not cloned and are bypassable — so it must run on exactly the one
+///    `runs-on:` line naming the runner every job runs on (`RunnerPin`, never a
+///    literal of its own), download exactly the pinned release (its URL's
+///    version component **equals**
 ///    `.swiftlint.yml`'s `swiftlint_version`: the cross-file pair that makes
 ///    hook, configuration and CI incapable of disagreeing), verify the
 ///    archive's digest before running it, lint with no config override (root
@@ -384,8 +386,9 @@ final class LintConfigurationTests: XCTestCase {
     /// could not satisfy them by existing.
     func testCIDeclaresALintJobIndependentOfTheBuildGraph() throws {
         let block = try ciLintJobBlock()
-        XCTAssertEqual(block.filter { $0 == "runs-on: macos-15" }.count, 1,
-                       "the lint job must name its runner like every other job in ci.yml")
+        let runner = try RunnerPin.pinnedLabel()
+        XCTAssertEqual(block.filter { $0.hasPrefix("runs-on:") }, ["runs-on: \(runner)"],
+                       "the lint job must run on the runner every other job runs on (RunnerPin: \(runner))")
         let budgetLine = try XCTUnwrap(
             block.first { $0.hasPrefix("timeout-minutes:") },
             """

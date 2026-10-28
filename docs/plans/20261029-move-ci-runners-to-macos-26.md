@@ -97,7 +97,7 @@ The intent: the workflows' `runs-on:` values work exactly like their `xcode-vers
 values. Every job states one label, all jobs state the same label, and that label is an
 explicit versioned macOS image.
 
-- [ ] Add `RunnerPin` in the support directory, built like `XcodePin`:
+- [x] Add `RunnerPin` in the support directory, built like `XcodePin`:
   - **Inventory.** `jobs()` returns every job across `ci.yml` and `release.yml`, taken from
     the shared `workflowJobs(in:)` reading. For each job it records the workflow, the job
     id, and every `runs-on:` value written directly under the job header (indentation
@@ -123,7 +123,7 @@ explicit versioned macOS image.
     label is required (a moving alias moves without a commit), and lists every reader
     checked against the value. The readers are the two rewired assertions below and the
     `RELEASING.md` phrase added in Task 3.
-- [ ] In `ReleaseWorkflowTests`, add `testEveryWorkflowJobRunsOnThePinnedRunner` next to
+- [x] In `ReleaseWorkflowTests`, add `testEveryWorkflowJobRunsOnThePinnedRunner` next to
   `testEveryWorkflowPinsTheSameXcode`. It asserts:
   - the set of `"<workflow>: <job>"` sites equals the seven named jobs (set equality), with
     a message saying a new job must be named here before it can run
@@ -133,7 +133,7 @@ explicit versioned macOS image.
     checks together
 
   Update the suite's doc comment inventory to cover the new rule.
-- [ ] Rewire the two existing label assertions so they read through the rule and no longer
+- [x] Rewire the two existing label assertions so they read through the rule and no longer
   carry a literal of their own:
   - `testTheReleaseJobIsGatedOnTheTestJob`: the consecutive `test:` / `runs-on: …` check
     uses `RunnerPin.pinnedLabel()`.
@@ -142,11 +142,11 @@ explicit versioned macOS image.
 
   Update `LintConfigurationTests`' doc comment inventory where it describes the lint job's
   runner assertion.
-- [ ] Run `swift test` before changing the workflows and confirm the new rule fails with a
+- [x] Run `swift test` before changing the workflows and confirm the new rule fails with a
   message naming all seven `macos-15` sites.
-- [ ] Change the seven `runs-on: macos-15` lines to `runs-on: macos-26`. Touch no other
+- [x] Change the seven `runs-on: macos-15` lines to `runs-on: macos-26`. Touch no other
   workflow line.
-- [ ] Run `swift test`; it must pass.
+- [x] Run `swift test`; it must pass.
 
 ### Task 2: Prove the rule refuses a half-move and a moving alias
 
