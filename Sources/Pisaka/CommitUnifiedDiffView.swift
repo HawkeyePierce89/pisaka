@@ -149,7 +149,7 @@ struct CommitUnifiedDiffView: View {
             .id(measureGeneration)
             .padding(.vertical, 2)
             .frame(
-                minHeight: visibleSize.height, alignment: .topLeading
+                minWidth: max(visibleSize.width, widestRow), minHeight: visibleSize.height, alignment: .topLeading
             )
             // The visible size is the clip view's, read from AppKit: the
             // pane's frame — and SwiftUI's own container size — include a
