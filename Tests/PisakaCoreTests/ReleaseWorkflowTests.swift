@@ -5,7 +5,10 @@ import XCTest
 /// workflow that archives, signs and publishes the macOS build.
 ///
 /// It reaches beyond that one file where an invariant does: `ci.yml` for the
-/// pairs the two workflows must agree on, and — since the build output roots
+/// pairs the two workflows must agree on — the action pins, the one Xcode every
+/// `setup-xcode` step installs (`XcodePin`) and the one runner image every job
+/// in both runs on (`RunnerPin`), each also held equal to its one anchored
+/// phrase in `docs/RELEASING.md` — and — since the build output roots
 /// landed — `.gitignore`, `.swiftlint.yml` and the documents that spell a root
 /// in a command a reader runs, all pinned together in
 /// `// MARK: - The build output roots`. Why the `excluded:` half is pinned there
@@ -277,10 +280,12 @@ final class ReleaseWorkflowTests: XCTestCase {
             keys and this very file.
             """)
 
-        XCTAssertTrue(lines.contains(consecutively: """
-            test:
-            runs-on: macos-15
-            """), "release.yml no longer declares a `test:` job for the release job to depend on")
+        let runner = try RunnerPin.pinnedLabel()
+        let testJob = try XCTUnwrap(
+            RunnerPin.jobs().first { $0.workflow == "release.yml" && $0.job == "test" },
+            "release.yml no longer declares a `test:` job for the release job to depend on")
+        XCTAssertEqual(testJob.labels, [runner],
+                       "release.yml's `test:` job must run on the pinned runner (RunnerPin: \(runner))")
         XCTAssertTrue(lines.contains("run: swift test"), """
             release.yml's `test:` job must actually run `swift test`. A job named `test` that runs \
             something else satisfies `needs:` and gates nothing.
@@ -2947,8 +2952,14 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// each action to **one distinct line** across both files is what stops a bump
     /// that misses a job: the workflow still parses and every job still runs, one
     /// of them on the old runtime. The action set is held by set equality, so a
-    /// fourth action fails here until it is named — the same deliberate act
+    /// new action fails here until it is named — the same deliberate act
     /// `testEveryWorkflowPinsTheSameXcode` asks of a new setup-xcode site.
+    ///
+    /// `actions/upload-artifact` is the fourth, and the only one that writes
+    /// anything out of a run: `test-macos` keeps its result bundle when the
+    /// app-layer bundle fails, because a test that fails only on the runner's OS
+    /// is otherwise diagnosable from the assertion text alone. Where it may run,
+    /// and when, is pinned by `testTheAppLayerResultBundleIsKeptOnFailureOnly`.
     ///
     /// Read over `activeYAMLLines(of:)`, which drops whole-line comments and keeps
     /// the trailing version comment this rule is partly about.
@@ -2978,7 +2989,9 @@ final class ReleaseWorkflowTests: XCTestCase {
                 """)
         }
 
-        XCTAssertEqual(Set(linesByAction.keys), ["actions/checkout", "actions/cache", "maxim-lobanov/setup-xcode"], """
+        XCTAssertEqual(Set(linesByAction.keys), [
+            "actions/checkout", "actions/cache", "maxim-lobanov/setup-xcode", "actions/upload-artifact",
+        ], """
             The actions ci.yml and release.yml run changed. Found: \(linesByAction.keys.sorted()). \
             A new one must be named here — and pinned to a full commit — before it can run.
             """)
@@ -3027,6 +3040,103 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Every job in both workflows runs on the same runner image, the one
+    /// `RunnerPin` pins, so the OS that gates a pull request is the OS that
+    /// archives the release — the toolchain pin's counterpart, since SwiftUI
+    /// ships with the OS rather than with Xcode.
+    ///
+    /// The set of jobs is pinned by set equality, so a new job fails here until
+    /// it is named — a job silently left on an older image is the drift this
+    /// exists to refuse. The line count closes the other side: a `runs-on:`
+    /// sitting outside any job's header level would satisfy nothing and mislead
+    /// every reader. The set of values is held equal to `[RunnerPin.label]`
+    /// directly, and `pinnedLabel()` must succeed besides — the one-value,
+    /// versioned-label and equals-`RunnerPin.label` checks together, whose
+    /// refusals the next test drives; `RunnerPin`'s doc comment is the authority
+    /// and lists the assertions checked against it.
+    func testEveryWorkflowJobRunsOnThePinnedRunner() throws {
+        let jobs = try RunnerPin.jobs()
+
+        let sites = Set(jobs.map { "\($0.workflow): \($0.job)" })
+        XCTAssertEqual(sites, [
+            "ci.yml: test", "ci.yml: build-macos", "ci.yml: test-macos", "ci.yml: build-ios", "ci.yml: lint",
+            "release.yml: test", "release.yml: release",
+        ], """
+            The jobs in ci.yml and release.yml changed. Found: \(sites.sorted()). A new one must be \
+            named here — and run on the pinned runner — before it can run.
+            """)
+        XCTAssertEqual(jobs.count, sites.count, """
+            ci.yml and release.yml declare a job id twice: \(jobs.map(\.description)).
+            """)
+
+        for job in jobs {
+            XCTAssertEqual(job.labels.count, 1, """
+                \(job.workflow)'s job `\(job.job)` must carry exactly one `runs-on:` directly under \
+                its header; it carries \(job.labels).
+                """)
+        }
+
+        XCTAssertEqual(try RunnerPin.runsOnLineCount(), jobs.count, """
+            ci.yml and release.yml carry an active `runs-on:` line outside any job's header level. \
+            Move it under its job or delete it.
+            """)
+
+        let values = Set(jobs.flatMap(\.labels))
+        XCTAssertEqual(values, [RunnerPin.label], """
+            Every job in ci.yml and release.yml must run on `\(RunnerPin.label)` (RunnerPin.label). \
+            Found: \(jobs.map(\.description)).
+            """)
+        XCTAssertNoThrow(try RunnerPin.pinnedLabel())
+    }
+
+    /// `RunnerPin`'s reading and refusal, held to inline workflows the real ones
+    /// never show — so a weakened clause cannot hide behind two agreeing files.
+    /// The reading counts only a job's own `runs-on:` (not one nested under a
+    /// step or an `env:`), strips quotes and a trailing comment, and reports a
+    /// job with none or two; the refusal throws on each of those, on a
+    /// half-move, on a moving alias and on a versioned label other than `label`.
+    func testRunnerPinRefusesWhatItExistsToRefuse() throws {
+        let workflow = """
+            jobs:
+              quoted:
+                env:
+                  runs-on: nested-env
+                runs-on: 'macos-26' # the pinned one
+                steps:
+                  - with:
+                      runs-on: nested-step
+              absent:
+                timeout-minutes: 5
+              twice:
+                runs-on: macos-26
+                runs-on: macos-26
+            """
+        let jobs = RunnerPin.jobs(in: workflow, workflow: "inline.yml")
+        XCTAssertEqual(jobs.map(\.job), ["quoted", "absent", "twice"])
+        XCTAssertEqual(jobs.map(\.labels), [["macos-26"], [], ["macos-26", "macos-26"]])
+
+        func job(_ id: String, _ labels: [String]) -> RunnerPin.Job {
+            RunnerPin.Job(workflow: "inline.yml", job: id, labels: labels)
+        }
+        let refused: [String: [RunnerPin.Job]] = [
+            "no job": [],
+            "a job without runs-on:": [job("a", ["macos-26"]), job("b", [])],
+            "a job with two runs-on:": [job("a", ["macos-26", "macos-26"])],
+            "a half-move": [job("a", ["macos-26"]), job("b", ["macos-15"])],
+            "a moving alias": [job("a", ["macos-latest"]), job("b", ["macos-latest"])],
+            "a sized variant": [job("a", ["macos-26-large"])],
+            "a matrix expression": [job("a", ["${{ matrix.os }}"])],
+            "another versioned image": [job("a", ["macos-27"]), job("b", ["macos-27"])],
+        ]
+        for (name, jobs) in refused {
+            XCTAssertThrowsError(try RunnerPin.pinnedLabel(of: jobs), "\(name) must be refused") {
+                XCTAssertTrue($0 is RunnerPin.Disagreement, "\(name): \($0)")
+            }
+        }
+        XCTAssertEqual(try RunnerPin.pinnedLabel(of: [job("a", ["macos-26"]), job("b", ["macos-26"])]),
+                       RunnerPin.label)
+    }
+
     /// `docs/RELEASING.md` names the toolchain once, in an anchored phrase, and
     /// that phrase is held equal to the workflows' pin — so prose mentioning some
     /// Xcode in passing cannot satisfy it, and a second anchored phrase (two
@@ -3058,6 +3168,25 @@ final class ReleaseWorkflowTests: XCTestCase {
         XCTAssertEqual(commands.filter { !$0.hasPrefix(prefix) }, [], """
             every xcodebuild command in docs/RELEASING.md must start `\(prefix)`, or it runs under \
             whatever Xcode xcode-select names
+            """)
+    }
+
+    /// `docs/RELEASING.md` names the runner image once, in an anchored phrase
+    /// held equal to the workflows' `runs-on:` pin — the same shape as the
+    /// toolchain phrase above, so prose mentioning some image in passing cannot
+    /// satisfy it and a second anchored phrase fails. `RunnerPin`'s doc comment
+    /// lists this reader.
+    func testReleasingDocNamesTheRunnerPin() throws {
+        let pinned = try RunnerPin.pinnedLabel()
+        let doc = try text(atRepositoryPath: "docs/RELEASING.md")
+
+        let regex = try NSRegularExpression(pattern: #"Pinned runner: `([^`]+)`"#)
+        let matches = regex.matches(in: doc, range: NSRange(doc.startIndex ..< doc.endIndex, in: doc))
+        let named = matches.compactMap { Range($0.range(at: 1), in: doc).map { String(doc[$0]) } }
+
+        XCTAssertEqual(named, [pinned], """
+            docs/RELEASING.md must carry exactly one ``Pinned runner: `\(pinned)` `` — the image every \
+            job in ci.yml and release.yml runs on. It carries \(named).
             """)
     }
 
@@ -3338,6 +3467,92 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     private static let ciAppKitTestStepName = "Test the AppKit overlay (PisakaAppTests)"
+
+    /// A failed `test-macos` run leaves its result bundle behind, and a green one
+    /// leaves nothing.
+    ///
+    /// A test that fails only on the runner's OS cannot be reproduced locally,
+    /// and the log carries the assertion's text and nothing else; the bundle
+    /// carries what a failing test attached — today the commit diff's
+    /// trailing-edge read, the bitmap it read. Each
+    /// half of the shape is a way to lose it silently:
+    ///
+    ///  * the test step's `-resultBundlePath` and the upload's `path:` drifting
+    ///    apart uploads nothing, and `if-no-files-found: ignore` (deliberate, so a
+    ///    failure before the test step reports as itself) hides it;
+    ///  * a path outside `build.noindex/` is one `.gitignore`, the lint exclusion
+    ///    and the bare-root rule do not cover;
+    ///  * an upload before the test step uploads nothing that step wrote;
+    ///  * anything but `if: failure()` either never runs on the failure it exists
+    ///    for or uploads on every green run, and an unbounded retention keeps
+    ///    every bundle for the repository's default;
+    ///  * a second upload anywhere else is an artifact no rule here describes.
+    ///
+    /// Read over comment-stripped lines through `jobSteps`, so a path or a
+    /// condition merely quoted in the step's comment cannot satisfy it.
+    func testTheAppLayerResultBundleIsKeptOnFailureOnly() throws {
+        let steps = try Self.jobSteps("test-macos", in: "ci.yml")
+        let testIndex = try XCTUnwrap(steps.firstIndex(where: { $0.first == "- name: \(Self.ciAppKitTestStepName)" }),
+                                      "ci.yml's `test-macos` job has no `\(Self.ciAppKitTestStepName)` step")
+        let uploadIndex = try XCTUnwrap(steps.firstIndex(where: { $0.first == "- name: \(Self.ciResultBundleStepName)" }), """
+            ci.yml's `test-macos` job has no `\(Self.ciResultBundleStepName)` step. Without it a CI-only \
+            failure of the app-layer bundle leaves nothing to read but the assertion's text.
+            """)
+
+        let bundlePath = try XCTUnwrap(Self.xcodebuildInvocations(in: steps[testIndex]).lazy.compactMap { tokens in
+            tokens.firstIndex(of: "-resultBundlePath").flatMap { tokens.indices.contains($0 + 1) ? String(tokens[$0 + 1]) : nil }
+        }.first, "ci.yml's `\(Self.ciAppKitTestStepName)` step passes no `-resultBundlePath`, so it writes no bundle to keep")
+        XCTAssertTrue(bundlePath.hasPrefix("build.noindex/"), """
+            The app-layer result bundle must be written under build.noindex/, the root .gitignore, the \
+            lint exclusion and the bare-root rule all cover. It is written to \(bundlePath).
+            """)
+
+        let upload = steps[uploadIndex]
+        XCTAssertGreaterThan(uploadIndex, testIndex, """
+            `\(Self.ciResultBundleStepName)` must come after `\(Self.ciAppKitTestStepName)` — before it, \
+            there is no bundle to upload.
+            """)
+        XCTAssertTrue(upload.contains { $0.hasPrefix("uses: actions/upload-artifact@") }, """
+            `\(Self.ciResultBundleStepName)` must run actions/upload-artifact.
+            """)
+        XCTAssertEqual(upload.filter { $0.hasPrefix("if:") }, ["if: failure()"], """
+            `\(Self.ciResultBundleStepName)` must carry exactly `if: failure()`: a green run keeps nothing, \
+            and a red one keeps the bundle.
+            """)
+        XCTAssertEqual(upload.filter { $0.hasPrefix("path:") }, ["path: \(bundlePath)"], """
+            `\(Self.ciResultBundleStepName)` must upload exactly the bundle the test step writes, \
+            \(bundlePath); with `if-no-files-found: ignore` a mismatch uploads nothing and says nothing.
+            """)
+        XCTAssertEqual(upload.filter { $0.hasPrefix("if-no-files-found:") }, ["if-no-files-found: ignore"], """
+            `\(Self.ciResultBundleStepName)` must carry exactly `if-no-files-found: ignore`: a failure \
+            before the test step leaves no bundle, and `warn` or `error` would report that as a missing \
+            artifact instead of as itself.
+            """)
+        XCTAssertEqual(upload.filter { $0.hasPrefix("name:") }, ["name: PisakaAppTests-xcresult"], """
+            The artifact must be named PisakaAppTests-xcresult, the name docs/RELEASING.md tells a reader \
+            to download.
+            """)
+        let retention = upload.filter { $0.hasPrefix("retention-days:") }
+            .compactMap { Int($0.dropFirst("retention-days:".count).trimmingCharacters(in: .whitespaces)) }
+        XCTAssertEqual(retention.count, 1, "`\(Self.ciResultBundleStepName)` must state one numeric `retention-days:`")
+        XCTAssertTrue(retention.allSatisfy { (1 ... 14).contains($0) }, """
+            `\(Self.ciResultBundleStepName)` must keep the bundle for at most 14 days; it states \(retention).
+            """)
+
+        for workflow in Self.workflowFileNames {
+            let text = try text(atRepositoryPath: ".github/workflows/\(workflow)")
+            for job in workflowJobs(in: text) {
+                let uploads = workflowJobSteps(job, in: text).filter { step in
+                    step.contains { $0.hasPrefix("uses: actions/upload-artifact@") || $0.hasPrefix("- uses: actions/upload-artifact@") }
+                }
+                let expected = workflow == "ci.yml" && job == "test-macos" ? 1 : 0
+                XCTAssertEqual(uploads.count, expected, """
+                    \(workflow)'s `\(job)` job carries \(uploads.count) actions/upload-artifact steps; the only \
+                    one admitted is `test-macos`'s `\(Self.ciResultBundleStepName)` in ci.yml.
+                    """)
+            }
+        }
+    }
 
     /// The whitespace tokens of every `xcodebuild` invocation in one step. A
     /// folded `run: >` step is one command spread over its lines; a `run: |`
@@ -3756,6 +3971,13 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// the release-side test is: there is no step in `ci.yml` whose failure the
     /// project is willing to ignore, so the honest assertion is the file-wide
     /// one, and it also covers the two builds and `swift test` itself.
+    ///
+    /// Exactly one condition is admitted, held by set equality over
+    /// `(job, step name, condition)`: `test-macos`'s result-bundle upload under
+    /// `if: failure()`. It widens nothing — it only *adds* a step after a failure
+    /// has already failed the job, and every gate step stays unconditional. Any
+    /// other condition, on a step or at a job's level, changes the set (or the
+    /// count of `if:` lines the steps account for) and fails here.
     func testTheCISmokeLaunchIsNotSkippable() throws {
         let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/ci.yml"))
         XCTAssertFalse(lines.isEmpty, "parsed nothing out of ci.yml")
@@ -3767,13 +3989,49 @@ final class ReleaseWorkflowTests: XCTestCase {
             the state this repository shipped v1.0 from.
             """)
 
-        let conditions = lines.filter { $0.hasPrefix("if:") }
-        XCTAssertTrue(conditions.isEmpty, """
-            ci.yml carries a step condition: \(conditions). No step in this workflow is optional — \
-            `swift test`, the two builds and the launch smoke test are the whole gate — and a \
-            skipped step runs none of the guards this suite asserts about it.
+        let ci = try text(atRepositoryPath: ".github/workflows/ci.yml")
+        let jobs = workflowJobs(in: ci)
+        XCTAssertFalse(jobs.isEmpty, "read no jobs out of ci.yml — the condition set below would judge nothing")
+        var stepConditions: Set<StepCondition> = []
+        for job in jobs {
+            for step in workflowJobSteps(job, in: ci) {
+                let opener = step[0].hasPrefix("- ") ? String(step[0].dropFirst(2)) : step[0]
+                let name = opener.hasPrefix("name: ") ? String(opener.dropFirst("name: ".count)) : opener
+                for condition in step.map({ $0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0 })
+                    where condition.hasPrefix("if:") {
+                    stepConditions.insert(StepCondition(job: job, step: name, condition: condition))
+                }
+            }
+        }
+        XCTAssertEqual(stepConditions, [Self.ciResultBundleCondition], """
+            ci.yml's step conditions changed. Found: \(stepConditions.map(\.description).sorted()). \
+            The one admitted condition is \(Self.ciResultBundleCondition): it only adds a step after a \
+            failure. No gate step is optional — `swift test`, the two builds, the app-layer bundle and \
+            the launch smoke test are the whole gate — and a skipped step runs none of the guards this \
+            suite asserts about it.
+            """)
+
+        let conditions = lines.filter { $0.hasPrefix("if:") || $0.hasPrefix("- if:") }
+        XCTAssertEqual(conditions.count, stepConditions.count, """
+            ci.yml carries \(conditions.count) `if:` lines but its steps account for \(stepConditions.count): \
+            \(conditions). Either a condition sits outside a step — on a whole job, skipping every guard \
+            that job runs — or two steps of one job share a name and a condition, which the set above \
+            counts once.
             """)
     }
+
+    /// One `if:` line on one step of one job, as `testTheCISmokeLaunchIsNotSkippable` reads it.
+    private struct StepCondition: Hashable, CustomStringConvertible {
+        let job: String
+        let step: String
+        let condition: String
+        var description: String { "(\(job), \(step), \(condition))" }
+    }
+
+    private static let ciResultBundleStepName = "Upload the test result bundle (failure only)"
+
+    private static let ciResultBundleCondition = StepCondition(
+        job: "test-macos", step: ciResultBundleStepName, condition: "if: failure()")
 
     /// The release runs the bundle it is about to submit.
     ///

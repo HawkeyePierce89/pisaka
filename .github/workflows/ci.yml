@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,7 @@ jobs:
   # its `needs: test`, because publishing must be gated on a green suite — a
   # separate question from when feedback arrives.
   build-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     # Higher than the iOS job's: this one builds Release, so it pays for
     # whole-module optimization across the app and every linked dependency.
     timeout-minutes: 45
@@ -297,7 +297,7 @@ jobs:
   # builds the product, and build-macos's smoke launch still executes the
   # shipped product after its build.
   test-macos:
-    runs-on: macos-15
+    runs-on: macos-26
     # A Debug build plus the bundle, 4–7.5 minutes measured; the iOS job's
     # budget is the ceiling.
     timeout-minutes: 30
@@ -357,10 +357,28 @@ jobs:
           -destination 'platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData.noindex
+          -resultBundlePath build.noindex/PisakaAppTests.xcresult
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+      # A test that fails only on the runner's OS has now happened twice, and the
+      # log carries nothing but the assertion's text. The result bundle holds what
+      # a failing test attached (today the commit diff's trailing-edge read, the
+      # bitmap it read), so a CI-only failure can be diagnosed without another
+      # round trip. It is kept on failure only: an upload costs time and storage
+      # on every run, and a green gate stays quiet. `ignore` keeps a failure before the test step,
+      # which leaves no bundle, from being reported as a missing artifact instead
+      # of as itself. The one `if:` ci.yml carries; every gate step stays
+      # unconditional (ReleaseWorkflowTests).
+      - name: Upload the test result bundle (failure only)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PisakaAppTests-xcresult
+          path: build.noindex/PisakaAppTests.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
 
   build-ios:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -425,7 +443,7 @@ jobs:
   # the same pin `.swiftlint.yml` declares and the pre-commit hook reads.
   # LintConfigurationTests fails if those three ever disagree.
   lint:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

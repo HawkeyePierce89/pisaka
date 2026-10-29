@@ -33,9 +33,29 @@ import PisakaCore
 /// palette's raw values do not). The context row directly below them must carry
 /// neither. The pane-width case runs in both appearances, one render each, the
 /// light one on a white ground against light swatches. The overflow case scrolls the hosted `NSScrollView` to its far right
-/// before rendering, and the legacy-scroller case sets that scroll view's
-/// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
-/// setting or touches a preference.
+/// before rendering. Every render holds that scroll view's `scrollerStyle` —
+/// `.overlay`, or `.legacy` once the legacy-scroller case asks for it — and
+/// re-applies it after every settle, so no case depends on the machine's
+/// scroll-bar setting or touches a preference. Left to the machine, macOS 26
+/// (measured on its hosted image) resolved the style to legacy: beside the
+/// overflowing diff it tiled a 17-point vertical scroller, the clip view ended
+/// at 583 points, and the column at 596 read the scroller's strip — which
+/// draws nothing into the cached bitmap — instead of the content, whose wash
+/// did reach the clip view's last column. Held at overlay, the clip view is
+/// the whole pane on every OS, so the column stays 4 points inside the edge.
+/// Every capture also hides the scrollers for its own duration: a scroller is
+/// chrome over the content, not its wash, and hiding triggers no retile.
+///
+/// **A failed read explains itself.** When the trailing-edge read finds no
+/// wash, its message carries the render's geometry — the scrollers' style,
+/// frames and visibility, the clip view's bounds right after the scroll and
+/// after settle, the document frame, the bitmap's scale — and the bitmap it
+/// read is attached to the result as `trailing-edge-<test>.png`. Both stay
+/// permanently, so a failure seen only on CI's OS is diagnosable from that
+/// run's log and `PisakaAppTests-xcresult` artifact alone, with no round trip.
+/// Nothing of it is built while the read passes, and the two
+/// `testTheTrailingEdgeDiagnosis…` cases keep it from printing nothing,
+/// unscrolled and scrolled, and the attachment from being empty.
 ///
 /// **Header rows and the text tint.** Every diff is hosted as the panel draws
 /// it, under its `---`/`+++` file headers and an `@@` hunk header, which must
@@ -58,7 +78,7 @@ import PisakaCore
 /// paint its wash from the pane's top edge (within the 2-point padding); before
 /// the content's minimum height was the visible height it began 141 points
 /// down, centred — and `.defaultScrollAnchor(.topLeading)` cured that on macOS
-/// 26 only, leaving CI's macOS 15 at the same 141. The placeholder must stay
+/// 26 only, and left macOS 15 at the same 141. The placeholder must stay
 /// centred about the pane's middle.
 @MainActor
 final class CommitUnifiedDiffWashTests: XCTestCase {
@@ -273,19 +293,77 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         return try XCTUnwrap(render.contentWidth, "no hosted scroll view")
     }
 
+    // MARK: - Failure diagnosis
+
+    /// The diagnosis a failed trailing-edge read prints is not vacuous: on an
+    /// unscrolled render it finds the hosted scroll view, reports the vertical
+    /// scroller either way, and carries the clip view's bounds and the
+    /// document's frame; and the bitmap a failure attaches is a PNG of the
+    /// whole capture.
+    func testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry() throws {
+        let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let diagnosis = render.diagnosis(atX: render.width - 4)
+        XCTAssertTrue(
+            diagnosis.contains("vertical scroller: frame in host ") || diagnosis.contains("no vertical scroller"),
+            "the diagnosis does not report the vertical scroller:\n\(diagnosis)"
+        )
+        for expected in [
+            "pixelScale ",
+            "scroll view: scrollerStyle ",
+            "NSScrollers among the scroll view's subviews: ",
+            "clip bounds right after the scroll: none (not scrolled), after settle: ",
+            "document frame ",
+        ] {
+            XCTAssertTrue(diagnosis.contains(expected), "the diagnosis lacks \"\(expected)\":\n\(diagnosis)")
+        }
+
+        let png = try XCTUnwrap(render.pngData(), "the capture encodes to no PNG — a failure would attach nothing")
+        let decoded = try XCTUnwrap(NSBitmapImageRep(data: png), "the attached PNG does not decode")
+        XCTAssertEqual(
+            CGFloat(decoded.pixelsWide), render.width * render.pixelScale, accuracy: 0.5,
+            "the attached PNG is not the whole capture"
+        )
+    }
+
+    /// On a scrolled render — the shape a real trailing-edge failure has — the
+    /// diagnosis carries the clip view's bounds right after the scroll, not the
+    /// unscrolled placeholder.
+    func testTheTrailingEdgeDiagnosisReportsTheClipBoundsRightAfterTheScroll() throws {
+        let render = try DiffRender(lines: Self.overflowing, scrollToTrailingEdge: true)
+        addTeardownBlock { @MainActor in render.window.close() }
+        XCTAssertGreaterThan(render.scrolledBy, 0, "the overflowing diff did not scroll — the case is not exercised")
+        let diagnosis = render.diagnosis(atX: render.width - 4)
+        XCTAssertTrue(
+            diagnosis.contains("clip bounds right after the scroll: ("),
+            "the diagnosis lacks the clip bounds right after the scroll:\n\(diagnosis)"
+        )
+        XCTAssertFalse(diagnosis.contains("none (not scrolled)"), "a scrolled render reads as unscrolled:\n\(diagnosis)")
+    }
+
     /// The removed and added rows are washed in a column just inside the
     /// trailing edge, in that order, and the context row under them is not.
+    /// Should either wash be missing, the bitmap read is attached to the result
+    /// and the message carries the render's geometry (`DiffRender.diagnosis`).
     private func assertWashedAtTrailingEdge(
         _ render: DiffRender, file: StaticString = #filePath, line: UInt = #line
     ) throws {
         let x = render.width - 4
+        let removedExtent = render.extent(of: .diffRemovedBackground, atX: x)
+        let addedExtent = render.extent(of: .diffAddedBackground, atX: x)
+        if removedExtent == nil || addedExtent == nil, let png = render.pngData() {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "trailing-edge-\(testMethodName).png"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         let removed = try XCTUnwrap(
-            render.extent(of: .diffRemovedBackground, atX: x),
-            "the removed line is not washed at the trailing edge", file: file, line: line
+            removedExtent,
+            "the removed line is not washed at the trailing edge\n\(render.diagnosis(atX: x))", file: file, line: line
         )
         let added = try XCTUnwrap(
-            render.extent(of: .diffAddedBackground, atX: x),
-            "the added line is not washed at the trailing edge", file: file, line: line
+            addedExtent,
+            "the added line is not washed at the trailing edge\n\(render.diagnosis(atX: x))", file: file, line: line
         )
         XCTAssertLessThan(removed.maxY, added.minY + 1, "the removed row is not above the added one", file: file, line: line)
 
@@ -300,6 +378,11 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
                 "the context line is washed \(role.rawValue) near its leading edge", file: file, line: line
             )
         }
+    }
+
+    /// The running test's method name, out of XCTest's `-[Class method]`.
+    private var testMethodName: String {
+        String(name.split(separator: " ").last?.dropLast() ?? Substring(name))
     }
 }
 
@@ -345,6 +428,13 @@ private final class DiffRender {
     private let render: HostedRender
     var window: NSWindow { render.window }
     private(set) var scrolledBy: CGFloat = 0
+    /// The clip view's bounds right after the last programmatic scroll, before
+    /// the layout settled; `nil` if the render was never scrolled.
+    private var clipBoundsAfterScroll: CGRect?
+    /// The scroller style forced onto the hosted scroll view and re-applied
+    /// after every settle: `.overlay` from the start, `.legacy` once the legacy
+    /// case asks for it.
+    private var scrollerStyle: NSScroller.Style = .overlay
 
     init(
         lines: [UnifiedDiffLine], fontSize: Double = 13, appearance: ChromeAppearance = .dark,
@@ -358,6 +448,8 @@ private final class DiffRender {
             .environment(\.chromeTheme, ChromeTheme(appearance))
             .background(ground)
         render = try HostedRender(size: CGSize(width: width, height: 300), root: root)
+        settleHoldingScrollerStyle()
+        try capture()
         if scrollToTrailingEdge { try self.scrollToTrailingEdge() }
     }
 
@@ -370,25 +462,43 @@ private final class DiffRender {
     /// Applies `change` to the hosted input and lets the layout settle.
     func update(file: StaticString = #filePath, line: UInt = #line, _ change: (DiffInput) -> Void) throws {
         change(input)
-        render.settle(file: file, line: line)
-        try render.capture()
+        settleHoldingScrollerStyle(file: file, line: line)
+        try capture()
     }
 
-    /// Sets the hosted scroll view's scroller style to `.legacy` and lets the
+    /// Holds the hosted scroll view at `.legacy` from now on and lets the
     /// layout settle, so the clip view shrinks by the vertical scroller's width
-    /// and `VisibleSizeProbe` reports it. Should the hosting framework's own
-    /// update pass reset the style, it is applied again and settled once more;
-    /// the case's guard on the visible width catches a style that still did not
-    /// hold.
+    /// and `VisibleSizeProbe` reports it. The case's guard on the visible width
+    /// catches a style that did not hold.
     func forceLegacyScrollers() throws {
-        guard let scroll = Self.scrollView(in: render.host) else { return }
-        scroll.scrollerStyle = .legacy
-        render.settle()
-        if scroll.scrollerStyle != .legacy {
-            scroll.scrollerStyle = .legacy
-            render.settle()
+        scrollerStyle = .legacy
+        settleHoldingScrollerStyle()
+        try capture()
+    }
+
+    /// Sets the hosted scroll view's scroller style to the held one and lets
+    /// the layout settle. Should the hosting framework's own update pass reset
+    /// the style, it is applied again and settled once more.
+    ///
+    /// Every render is held at `.overlay` unless the legacy case asks
+    /// otherwise, because the trailing-edge read samples a column 4 points
+    /// inside the pane: left to the machine, a runner whose preferred style is
+    /// legacy (measured on macOS 26) tiled a 17-point vertical scroller beside
+    /// an overflowing diff, the clip view ended at 583 points and the sampled
+    /// column lay in the scroller's strip — never the content. With overlay
+    /// scrollers the clip view is the whole pane on every machine, which is the
+    /// visible trailing edge the contract names.
+    private func settleHoldingScrollerStyle(file: StaticString = #filePath, line: UInt = #line) {
+        guard let scroll = Self.scrollView(in: render.host) else {
+            render.settle(file: file, line: line)
+            return
         }
-        try render.capture()
+        scroll.scrollerStyle = scrollerStyle
+        render.settle(file: file, line: line)
+        if scroll.scrollerStyle != scrollerStyle {
+            scroll.scrollerStyle = scrollerStyle
+            render.settle(file: file, line: line)
+        }
     }
 
     func scrollToTrailingEdge() throws {
@@ -398,8 +508,87 @@ private final class DiffRender {
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         scroll.reflectScrolledClipView(clip)
         scrolledBy = clip.bounds.origin.x
-        render.settle()
+        clipBoundsAfterScroll = clip.bounds
+        settleHoldingScrollerStyle()
+        try capture()
+    }
+
+    /// Re-renders the bitmap with every `NSScroller` of the hosted scroll view
+    /// hidden for the capture alone, each restored to its own `isHidden`
+    /// afterwards — the one capture every read of this render goes through. A
+    /// scroller is chrome drawn over the content, not the content's wash: an
+    /// overlay scroller a programmatic scroll flashes sits exactly over the
+    /// sampled column, for as long as the system keeps it shown. Hiding a view
+    /// triggers no retile, so the clip view's width — and the legacy case's —
+    /// is the one the layout settled at.
+    private func capture() throws {
+        let scrollers = Self.scrollView(in: render.host).map(Self.scrollers(in:)) ?? []
+        let wasHidden = scrollers.map(\.isHidden)
+        for scroller in scrollers { scroller.isHidden = true }
+        defer { for (scroller, hidden) in zip(scrollers, wasHidden) { scroller.isHidden = hidden } }
         try render.capture()
+    }
+
+    /// The bitmap last captured, as PNG.
+    func pngData() -> Data? { render.pngData() }
+
+    /// Bitmap pixels per point of the last capture.
+    var pixelScale: CGFloat { render.pixelScale }
+
+    // MARK: Failure diagnosis
+
+    /// The render's geometry, for the message of a failed read in column `x`:
+    /// the hosted scroll view's scroller configuration, each scroller's frame
+    /// (in the host's coordinates) and visibility, the clip view's bounds right
+    /// after the last scroll and now, the document view's frame and the
+    /// bitmap's scale. Built only when a read fails — a passing test pays
+    /// nothing for it.
+    func diagnosis(atX x: CGFloat) -> String {
+        var lines = ["diagnosis of the read at x = \(x) in a \(width)-point pane, pixelScale \(render.pixelScale)"]
+        if let scroll = Self.scrollView(in: render.host) {
+            let style: String
+            switch scroll.scrollerStyle {
+            case .overlay: style = "overlay"
+            case .legacy: style = "legacy"
+            @unknown default: style = "unknown (\(scroll.scrollerStyle.rawValue))"
+            }
+            lines.append(
+                "scroll view: scrollerStyle \(style), hasVerticalScroller \(scroll.hasVerticalScroller), "
+                    + "hasHorizontalScroller \(scroll.hasHorizontalScroller), autohidesScrollers \(scroll.autohidesScrollers)"
+            )
+            for (axis, scroller) in [("vertical", scroll.verticalScroller), ("horizontal", scroll.horizontalScroller)] {
+                lines.append(scroller.map { "\(axis) scroller: " + describe($0) } ?? "no \(axis) scroller")
+            }
+            let subviewScrollers = Self.scrollers(in: scroll)
+            lines.append("NSScrollers among the scroll view's subviews: \(subviewScrollers.count)")
+            lines += subviewScrollers.map { "  \(type(of: $0)): " + describe($0) }
+            let clip = scroll.contentView
+            lines.append(
+                "clip bounds right after the scroll: "
+                    + (clipBoundsAfterScroll.map { "\($0)" } ?? "none (not scrolled)") + ", after settle: \(clip.bounds)"
+            )
+            lines.append(
+                scroll.documentView.map { "document frame \($0.frame), isFlipped \($0.isFlipped)" } ?? "no document view"
+            )
+        } else {
+            lines.append("no hosted scroll view")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// `scroller`'s frame in the host's coordinates, its visibility and its knob.
+    private func describe(_ scroller: NSScroller) -> String {
+        let frame = scroller.convert(scroller.bounds, to: render.host)
+        let opacity = scroller.layer.map { "\($0.opacity)" } ?? "no layer"
+        return "frame in host \(frame), isHidden \(scroller.isHidden), alphaValue \(scroller.alphaValue), "
+            + "layer opacity \(opacity), knobProportion \(scroller.knobProportion), doubleValue \(scroller.doubleValue)"
+    }
+
+    /// Every `NSScroller` in `view`'s subtree, `view` itself excluded.
+    private static func scrollers(in view: NSView) -> [NSScroller] {
+        view.subviews.flatMap { subview in
+            (subview as? NSScroller).map { [$0] + scrollers(in: $0) } ?? scrollers(in: subview)
+        }
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {

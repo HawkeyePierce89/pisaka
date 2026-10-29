@@ -73,6 +73,9 @@ final class HostedRender {
         pixelScale = CGFloat(rep.pixelsWide) / host.bounds.width
     }
 
+    /// The bitmap last captured, as PNG — for a failure's attachment.
+    func pngData() -> Data? { rep.representation(using: .png, properties: [:]) }
+
     private static func bitmap(of host: NSView) throws -> NSBitmapImageRep {
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)

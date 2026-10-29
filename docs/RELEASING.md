@@ -455,21 +455,19 @@ releases page's default view but still occupies the tag.
 
 **Pinned toolchain: Xcode `26.3`.** Every `maxim-lobanov/setup-xcode` step —
 four in `ci.yml` (`test`, `build-macos`, `test-macos`, `build-ios`) and two here (`test`,
-`release`) — installs that one version, on the `macos-15` runner, and
-`ReleaseWorkflowTests` holds all six to a single value, with this sentence
-held equal to it (the set of steps is the authority; `XcodePin`, in the test
-support directory, lists every reader checked against it). The pin exists
-because the language the project may use is whatever *this* Xcode accepts, and a
-newer local toolchain proves nothing about it: a scene `.commands { }` builder
-grew an eleventh entry that compiled on the development machine's Xcode and
-failed on CI's with `extra argument in call`, because the SDK CI built with
-declared `CommandsBuilder.buildBlock` up to ten children only
-(`app-shell.md`). CI was on Xcode 16.4 then, and 16.4 cannot be installed on
-the development machine's macOS at all, so no local gate could have reproduced
-the failure. 26.3 is the newest Xcode present on both the `macos-15` and the
-`macos-26` runner images, so it is the closest CI can come to a toolchain a
-developer can also run, without the runner move in the same change; moving the
-jobs to `macos-26` is a separate follow-up. The `Makefile` runs every
+`release`) — installs that one version, and `ReleaseWorkflowTests` holds all six
+to a single value, with this sentence held equal to it (the set of steps is the
+authority; `XcodePin`, in the test support directory, lists every reader checked
+against it). The pin exists because the language the project may use is whatever
+*this* Xcode accepts, and a newer local toolchain proves nothing about it: a
+scene `.commands { }` builder grew an eleventh entry that compiled on the
+development machine's Xcode and failed on CI's with `extra argument in call`,
+because the SDK CI built with declared `CommandsBuilder.buildBlock` up to ten
+children only (`app-shell.md`). CI was on Xcode 16.4 then, and 16.4 cannot be
+installed on the development machine's macOS at all, so no local gate could have
+reproduced the failure. The pin is 26.3 because that is the Xcode the
+development machines run the app-layer gates under, and the runner image below
+ships it at `/Applications/Xcode_26.3.app`. The `Makefile` runs every
 `xcodebuild` it issues under `/Applications/Xcode_26.3.app` through
 `DEVELOPER_DIR` and **refuses** when that Xcode is missing, or reports some
 other release, rather than falling back to `xcode-select`'s; installing it there
@@ -478,6 +476,32 @@ is a human step on each development machine (or pass
 carries the same `DEVELOPER_DIR` prefix — the Sparkle re-derive below resolves
 packages, and a resolution under another Xcode can rewrite the committed
 `Package.resolved` into a schema CI then refuses.
+
+**Pinned runner: `macos-26`.** Every job in both workflows runs on that one
+image, and `ReleaseWorkflowTests` holds the set of jobs and their one label by
+set equality, with this sentence held equal to it, the same way it holds the
+`setup-xcode` steps to one Xcode (the jobs are the authority; `RunnerPin`,
+beside `XcodePin`, lists every reader checked against it). The label is an
+explicit versioned image rather than `macos-latest`, so GitHub cannot change the
+OS under the pin without a commit. The image matters as much as the Xcode:
+SwiftUI ships with the OS, not with Xcode, so a runner two major versions behind
+the development machine draws some layouts differently, and the app-layer gates
+then measure an OS no developer runs. Moving the jobs from macOS 15 to macOS 26
+narrowed that gap from two major versions to one. The cost, recorded rather than
+fixed: no gate runs on a macOS older than the image while the app supports
+macOS 14 and later, so behaviour that differs by OS below it — SwiftUI layout,
+AppKit's frame versus inset ruler tiling (`core-zoom.md`), the commit dialog's
+scroll anchor (`app-git-views.md`) — is held by those design notes and by hand,
+not by CI. A failure that shows only on the runner's OS is read from the failed
+`test-macos` run's `PisakaAppTests-xcresult` artifact, uploaded on failure only:
+`gh run download <run-id> -n PisakaAppTests-xcresult -D <new empty directory>`,
+then `xcrun xcresulttool export attachments --path <that directory> --output-path
+<another new empty directory>`. The download directory *is* the bundle: the
+artifact holds the bundle's contents, with no `.xcresult` folder around them. The
+exported files are named by UUID, and the `manifest.json` beside them maps each
+to its attachment's name. Only the commit diff's trailing-edge read attaches a
+bitmap (`trailing-edge-<test>_0_<UUID>.png`, `CommitUnifiedDiffWashTests`); every
+other suite's failure is its text alone.
 
 The workflow then, in order:
 
@@ -1386,6 +1410,13 @@ downloaded the app rather than built it.
   validation is per-process, so this is expected to work; it is exercised nowhere
   else, and an entitlement (Decision: none ship today) would be added only if
   this failed.
+- **The first release on the `macos-26` image.** `release.yml` runs only on a
+  `v*` tag, so its two jobs first run on the [pinned runner](#cutting-a-release)
+  at the next release. The pull request that moves the label is what proves `ci.yml`
+  on the new image, once its own CI run passes; for `release.yml` the static suites prove the
+  shape — every job on the one versioned label — and not that it runs. On that
+  run, check that each job log's "Runner Image" group names a macOS 26 image,
+  and that the archive, notarize, staple and smoke-launch steps all pass.
 
 ## Check by hand before the first submission
 
