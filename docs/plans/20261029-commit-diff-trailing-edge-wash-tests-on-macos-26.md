@@ -434,11 +434,11 @@ Intent: produce the branch's final tree, so that in outcome A the next push can 
 
 ### Task 6: Fix push (CI push 2)
 
-- [ ] Commit Tasks 4–5 and push. Wait for the run in bounded calls of at most 9 minutes each
+- [x] Commit Tasks 4–5 and push. Wait for the run in bounded calls of at most 9 minutes each
   until its `status` is `completed`, as described in "Reading a run".
-- [ ] Expected: all five jobs green on `macos-26`, and an artifact count of 0 for the run.
+- [x] Expected: all five jobs green on `macos-26`, and an artifact count of 0 for the run.
   Record the run ID, the image version and the artifact count in `## Notes`.
-- [ ] If `test-macos` is red, the retained geometry line and attachment are the evidence.
+- [x] If `test-macos` is red, the retained geometry line and attachment are the evidence.
   Take this run back through Task 3's decision table, fix, run the local gates, and push
   again. Record every run.
 
@@ -686,6 +686,22 @@ the local and CI mutation results.)
   docs/architecture) prints nothing.
 - Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
   equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean, exit 0.
+
+### Task 6: CI push 2, the fix run
+
+- Pushed Tasks 3–5 (7b1f8ad8, b586323f, 2ee80d79); the tree was the one whose gates Task 5
+  recorded under Xcode 26.3, so they were not re-run. The previous run 40852416749 was
+  already completed.
+- Run 40856343998, head SHA 2ee80d798437de4e5bd2f340abda127bfe06d67e. Runner image
+  `macos-26-arm64` 20261021.0445.8 on all five jobs, macOS build 25G83 (26.6.2), Xcode 26.3.
+  Jobs: `test`, `test-macos`, `build-ios`, `build-macos` and `lint` all green; conclusion
+  `success`.
+- `test-macos`: 509 tests, 0 failures. All eleven `CommitUnifiedDiffWashTests` cases passed,
+  among them the two that failed in runs 40793706701 and 40852416749
+  (`testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff`,
+  `testSwitchingFilesMeasuresTheNewDiffsWidestRow`).
+- Artifacts: 0. The success half of the artifact rule holds.
+- `test-macos` was green, so the red-run branch of this task did not apply.
 
 ## Post-Completion
 
