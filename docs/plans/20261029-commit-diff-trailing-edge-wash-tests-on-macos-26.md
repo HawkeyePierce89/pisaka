@@ -349,7 +349,8 @@ Not acceptable in any outcome:
   `DiffRender`; `HostedRender` untouched beyond Task 1's accessor)
 - Outcome A: Modify `Sources/Pisaka/CommitUnifiedDiffView.swift`
 
-- [ ] Outcome B or C: take the scrollers out of the capture.
+- [x] Outcome B or C: take the scrollers out of the capture (done, plus the scroller style the
+  Task 3 evidence named; see Notes).
   - Route every bitmap `DiffRender` reads through one `DiffRender` capture method. The method
     sets `isHidden = true` on every `NSScroller` subview of the hosted scroll view, calls
     `render.capture()`, then restores each scroller's previous `isHidden`.
@@ -360,14 +361,15 @@ Not acceptable in any outcome:
     wash.
   - If the evidence named something other than a scroller, take that view out of the capture
     the same way and name it in the doc comment.
-- [ ] Outcome B or C: run a local regression probe. In the overflowing case, call
+- [x] Outcome B or C: run a local regression probe (the flash did not reach `cacheDisplay`
+  locally; no test added; see Notes). In the overflowing case, call
   `flashScrollers()` on the hosted scroll view before the capture.
   - If a capture without the hiding then fails the read on this machine, keep a permanent
     test that flashes and asserts the read still holds. Flashing is an explicit action, not
     timing.
   - If the flash does not reach `cacheDisplay` locally, record that in `## Notes` and add no
     test for it. CI is then the only witness.
-- [ ] Outcome A or C: fix the product.
+- [x] Outcome A or C: fix the product (skipped - not applicable, the outcome is B).
   - Fix `CommitUnifiedDiffView` so the content's fill reaches the clip view's visible
     trailing edge after a scroll on macOS 26. Use the measured value the evidence shows is
     wrong, for example the visible width or the insets the probe reports after scrolling.
@@ -375,7 +377,7 @@ Not acceptable in any outcome:
   - Leave the two failing tests unchanged.
   - The unscrolled, legacy-scroller, live-update and vertical-alignment cases must stay green
     locally.
-- [ ] Run the product mutation locally under Xcode 26.3, in both variants, reverting each
+- [x] Run the product mutation locally under Xcode 26.3, in both variants, reverting each
   afterwards. Record both results in `## Notes`.
   - Line 152 `minWidth: max(visibleSize.width, widestRow)` → `minWidth: visibleSize.width`:
     the overflowing case must fail, because it does not scroll.
@@ -384,7 +386,7 @@ Not acceptable in any outcome:
 
   Run with `-only-testing:PisakaAppTests/CommitUnifiedDiffWashTests`, using the same
   `DEVELOPER_DIR` and `-derivedDataPath`.
-- [ ] Run the local gates (`swift test`, the raw `make test-app` equivalent,
+- [x] Run the local gates (`swift test`, the raw `make test-app` equivalent,
   `swiftlint lint --strict`). All must be green.
 
 ### Task 5: Docs, stale comments and diagnostic clean-up
@@ -614,6 +616,55 @@ the local and CI mutation results.)
   - A side observation, outside this plan's contract: under legacy scrollers the vertical
     scroller is shown although the document is exactly as tall as the clip view (283 = 283,
     knob proportion 0.969). It does not affect the wash; recorded only.
+
+### Task 4 (local, macOS 27, Xcode 26.3): the harness fix (outcome B)
+
+- `DiffRender` now captures through one private `capture()`: it sets `isHidden = true` on
+  every `NSScroller` under the hosted scroll view, calls `render.capture()`, and restores each
+  scroller's own `isHidden`. `init`, `update`, `scrollToTrailingEdge()` and
+  `forceLegacyScrollers()` all go through it. `HostedRender` is untouched beyond Task 1's
+  accessor, and so is the product.
+- The part the Task 3 evidence named: `DiffRender` holds a scroller style, `.overlay` from the
+  start, and re-applies it after every settle (`settleHoldingScrollerStyle`). That covers
+  `init`, `update` and the scroll, and a second apply-and-settle runs if the hosting framework
+  reset the style. `forceLegacyScrollers()` switches the held style to `.legacy`, so the
+  legacy case keeps its meaning. With overlay scrollers the clip view is the whole 600-point
+  pane on every machine, so `x = width - 4` lies inside the content again. The sample column
+  is unchanged.
+- Local regression probe, run through a temporary test and removed before the gates. The
+  overflowing case was scrolled, then `flashScrollers()` was called on the hosted scroll
+  view.
+  - Plain `render.capture()` (no hiding): removed 56–74 and added 74–92 at x = 596. The read
+    held.
+  - Through the hiding capture: the same result.
+  - The vertical scroller stayed `isHidden true` after the flash: overlay style, clip
+    (1264, 0, 600, 300). The flash does not reach `cacheDisplay` on this machine, so no flash
+    test was added, and CI is the only witness.
+- A second probe tried to reproduce the runner here: `.legacy` forced, then the scroll. It
+  does not reproduce.
+  - The legacy vertical scroller stays hidden: autohide, document height 283 = clip height
+    283. The clip stays 600 wide, and x = 596 reads both washes.
+  - The runner showed that scroller with the same 283/283 heights (Task 3's side
+    observation). That is the one difference this machine cannot stage.
+  - Forcing `.overlay` afterwards gave clip (1264, 0, 600, 300) and both washes. CI push 2 is
+    the witness for the fix.
+- Product mutation, `-only-testing:PisakaAppTests/CommitUnifiedDiffWashTests`, Xcode 26.3,
+  each reverted (the product file restored, `git diff` empty):
+  - `minWidth: max(visibleSize.width, widestRow)` → `minWidth: visibleSize.width`: 3 failures.
+    - The overflowing case failed at "the overflowing diff did not scroll horizontally"
+      (0.0 is not greater than 0.0).
+    - `testSwitchingFilesMeasuresTheNewDiffsWidestRow` failed at "the narrower diff does not
+      overflow — the case is not exercised" (600.0).
+    - `testAFontSizeChangeMeasuresTheRowsAgain` failed at "the larger font did not widen the
+      content — the case is not exercised".
+  - `minWidth:` removed entirely: 14 failures in 9 of the 11 cases. Among them:
+    - the pane-width case at line 174 and the overflowing case at line 182, each with "the
+      removed line is not washed at the trailing edge";
+    - `testSwitchingFilesMeasuresTheNewDiffsWidestRow` with the same message at line 249;
+    - the content width 125 against 600 / 583 in the width cases;
+    - the non-vacuity test, whose inner column scan no longer names either wash.
+- Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
+  equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean, exit 0.
 
 ## Post-Completion
 

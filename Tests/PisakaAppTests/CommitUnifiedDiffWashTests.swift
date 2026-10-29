@@ -402,6 +402,10 @@ private final class DiffRender {
     /// The clip view's bounds right after the last programmatic scroll, before
     /// the layout settled; `nil` if the render was never scrolled.
     private var clipBoundsAfterScroll: CGRect?
+    /// The scroller style forced onto the hosted scroll view and re-applied
+    /// after every settle: `.overlay` from the start, `.legacy` once the legacy
+    /// case asks for it.
+    private var scrollerStyle: NSScroller.Style = .overlay
 
     init(
         lines: [UnifiedDiffLine], fontSize: Double = 13, appearance: ChromeAppearance = .dark,
@@ -415,6 +419,8 @@ private final class DiffRender {
             .environment(\.chromeTheme, ChromeTheme(appearance))
             .background(ground)
         render = try HostedRender(size: CGSize(width: width, height: 300), root: root)
+        settleHoldingScrollerStyle()
+        try capture()
         if scrollToTrailingEdge { try self.scrollToTrailingEdge() }
     }
 
@@ -427,25 +433,43 @@ private final class DiffRender {
     /// Applies `change` to the hosted input and lets the layout settle.
     func update(file: StaticString = #filePath, line: UInt = #line, _ change: (DiffInput) -> Void) throws {
         change(input)
-        render.settle(file: file, line: line)
-        try render.capture()
+        settleHoldingScrollerStyle(file: file, line: line)
+        try capture()
     }
 
-    /// Sets the hosted scroll view's scroller style to `.legacy` and lets the
+    /// Holds the hosted scroll view at `.legacy` from now on and lets the
     /// layout settle, so the clip view shrinks by the vertical scroller's width
-    /// and `VisibleSizeProbe` reports it. Should the hosting framework's own
-    /// update pass reset the style, it is applied again and settled once more;
-    /// the case's guard on the visible width catches a style that still did not
-    /// hold.
+    /// and `VisibleSizeProbe` reports it. The case's guard on the visible width
+    /// catches a style that did not hold.
     func forceLegacyScrollers() throws {
-        guard let scroll = Self.scrollView(in: render.host) else { return }
-        scroll.scrollerStyle = .legacy
-        render.settle()
-        if scroll.scrollerStyle != .legacy {
-            scroll.scrollerStyle = .legacy
-            render.settle()
+        scrollerStyle = .legacy
+        settleHoldingScrollerStyle()
+        try capture()
+    }
+
+    /// Sets the hosted scroll view's scroller style to the held one and lets
+    /// the layout settle. Should the hosting framework's own update pass reset
+    /// the style, it is applied again and settled once more.
+    ///
+    /// Every render is held at `.overlay` unless the legacy case asks
+    /// otherwise, because the trailing-edge read samples a column 4 points
+    /// inside the pane: left to the machine, a runner whose preferred style is
+    /// legacy (measured on macOS 26) tiled a 17-point vertical scroller beside
+    /// an overflowing diff, the clip view ended at 583 points and the sampled
+    /// column lay in the scroller's strip — never the content. With overlay
+    /// scrollers the clip view is the whole pane on every machine, which is the
+    /// visible trailing edge the contract names.
+    private func settleHoldingScrollerStyle(file: StaticString = #filePath, line: UInt = #line) {
+        guard let scroll = Self.scrollView(in: render.host) else {
+            render.settle(file: file, line: line)
+            return
         }
-        try render.capture()
+        scroll.scrollerStyle = scrollerStyle
+        render.settle(file: file, line: line)
+        if scroll.scrollerStyle != scrollerStyle {
+            scroll.scrollerStyle = scrollerStyle
+            render.settle(file: file, line: line)
+        }
     }
 
     func scrollToTrailingEdge() throws {
@@ -456,7 +480,23 @@ private final class DiffRender {
         scroll.reflectScrolledClipView(clip)
         scrolledBy = clip.bounds.origin.x
         clipBoundsAfterScroll = clip.bounds
-        render.settle()
+        settleHoldingScrollerStyle()
+        try capture()
+    }
+
+    /// Re-renders the bitmap with every `NSScroller` of the hosted scroll view
+    /// hidden for the capture alone, each restored to its own `isHidden`
+    /// afterwards — the one capture every read of this render goes through. A
+    /// scroller is chrome drawn over the content, not the content's wash: an
+    /// overlay scroller a programmatic scroll flashes sits exactly over the
+    /// sampled column, for as long as the system keeps it shown. Hiding a view
+    /// triggers no retile, so the clip view's width — and the legacy case's —
+    /// is the one the layout settled at.
+    private func capture() throws {
+        let scrollers = Self.scrollView(in: render.host).map(Self.scrollers(in:)) ?? []
+        let wasHidden = scrollers.map(\.isHidden)
+        for scroller in scrollers { scroller.isHidden = true }
+        defer { for (scroller, hidden) in zip(scrollers, wasHidden) { scroller.isHidden = hidden } }
         try render.capture()
     }
 
