@@ -555,7 +555,7 @@ user sees it.
   search window (a repeat press focuses the one already open). It has the same
   match case / whole word / regular expression toggles plus a file mask (`*.ts,*.tsx`, case-sensitive — `*.TS`
   will not match `foo.ts`), and lists matches
-  grouped by file — each group's header shows the file's glyph, its path and
+  grouped by file — each group's header shows the file's kind icon, its path and
   its match count (`3 matches`) — with a preview line per match; a line under the
   fields states the scope (`In: <project> · Files: <mask> · Exclude: ignored
   files`), and Replace All ends the replace row. The traversal honors your
@@ -1649,8 +1649,8 @@ user sees it.
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party component the app
-  ships — the linked packages and the two bundled Markdown-preview page assets
-  alike, each with its name, SPDX identifier, version/revision and where it came
+  ships — the linked packages, the two bundled Markdown-preview page assets,
+  the design glyphs and the vendored file-icon set alike, each with its name, SPDX identifier, version/revision and where it came
   from — beside its full license text, shown verbatim and selectable.
 - LeetCode integration, in its own **LeetCode** menu. None of it needs an open
   project, and opening a problem never changes the project root — the solution

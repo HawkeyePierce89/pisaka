@@ -201,7 +201,7 @@ struct TabStatusMark: View {
     }
 }
 
-/// The file glyph both tab orientations draw at the leading edge of a tab.
+/// The file-type icon both tab orientations draw at the leading edge of a tab.
 ///
 /// It answers one rule, and answers it once: an `OpenFile` that has never been
 /// written has no url, and is asked about under its `displayName`, so the icon

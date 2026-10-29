@@ -218,8 +218,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     /// `internal` seams (the tables themselves stay `private`) solely so the
     /// tests can hold this table against the file-icon tables. Their reader is
     /// `FileTypeIconTests`, which asserts that every name and extension here
-    /// draws its language's icon except one pinned override; `FileIconTests`
-    /// reads them too until that table retires. A language is not an icon, so
+    /// draws its language's icon except one pinned override. A language is not an icon, so
     /// the maps stay separate, and only a test keeps a name that highlights as
     /// shell from drawing the fallback.
     static var exactFileNames: [String] { Array(exactFileNameMap.keys) }

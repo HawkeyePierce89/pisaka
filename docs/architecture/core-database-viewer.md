@@ -1459,9 +1459,10 @@ above, and it touches it only to be **excluded** from the text-shaped reasoning.
 
 Core-side, all in `Tests/PisakaCoreTests/`:
 
-- `DatabaseFileRuleTests`, `FileIconTests`, `OpenFileTests` — the recognition
-  rule in both cases, a middle `db` component, no extension, a dotfile; the icon
-  entries; and that a `.viewer` `OpenFile` is not dirty even when someone assigns
+- `DatabaseFileRuleTests`, `FileTypeIconTests`, `OpenFileTests` — the recognition
+  rule in both cases, a middle `db` component, no extension, a dotfile; that
+  every recognized database extension, and `README.db`, draws the `database`
+  icon; and that a `.viewer` `OpenFile` is not dirty even when someone assigns
   `text`.
 - `WorkspaceModelTests` / `FileServiceTests` / `EditorSessionTests` — both switch
   positions (with it on, a `.viewer` tab with empty text and **no `read` call** on

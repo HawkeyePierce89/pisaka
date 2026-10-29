@@ -253,12 +253,19 @@ final class FileTypeIconAssetTests: XCTestCase {
 
     // MARK: - Record header
 
+    /// The record states the pin twice: `Tag`/`Commit`, which this suite
+    /// measured the bytes off, and `Version`/`Revision`, which
+    /// `LicenseCoverageTests` holds against the notice. Both pairs are pinned
+    /// here, so the acknowledgement cannot name a revision the bytes did not
+    /// come from.
     func testTheRecordStatesThePinnedTagAndCommit() throws {
         let section = try XCTUnwrap(MarkdownPreviewVendoredDoc.sections(
             in: try String(contentsOf: Self.record, encoding: .utf8))["file-icons"],
             "the record has no `## file-icons` section")
         XCTAssertEqual(section.value("Tag"), Self.pinnedTag)
         XCTAssertEqual(section.value("Commit"), Self.pinnedCommit)
+        XCTAssertEqual(section.value("Version"), Self.pinnedTag)
+        XCTAssertEqual(section.value("Revision"), Self.pinnedCommit)
     }
 
     // MARK: - Reading the repository

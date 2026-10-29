@@ -89,7 +89,6 @@ struct LocalChangesView_iOS: View {
                         ForEach(model.changedFiles) { file in
                             ChangedFileRow_iOS(
                                 name: (file.path as NSString).lastPathComponent,
-                                url: url(for: file.path),
                                 status: file.status,
                                 isChecked: model.revertSelection.contains(file.id),
                                 onTap: { open(file) },
@@ -207,11 +206,6 @@ struct LocalChangesView_iOS: View {
         revertCandidates = files
     }
 
-    /// Absolute url for a repo-relative path, for the row's icon resolution.
-    private func url(for path: String) -> URL {
-        (projectRoot ?? URL(fileURLWithPath: "/")).appendingPathComponent(path)
-    }
-
     private func refreshIfPossible() {
         guard let projectRoot else { return }
         // Pin the current request generation synchronously before the `Task` hop, so
@@ -251,7 +245,6 @@ private struct ChangeNodeView_iOS: View {
         if let file = node.file {
             ChangedFileRow_iOS(
                 name: node.name,
-                url: node.url,
                 status: file.status,
                 isChecked: model.revertSelection.contains(file.id),
                 onTap: { onOpenDiff(file) },
@@ -289,7 +282,6 @@ private struct ChangeNodeView_iOS: View {
 /// reverts.
 private struct ChangedFileRow_iOS: View {
     let name: String
-    let url: URL
     let status: FileStatus
     let isChecked: Bool
     let onTap: () -> Void
@@ -306,7 +298,7 @@ private struct ChangedFileRow_iOS: View {
                     .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
-            FileTypeIconImage(FileTypeIcon.forFile(named: url.lastPathComponent), side: FileRowLayout_iOS.iconSide)
+            FileTypeIconImage(FileTypeIcon.forFile(named: name), side: FileRowLayout_iOS.iconSide)
             Text(name)
             Spacer(minLength: 4)
             Text(statusLetter(status))

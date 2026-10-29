@@ -223,7 +223,9 @@ public enum FileTypeIcon: String, CaseIterable, Sendable {
     ]
 
     /// Phase 4, lowercased extensions. Apart from `jsx`, none is one
-    /// `SyntaxLanguage` claims; `FileTypeIconTests` holds that as a set.
+    /// `SyntaxLanguage` claims; `FileTypeIconTests` holds that through the
+    /// language's extension seam, whose every entry must answer its language's
+    /// icon except `jsx`.
     private static let extensions: [String: FileTypeIcon] = [
         "jsx": .react,
         "scss": .sass, "sass": .sass,

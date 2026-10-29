@@ -26,8 +26,9 @@ import SwiftUI
 /// fields are the shared `ChromeThemedTextField` (`bgEditor` ground, `hairline`
 /// border, `accent` on focus), toggles `accent` on `accentTint` while on and
 /// `textPrimary` with no ground while off, the scope line and counters in `callout`
-/// `textSecondary`, the group header monochrome `textSecondary` (the file's
-/// design glyph, its path and `N matches`), the match row
+/// `textSecondary`, the group header's path and `N matches` in `textSecondary`,
+/// led by the file's full-colour `FileTypeIcon`, which no role tints (the
+/// theme's third stated exception), the match row
 /// on the code font with the line number in `textSecondary`, the highlight kept
 /// on the editor's current-match background, and the validation error in
 /// `statusRed`.

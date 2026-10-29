@@ -66,6 +66,9 @@ the ISC licence alone.
 
 The seven left behind (`chevron-left`, `circle`, `circle-check`, `circle-dot`,
 `circle-x`, `info`, `minus`) are not drawn anywhere, so they do not ship.
+`database` is the exception today: the file surfaces stopped drawing it when the
+file-type icons replaced it, and whether it still ships is an open follow-up
+recorded in `core-theme.md`.
 
 Every imageset's `Contents.json` sets `"template-rendering-intent": "template"`,
 so the glyph is tinted by whatever colour the drawing site hands it, and

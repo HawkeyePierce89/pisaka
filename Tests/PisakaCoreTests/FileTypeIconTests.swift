@@ -176,6 +176,20 @@ final class FileTypeIconTests: XCTestCase {
         XCTAssertEqual(FileTypeIcon.forFile(named: "tsconfig.app.json"), .tsconfig)
     }
 
+    func testAStemMatchesOnlyAtADotBoundary() {
+        // A stem claims the bare name or the stem followed by a dot, never a
+        // longer word that merely starts with it.
+        XCTAssertEqual(FileTypeIcon.forFile(named: "licenses.json"), .json)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "readme-old.md"), .markdown)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "changelogs.txt"), .document)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "docker-composer.json"), .json)
+    }
+
+    func testTheTsconfigPrefixNeedsItsJSONSuffix() {
+        XCTAssertEqual(FileTypeIcon.forFile(named: "tsconfig.ts"), .typescript)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "tsconfig.d.ts"), .typescriptDef)
+    }
+
     func testCompoundSuffixBeatsItsPlainExtension() {
         XCTAssertEqual(FileTypeIcon.forFile(named: "app.test.ts"), .testTS)
         XCTAssertEqual(FileTypeIcon.forFile(named: "app.ts"), .typescript)
