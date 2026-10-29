@@ -483,9 +483,9 @@ absent.
 
 ### Task 9: Update documentation
 
-- [ ] README.md needs nothing, because there is no user-facing change. Confirm this and note
+- [x] README.md needs nothing, because there is no user-facing change. Confirm this and note
   it.
-- [ ] Confirm that the `CLAUDE.md` CI clause from Task 2 matches the final ci.yml, and that
+- [x] Confirm that the `CLAUDE.md` CI clause from Task 2 matches the final ci.yml, and that
   `LintConfigurationTests` passes.
 
 ## Notes
@@ -763,6 +763,18 @@ the local and CI mutation results.)
   prints nothing (exit 1).
 - `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
   prints nothing (exit 1).
+
+### Task 9 (local, macOS 27, Xcode 26.3): documentation
+
+- README.md: unchanged on this branch (`git diff master -- README.md` is empty), and it needs
+  nothing: no user-facing change. Its one "runner" mention (line 60) is the in-app test
+  runner, not CI.
+- `CLAUDE.md`'s CI clause ("uploading its result bundle on failure only", on the app-layer
+  `PisakaAppTests` job) matches the final ci.yml: `test-macos` passes
+  `-resultBundlePath build.noindex/PisakaAppTests.xcresult`, and only its following step
+  "Upload the test result bundle (failure only)" carries `if: failure()` with
+  `actions/upload-artifact` v7.0.2 and `retention-days: 7`. `CLAUDE.md` is 56,808 characters;
+  `swift test --filter LintConfigurationTests` under Xcode 26.3: 29 tests, 0 failures.
 
 ## Post-Completion
 
