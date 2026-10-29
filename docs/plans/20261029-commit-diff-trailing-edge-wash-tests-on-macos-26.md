@@ -299,19 +299,19 @@ admit exactly this, not loosened.
 Intent: one run that both answers the question and verifies the failure half of the artifact
 rule. This task carries no fix.
 
-- [ ] Commit Tasks 1–2 and push to `move-ci-runners-to-macos-26`. Use a message such as
+- [x] Commit Tasks 1–2 and push to `move-ci-runners-to-macos-26`. Use a message such as
   `ci: keep the app-layer result bundle on failure; diagnose the trailing-edge read`.
-- [ ] Find the run for this head SHA. Wait for it in bounded calls of at most 9 minutes each
+- [x] Find the run for this head SHA. Wait for it in bounded calls of at most 9 minutes each
   until its `status` is `completed`, as described in "Reading a run".
   - Expected: `test-macos` red on the same two tests, and the other four jobs green.
   - Any other red job is a defect in Tasks 1–2. Fix it locally, then push again before going
     on.
-- [ ] Quote the two failure messages from `gh run view <id> --log-failed` verbatim into
+- [x] Quote the two failure messages from `gh run view <id> --log-failed` verbatim into
   `## Notes`, with their diagnosis lines. Record the run ID and the image version.
-- [ ] Verify that an artifact named `PisakaAppTests-xcresult` exists on the run. Download it
+- [x] Verify that an artifact named `PisakaAppTests-xcresult` exists on the run. Download it
   into a new, empty directory and export its attachments. View both PNGs, and describe in
   `## Notes` what is drawn at the trailing edge over the removed and added rows.
-- [ ] Decide the outcome with the table below, and write the conclusion and its reason in
+- [x] Decide the outcome with the table below, and write the conclusion and its reason in
   `## Notes`.
   - **B (the harness reads the wrong pixels)** when all of these hold:
     - a vertical `NSScroller` is drawn (not hidden, `alphaValue` and layer opacity above 0)
@@ -523,6 +523,97 @@ the local and CI mutation results.)
 - `CLAUDE.md` at 56,808 characters after its clause; `LintConfigurationTests` green.
 - Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
   equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean.
+
+### Task 3: CI push 1, the diagnostic run
+
+- Pushed Tasks 1–2 as their own two commits (d4f3f414, 1f0b8a74); the tree was the one
+  whose gates Task 2 recorded, so they were not re-run. The previous run 40793706701 was
+  already completed.
+- Run 40852416749, head SHA 1f0b8a74e5814f8cf5e30cfa898d1ca00047c0f8. Runner image
+  `macos-26-arm64` 20261021.0445.8, macOS 26.6.2 (25G83), Xcode 26.3. Jobs: `build-ios`,
+  `test`, `build-macos` and `lint` green; `test-macos` red, 509 tests, 2 failures, the same
+  two tests as run 40793706701. The suite's other nine cases passed, including the new
+  non-vacuity test.
+- Artifacts: 1, `PisakaAppTests-xcresult` (107,663,939 bytes, expires 2026-11-05). The
+  failure half of the artifact rule holds.
+- First failure, verbatim from `--log-failed` (timestamps stripped):
+
+  ```
+  CommitUnifiedDiffWashTests.swift:182: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff] : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the removed line is not washed at the trailing edge
+  diagnosis of the read at x = 596.0 in a 600.0-point pane, pixelScale 1.0
+  scroll view: scrollerStyle legacy, hasVerticalScroller true, hasHorizontalScroller true, autohidesScrollers true
+  vertical scroller: frame in host (583.0, 9.0, 17.0, 274.0), isHidden false, alphaValue 1.0, layer opacity 1.0, knobProportion 0.9691780821917808, doubleValue 1.0
+  horizontal scroller: frame in host (0.0, 283.0, 583.0, 17.0), isHidden false, alphaValue 1.0, layer opacity 1.0, knobProportion 0.31276824034334766, doubleValue 1.0
+  NSScrollers among the scroll view's subviews: 2
+    NSScroller: frame in host (583.0, 9.0, 17.0, 274.0), isHidden false, alphaValue 1.0, layer opacity 1.0, knobProportion 0.9691780821917808, doubleValue 1.0
+    NSScroller: frame in host (0.0, 283.0, 583.0, 17.0), isHidden false, alphaValue 1.0, layer opacity 1.0, knobProportion 0.31276824034334766, doubleValue 1.0
+  clip bounds right after the scroll: (1281.0, 0.0, 583.0, 283.0), after settle: (1281.0, 0.0, 583.0, 283.0)
+  document frame (0.0, 0.0, 1864.0, 283.0), isFlipped true
+  column x = 596.0, top to bottom:
+    0.0–284.0: ground
+    284.0–299.0: other (0.984, 0.984, 0.984)
+    299.0–300.0: ground
+  column x = 560.0, top to bottom:
+    0.0–56.0: ground
+    56.0–74.0: diffRemovedBackground
+    74.0–92.0: diffAddedBackground
+    92.0–300.0: ground
+  ```
+
+- Second failure, verbatim: `CommitUnifiedDiffWashTests.swift:249: error:
+  -[PisakaAppTests.CommitUnifiedDiffWashTests testSwitchingFilesMeasuresTheNewDiffsWidestRow]
+  : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the
+  removed line is not washed at the trailing edge`, followed by a diagnosis identical line for
+  line to the first one (same style, scroller frames, knob values, clip bounds, document frame
+  and both column scans).
+- The attachments: `trailing-edge-testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff_0_<UUID>.png`
+  and `trailing-edge-testSwitchingFilesMeasuresTheNewDiffsWidestRow_0_<UUID>.png`, both
+  600 × 300 pixels and byte-identical. What they show: the removed (y 56–74) and added
+  (y 74–92) washes run across the whole width and stop at x = 583; pixel x = 582 is the wash
+  (removed 0.137/0.073/0.064, added 0.076/0.106/0.071) and x = 583 is already black
+  (0/0/0). The strip x 583–600 is black from top to y 283 — the vertical scroller's frame
+  draws nothing into the cached bitmap: no track, and no knob at x = 596. The strip
+  y 283–300 under the content is black too (the horizontal scroller likewise draws
+  nothing). The only thing drawn there is the light scroll corner, 583–600 × 283–300
+  (0.984 grey), which is the `other` band of the `width - 4` scan.
+- **Outcome: B, the harness reads the wrong pixels.** The leading hypothesis (an overlay
+  scroller flashing over the column) was wrong in its mechanism, right in its side. On this
+  runner the hosted `NSScrollView` resolves to `scrollerStyle legacy` — the system's
+  preferred style there, since the overflowing case sets none — while this machine resolves
+  to overlay. A legacy scroller is *tiled*, not drawn over the content: the clip view
+  shrinks to 583 × 283, and the 17-point strip at 583–600 belongs to the vertical scroller.
+  The sampled column `x = width - 4 = 596` lies inside that strip, so it reads the
+  scroller's (empty) frame, never the content.
+  - Against the B criteria: a vertical scroller is present, not hidden, alpha 1 and layer
+    opacity 1, its frame covering x = 596 — holds. The `width - 40` scan shows
+    `diffRemovedBackground` then `diffAddedBackground` — holds. The clip bounds after settle
+    still show the far-right scroll, (1281, 0, 583, 283) with 1281 + 583 = 1864 = the
+    document width — holds. The `width - 4` scan shows `ground`, not `other`, over the rows
+    — the one criterion that does not hold literally, because the tiled legacy scroller
+    paints nothing into `cacheDisplay` and the window's black ground shows through. It is
+    still a scroller's frame, not content, under the sampled column.
+  - Not A: the content's wash reaches the visible trailing edge exactly. The visible region
+    after settle, x 1281–1864 in document coordinates, ends at the document's own trailing
+    edge, and the bitmap shows the wash up to the clip view's last pixel column (582).
+    Nothing about the product's width rule is wrong on macOS 26; the visible trailing edge
+    simply is not at the pane's edge when the scrollers are legacy.
+  - Why the other cases pass on the runner: in the pane-width and placeholder cases nothing
+    overflows, so `autohidesScrollers` leaves both scrollers off and the clip view is the
+    full 600 points; the legacy-scroller case reads widths, not the trailing-edge pixels.
+  - Consequence for Task 4: the B mechanism written there — hiding every `NSScroller`
+    around the capture — does not answer this evidence. Hiding a tiled legacy scroller does
+    not retile, so x = 596 would still be outside the clip view and read the ground. What
+    the evidence names is the scroller *style*: the overflowing case inherits the machine's
+    scroll-bar style, contrary to the suite's own doc comment ("no case depends on the
+    machine's scroll-bar setting"). The read becomes deterministic when `DiffRender` forces
+    `.overlay` onto the hosted scroll view for the cases that read the trailing edge — the
+    mirror of `forceLegacyScrollers()`, set before the scroll and re-applied after settle —
+    so the clip view is the full pane on every OS. Taking the (then overlay) scrollers out
+    of the capture as Task 4 writes it still covers the original flash hypothesis and
+    remains worth keeping. The sample column stays at `width - 4`.
+  - A side observation, outside this plan's contract: under legacy scrollers the vertical
+    scroller is shown although the document is exactly as tall as the clip view (283 = 283,
+    knob proportion 0.969). It does not affect the wash; recorded only.
 
 ## Post-Completion
 
