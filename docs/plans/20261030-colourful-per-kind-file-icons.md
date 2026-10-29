@@ -353,7 +353,7 @@ SVG, original rendering intent (never template), and in a namespaced folder of t
 
 Steps:
 
-- [ ] Write `FileTypeIconAssetTests` first, in the `DesignGlyphAssetTests` mould. It uses
+- [x] Write `FileTypeIconAssetTests` first, in the `DesignGlyphAssetTests` mould. It uses
   Foundation and Core's `SHA256` only, and reads through `#filePath`. Its doc comment is its
   inventory. It pins:
   - **Three-way set equality**, in both directions: the imageset names on disk,
@@ -370,7 +370,7 @@ Steps:
     nothing. This reads literals, so it reads raw bytes; the doc comment says so.
   - **Record header**: the record states tag `v5.40.0` and commit
     `045291ff033062a25441dd297fd51546326866f2`.
-- [ ] Extend `LicenseCoverageTests`.
+- [x] Extend `LicenseCoverageTests`.
   - Its "fourth origin shape" generalizes from the single design-glyph origin to a two-entry table
     of asset-catalog-folder origins: `design-glyphs` → `Glyphs` +
     `Resources/DesignGlyphs/VENDORED.md`, and `file-icons` → `FileIcons` +
@@ -381,10 +381,10 @@ Steps:
     licence's `Copyright` line), spelled in the suite like every other entry; the key set still
     equals the manifest ids.
   - Update the suite's doc comment.
-- [ ] Fetch the archive as described in Context. Verify the 59 files and the licence against the
+- [x] Fetch the archive as described in Context. Verify the 59 files and the licence against the
   literals, then copy each SVG byte for byte to `FileIcons/<name>.imageset/<name>.svg`. Write the
   59 `Contents.json` files and the folder's own.
-- [ ] Copy `LICENSE` verbatim to `Resources/Licenses/file-icons.txt`. Add the manifest entry right
+- [x] Copy `LICENSE` verbatim to `Resources/Licenses/file-icons.txt`. Add the manifest entry right
   after `design-glyphs`:
   - `"id": "file-icons"`
   - `"name": "Material Icon Theme (file-type icons)"`
@@ -393,7 +393,7 @@ Steps:
   - `"revision": "045291ff033062a25441dd297fd51546326866f2"`
   - `"spdx": "MIT"`
   - `"file": "file-icons.txt"`
-- [ ] Write `Resources/FileIcons/VENDORED.md`, modelled on the design glyphs' record.
+- [x] Write `Resources/FileIcons/VENDORED.md`, modelled on the design glyphs' record.
   - It says it is a record, not a resource: `project.yml` does not bundle the directory.
   - A header table: Source (the URL from `package.json`; the only place in the repository it is
     written), Tag, Commit, Revision (= commit), Version (= tag), Origin, License (MIT, the path of
@@ -403,10 +403,10 @@ Steps:
     variant is taken (one image per kind in both appearances).
   - An "Updating by hand" procedure: fetch by commit, verify, copy, update the enum, both tables
     and the manifest entry, then run `swift test`.
-- [ ] Confirm by reading that the macOS and iOS acknowledgement screens list every manifest notice
+- [x] Confirm by reading that the macOS and iOS acknowledgement screens list every manifest notice
   with no filter, so the new entry appears on both under its display name. No code change is
   expected; if a filter exists, remove it for this entry and test that.
-- [ ] Run `swift test`; it must pass before Task 3.
+- [x] Run `swift test`; it must pass before Task 3.
 
 ### Task 3: The drawing helper and the macOS surfaces
 
