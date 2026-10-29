@@ -27,7 +27,7 @@ There are two paths, and they answer different questions:
 
 | Setting | Plist key | Where it lives | Who changes it |
 | --- | --- | --- | --- |
-| `MARKETING_VERSION` | `CFBundleShortVersionString` | `project.yml` (currently `2.1`) | committed, per release |
+| `MARKETING_VERSION` | `CFBundleShortVersionString` | `project.yml` (currently `2.2`) | committed, per release |
 | `CURRENT_PROJECT_VERSION` | `CFBundleVersion` | `project.yml` (`1`) | overridden per upload, **not** committed |
 
 ### The release version
