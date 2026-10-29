@@ -291,7 +291,7 @@ platforms.
 
 Steps:
 
-- [ ] Write `FileTypeIconTests` first, so that it fails to compile or fails. It covers:
+- [x] Write `FileTypeIconTests` first, so that it fails to compile or fails. It covers:
   - **Order**:
     - `README.db` → `database` (the database rule beats a stem), `notes.sqlite` → `database`
     - `package.json` → `nodejs`, `LICENSE.md` → `license`, `robots.txt` → `robots` (a special
@@ -325,12 +325,12 @@ Steps:
     `Set(FileTypeIcon.allCases)`, so no case is a dead asset.
   - **Fallback**: `unknown.xyz`, `noextension`, `notes.txt` and the empty string → `document`.
   - **Catalog name**: `catalogName` is `FileIcons/<rawValue>` for every case.
-- [ ] Implement `FileTypeIcon.swift`. Its doc comment states the phase order and why it exists:
+- [x] Implement `FileTypeIcon.swift`. Its doc comment states the phase order and why it exists:
   database first, because a `.db` file is not text; the language phase last before the fallback,
   so the names `SyntaxLanguage` owns are never restated.
-- [ ] Update the `exactFileNames` / `fileExtensions` seam comment in `SyntaxLanguage.swift` to
+- [x] Update the `exactFileNames` / `fileExtensions` seam comment in `SyntaxLanguage.swift` to
   name `FileTypeIconTests` as its reader. Do not touch the recognition rules.
-- [ ] Run `swift test`; it must pass before Task 2.
+- [x] Run `swift test`; it must pass before Task 2.
 
 ### Task 2: Vendor the 59 icons, their record and their licence
 
