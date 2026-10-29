@@ -26,11 +26,13 @@ user sees it.
   and both row kinds highlight identically under the pointer.
   When the project pane is empty, clicking anywhere in it
   opens the folder picker. Opening a folder auto-expands its first level so the
-  immediate children are visible right away. On macOS each entry shows one of
-  three monochrome glyphs — code file, text file or database — and a folder
-  shows an open or a closed folder; iPhone and iPad keep a per-type tinted icon
-  so Swift, JS/TS, JSON, Markdown, images, archives, and other common types are
-  recognizable at a glance. On macOS, inside a git repository, each name is
+  immediate children are visible right away. Each file shows a per-kind,
+  full-colour icon — TypeScript, a React component, JSON, a Dockerfile,
+  Markdown, a test file, a lockfile and so on, with a plain document icon for
+  anything unrecognised — the same icons on macOS, iPhone and iPad and in light
+  and dark appearance, and the same ones the tabs, Find in Files, Problems,
+  Usages and the Log draw; a folder keeps its own icon (on macOS an open or a
+  closed folder). On macOS, inside a git repository, each name is
   coloured by its git state (conflicted red, modified yellow, added green,
   gitignored dimmed; a folder takes the strongest change below it), a file or
   folder with an error or a warning at or below it carries a small red or yellow
@@ -1271,11 +1273,11 @@ user sees it.
   that folder sits inside a larger repository, changed files outside it are
   still listed, after the project's folders, under their repository path
   prefixed with the repository's name); on iPhone and iPad view it flat or grouped by
-  folder. Each file shows a type icon plus a
-  one-letter status badge (M/A/D/R/U/C). On macOS the icon is a monochrome
-  secondary glyph and the letter carries the status colour (green added,
-  yellow modified or renamed, red deleted or conflicted, grey untracked); on
-  iPhone and iPad the icon itself is tinted by its git status. On macOS the
+  folder. Each file shows a
+  one-letter status badge (M/A/D/R/U/C), and the letter carries the status
+  colour (green added, yellow modified or renamed, red deleted or conflicted,
+  grey untracked); on iPhone and iPad the row also leads with the file's
+  full-colour kind icon, which never takes the status colour. On macOS the
   selected file's diff is shown **inline, to the right of the list** (its
   project-relative path above it — repository-relative for a file outside the
   opened folder — drawn at the editor font and following

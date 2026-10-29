@@ -569,7 +569,7 @@ Steps:
 
 Steps:
 
-- [ ] `core-theme.md`:
+- [x] `core-theme.md`:
   - Entries for `FileTypeIcon.swift` (the phases, the namespace, `catalogName`) and
     `FileTypeIconImage.swift` (its shape and the slots it is drawn in).
   - **The third stated exception**, beside `hairlineWidth` and the terminal: a file-type icon's
@@ -583,13 +583,13 @@ Steps:
     - `editorconfig`, `pnpm` and `toml` are weak on the light ground. No second image is shipped.
     - The design glyph `database` is no longer drawn by the file surfaces. Whether it still ships
       is a glyph-set question outside this change.
-- [ ] `app-window.md` covers the tree rows, the draft, both tab orientations through
+- [x] `app-window.md` covers the tree rows, the draft, both tab orientations through
   `TabFileIcon`, and the Problems and Usages headers. `app-editor.md` covers the Find in Files
   header. `app-git-views.md` covers the Log row, whose status now lives on the letter only.
   `app-ios.md` covers what iOS draws now: the helper for files and `FolderSymbol_iOS` for
   directories. Remove the `FileIcon` entry from `core-editor.md`, and correct the `FileIcon`
   statements in `core-database-viewer.md` and the other docs.
-- [ ] `CLAUDE.md`. It must stay under 60,000 characters (about 57,100 today); write tightly.
+- [x] `CLAUDE.md`. It must stay under 60,000 characters (about 57,100 today); write tightly.
   - The core-theme index gains `FileTypeIcon.swift` and `FileTypeIconImage.swift` (app, macOS +
     iOS).
   - The core-editor index loses `FileIcon.swift`.
@@ -602,9 +602,9 @@ Steps:
     original-intent SVG imagesets under `Assets.xcassets/FileIcons/`, named only by
     `FileTypeIcon`, drawn only through `FileTypeIconImage`, licensed and pinned like the glyphs,
     with its record in `Resources/FileIcons/VENDORED.md`.
-- [ ] `README.md` and `docs/FEATURES.md` each get one line where the project tree is described:
+- [x] `README.md` and `docs/FEATURES.md` each get one line where the project tree is described:
   per-kind, full-colour file icons.
-- [ ] Run `swift test`. `LintConfigurationTests` holds the `CLAUDE.md` bound, and the gating
+- [x] Run `swift test`. `LintConfigurationTests` holds the `CLAUDE.md` bound, and the gating
   suite's cross-file counts must agree.
 
 ### Task 6: Verify acceptance criteria

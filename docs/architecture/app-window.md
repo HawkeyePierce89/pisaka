@@ -943,8 +943,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     every header `Text` limited to one line (rule eleven: the strip's height is
     fixed — pinned label by label inside the `header` and `severityBadge(…)`
     builders, since the file already spelled the limit on its file-group path
-    and a file-level check was satisfied by that). The file-group header draws its icon `textSecondary` and its path
-    `textPrimary`; a row draws its message `textPrimary` and its `:line` at
+    and a file-level check was satisfied by that). The file-group header draws the
+    file's full-colour `FileTypeIcon` through `FileTypeIconImage` at
+    `ProblemsPanelLayout.groupIconSide` (14) — a square inside the body font's
+    line, so the header keeps the path's height (`FileTypeIconImageTests`'
+    layout gate) — never tinted (the theme's third stated exception,
+    `core-theme.md`), and its path `textPrimary`; a row draws its message `textPrimary` and its `:line` at
     `.subheadline` monospaced in `textSecondary` (it was an off-scale 10-point
     `.caption`); the hover wash is `hoverTint`; row and group horizontal insets
     spend `rowPaddingX`, and every other number lives in `private enum
@@ -993,7 +997,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `.callout` monospaced in `textPrimary`, the provenance note and the count at
     `.subheadline` in `textSecondary` (both were off-scale 10-point `.caption`),
     every header `Text` on one line (rule eleven, counted label by label inside
-    the `header` builder); the file-group header and the `hoverTint`
+    the `header` builder); the file-group header — its full-colour icon at
+    `UsagesPanelLayout.groupIconSide` (14) — and the `hoverTint`
     wash as in Problems; the line number `.subheadline` monospaced in
     `textSecondary`; the preview's hit `textPrimary` semibold between
     `textSecondary` context; the placeholder `textSecondary`; local numbers in
@@ -1206,9 +1211,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     chevron at 12 in the 12-point chevron column — `chevron-down` when expanded,
     `chevron-right` when collapsed, two glyphs rather than one rotated — then,
     after the 4-point gap, `FileGlyph.forFolder(expanded:)` at 14 in a 14-point
-    slot (`TreeRowLayout.iconSize`); a file row draws `FileGlyph.forFile(named:)`
-    in the same slot, and the inline draft draws the glyph its row will have.
-    Both glyphs inside that element are hidden from accessibility by the helper:
+    slot (`TreeRowLayout.iconSize`); a file row draws its kind's full-colour
+    icon, `FileTypeIconImage(FileTypeIcon.forFile(named:), side:
+    TreeRowLayout.iconSize)`, in the same slot (the `.treeDiagnosticDot` stays on
+    that icon), and the inline draft draws the icon its row will have, read off
+    the name typed so far. The file icon is drawn original and never tinted —
+    its colour is its kind, the theme's third stated exception (`core-theme.md`,
+    *The file-type icons*). Both images inside that element are hidden from accessibility by the helper:
     combining children would fold an unhidden image's own name into the
     element's label, and both are decorative beside the name, the button trait
     and the value. `TreeRowGlyphLayoutTests` (app bundle) renders a tree once per
@@ -1278,15 +1287,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     already-expanded node) so a freshly opened folder shows its first level
     immediately, while nested nodes default to `false` and load lazily on first
     expansion. The root's `.id(root)` resets node state when switching projects,
-    so each newly opened folder also starts expanded. Rows render type-specific
-    icons via `FileIcon(for:)`, drawn **monochrome** in
-    `ChromeColorRole.textSecondary`: only the symbol is read, the semantic tint
-    deliberately not (a column of differently-tinted glyphs argues with the
-    selection wash that is the row's actual message — the monochrome-icon
-    decision, `core-theme.md`). The app layer's former file-scope
-    `color(for: FileIconColor) -> Color` helper is **deleted** along with its two
-    readers' need for it; `FileIconColor` itself is untouched Core vocabulary
-    that iOS still paints. Directory-read errors are swallowed
+    so each newly opened folder also starts expanded. Folder rows draw the
+    design's folder glyph in `ChromeColorRole.textSecondary`; file rows draw
+    `FileTypeIcon`'s full-colour picture of their kind, which no role tints
+    (the monochrome-icon decision and its one exception, `core-theme.md`). The
+    git state reaches a file row through its name's role and the diagnostic
+    through its dot — never through the icon. Directory-read errors are swallowed
     (`PlatformFeedback.warning()`, and `children` left *unset* rather than
     cached as an empty list, so collapsing and re-expanding retries a transient
     failure), never crashing the view — *except* a "no such file" error, which
@@ -1610,7 +1616,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     the injected theme, via the file-scope `treeNameForeground(_:resolving:)`,
     which applies **no foreground at all** for `plain` (`nil`), so a tree outside
     a repository stays pixel-identical to the tree before git state. The icon
-    stays `textSecondary`, the chevron is unchanged, the row background still
+    is untouched by the state — a folder's glyph stays `textSecondary`, a file's
+    picture keeps its own colours — the chevron is unchanged, the row background still
     comes from `TreeRowState` through `TreeRowBackground`, a selected row keeps
     its status colour (the background is a separate answer), and the inline
     rename field is not recoloured. **Accessibility**: a folder row's value is
@@ -1633,7 +1640,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `TreeGitStatusColourTests` (app bundle) renders one tree with the lookup
     and once with `.empty`, and pins that a folder and a modified file draw
     their names in `statusYellow`, an ignored file's in `textSecondary`, the
-    glyph unchanged, and a plain row pixel-identical to the tree without git
+    icon unchanged, and a plain row pixel-identical to the tree without git
     state.
   - `ProjectTreeView.swift`, **test rows** — a row Core's `TreeTestRule`
     (`core-workspace.md`) answers as a test row — under a test folder, a test
@@ -1788,7 +1795,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     and without the lookup, and pins `statusRed` in the bottom-trailing quarter of
     the error file's and the root folder's glyph slots, `statusYellow` for the
     warning file and folder, the clean rows' slots identical to the render
-    without the lookup, and the dot's extent growing with the scale.
+    without the lookup, and the dot's extent growing with the scale. Its file
+    fixtures are `.hpp`, whose one-blue icon holds neither sampled role and
+    leaves the dot's centre column clear; each dot assertion is preceded by its
+    no-lookup precondition, so no icon's own colour can satisfy it; and the dot's
+    height counts a pixel as the dot at half coverage or more of `statusRed` over
+    the row's ground (the suite's doc comment states why).
   - `ProjectTreeView.swift`, **indent guides** — while a folder is expanded, a
     private `TreeIndentGuide` draws one vertical `hairline` rule **behind its
     children block**. `FolderDisclosureStyle` wraps `configuration.content` in
@@ -2347,8 +2359,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     wrapped reason line can grow past one row. The two row kinds lift their own
     `maxHeight` for exactly that reason while they host a rename draft: the row
     states the height, and a draft inside it must still be able to grow when its
-    reason line wraps. The draft also draws its icon column monochrome in
-    `textSecondary` like the row it replaces, and takes the reason line in
+    reason line wraps. The draft also draws its icon column like the row it
+    replaces — a new folder's glyph in `textSecondary`, a new file's full-colour
+    `FileTypeIcon` read off the name typed so far — and takes the reason line in
     `statusRed`. The field
     itself is the chrome's one `NSTextField` and therefore the tree's one user of
     the **AppKit bridge**: `updateNSView` sets `textColor` to
@@ -2442,10 +2455,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     accent bar starts at y 0 and is 28 tall, one hairline run sits at each
     row's bottom, and the selected row's middle is the `bgPanel` ground. The icon is
     **`TabFileIcon`**, the second of the two views the orientations share (both
-    live in `TabStripView.swift`): `FileGlyph`'s design glyph at 13 in
-    `textSecondary` (the monochrome-icon decision in `core-theme.md`), with an
-    untitled buffer asked about under its display name so the fallback is still
-    `FileGlyph`'s own plain-text answer. The trailing slot is the first,
+    live in `TabStripView.swift`): the file's full-colour `FileTypeIcon` at 13
+    through `FileTypeIconImage`, which no role tints (the theme's third stated
+    exception, `core-theme.md`), with an untitled buffer asked about under its
+    display name so the fallback is still `FileTypeIcon`'s own `document`
+    answer. The trailing slot is the first,
     **`TabStatusMark`**: the
     four-claimant precedence exists once, so the two orientations cannot drift
     into two rules. Both are one view rather than one rule restated twice, for
@@ -2481,8 +2495,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     against the sidebar. The reasoning, and rule forty-seven that pins both
     halves, are in `core-theme.md`. A cell carries `TabFileIcon`, a view of its
     own in this file and the **second** of the two things the vertical column
-    shares with the strip: `FileGlyph`'s design glyph at 13 in `textSecondary`
-    (see the monochrome-icon decision in `core-theme.md`), a `metrics.scaledFont(.callout)`
+    shares with the strip: the file's full-colour `FileTypeIcon` at 13 through
+    `FileTypeIconImage`, never tinted (*The file-type icons*, `core-theme.md`), a `metrics.scaledFont(.callout)`
     label in `textPrimary` when active and `textSecondary` otherwise, one
     `accent` underline `ChromeGeometry.accentIndicator` tall on the active tab, a
     trailing `hairline` between tabs, and **one slot** — `TabStatusMark`, the
@@ -2503,7 +2517,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     — and the mark still shows on an active tab with nothing to report, so the
     tab most likely to be closed does not have to be hunted for. An untitled
     buffer has no url and is asked about under its display name, so the fallback
-    glyph is still `FileGlyph`'s own rather than a second guess spelled here —
+    icon is still `FileTypeIcon`'s own rather than a second guess spelled here —
     that rule is `TabFileIcon`'s, spelled once and asked by both orientations.
     The close mark is the design's `x` glyph at 12, inside a plain button that
     names itself "Close", since the helper hides the glyph from accessibility.

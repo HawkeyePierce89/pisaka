@@ -20,7 +20,7 @@ import PisakaCore
 /// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
 /// `FileStatus.spokenName`). The branch-graph gutter's lane hues are the one
 /// colour table this panel does not read from the roles — `CommitGraphPalette`,
-/// the fourth stated exemption.
+/// the third stated exemption.
 struct CommitLogView: View {
     @ObservedObject var model: CommitLogModel
     /// The current project root, used as the repository root for refresh. `nil`

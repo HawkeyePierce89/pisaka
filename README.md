@@ -159,7 +159,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   a read-only viewer window (macOS), or switch between recent projects from the bottom bar; external
   changes show up on their own via FSEvents. If you attempt to switch to a
   recent project folder that has been deleted or moved, Pisaka will display a
-  warning alert and leave your current workspace unchanged.
+  warning alert and leave your current workspace unchanged. Every file in the
+  tree — and in tabs, Find in Files, Problems, Usages and the Log — carries a
+  per-kind, full-colour icon (TypeScript, React, JSON, Dockerfile, tests…).
 - **Automatic updates** via Sparkle — consent asked once, every download
   verified; **Check for Updates…** is always in the app menu.
 - **Preferences** — appearance, tab placement, editor font family and size,

@@ -542,8 +542,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     1440×900 display — `core-zoom.md`) with a `hairline` column
     between it and the diff. Each `CommitFileRow` reads **checkbox, status
     letter, then the name over its folder** — no file glyph, as the Local
-    Changes rows draw none (it therefore left chrome rule eight's `FileIcon(`
-    set). The letter reads Core's one answer — `FileStatus.letter`,
+    Changes rows draw none. The letter reads Core's one answer — `FileStatus.letter`,
     `ChromeColorRole.changedFileRole(for:)` through `@Environment(\.chromeTheme)`,
     and `FileStatus.spokenName` as its accessibility value — the same three the
     Local Changes panel and the Log's detail pane read, since two lists of
@@ -1188,10 +1187,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Row washes are `accentTintStrong` (selected) / `hoverTint` (pointer); a
     selection keeps its wash when the window is not key — the Problems panel's
     precedent, which has no inactive state. Ref badges are `accentTint` under
-    `accent` text. The detail pane's file rows read Core's one changed-file
-    answer — `FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)` and
+    `accent` text. The detail pane's file rows lead with the file's full-colour
+    `FileTypeIcon` through `FileTypeIconImage` at `CommitLogLayout.fileIconSide`
+    (14) — a square inside the body font's line, so the row keeps the path's
+    height (`FileTypeIconImageTests`' layout gate) — and the icon is never tinted
+    (the theme's third stated exception, `core-theme.md`): the row's **status
+    lives on the letter only**, which reads Core's one changed-file answer —
+    `FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)` and
     `FileStatus.spokenName` as the accessibility value — so no private table
-    remains. **No `Divider()`:** the column header, the detail pane's subject and the
+    remains. (The icon carried the status tint too, before the vendored icons.) **No `Divider()`:** the column header, the detail pane's subject and the
     list/detail divide each draw their own `hairline` by overlay. The divide is
     therefore no longer an `HSplitView` (whose divider the system draws in its
     separator value): the list owns a trailing hairline with a 5 pt drag strip
@@ -1213,7 +1217,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     `CommitGraphPalette.nsColor(forLane:)` for that lane's **dynamic** `NSColor`,
     resolved at draw time so the graph follows the appearance with nothing cached.
     Since part four (b) of the chrome theme it keeps no palette of its own and
-    **spells no colour at all** — the lane table is the chrome's fourth stated
+    **spells no colour at all** — the lane table is the chrome's third stated
     exemption (`core-theme.md`), and this file is gated for the two negative rules
     it could still break. The geometry: 2 pt lines, a 6 pt node dot (radius 3),
     lanes 14 pt apart, each value handed in scaled by `CommitLogView`. One flipped (y-down) fixed-height cell per row draws the

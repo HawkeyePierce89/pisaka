@@ -273,7 +273,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `ChangeTree.swift` — pure directory-tree grouping for the by-folder mode of
     the Local Changes view. `ChangeNode` (a uniform node: `name`, repo-relative
     `path` as identity, absolute `url` = `root` + `path` for the view's
-    `FileIcon(for:)`, a `file` for a leaf / `nil` for a directory, and `children`
+    `FileTypeIcon.forFile(named:)`, a `file` for a leaf / `nil` for a directory, and `children`
     `nil` for a leaf so the SwiftUI tree recurses like `DirectoryNodeView`) and
     `enum ChangeTree { static func build(from: [ChangedFile], root: URL) ->
     [ChangeNode] }`. Root-level files stay flat at the top; at every level

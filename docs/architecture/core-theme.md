@@ -15,7 +15,7 @@ from whatever colour a view reached for. `PisakaCore` names the meanings
 (`ChromeColorRole`), the measurements (`ChromeGeometry`), the two value sets
 (`ChromeAppearance`) and the one row rule that orders four simultaneously-true
 facts (`TreeRowState`); it stays Foundation-only and therefore colour-free, the
-`FileIconColor` precedent. The app layer holds exactly one table,
+`SyntaxTokenKind` precedent. The app layer holds exactly one table,
 `ChromePalette`, whose exhaustive `switch` turns a role into a dark value, a
 light value and one alpha, and offers that value along **two paths**: a SwiftUI
 `\.chromeTheme` environment value carrying the resolved appearance, and an
@@ -60,7 +60,7 @@ adds no write of any kind. Its only persisted input is the existing
     `currentLine`, `bracketMatch`), status (`statusGreen`, `statusRed`, `statusYellow`) and
     diff and merge (the three backgrounds). A role names a **meaning**; it
     carries no colour at all, which is what keeps Core Foundation-only and
-    portable, and is the same split `FileIconColor` already makes. **The set is
+    portable, and is the same split `SyntaxTokenKind` already makes. **The set is
     closed against call sites.** The sweep adds *views*, not roles: a surface
     that appears to need a role of its own has found a design question, and the
     answer is to reuse an existing role or to change the design — not to grow
@@ -386,17 +386,66 @@ two new geometry tokens) and each with its readers pinned by a gating
     coordinate of its one decoded content stream inside that box, and `project.yml`'s asset
     symbols to off, which rule forty-six relies on. The one helper that draws them
     is `DesignGlyphImage.swift`, under "The design's glyphs" below.
-  - `FileGlyph.swift` — which design glyph stands for a file or a folder on the
-    macOS chrome. `forFile(named:)` has three answers: `database` when
-    `DatabaseFileRule` recognises the name (asked first, so a `.db` file is not
-    text), `file-text` for a name no `SyntaxLanguage` claims and for Markdown,
-    `.gitignore`, `.env` and `.editorconfig`, and `file-code` for every other
-    language (Make included) — the language switch is exhaustive, so a new
-    language is a compile error until it is placed. `forFolder(expanded:)` answers `folder-open` or
-    `folder`. It reads the two rules that already own the question rather than a
-    third extension table, and `FileIcon` is untouched for iOS.
-    `FileGlyphTests` walks every `SyntaxLanguage` through a sample table held
-    equal to `allCases`, plus the database extensions, unknown names and folders.
+  - `FileGlyph.swift` — which design glyph stands for a **folder** on the macOS
+    chrome (the tree and its draft): `forFolder(expanded:)` answers
+    `folder-open` or `folder`, drawn by the caller in `textSecondary`. It no
+    longer answers files — its `forFile(named:)` and its three monochrome
+    answers (`file-code`, `file-text`, `database`) were retired when every file
+    surface moved to `FileTypeIcon`. `FileGlyphTests` pins the two folder
+    answers.
+  - `FileTypeIcon.swift` — which picture of the **vendored file-icon set**
+    stands for a file, on both platforms: a closed `public enum FileTypeIcon:
+    String, CaseIterable, Sendable` of fifty-nine cases, each raw value the
+    imageset's name and the upstream file stem (cases that cannot be identifiers
+    are camel-cased: `reactTS = "react_ts"`, `testJSX = "test-jsx"`,
+    `typescriptDef = "typescript-def"`). Foundation-only and colour-free — the
+    colour is the asset's own (*The file-type icons*, below). `catalogNamespace`
+    is `"FileIcons"` and `catalogName` is `"FileIcons/" + rawValue`: the asset
+    folder **provides a namespace**, because the upstream `database` icon would
+    otherwise collide with the design glyph `database` in the un-namespaced
+    `Glyphs/` folder, and the namespace is also what keeps rule forty-six's
+    literal matcher from confusing the two families. The property is named
+    `catalogName` rather than `assetName` or `rawValue`, the two tokens rule
+    forty-six flags for glyphs; rule fifty-three reads `catalogName`.
+    `forFile(named:)` lowercases the last path component and runs six phases,
+    the first that answers winning: (1) **database** — `DatabaseFileRule` asked
+    first, because a `.db` file is not text (`README.db` is a database); (2)
+    **special names**, exact (`package.json` → `nodejs`, `yarn.lock` → `yarn`,
+    `.dockerignore` → `docker`, `robots.txt` → `robots`, …), then stems (the stem
+    or the stem plus `.`: `readme`, `changelog`, `contributing`, `license`,
+    `docker-compose`), then prefixes (`tsconfig…json`, `.prettierrc`,
+    `.eslintrc`, `vitest.config.`, `jest.config.`, …) — before every extension
+    and before the language's dot-ignore family; (3) **compound suffixes**
+    (`.test.ts`/`.spec.ts` → `test-ts`, the `tsx`/`jsx` pairs → `test-jsx`,
+    `.test.js`/`.spec.js` → `test-js`, `.d.ts` → `typescript-def`) before the
+    plain extension they end in; (4) **extensions `SyntaxLanguage` does not
+    claim** (C and C++, Java, Kotlin, Ruby, PHP, Lua, TOML, XML, SVG, the image,
+    font, archive and table families, `lock`, `scss`/`sass`, `pdf`) plus exactly
+    one override, `jsx` → `react`, which highlights as JavaScript; (5) the
+    **language** — `SyntaxLanguage(forFileName:)` mapped through
+    `forLanguage(_:)`, an exhaustive `switch`, so a new language is a compile
+    error until it is placed; (6) `document`. The language phase is last before
+    the fallback so the names `SyntaxLanguage` owns — `Makefile`,
+    `GNUmakefile`, `Dockerfile` and `Dockerfile.*`, `.editorconfig`, the
+    dot-ignore family, the shell start-up dot-files, `.env` and `.env.*` — are
+    asked of it and never restated, and its own order holds: `.env.local` is
+    `tune` while `.env.json` stays `json`; `Package.swift` is `swift`, the set
+    having no manifest-specific Swift picture. The tables are private data in
+    this one file. `FileTypeIconTests` pins the phase order pairwise, case and
+    path folding, the floor (every name the retired iOS table special-cased
+    keeps a named icon), every special name, suffix, extension and database
+    name, a per-language sample table held equal to `SyntaxLanguage.allCases`,
+    every `SyntaxLanguage` seam entry answering its language's icon except the
+    pinned override set `["jsx"]`, reachability (the samples' answers equal
+    `allCases`, so no case is a dead asset), the fallback and `catalogName`.
+    `FileTypeIconAssetTests` pins the catalog: the imagesets, the cases and the
+    record's rows equal three ways; each SVG's sha256 prefix and byte count; the
+    record's light-variant column equal to `{pnpm, toml}`; each imageset an
+    original-intent, vector-preserving SVG naming its own file; the folder's
+    namespace; every SVG a `viewBox`ed `<svg` root carrying none of the features
+    the system renderer drops silently (read raw, since those are literals); and
+    the record's tag and commit. Provenance is `Resources/FileIcons/VENDORED.md`,
+    a record `project.yml` does not bundle.
   - `PopoverPlacement.swift` — where the bottom bar's popover and its submenu
     go, as pure static functions over `CGRect` in the **window root's
     top-left, y-down space** (the space a SwiftUI named coordinate space at the
@@ -603,11 +652,12 @@ take: `DocumentPageChrome(appearance:value:)` filled through `cssHex`, the role
 mapping staying Core's. Its two callers, `MarkdownPreviewPane.swift` and
 `LeetCodeDescriptionView.swift`, are pinned by set equality (clause (a)).
 
-### The fourth exemption — `CommitGraphPalette.swift`
+### The third exemption — `CommitGraphPalette.swift`
 
-The branch graph's lane colours, macOS-gated, and the chrome's **fourth stated
-colour exemption** beside `SyntaxTheme`, `TerminalTheme` and `FileIcon` (rule
-three). A lane colour is an **identity token, not a chrome meaning** — "this line
+The branch graph's lane colours, macOS-gated, and the chrome's **third stated
+colour exemption** beside `SyntaxTheme` and `TerminalTheme` (rule three).
+The retired Core file-icon table was the third until the vendored file icons
+replaced it, which made this table the third. A lane colour is an **identity token, not a chrome meaning** — "this line
 is the same branch as that one" — which is the ANSI-16 argument read through a
 graph: pressing a lane into `statusRed` or `accent` would make a branch read as an
 error or a selection, exactly the misuse the closed role vocabulary exists to
@@ -641,7 +691,7 @@ hue families are light 219, 123, 26, 275, 6, 187, 336, 47° and dark 217, 127, 2
 270, 3, 186, 334, 48°; the closest pairs are orange–red light (20.6°) and
 orange–yellow dark (20.8°). None of the sixteen values equals `statusRed`,
 `statusGreen`, `statusYellow` or `accent` in either appearance, so no lane can be
-read as a chrome meaning, and the table stays the fourth exemption rather than
+read as a chrome meaning, and the table stays the third exemption rather than
 becoming roles. `CommitGraphPaletteTests` pins all three properties through the
 app bundle's `ContrastArithmetic` — the 3:1 floor against `ChromePalette`'s own
 `bgPanel` entry rather than a restated literal, a 20° minimum pairwise hue
@@ -779,7 +829,7 @@ disagree.
     column marks it only by the `accentIndicator`-wide `accent` bar on its
     **leading** edge rather than underneath), `textPrimary` for the active label
     and `textSecondary` for the rest, `hoverTint` for an inactive row under the
-    pointer only, and the monochrome `FileIcon` symbol. The two orientations stay two views on purpose: they state
+    pointer only, and the file's full-colour `FileTypeIcon` through the shared `TabFileIcon`. The two orientations stay two views on purpose: they state
     *different* chrome (a height and a rule under it, the strip's host being a
     `VStack` that draws nothing between its children, versus a width it is given
     and a boundary its splitter states for it), so neither can be a branch inside
@@ -1234,7 +1284,7 @@ read by the panel and the bottom-bar indicator; and the diff wash
 seventeen to nineteen pin each answer's readers and forbid a case-label table in
 a view; rule twenty pins the three panels' accessibility.
 
-**The lane palette is the fourth exemption** (`CommitGraphPalette.swift`, above):
+**The lane palette is the third exemption** (`CommitGraphPalette.swift`, above):
 a lane colour is an identity token, not a chrome meaning. Its eight hues are
 chosen against the gutter's ground, `bgPanel`: each clears 3:1 on it, any two
 sit at least 20° apart, and none equals a status role or `accent`.
@@ -1435,7 +1485,7 @@ has an `accent` ground and `onAccent` text, the badge is monochrome
 private `color(for:)` hue table is deleted. The badge's colour leaves Core:
 `CompletionPopup.Badge` loses its `color` stored property, its initializer
 parameter and every table entry's colour; `init(symbolName:)` and
-`init(source:)` remain; `FileIconColor` stays for `FileIcon`.
+`init(source:)` remain.
 
 **The hover popover — `HoverPanel.swift`, the AppKit bridge.** The same flat
 `bgPopover` fill on the same terms (hairline, `cornerRadiusMax` scaled with
@@ -1481,7 +1531,7 @@ mode's design glyph at 16 — `accent` on `accentTint` while on, `textPrimary`
 with no ground while off; replace row the shared field gap 8 then Replace All
 in the secondary button style at the row's trailing end; the file-mask row, then
 the scope line (`SearchScopeLine`) in `callout` `textSecondary`; results gap 8;
-group header 24 high padding 16 the file's `FileGlyph` at 14 in a 14 slot, gap 6,
+group header 24 high padding 16 the file's full-colour `FileTypeIconImage` at 14 (`SearchLayout.headerGlyphSlot`), gap 6,
 so the path starts at 36, two points past the 34-point match indent, the path in `callout` and `N matches` in
 `subheadline` all in `textSecondary` (padding 8 and a 14-point `doc` symbol
 before the design-match pass, inside a `List` whose own inset the window's
@@ -1494,7 +1544,8 @@ footer 32 high with its own top `hairline` padding 16 and the summary in
 `Divider()` between the header and the results is replaced by a `hairline` rule
 the content draws. Numbers with no `ChromeGeometry` home live in a private layout
 enum in this file; existing tokens are reused where they fit. The group header
-icon stays monochrome `textSecondary`. The match row keeps its zones and is the
+icon is the file-type icon in its own colours, the theme's third stated
+exception (*The file-type icons*, above). The match row keeps its zones and is the
 example rule twenty-seven pins: the preview text stays on the code font in
 `SyntaxTheme`'s plain colour and the highlight keeps the editor's current-match
 background, the line number stays on the code font and takes `textSecondary`, the
@@ -2707,6 +2758,68 @@ the compiled catalog as a template, the AppKit half fills its square with the
 tint and nothing else, and the SwiftUI half occupies its slot at scales 1.0 and
 1.8 and draws the glyph centred, at its size, in its role.
 
+#### The file-type icons — `FileTypeIconImage.swift`, the theme's third stated exception
+
+Every surface that draws a **file** draws it by its kind, in full colour: the
+fifty-nine pictures `FileTypeIcon` names, vendored byte for byte from one pinned
+commit of an MIT-licensed open-source file-icon set and shipped as **SVG
+imagesets** under `Sources/Pisaka/Assets.xcassets/FileIcons/` — a folder that
+provides a namespace (so they load as `FileIcons/<name>`), each imageset marked
+`template-rendering-intent: original` and `preserves-vector-representation:
+true`. Only what the Core table names ships, and no `_light` variant is taken:
+one image per kind in both appearances. Provenance, the per-file digests and the
+by-hand update procedure are in `Resources/FileIcons/VENDORED.md`, a record
+`project.yml` does not bundle; the licence ships as
+`Resources/Licenses/file-icons.txt` under the manifest entry `file-icons`, so
+both Acknowledgements screens list it.
+
+**The third stated exception**, beside `hairlineWidth` on an AppKit code-zoom
+surface and the terminal's concrete colours: **a file-type icon's colour is its
+identity**, carried in the asset's own data, so no role can name it — pressing
+a TypeScript file's blue into `accent` or `textSecondary` would erase the one
+thing the picture says. It is therefore drawn **original and never tinted**,
+in the same colours in both appearances. Folders are not part of it: they keep
+the design's monochrome `FileGlyph` on macOS and the accent `folder` symbol on
+iOS.
+
+**One helper draws them**, compiled for both platforms with the platform split
+inside it: `FileTypeIconImage(_ icon:, side:)` draws `Image(icon.catalogName)`
+`.renderingMode(.original)`, `.resizable()`, `.scaledToFit()` in a square of
+`side` points, `accessibilityHidden(true)` (the row's text names the file). It
+applies no template mode, no `foregroundStyle` and no tint, and takes no
+`ChromeColorRole`. On macOS the side is `metrics.pt(side)` from
+`interfaceMetrics`; on iOS it is `side × @ScaledMetric(relativeTo: .body)` with
+a base of 1, so it follows Dynamic Type as the SF Symbol it replaced did. The
+slots, each the surface's own, so no row height or baseline moved: the tree rows
+and their draft at `TreeRowLayout.iconSize` (14, the `.treeDiagnosticDot` still
+on the icon); both tab orientations through `TabFileIcon` at 13; Find in Files'
+group header at `SearchLayout.headerGlyphSlot` (14); the Problems and Usages
+file-group headers at their layouts' `groupIconSide` (14) and the Log's
+changed-file row at `CommitLogLayout.fileIconSide` (14) — a square that sits
+inside the body font's line, so those rows keep their height; and on iOS the
+tree, Local Changes and Log file rows at `FileRowLayout_iOS.iconSide` (18). The
+Log row's icon (both platforms) and the iOS rows' icons lost the status tint
+they used to carry: the status letter keeps it alone.
+
+The helper joins the gated set, taking it from sixty-seven to **sixty-eight**,
+and is the eleventh file exempt from the role-naming self-check, because it
+names no role by construction; it spells no colour, so every colour rule holds
+for it. The suite goes from fifty-two rules to **fifty-three**: rule fifty-three
+holds that no source under `Sources/Pisaka/`, iOS included, loads a
+`FileIcons/` image but the helper, and that the helper never draws one as a
+template. `FileTypeIconAssetTests` and `LicenseCoverageTests` hold the catalog,
+the record, the enum and the `licenses.json` entry to one another. The run-time
+half the Core gate cannot see is `FileTypeIconImageTests` in the app bundle:
+every icon loads from the compiled catalog under its `catalogName` and is not a
+template; every icon draws at least one fully opaque pixel once compiled (a
+guard for `kotlin`'s gradient, the one fill at risk); `typescript` draws
+saturated blue and `document` leaves its corner transparent; the helper draws
+the same blue under both themes; and a 14-point icon beside a body-weight `Text`
+fits the `Text`'s own height at interface scale 1.0 and at the zone's maximum.
+`TreeDiagnosticMarkTests`' fixtures are `.hpp` files, whose plain blue icon
+leaves the dot's centre column clear, so neither dot assertion can be met by an
+icon's own colour (that suite's doc comment states why).
+
 #### The bottom bar's popover component — `ChromePopover.swift` + `ChromePopoverPresenter.swift`
 
 The project switcher and the branch switcher are **one design component**, so
@@ -3148,7 +3261,7 @@ readout** is **no longer deferred**: it sits after the bar's toggles (see *The
 bottom bar's caret readout*, below). The unified diff's **changed-line text tint** is
 **no longer deferred** either: the design pass drew it (part five (b)'s
 departure seven). The **lane hues** are **no longer deferred**: they are
-chosen against `bgPanel` and measured (*The fourth exemption*, above). The
+chosen against `bgPanel` and measured (*The third exemption*, above). The
 unified diff's **per-line checkbox** is **no longer deferred**: it is the shared
 checkbox shape at the code zone's size (part five (b)'s departure six). The terminal's own palette is **no longer
 deferred** — part five (h) moved its four chrome colours onto the roles — and
@@ -3161,31 +3274,55 @@ unspent**: the matched-pair overlay spent `bracketMatch`, the last of them (see
 *The matched-pair background*), which is what `ChromeColorRole.swift`'s own doc
 comment now states.
 
+Two follow-ups the vendored file icons left open (*The file-type icons*,
+above):
+
+- **Three icons are weak on the light ground.** `editorconfig` draws only
+  `#eee` / `#fafafa` and no coloured ink at all, so on the light ground it is
+  nearly invisible; `pnpm` is half `#e0e0e0` and `toml`'s letter is `#cfd8dc`.
+  They ship as they are: one image per kind serves both appearances, and the
+  upstream `_light` variants of `pnpm` and `toml` are deliberately not taken. No
+  second image is shipped; a fix is a design decision about these three
+  pictures, not a role.
+- **The design glyph `database` is no longer drawn by the file surfaces.** The
+  file surfaces drew it for database files until `FileTypeIcon`'s own
+  `database` replaced it. Whether the glyph still ships is a question about the
+  glyph set (`DesignGlyph`, `Resources/DesignGlyphs/VENDORED.md`), outside this
+  change.
+
 ### The monochrome-icon decision
 
-Every icon in the swept surfaces is drawn in `textSecondary`: the tab strip's
-file glyph, the vertical column's, the tree's folder and file glyphs, the draft
-field's icon column. Since part eight those four draw `FileGlyph`'s design
-glyphs, which carry no tint at all; the panels still reading `FileIcon` answer a
-symbol **and** a semantic tint, and deliberately read only the symbol. A column of differently-tinted glyphs
-competes for the eye with the one thing each surface actually has to say — the
-accent underline on the active tab, the selection wash on the active file's row
-— and a tinted icon inside a selected row's wash is two colours arguing. The
-tint is not deleted: `FileIconColor` is untouched Core vocabulary and iOS still
-paints it. What *is* deleted is the app layer's `color(for: FileIconColor) ->
-Color`, whose only two readers were the two tree files that now draw
-monochrome.
+Every glyph in the swept surfaces is drawn in a role, and every one but a
+file's picture is **monochrome `textSecondary`**: the tree's folder glyphs, the
+draft field's folder column, every control and disclosure glyph. A column of
+differently-tinted *glyphs* competes for the eye with the one thing each surface
+actually has to say — the accent underline on the active tab, the selection wash
+on the active file's row — and a role-tinted glyph inside a selected row's wash
+is two colours arguing.
+
+**File icons are the one exception, and are full colour.** They were monochrome
+too — the design's `file-code` / `file-text` / `database` glyphs on the macOS
+tree, tabs, draft and Find in Files, and the symbol half of a retired Core
+table, read without its semantic tint, in Problems, Usages and the Log — until
+the vendored file-icon set replaced both. Three grey shapes cannot tell a
+TypeScript file from a Dockerfile at a glance, and a picture whose colour *is*
+the kind is not a tint competing with the row's state: it is the same in every
+row state, in both appearances, and never takes a role (*The file-type icons*,
+above, the theme's third stated exception). The status a row carries stays on
+its own marks — the git-status name role, the status letter, the diagnostic dot
+— and leaves the icon; the Log's changed-file row and the iOS rows, whose icon
+used to carry the status tint, keep it on the letter alone.
 
 ## The gating suite — `ChromeThemeSourceGatingTests`
 
 In `ZoomSourceGatingTests`' mould: it reads `Sources/` through `#filePath` with
 Foundation only, so it runs in `swift test` with no Xcode build, and it matches
 against `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output —
-**comments and string literals stripped before almost every match**. Four
+**comments and string literals stripped before almost every match**. Five
 rules read `GitHubSourceGatingTests.strippingComments(_:)` instead, literals
 kept, because each one's subject is a literal — the query-toggle names, the
-merge editor's chevron symbols, clause (c)'s CSS hex and the design-glyph
-rule's load names — and the suite's
+merge editor's chevron symbols, clause (c)'s CSS hex, the design-glyph
+rule's load names and the file-type icon rule's — and the suite's
 header names them, held to the code by a self-check. The stripping is
 load-bearing rather than tidy here: the gated files document their own rules at
 length (the palette explains what a hex literal outside it would cost; the strip
@@ -3224,33 +3361,34 @@ The fifty-three rules, each invisible to the compiler:
    `.preferredColorScheme` at the window root sets, so it tracks the Theme
    preference exactly as a role does; what it carries is the platform's value
    rather than the table's, so a view naming one draws a step off the roles
-   beside it in *either* appearance, which is the whole reason the roles exist. Two narrow carve-outs: the palette is exempt from the
+   beside it in *either* appearance, which is the whole reason the roles exist. One narrow carve-out: the palette is exempt from the
    *hue* half alone, because `red`/`green`/`blue` are argument labels of
-   `Color(.sRGB, red:green:blue:opacity:)`; and lines constructing a `FileIcon(`
-   are dropped before matching, because `FileIconColor`'s cases collide with the
-   hue names and a `FileIconColor` is the third exemption read from the other
-   side. `clear` is deliberately allowed — it is the absence of a colour, and a
+   `Color(.sRGB, red:green:blue:opacity:)`. (A second carve-out, dropping lines
+   that constructed the retired Core file-icon table, whose tint cases collided
+   with the hue names, went with that table.) `clear` is deliberately allowed — it is the absence of a colour, and a
    row that paints nothing when it is in no state is saying exactly that.
 2. **No hex literal outside the table.** A `0x[0-9A-Fa-f]{6}` match over the
    stripped source of every gated file, asserted by set equality against
    `["ChromePalette.swift"]` — in both directions, because a *second* speller is
    a colour nothing can re-theme and a palette that has stopped spelling any is a
    table that has stopped being one.
-3. **The four exemptions stay exemptions**, disjoint from the gated set and
+3. **The three exemptions stay exemptions**, disjoint from the gated set and
    still present in the tree: `SyntaxTheme.swift` (a token-kind colour table
    belongs to the *code* zone, which is the editor's own theme, not the chrome's
    design system), `TerminalTheme.swift` (an ANSI-16 palette is a protocol's
    vocabulary — the numbers mean what the escape sequences say, and a role cannot
    stand in for one; since part five (h) that exemption covers its two
    sixteen-entry arrays and nothing else, the file's four chrome colours being
-   roles pinned by rule forty-four), `FileIcon.swift` (a Core semantic token iOS still
-   paints, so it cannot move behind a macOS-only palette) and, since part four
+   roles pinned by rule forty-four) and, since part four
    (b), `CommitGraphPalette.swift` (a lane colour is an identity token — "this
    line is the same branch as that one" — not a chrome meaning; its eight hues
    are light/dark pairs chosen against `bgPanel` and measured by
    `CommitGraphPaletteTests`). `CommitGraphView.swift`, which asks that table
    for every lane and spells no colour itself, is *gated*, so the two sets
    meeting at that seam is exactly what the disjointness assertion refuses.
+   There were four until the vendored file icons retired the Core file-icon
+   table, a semantic tint iOS painted; no file-type icon needs an exemption,
+   since its helper spells no colour at all.
 4. **The theme is injected at the interface scale's own roots**, read from
    `ZoomSourceGatingTests.interfaceScaledRoots` rather than restated (see above).
 5. **No view constructs a theme inline.** `ChromeTheme(` appears only in
@@ -3287,25 +3425,20 @@ The fifty-three rules, each invisible to the compiler:
    handed, and inventing no second design value is the whole difference.
 8. **The tab icon rule is spelled once.** `struct TabFileIcon` and the
    untitled-buffer fallback it carries — an `OpenFile` with no url asked about
-   under its `displayName` — are declared in `TabStripView.swift` and nowhere
+   under its `displayName`, so a name nothing recognises gets `FileTypeIcon`'s
+   own `document` answer — are declared in `TabStripView.swift` and nowhere
    else, both halves by set equality, because that fallback was pasted into both
-   orientations once already. The paste had a second cost read from the other
-   side: rule one drops every line naming `FileIcon(`, so each copy bought
-   itself a line exempt from the no-system-colour check — which is why the gated
-   files carrying such a line are themselves a counted set, three today. Since
-   part eight the fallback is `file.url?.lastPathComponent ?? file.displayName`
-   handed to `FileGlyph`, matched whitespace-free, and the tree, its draft field
-   and `TabStripView.swift` construct no `FileIcon` at all and left the set.
-   What stays: since part four (a) `ProblemsPanelView.swift` and
-   `UsagesPanelView.swift`, whose one exempted line each is the file-group
-   header's `let icon = FileIcon(…)` binding, read for its symbol alone — the
-   glyph is drawn in `textSecondary` on a line rule one still scans — and since
-   part four (b) `CommitLogView.swift`, whose changed-file row carries the same
-   binding. `LocalChangesView.swift` carried it too until the design pass, when
-   its file rows stopped drawing a file glyph and its folder rows took
-   `FileGlyph`'s, and it left the set; so did `CommitDialogView.swift`, whose
-   file row (in the set since part five (b)) the same pass reduced to checkbox,
-   status letter and name.
+   orientations once already. The fallback is `file.url?.lastPathComponent ??
+   file.displayName` handed to `FileTypeIcon.forFile(named:)`, matched
+   whitespace-free. The rule once had a third half, read from the other side:
+   rule one dropped every line constructing the retired Core file-icon table, so
+   each such line was exempt from the no-system-colour check, and the gated
+   files carrying one were a counted set. That set emptied as the surfaces moved
+   to `FileTypeIconImage` — the tree, its draft field and the tab strip first,
+   then the Problems and Usages file-group headers and the Log's changed-file
+   row (`LocalChangesView.swift` and `CommitDialogView.swift` had left it in the
+   design pass, their rows drawing no file glyph) — and the half went with the
+   table and rule one's carve-out.
 9. **The window's chrome is configured in one file.**
    `titlebarAppearsTransparent` and `titlebarSeparatorStyle` are each spelled in
    `MainWindowChrome.swift` and nowhere else under `Sources/`, by set equality in
@@ -4071,11 +4204,11 @@ The fifty-three rules, each invisible to the compiler:
     `DocumentPageChrome.swift` (12) — and `LeetCodeStatementDocument.swift`
     spells none. (d) `func cssHex(` is defined in `ChromePalette.swift` alone.
     Clause (c) reads the comments-only scanner, literals kept, because a CSS
-    hex literal *is* a string literal — one of the suite's four literal-keeping
+    hex literal *is* a string literal — one of the suite's five literal-keeping
     readings, named in its header.
 43. **No document calls the sweep closed while a surface remains.** The macOS
     app files outside `Sources/Pisaka/iOS/`, outside `gatedFiles` and outside
-    the four exemptions that name a system semantic colour, a SwiftUI hue or a
+    the three exemptions that name a system semantic colour, a SwiftUI hue or a
     `0xRRGGBB` literal equal `unsweptColorSurfaces` by set equality — `{}`
     since part five (f) swept the fold placeholder — so a measured surface
     missing from the set fails, and so does a set member no longer measured;
@@ -4100,7 +4233,7 @@ The fifty-three rules, each invisible to the compiler:
     since it names no colour. Part five (d) and part five (e) each made the
     claim and neither was true; this is the measurement that would have said so.
 44. **The terminal's exemption shelters its two ANSI arrays and nothing else.**
-    `TerminalTheme.swift` stays in the four exemptions, but the exemption's
+    `TerminalTheme.swift` stays in the three exemptions, but the exemption's
     reason is true of its `darkANSIColors` and `lightANSIColors` alone. With
     both array bodies carved out, the rest of the file (ordinary scanner) spells
     no `0x` literal of any width — stricter than rule two's six digits, on

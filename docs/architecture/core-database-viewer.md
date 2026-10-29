@@ -230,7 +230,7 @@ only *consults* one, before each of its two writes.
   file whose middle component happens to read `db`; opening it in the viewer
   would hide a file the user can perfectly well edit. The set is a
   `public static let` because three readers ask it — `open(url:)`'s routing,
-  `FileIcon`'s extension table and this document — and a set restated three
+  `FileTypeIcon`'s database phase and this document — and a set restated three
   times is a set that drifts. `.db` is not SQLite's alone; a file that is not a
   database fails at connection time with the library's own message, which is a
   better answer than refusing to look.
@@ -251,10 +251,12 @@ only *consults* one, before each of its two writes.
   with its `errorDescription` arm naming the file in plain words. Thrown by the
   probe-only open path alone (decision 2).
 
-- `FileIcon.swift` — the database extensions are **not** written out in the
-  extension table: it is now built by folding
-  `DatabaseFileRule.recognizedExtensions` into the hand-written half, so the
-  icon can never name a set the viewer does not recognize, or miss one it does.
+- `FileTypeIcon.swift` (`core-theme.md`) — the database extensions are **not**
+  written out in its tables: its first phase asks
+  `DatabaseFileRule.isDatabaseFile(named:)` before anything else, so the file
+  icon can never name a set the viewer does not recognize, or miss one it does,
+  and a recognized database (`README.db`) draws the database picture rather
+  than a special name's. `FileTypeIconTests` walks every recognized extension.
 
 - `WorkspaceModel.swift` — the routing and the viewer-tab semantics. `open(url:)`
   runs the canonical-path dedup **first and kind-blind**, so a second open of a

@@ -296,7 +296,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     own ground and the dock slot's, so the panel reads as one surface. The inset
     is its own generic view so `TerminalPanelInsetTests` (app bundle) can measure
     it around a stand-in, at scale 1.0 and 1.8, without spawning a shell. The terminal's
-    ANSI-16 arrays (`TerminalTheme`, one of the chrome suite's four exemptions,
+    ANSI-16 arrays (`TerminalTheme`, one of the chrome suite's three exemptions,
     narrowed by rule forty-four to those two arrays) are the terminal zone, not
     chrome; its four chrome colors — ground, text, caret, selection — have been
     the `bgPanel` (`bgCanvas` until the design pass), `textPrimary`, `accent`

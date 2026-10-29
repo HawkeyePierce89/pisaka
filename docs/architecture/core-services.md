@@ -25,7 +25,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     A `public enum RunCommand` backed by a private static lowercased-extension →
     runner-tokens map (`ts`/`tsx` → `npx tsx`, `js`/`mjs`/`cjs` → `node`, `py` →
     `python3`, `swift` → `swift`, `go` → `go run`, `sh`/`bash` → `bash`), mirroring
-    `FileIcon`/`SyntaxLanguage`'s extension-map pattern. `command(forFileName:
+    `FileTypeIcon`/`SyntaxLanguage`'s extension-map pattern. `command(forFileName:
     absolutePath:) -> String?` looks up the file's extension (via
     `(fileName as NSString).pathExtension.lowercased()`) and, when known, returns
     the joined runner tokens plus the shell-quoted path (`nil` for an unknown/empty
@@ -105,7 +105,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     consulted and, unlike Go's `go test <dir>`, a path full of shell
     metacharacters cannot reach the command line at all.
   - `BottomPanel.swift` — pure, testable bottom-dock-panel state
-    (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
+    (Foundation-free — semantic enum only, the `ChromeColorRole`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable, CaseIterable, Sendable { case terminal, log,
     changes, problems, usages, pullRequests }` (which panel, if any, sits in the bottom dock above the
     always-visible bar; a `BottomPanel?` of `nil` = hidden — Terminal, Log,
@@ -221,7 +221,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
   - `DiffWindowTitle.swift` — pure, testable window-title builder for the separate
     (non-modal) diff windows opened on double-click, and the external-change
     Compare window (Foundation-only, color/UI-free
-    — the `FileIcon`/`LogFilter` move-logic-into-Core precedent, so the
+    — the `FileTypeIcon`/`LogFilter` move-logic-into-Core precedent, so the
     off-by-one-prone short-hash truncation is unit-tested rather than living in the
     view layer). A `public enum DiffWindowTitle` with `shortHashLength = 7` (git's
     conventional short hash) and three static builders pairing the file path with its
@@ -238,7 +238,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Unit-tested in `DiffWindowTitleTests`.
   - `TabOrientation.swift` / `ThemePreference.swift` — pure, color/SwiftUI-free
     semantic enums (`String`/`CaseIterable`/`Equatable`, the
-    `FileIconColor`/`BottomPanel` precedent) for the two non-numeric preferences,
+    `ChromeColorRole`/`BottomPanel` precedent) for the two non-numeric preferences,
     their `String` raw values the stable persisted form. `TabOrientation`
     (`.vertical`/`.horizontal`) is how the open-tabs list is laid out (a vertical
     column beside the editor, or a horizontal strip above it); `ThemePreference`
@@ -694,7 +694,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     (4) **canonical marking over verbatim display**: rows carry the exact spelling stored (no tilde abbreviation), but identity and the `isCurrent` flag compare `CanonicalPath.canonical(_:).path` against the open project, so any spelling of the open folder marks its row.
     **Staleness**: the list is read at display time and may trail the live catalog by one debounce of the session writer. This is acceptable; the button's own label always reads the live project root, and a race where a folder is deleted after the popover opens is settled by the funnel's refusal guard (`PisakaApp.swift`). Unit-tested in `RecentProjectTests`.
   - `ScopedFileAccess.swift` — pure, Foundation-only iOS security-scoped-access
-    helpers (the `FileIcon`/`SettingsStore` move-the-testable-math-into-Core
+    helpers (the `FileTypeIcon`/`SettingsStore` move-the-testable-math-into-Core
     precedent). `FolderBookmark` (`Codable`/`Equatable`: standardized `path`
     identity + the opaque security-scoped `bookmark` blob, created/resolved in the
     iOS view layer — Core only stores/orders/returns it) plus two pure functions:

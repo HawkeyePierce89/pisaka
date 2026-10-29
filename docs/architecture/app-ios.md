@@ -256,7 +256,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     width: project-tree sidebar + editor detail) vs `NavigationStack`
     (iPhone/compact: tree → pushed editor), plus the Local Changes / Git Log /
     Merge sheet routes and the revert/apply-merge orchestration (the iOS peer of
-    `PisakaApp`, minus the autosave/project-tree gates iOS lacks). It also owns the
+    `PisakaApp`, minus the autosave/project-tree gates iOS lacks). **Icons**: a
+    file row draws `FileTypeIconImage(FileTypeIcon.forFile(named:), side:
+    FileRowLayout_iOS.iconSide)` — the vendored file-icon set's full-colour
+    picture of its kind, the same assets and the same helper the macOS surfaces
+    draw (`FileTypeIconImage.swift`, compiled for both platforms; on iOS its
+    18-point side follows Dynamic Type through a body-relative `@ScaledMetric`,
+    as the SF Symbol it replaced did), never tinted — and a directory row draws
+    `FolderSymbol_iOS`, an internal view declared here: the `folder` symbol in
+    `Color.accentColor`, unchanged. `FileRowLayout_iOS.iconSide` (18) is declared
+    here and shared by the tree, Local Changes and Log file rows. The retired Core
+    file-icon table's tinted SF Symbols, and the two colour-mapping helpers that
+    painted them (`swiftUIColor(for:)` here, `iconColor(for:)` in Local Changes),
+    are gone. It also owns the
     `BranchSwitcherModel` (constructed alongside `localChanges`/`commitLog`,
     refreshed on folder open and after a successful switch/create) and hosts the
     `BranchSwitcherView_iOS` in the toolbar/nav; its switch/create/checkout-remote
@@ -829,12 +841,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     lives in Core's `GitCredentials`.
   - `iOS/LocalChangesView_iOS.swift` / `iOS/DiffView_iOS.swift` /
     `iOS/DiffRoute_iOS.swift` — the Local Changes list + two-`UITextView`
-    side-by-side diff, presented as sheets / pushed screens. Each pane sets the
+    side-by-side diff, presented as sheets / pushed screens. A file row draws its
+    kind's full-colour icon through `FileTypeIconImage` (the root's entry, above)
+    and carries its git status on the **status letter only**; the by-folder
+    tree's directory rows draw `FolderSymbol_iOS`. Each pane sets the
     theme's `.plain` entry as its base foreground beside the font, like every
     other view attaching the syntax highlighter (`app-editor.md`).
   - `iOS/CommitLogView_iOS.swift` / `iOS/CommitGraphView_iOS.swift` —
     the Git Log list with the branch-graph gutter (UIKit over
-    `CommitGraphLayout`).
+    `CommitGraphLayout`). A commit's changed-file row (`CommitFileRow_iOS`) draws
+    its kind's full-colour icon through `FileTypeIconImage` and carries its
+    status on the letter only.
   - `iOS/LogFilterBar_iOS.swift` — the iOS filter/search bar, the compact peer of
     the macOS bar. The compact bar is a branch `Menu` + live message-search field +
     button opening the advanced-filter form (author/path/date) as a sheet. **Audit

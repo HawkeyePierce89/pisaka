@@ -288,7 +288,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     batch of changed paths worth re-reading the tree for". The watcher itself
     (`ProjectWatcher`, FSEvents) is IO-only view-layer code; this off-by-one-prone
     path matching (trailing slashes, same-or-descendant vs. a raw `hasPrefix`) lives
-    in Core so it is unit-tested — the `ScopedFileAccess`/`FileIcon`/`LineDiff`
+    in Core so it is unit-tested — the `ScopedFileAccess`/`FileTypeIcon`/`LineDiff`
     precedent — and it is **string comparison only, no disk access** (an FSEvents
     callback has no business touching the filesystem). A batch refreshes when at
     least one path is *not* ignored; an empty batch → `false`. Three ignore rules,
@@ -321,44 +321,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     would fail rule (1) for *every* path and silently disable the whole feature, so
     `ProjectWatcher.start` canonicalizes before calling in. Unit-tested in
     `TreeRefreshFilterTests` (including that contract, both directions).
-  - `FileIcon.swift` — pure, testable mapping from a `DirectoryEntry` to an
-    icon: a `FileIcon` struct (`symbolName` + semantic `FileIconColor`) with
-    `init(for: DirectoryEntry)`. Resolution order: directory → `folder`/`.accent`;
-    special-cased file names (e.g. `Package.swift`, `LICENSE`, `.gitignore`,
-    `.editorconfig`, `Makefile`, `GNUmakefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
-    `doc`/`.gray`. The extension table is `staticExtensionMap` folded with one
-    entry per `DatabaseFileRule.recognizedExtensions` member
-    (`cylinder.split.1x2.fill`/`.green`), derived rather than restated so a
-    recognized database file cannot gain the viewer routing and keep a plain
-    document icon; `FileIconTests` asserts the two agree. The special-name table
-    also carries the **ten shell startup dot-files** (`.bashrc`,
-    `.bash_profile`, `.bash_logout`, `.zshrc`, `.zprofile`, `.zshenv`,
-    `.zlogin`, `.zlogout`, `.profile`, `.envrc`), answering the one
-    `terminal`/`.green` icon the `sh`/`bash`/`zsh` extensions answer — written
-    once as `shellIcon` so the two halves cannot drift. They need an entry of
-    their own because a dot-file's `pathExtension` is empty, so the extension
-    phase never runs for them: without it they would highlight, index and
-    comment as shell while drawing the grey fallback. `SyntaxLanguage`'s table
-    and this one are **separate by design** — a language is not an icon — so
-    `FileIconTests` holds them together as a rule rather than as instances:
-    every name in `SyntaxLanguage`'s exact-name phase must have a non-fallback
-    icon, and every extension resolving to `.shell` must carry the shell icon.
-    Three exemptions are named in the assertions rather than left implicit:
-    `.env` (dotenv, still on the fallback — a separate decision), and the
-    extensions `ksh` and `command`, a stated, accepted cost from the shell plan.
-    The Make icon (`hammer`/`.gray`) is likewise written once as `makeIcon` and
-    shared by the exact names `makefile` and `gnumakefile` and the `mk`/`mak`
-    extensions, so the icon/language agreement rule above holds for the
-    eighteenth language without an exemption.
-    `FileIconColor` is a semantic enum so the library stays free
-    of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, go, rust, json,
     markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql,
     editorconfig, shell, make, tsx) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
-    extension→language map, mirroring `FileIcon`'s extension-map pattern. Three of
+    extension→language map. Three of
     them — dockerfile, dotenv and gitignore — carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
     `init?(forFileName:)` is no longer extension-only: it takes the argument's
     *last path component*, lowercases it, and runs **four phases in a fixed
@@ -459,9 +428,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     JSX. The case met all three obligations above: the TSX grammar
     (`app-editor-overlays.md`), `Resources/Queries/tsx/symbols.scm`, and
     TypeScript's keyword list, shared. Every exhaustive switch the compiler
-    reported (`CommentStyle`, `FileGlyph`, `FileIcon`, `SyntaxContextVocabulary`,
-    `CaretReadout`, `LSPServerDescription`, `LSPProvisioningManifest`) treats it
-    as TypeScript. The LSP `languageId` stays `typescriptreact`, and the TS
+    reported (`CommentStyle`, the two file-icon tables of the day,
+    `SyntaxContextVocabulary`, `CaretReadout`, `LSPServerDescription`,
+    `LSPProvisioningManifest`) treats it as TypeScript; the file icons have since
+    moved to `FileTypeIcon` (`core-theme.md`), whose `forLanguage(_:)` gives
+    `tsx` the React picture. The LSP `languageId` stays `typescriptreact`, and the TS
     server's language set includes it (`core-lsp.md`).
     **`extraWordScalars`** is the language's data for `IdentifierScanner`'s
     boundary rule: `$` and `#` for `.javascript`, `.typescript` and `.tsx`,
@@ -645,7 +616,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     dropped (`core-markdown-preview.md`). Its
     `init(captureName:)` splits a dotted tree-sitter capture name and matches the
     longest known prefix (`keyword.control` → `.keyword`), falling back to
-    `.plain`. Color stays out of Core (semantic only, like `FileIconColor`).
+    `.plain`. Color stays out of Core (semantic only, like `ChromeColorRole`).
     The map carries **five entries that are not a prefix family**: bare `escape` →
     `.string`. tree-sitter-go spells string escapes `@escape` rather than
     `@string.escape`, and without the entry every `\n` in a Go string resolved to
@@ -840,7 +811,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     offset of the one-unit bracket), `depth` (0 at the outermost) and
     `isUnmatched`; `depth` is *semantic*, not a palette index — the scanner
     reports the honest level (7 stays 7) and the view resolves `depth % N` over
-    its own cycling palette (the `FileIconColor`/`SyntaxTokenKind` split). `public
+    its own cycling palette (the `SyntaxTokenKind`/`ChromeColorRole` split). `public
     enum BracketDepthScanner { static func scan(text: NSString) -> [BracketToken] }`
     is one O(n) pass with a **single stack shared by all three kinds** (the
     rainbow colouring's semantics — nesting depth is one number for the whole document, so

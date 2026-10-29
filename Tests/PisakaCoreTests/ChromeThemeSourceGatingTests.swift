@@ -9,7 +9,7 @@ import XCTest
 /// `Sources/` through `#filePath` with Foundation only, and it matches against
 /// `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output, so
 /// **comments and string literals are stripped before almost every match** —
-/// the four rules named below are the stated exceptions.
+/// the five rules named below are the stated exceptions.
 /// That is load-bearing rather than tidy here: the gated files document their own
 /// rules at length — `ChromePalette.swift` explains what a hex literal outside it
 /// would cost, `TabStripView.swift` names the accent colour it no longer uses in
