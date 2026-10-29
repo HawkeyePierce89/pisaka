@@ -3203,7 +3203,7 @@ five: `TabListView.swift`, `TabRowView.swift`, `BreadcrumbBarView.swift`,
 `MainWindowChrome.swift`, `ContentView.swift`, `ProjectSwitcherView.swift`,
 `BranchSwitcherView.swift`, `PullRequestIndicatorView.swift` — plus part four
 (a)'s `DockTabRow.swift`, `ProblemsPanelView.swift`, `UsagesPanelView.swift` and
-`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more — sixty-five — and the external-change bar, `ExternalChangeBar.swift`, one more — sixty-six — and the shared tag, `ChromeTag.swift`, one more: **sixty-seven** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
+`TerminalPanelView.swift`, **twenty** in all. Part four (b), part five (a), part five (b), part five (c), part five (d), part five (e) and part five (f) add seven, seven, ten, seven, seven, one and one more, each named in its own section above — sixty — the design glyphs' helper, `DesignGlyphImage.swift`, one more — sixty-one — the bottom bar's popover component, `ChromePopover.swift`, one more — sixty-two — the Welcome screen, `WelcomeView.swift`, one more — sixty-three — and the shared split, `ChromeSplitView.swift`, one more — sixty-four — and the gutter change marker's popover, `ChangeHunkPopover.swift`, one more — sixty-five — and the external-change bar, `ExternalChangeBar.swift`, one more — sixty-six — and the shared tag, `ChromeTag.swift`, one more — sixty-seven — and the file-type icons' helper, `FileTypeIconImage.swift`, one more: **sixty-eight** in all today. `ProjectTreeView.swift` is not among the third part's additions because it
 was already there: part three restyled the surface *around* the rows part one
 had swept, and a file joins this set once. The draft field is in the set
 although it is an editing affordance rather than a row: an inline draft
@@ -3211,7 +3211,7 @@ although it is an editing affordance rather than a row: an inline draft
 for. `TabStripView.swift` covers `TabStatusMark` too, the slot view the two
 orientations share, which is why that extraction did not add a seventh file.
 
-The fifty-two rules, each invisible to the compiler:
+The fifty-three rules, each invisible to the compiler:
 
 1. **No gated view names a system semantic colour.** A closed forbidden-token
    list — AppKit's semantic set (`labelColor`, `separatorColor`,
@@ -4266,12 +4266,29 @@ The fifty-two rules, each invisible to the compiler:
     the site would go unwashed without failing here — rule thirty-five's pinned
     row-background bodies catch that. Matched against comment- and
     literal-stripped text.
+53. **File-type icons are drawn only through their helper, never as a
+    template.** Every source under `Sources/Pisaka/`, the iOS directory
+    included, is read through the literal-keeping scanner, and the files holding
+    a load that names a file-type icon equal `{FileTypeIconImage.swift}`. A load
+    is any of rule forty-six's spellings, or `UIImage(named:` (also through
+    `.init(`); it names a file-type icon when its argument spells `catalogName`
+    or `catalogNamespace`, or a literal opening on `FileIcons/` — the namespace
+    being what keeps the design glyph `database` and the icon
+    `FileIcons/database` apart. The helper loads through `catalogName` in every
+    load and at least once, spells `.renderingMode(.original)`, spells none of
+    `template`, `isTemplate`, `foregroundStyle`, `foregroundColor` or `tint`, and
+    rule forty-six's matcher finds no design glyph in it. A self-check feeds the
+    matcher every bypass spelling, and the symbol loads, `AppIcon` and the
+    un-namespaced `database` must pass. Same known gap as rule forty-six: a name
+    bound to a local and passed on passes.
 
 Plus a **self-check** in the suite's own idiom: every gated file must actually
-*name* a `ChromeColorRole`, or the checks above have gone vacuous — with ten
+*name* a `ChromeColorRole`, or the checks above have gone vacuous — with eleven
 exceptions, each naming no role by construction while staying gated for the
 rules it *can* break: `DesignGlyphImage.swift`, which paints the role its caller
-names (gated for rules one and two and rule forty-six), `ChromeThemeEnvironment.swift`, which carries the
+names (gated for rules one and two and rule forty-six), `FileTypeIconImage.swift`,
+which draws a file-type icon in its own colours and takes no role (gated for
+rules one and two and rule fifty-three), `ChromeThemeEnvironment.swift`, which carries the
 appearance down the tree and paints nothing, `LSPInstalledLicenses.swift`
 (since part five (c)), a Foundation-only enum that returns the installed licence
 documents and has no view, and `CommitGraphView.swift`, which draws only lanes
@@ -4318,8 +4335,8 @@ document spelling it checked against that. The gated set's size is held the
 same way (`testBothSummariesSpellTheGatedSetsOwnSize`, added in Part D):
 `gatedFiles.count`, spelled from the same `spelled` table, must appear in both
 summaries in the sentence naming it — the running total in the gated-files
-entry above, ending on "**sixty-seven** in all today", and `CLAUDE.md`'s "pins
-which files obey the rule (sixty-seven, by set equality)". Before it only prose
+entry above, ending on "**sixty-eight** in all today", and `CLAUDE.md`'s "pins
+which files obey the rule (sixty-eight, by set equality)". Before it only prose
 stated the number, and the prose had lagged the set.
 
 Beside it, a **restated-count check**: the list above restates some pins'

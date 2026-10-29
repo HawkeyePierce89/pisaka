@@ -10,8 +10,9 @@ import PisakaCore
 ///
 /// **The design.** Only a row's *name* takes its git state's role —
 /// `ChromeColorRole.treeNameRole(for:)` — a folder answering for the strongest
-/// change below it; the glyph keeps `textSecondary`, and a plain row draws
-/// exactly as the tree did before git state existed.
+/// change below it; a folder's glyph keeps `textSecondary` and a file's icon
+/// its own colours, and a plain row draws exactly as the tree did before git
+/// state existed.
 ///
 /// **How it is measured.** One root folder holding a modified, an ignored and a
 /// plain file, rendered twice at scale one — once with the lookup, once with

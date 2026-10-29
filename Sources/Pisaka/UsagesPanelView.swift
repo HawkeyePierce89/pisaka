@@ -154,9 +154,10 @@ struct UsagesPanelView: View {
     private func fileGroup(_ group: UsageFileGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: metrics.scaled(UsagesPanelLayout.groupGap)) {
-                let icon = FileIcon(for: DirectoryEntry(url: group.fileURL, isDirectory: false))
-                Image(systemName: icon.symbolName)
-                    .foregroundStyle(theme.color(.textSecondary))
+                FileTypeIconImage(
+                    FileTypeIcon.forFile(named: group.fileURL.lastPathComponent),
+                    side: UsagesPanelLayout.groupIconSide
+                )
                 Text(group.relativePath)
                     .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
@@ -259,6 +260,9 @@ private struct UsageRow: View {
 private enum UsagesPanelLayout {
     /// Between a file group's icon and its path.
     static let groupGap: Double = 4
+    /// A file group's icon square: inside the body font's line height, so the
+    /// header's height is the path's (`FileTypeIconImageTests`' layout gate).
+    static let groupIconSide: Double = 14
     /// Around the empty-state sentence: the default `.padding()` inset, stated
     /// so it scales with the rest of the panel instead of staying a fixed 16pt.
     static let placeholderPadding: Double = 16

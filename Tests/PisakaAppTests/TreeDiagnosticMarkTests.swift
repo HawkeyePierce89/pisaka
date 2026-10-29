@@ -23,6 +23,26 @@ import PisakaCore
 /// then by name). The samples the comparison needs are copied out of the first
 /// render before the second replaces it. The glyph slots are the ones
 /// `TreeRowGlyphLayoutTests` pins.
+///
+/// **Why the fixtures are `.hpp`.** A file row draws its kind's icon in the
+/// icon's own colours, and the dots are found by colour, so the fixture's icon
+/// must hold none of the sampled roles and must leave the dot's centre column
+/// clear. The swift icon's orange ink sits close to the roles sampled here. The
+/// go icon's cyan holds no red or yellow, but its `o` lies under the dot's top
+/// edge, where the edge pixel becomes a blend of red over cyan that is neither
+/// the dot over the row's ground nor the ground. The hpp icon is one blue
+/// (`#0288d1`), holds neither role, and draws nothing under the dot's centre
+/// column at either scale. Both dot assertions are also preceded by their
+/// no-lookup precondition — no `statusRed` in the error rows' corners, no
+/// `statusYellow` in the warning rows' — so neither can be satisfied by an
+/// icon's own colour.
+///
+/// **The dot's height is measured by coverage.** A pixel down the dot's centre
+/// column, inside the error row, is the dot's when it is `statusRed` over the
+/// row's ground at half coverage or more (within the suites' 0.02 per channel).
+/// An exact role match drops both anti-aliased edge rows of a six-point circle;
+/// the suite passed that way only while the old grey glyph's ink under the
+/// dot's top edge happened to pull that edge row within tolerance.
 @MainActor
 final class TreeDiagnosticMarkTests: XCTestCase {
 
@@ -30,14 +50,14 @@ final class TreeDiagnosticMarkTests: XCTestCase {
         let root = try makeProject()
         var store = DiagnosticStore()
         let serverKey = DiagnosticStore.ServerKey(serverID: "test-server", root: root.path)
-        let errorFile = root.appendingPathComponent("error.swift")
+        let errorFile = root.appendingPathComponent("error.hpp")
         store.replace(url: errorFile, serverKey: serverKey, diagnostics: [
             Diagnostic(
                 range: NSRange(location: 0, length: 3), line: 0, severity: .error,
                 message: "m", source: "test", fileURL: errorFile
             ),
         ])
-        for path in ["warning.swift", "flagged/inner.swift"] {
+        for path in ["warning.hpp", "flagged/inner.hpp"] {
             let file = root.appendingPathComponent(path)
             store.replace(url: file, serverKey: serverKey, positional: [
                 PositionalDiagnostic(
@@ -97,6 +117,11 @@ final class TreeDiagnosticMarkTests: XCTestCase {
             XCTAssertFalse(contains(.statusRed, in: render, x: area.x, rows: area.rows),
                            "row \(index) drew statusRed with no lookup at scale \(scale)", file: file, line: line)
         }
+        for index in [flaggedFolder, warningFileRow] {
+            let area = corner(childSlot, row: index)
+            XCTAssertFalse(contains(.statusYellow, in: render, x: area.x, rows: area.rows),
+                           "row \(index) drew statusYellow with no lookup at scale \(scale)", file: file, line: line)
+        }
         let cleanSlots = [cleanFolder, cleanFile].map { pixels(in: render, x: childSlot, rows: row($0)) }
 
         box.lookup = lookup
@@ -122,14 +147,25 @@ final class TreeDiagnosticMarkTests: XCTestCase {
             )
         }
 
-        // The error dot's height, down the column through its centre: the
-        // file's dot is the only red one that column crosses.
+        // The error dot's height, down the column through its centre and
+        // within the error row: a pixel is the dot's when it is `statusRed`
+        // laid over the row's own ground at half coverage or more. An exact
+        // match would drop both anti-aliased edge rows of a circle this small,
+        // and how close those rows came to the role used to depend on whatever
+        // the dot's edge happened to sit over.
         let dot: CGFloat = metrics.scaled(TreeRowLayout.diagnosticDotSize)
-        let extent = try XCTUnwrap(
-            render.extent(of: .statusRed, atX: childSlot.upperBound - dot / 2),
-            "no statusRed down the error dot's centre at scale \(scale)", file: file, line: line
-        )
-        let height = extent.maxY - extent.minY
+        let column = childSlot.upperBound - dot / 2
+        let step = 1 / render.pixelScale
+        let errorRow = row(errorFileRow)
+        let red = try XCTUnwrap(HostedRender.swatch(.statusRed, ground: nil)?.usingColorSpace(.sRGB))
+        let ground = try XCTUnwrap(render.color(atX: column, y: errorRow.lowerBound + step),
+                                   "the error row's ground is unreadable at scale \(scale)", file: file, line: line)
+        let covered = stride(from: errorRow.lowerBound, to: errorRow.upperBound, by: step).filter {
+            Self.isHalfCovered(render.color(atX: column, y: $0), by: red, over: ground)
+        }
+        let dotTop = try XCTUnwrap(covered.first, "no statusRed down the error dot's centre at scale \(scale)",
+                                file: file, line: line)
+        let height = (covered.last ?? dotTop) + step - dotTop
         XCTAssertEqual(height, dot, accuracy: 1.5, "the error dot is not \(dot) points tall at scale \(scale)",
                        file: file, line: line)
         return height
@@ -149,6 +185,23 @@ final class TreeDiagnosticMarkTests: XCTestCase {
         var body: some View {
             ProjectTreeView(model: model, diagnostics: box.lookup)
         }
+    }
+
+    /// Whether `color` is `role` laid over `ground` at half coverage or more:
+    /// on the line from `ground` to `role` within 0.02 per channel — the
+    /// tolerance every role match in these suites reads — and at least halfway
+    /// along it.
+    private static func isHalfCovered(_ color: NSColor?, by role: NSColor, over ground: NSColor) -> Bool {
+        guard let color else { return false }
+        let pixel = [color.redComponent, color.greenComponent, color.blueComponent]
+        let base = [ground.redComponent, ground.greenComponent, ground.blueComponent]
+        let ink = [role.redComponent, role.greenComponent, role.blueComponent]
+        let along = zip(ink, base).map { $0 - $1 }
+        let length = along.reduce(0) { $0 + $1 * $1 }
+        guard length > 0 else { return false }
+        let coverage = zip(zip(pixel, base).map { $0 - $1 }, along).reduce(0) { $0 + $1.0 * $1.1 } / length
+        guard coverage >= 0.5 else { return false }
+        return (0..<3).allSatisfy { abs(pixel[$0] - (base[$0] + coverage * along[$0])) < 0.02 }
     }
 
     /// Whether any pixel in `x` × `rows` is `role`. Reads the one bitmap.
@@ -194,7 +247,7 @@ final class TreeDiagnosticMarkTests: XCTestCase {
                 at: root.appendingPathComponent(folder), withIntermediateDirectories: true
             )
         }
-        for name in ["clean/inner.swift", "flagged/inner.swift", "clean.swift", "error.swift", "warning.swift"] {
+        for name in ["clean/inner.hpp", "flagged/inner.hpp", "clean.hpp", "error.hpp", "warning.hpp"] {
             try Data("let x = 1\n".utf8).write(to: root.appendingPathComponent(name))
         }
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }

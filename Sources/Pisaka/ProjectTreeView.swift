@@ -2145,9 +2145,10 @@ enum TreeRowLayout {
     /// The folder row's fixed chevron column width — also the chevron glyph's
     /// drawn size, the design's 12.
     static let chevronWidth: Double = 12
-    /// The file or folder glyph's drawn size and square slot, the design's 14:
-    /// one value for both row kinds and the inline draft, so a file's glyph and
-    /// a sibling folder's are the same width and their names line up.
+    /// The file icon's and the folder glyph's drawn size and square slot, the
+    /// design's 14: one value for both row kinds and the inline draft, so a
+    /// file's icon and a sibling folder's glyph are the same width and their
+    /// names line up.
     static let iconSize: Double = 14
     /// The folder row's gap between the chevron column and the label.
     static let chevronSpacing: Double = 4
@@ -2178,8 +2179,8 @@ enum TreeRowLayout {
     }
 }
 
-/// One file row in the tree: a clickable label that opens the file. The glyph
-/// is resolved from the file's name via `FileGlyph`.
+/// One file row in the tree: a clickable label that opens the file. The icon
+/// is resolved from the file's name via `FileTypeIcon`.
 private struct FileRowView: View {
     let entry: DirectoryEntry
     let onOpen: () -> Void
@@ -2225,14 +2226,10 @@ private struct FileRowView: View {
 
     var body: some View {
         HStack(spacing: metrics.scaled(4)) {
-            // Monochrome, like every other icon in the chrome: `FileGlyph`
-            // answers database, text or code, drawn in `textSecondary`. A column
-            // of tinted glyphs competes with the row highlight, which is the one
-            // thing a tree row has to say.
-            DesignGlyphImage(
-                FileGlyph.forFile(named: entry.name),
-                size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
-            )
+            // The file's own kind, in the vendored icon's own colours: a
+            // file-type icon's colour is its identity, so it is the one icon in
+            // the tree no role tints (folders stay `textSecondary`).
+            FileTypeIconImage(FileTypeIcon.forFile(named: entry.name), side: TreeRowLayout.iconSize)
             .treeDiagnosticDot(
                 diagnosticMark, diameter: metrics.scaled(TreeRowLayout.diagnosticDotSize), resolving: theme.color
             )

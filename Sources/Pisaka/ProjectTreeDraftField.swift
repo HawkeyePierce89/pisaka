@@ -199,12 +199,9 @@ struct TreeNameFieldView: View {
             } else {
                 HStack(spacing: 0) {
                     Color.clear.frame(width: TreeRowLayout.chevronGutter(metrics))
-                    // The glyph the file row will draw once the name is committed,
+                    // The icon the file row will draw once the name is committed,
                     // read off the name typed so far.
-                    DesignGlyphImage(
-                        fileGlyph(for: text),
-                        size: TreeRowLayout.iconSize, slot: TreeRowLayout.iconSize, role: .textSecondary
-                    )
+                    FileTypeIconImage(fileIcon(for: text), side: TreeRowLayout.iconSize)
                 }
             }
         case .rename:
@@ -219,13 +216,14 @@ struct TreeNameFieldView: View {
         }
     }
 
-    /// The glyph for the name typed so far. Only the final component is asked
-    /// about: a trailing slash leaves it empty, and an empty name is `FileGlyph`'s
-    /// plain text document — the honest answer while there is no name yet.
-    private func fileGlyph(for input: String) -> DesignGlyph {
+    /// The icon for the name typed so far. Only the final component is asked
+    /// about: a trailing slash leaves it empty, and an empty name is
+    /// `FileTypeIcon`'s plain document — the honest answer while there is no
+    /// name yet.
+    private func fileIcon(for input: String) -> FileTypeIcon {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalComponent = trimmed.components(separatedBy: "/").last ?? ""
-        return FileGlyph.forFile(named: finalComponent)
+        return FileTypeIcon.forFile(named: finalComponent)
     }
 }
 

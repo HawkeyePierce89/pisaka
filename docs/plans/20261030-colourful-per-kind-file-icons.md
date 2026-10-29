@@ -453,7 +453,7 @@ The Log row's icon loses its status tint. The status letter keeps it, and the do
 
 Steps:
 
-- [ ] Write the tests first.
+- [x] Write the tests first.
   - **App, `FileTypeIconImageTests`**. It is cheap: no window anywhere in the suite except the two
     `HostedRender`s named below.
     - Every `FileTypeIcon` loads through `NSImage(named: icon.catalogName)` non-nil, and
@@ -501,9 +501,9 @@ Steps:
     - Update every restated count (rule total, gated-file total and the number-word table) and the
       suite header's inventory.
   - **Core, `FileGlyphTests`**: reduced to the folder answer.
-- [ ] Implement the helper and switch the seven macOS sites. Remove `FileGlyph.forFile(named:)`.
+- [x] Implement the helper and switch the seven macOS sites. Remove `FileGlyph.forFile(named:)`.
   No site other than the helper loads a `FileIcons/` asset.
-- [ ] Run `swift test` and the app-layer bundle under Xcode 26.3. The hosted-render layout suites
+- [x] Run `swift test` and the app-layer bundle under Xcode 26.3. The hosted-render layout suites
   touching these rows must stay green: the tree glyph, chain, indent-guide, git-status,
   dependency-caption and sticky suites, tabs, Find in Files and the dock. The rules for making them
   green:
