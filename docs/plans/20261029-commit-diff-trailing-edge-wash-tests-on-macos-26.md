@@ -464,21 +464,21 @@ absent.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] PR #123's run on the final commit is green on all five jobs, on the `macos-26` image.
+- [x] PR #123's run on the final commit is green on all five jobs, on the `macos-26` image.
   Its run ID and image version are in `## Notes`.
-- [ ] `## Notes` contains:
+- [x] `## Notes` contains:
   - the quoted failing diagnostic log and the outcome conclusion with its reason;
   - both local mutation results;
   - for B or C, the CI mutation run.
-- [ ] The failed diagnostic run has a downloadable `PisakaAppTests-xcresult` artifact, and
+- [x] The failed diagnostic run has a downloadable `PisakaAppTests-xcresult` artifact, and
   the final green run has none. Check both through the artifacts API and record the results.
-- [ ] The local gates pass on the final tree, under Xcode 26.3 on macOS 27:
+- [x] The local gates pass on the final tree, under Xcode 26.3 on macOS 27:
   - the raw `make test-app` equivalent: 508 tests or more, 0 failures;
   - `swift test` green;
   - `swiftlint lint --strict` clean under 0.65.1.
-- [ ] `git diff master -- Tests/PisakaAppTests | grep -n "XCTSkip\|sleep\|asyncAfter\|operatingSystemVersion\|#available"`
+- [x] `git diff master -- Tests/PisakaAppTests | grep -n "XCTSkip\|sleep\|asyncAfter\|operatingSystemVersion\|#available"`
   shows no added line that disables an assertion or waits on time.
-- [ ] `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
+- [x] `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
   prints nothing.
 
 ### Task 9: Update documentation
@@ -742,6 +742,27 @@ the local and CI mutation results.)
   `test`, `test-macos`, `build-ios`, `build-macos` and `lint` all green; conclusion
   `success`. `test-macos`: 509 tests, 0 failures, `CommitUnifiedDiffWashTests` 11 tests and
   0 failures. Artifacts: 0.
+
+### Task 8 (local, macOS 27, Xcode 26.3): acceptance
+
+- Final run: 40859814945 on df1c86c5, image `macos-26-arm64` 20261021.0445.8. All five jobs
+  (`test`, `test-macos`, `build-ios`, `build-macos`, `lint`) are `success`, re-read through
+  `gh run view --json jobs`. The commits after df1c86c5 are notes-only and not pushed:
+  `git diff --stat df1c86c5 HEAD` names only this plan file. So the code tree that run
+  tested is the final tree.
+- `## Notes` holds everything required: the quoted failing diagnostic log and the outcome B
+  conclusion with its reason (Task 3), both local mutation results (Task 4), and the CI
+  mutation run 40857786580 with its quoted failures (Task 7).
+- Artifacts API: diagnostic run 40852416749 → 1, `PisakaAppTests-xcresult` (107,663,939
+  bytes, not expired, expires 2026-11-05T09:54:12Z). Final run 40859814945 → 0.
+- Local gates on the final tree, Xcode 26.3 on macOS 27: `swift test` 7225 tests,
+  0 failures. `xcodegen generate`, then the raw `make test-app` equivalent: 509 tests,
+  0 failures, `** TEST SUCCEEDED **`, with the tree unchanged afterwards. `swiftlint lint
+  --strict` (0.65.1): 0 violations in 801 files, exit 0.
+- `git diff master -- Tests/PisakaAppTests | grep -n "XCTSkip\|sleep\|asyncAfter\|operatingSystemVersion\|#available"`
+  prints nothing (exit 1).
+- `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
+  prints nothing (exit 1).
 
 ## Post-Completion
 
