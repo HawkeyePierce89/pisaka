@@ -747,9 +747,9 @@ the local and CI mutation results.)
 
 - Final run: 40859814945 on df1c86c5, image `macos-26-arm64` 20261021.0445.8. All five jobs
   (`test`, `test-macos`, `build-ios`, `build-macos`, `lint`) are `success`, re-read through
-  `gh run view --json jobs`. The commits after df1c86c5 are notes-only and not pushed:
-  `git diff --stat df1c86c5 HEAD` names only this plan file. So the code tree that run
-  tested is the final tree.
+  `gh run view --json jobs`. The commits after df1c86c5 were notes-only when this was
+  written. The first review's fix commit f3375efb later changed code, so the final run is
+  now 40866366360 (see "Review fix push (CI push 5)" below).
 - `## Notes` holds everything required: the quoted failing diagnostic log and the outcome B
   conclusion with its reason (Task 3), both local mutation results (Task 4), and the CI
   mutation run 40857786580 with its quoted failures (Task 7).
@@ -775,6 +775,28 @@ the local and CI mutation results.)
   "Upload the test result bundle (failure only)" carries `if: failure()` with
   `actions/upload-artifact` v7.0.2 and `retention-days: 7`. `CLAUDE.md` is 56,808 characters;
   `swift test --filter LintConfigurationTests` under Xcode 26.3: 29 tests, 0 failures.
+
+### Review fix push (CI push 5)
+
+- The first review's fix commit f3375efb changed code after the final run on df1c86c5:
+  - it added `testTheTrailingEdgeDiagnosisReportsTheClipBoundsRightAfterTheScroll`;
+  - it added PNG checks to the diagnosis test;
+  - it added the `if-no-files-found: ignore` assertion in `ReleaseWorkflowTests`.
+
+  So the second review pushed it. This is one push over the four-push budget, made because
+  Task 8 needs a run on the final code tree. No run was in progress when it was pushed.
+- Local gates on f3375efb, from the first review's log, under Xcode 26.3 on macOS 27:
+  - `swift test`: 7225 tests, 0 failures;
+  - `xcodegen generate`, then the raw `make test-app` equivalent: 510 tests, 0 failures;
+  - `swiftlint lint --strict` (0.65.1): clean.
+- **Final run** 40866366360, head SHA f3375efbab2d81e3e09faba2e011aae45d596e1d.
+  - Runner image: `macos-26-arm64` 20261013.0424.1 on all five jobs.
+  - Jobs: `test`, `test-macos`, `build-ios`, `build-macos` and `lint` all `success`;
+    conclusion `success`.
+  - `test-macos`: 510 tests, 0 failures. `CommitUnifiedDiffWashTests` ran 12 tests with
+    0 failures, including the new scrolled diagnosis test.
+  - Artifacts: 0.
+- The commits after f3375efb are notes-only and not pushed.
 
 ## Post-Completion
 
