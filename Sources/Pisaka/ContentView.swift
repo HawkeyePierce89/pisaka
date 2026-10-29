@@ -5,7 +5,7 @@ import PisakaCore
 /// View-layer mapping from the SwiftUI-free `ThemePreference` (Core) to a SwiftUI
 /// `ColorScheme?` for `.preferredColorScheme(...)`: `.system → nil` (follow the
 /// system), `.light → .light`, `.dark → .dark`. Kept here so Core stays
-/// SwiftUI-free (the same split as `FileIconColor → Color`).
+/// SwiftUI-free (the same split as `ChromeColorRole → Color`).
 extension ThemePreference {
     var colorScheme: ColorScheme? {
         switch self {

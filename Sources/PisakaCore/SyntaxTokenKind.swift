@@ -3,7 +3,7 @@ import Foundation
 /// A semantic class of syntax token, resolved from a tree-sitter capture name.
 ///
 /// Pure, UI-free semantic type (no Neon/SwiftTreeSitter/AppKit), mirroring the
-/// semantic-enum precedent of `FileIconColor`. The view layer (`SyntaxTheme`)
+/// semantic-enum precedent of `ChromeColorRole`. The view layer (`SyntaxTheme`)
 /// maps each kind to a concrete color; Core stays color-free.
 ///
 /// tree-sitter highlight queries emit dotted capture names (`keyword.control`,

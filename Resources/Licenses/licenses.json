@@ -269,6 +269,15 @@
       "revision" : "85aea20cfbbe52b9c6c445bb3964d0a06db9db7543e1f901ea7350b0999e3a26",
       "spdx" : "ISC AND MIT",
       "file" : "design-glyphs.txt"
+    },
+    {
+      "id" : "file-icons",
+      "name" : "Material Icon Theme (file-type icons)",
+      "origin" : "Sources/Pisaka/Assets.xcassets/FileIcons",
+      "version" : "v5.40.0",
+      "revision" : "045291ff033062a25441dd297fd51546326866f2",
+      "spdx" : "MIT",
+      "file" : "file-icons.txt"
     }
   ],
   "excluded" : [

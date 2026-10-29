@@ -3,7 +3,7 @@ import Foundation
 /// A source language the editor can syntax-highlight.
 ///
 /// Pure, UI-free semantic type (no Neon/SwiftTreeSitter/AppKit), mirroring the
-/// extension-map pattern in `FileIcon`. The view layer maps each case to a
+/// extension-map pattern in `FileTypeIcon`. The view layer maps each case to a
 /// concrete tree-sitter grammar (`SyntaxLanguageConfiguration`).
 ///
 /// Resolution is by *file name*, not by extension alone: `Dockerfile`, `.env`
@@ -216,9 +216,11 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
 
     /// The exact-name phase's keys and the extension phase's keys, exposed as
     /// `internal` seams (the tables themselves stay `private`) solely so the
-    /// tests can hold this table against `FileIcon`'s own: the two maps are
-    /// separate by design — a language is not an icon — and nothing but a test
-    /// keeps a name that highlights as shell from drawing the grey fallback.
+    /// tests can hold this table against the file-icon tables. Their reader is
+    /// `FileTypeIconTests`, which asserts that every name and extension here
+    /// draws its language's icon except one pinned override. A language is not an icon, so
+    /// the maps stay separate, and only a test keeps a name that highlights as
+    /// shell from drawing the fallback.
     static var exactFileNames: [String] { Array(exactFileNameMap.keys) }
     static var fileExtensions: [String] { Array(extensionMap.keys) }
 

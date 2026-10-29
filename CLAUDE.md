@@ -41,9 +41,10 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   `docs/architecture/core-services.md` + `core-intelligence.md` +
   `core-markdown-preview.md`. Release
   versioning and the build-number override are in `docs/RELEASING.md`.
-  One directory here is deliberately **not bundled**: `DesignGlyphs/`, holding
-  only `VENDORED.md`, the provenance record of the design's glyphs (which ship
-  from the asset catalog, not from here; see Conventions).
+  Two directories here are deliberately **not bundled**: `DesignGlyphs/` and
+  `FileIcons/`, each holding only `VENDORED.md`, the provenance record of the
+  design's glyphs and of the vendored file-icon set (both ship from the asset
+  catalog, not from here; see Conventions).
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library and
   its test target, so `swift test` stays the fast, dependency-free gate for the
   domain logic — compiled for the host and source-compatible with iOS. All
@@ -84,7 +85,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `OpenFile.swift`, `FileService.swift`, `FileName.swift`, `GitRefName.swift`, `BranchRef.swift`, `RemoteHost.swift`, `GitCredentials.swift`, `WorkspaceModel.swift`, `ExternalChangeRule.swift`, `CanonicalPath.swift`, `DisplayPath.swift`, `MoveDropRule.swift`, `TreeDraftDismissRule.swift`, `TreeRevealRule.swift`, `TreeChainRule.swift`, `TreeStickyRule.swift`, `TreeTestRule.swift`, `DependencyFolderRule.swift`
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
-  `ColumnSelectionEngine.swift`, `RangeEditPlan.swift`, `BlockIndentEngine.swift`, `MoveLineEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `BlockCommentEngine.swift`, `TreeRefreshFilter.swift`, `FileIcon.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
+  `ColumnSelectionEngine.swift`, `RangeEditPlan.swift`, `BlockIndentEngine.swift`, `MoveLineEngine.swift`, `DuplicateEngine.swift`, `CommentStyle.swift`, `ToggleCommentEngine.swift`, `BlockCommentEngine.swift`, `TreeRefreshFilter.swift`, `SyntaxLanguage.swift`, `CaretReadout.swift`, `CurrentLineRule.swift`, `MinimapGeometry.swift` / `MinimapModel.swift`, `LineStartIndex.swift`, `SyntaxTokenKind.swift`, `IndentEngine.swift`, `AutoPairEngine.swift`, `BracketMatchEngine.swift`, `BracketDepthScanner.swift`, `IndentLevelScanner.swift`, `TextSearch.swift`, `EditorViewport.swift`, `WordSelectionRule.swift`, `OccurrenceScan.swift`, `OccurrenceHighlightRule.swift`, `OccurrenceHighlightModel.swift`, `TagMatchRule.swift`, `SelectionExpansionRule.swift`
 
 `docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
   `EditorConfigGlob.swift`, `EditorConfigFile.swift`, `EditorConfigResolver.swift`, `EditorConfigModel.swift`, `IndentUnitRule.swift`, `SaveTransform.swift`, `SaveTransformController.swift` (app, macOS)
@@ -132,7 +133,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
   `ZoomZone.swift`, `ZoomScaleRule.swift`, `ZoomGestureAccumulator.swift`, `InterfaceMetrics.swift`, `ScaledFrameFitRule.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme (macOS; Core + app halves):
-  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `CodeZoneCheckboxRule.swift`, `SplitPaneRule.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`, `PopoverPlacement.swift`, `PopoverSelection.swift`, `PopoverKeyRule.swift`
+  `ChromeColorRole.swift`, `ChromeGeometry.swift`, `CodeZoneCheckboxRule.swift`, `SplitPaneRule.swift`, `ChromeAppearance.swift`, `DocumentPageChrome.swift`, `TreeRowState.swift`, `ChromeControls.swift`, `DesignGlyph.swift`, `FileGlyph.swift`, `FileTypeIcon.swift`, `PopoverPlacement.swift`, `PopoverSelection.swift`, `PopoverKeyRule.swift`
 
 `docs/architecture/core-database-viewer.md` — the database viewer tab (macOS; reads, plus two writes — the inline cell edit and the SQL console's confirmed mutation):
   `DatabaseFileRule.swift`, `DatabaseValue.swift`, `DatabaseServicing.swift`, `DatabaseQuery.swift`, `DatabaseSchema.swift`, `DatabasePage.swift`, `DatabaseCellEntry.swift`, `DatabaseRowIdentity.swift`, `DatabaseUpdatePlan.swift`, `DatabaseConsolePlan.swift`, `DatabaseConsoleModel.swift`, `DatabaseViewerModel.swift`
@@ -169,7 +170,7 @@ headlessly in `Tests/PisakaAppTests`.
   `ZoomSurface.swift`, `ZoomController.swift`, `InterfaceScaleEnvironment.swift`
 
 `docs/architecture/core-theme.md` — the chrome theme's app surfaces (same doc as the Core half):
-  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`, `ChromePopover.swift`, `ChromePopoverPresenter.swift`, `ChromeSplitView.swift`, `ChromeTag.swift`
+  `ChromePalette.swift`, `ChromeThemeEnvironment.swift`, `TabStripView.swift`, `CommitGraphPalette.swift`, `DesignGlyphImage.swift`, `ChromePopover.swift`, `ChromePopoverPresenter.swift`, `ChromeSplitView.swift`, `ChromeTag.swift`, `FileTypeIconImage.swift` (app, macOS + iOS)
 
 `docs/architecture/core-database-viewer.md` — the viewer's app surfaces (same doc as the Core half):
   `Platform/DatabaseConnectionService.swift`, `DatabaseViewerTabs.swift`, `DatabaseViewerView.swift`, `DatabaseConsoleView.swift`
@@ -322,12 +323,13 @@ because nothing else states them.
   **exactly two value sets and no third**. Two paths reach a view and no others: SwiftUI reads
   the injected environment at exactly the eight roots the interface scale already names, and
   AppKit asks for a **dynamic** colour — which is why no AppKit chrome view caches a resolved
-  colour. The theme has **two stated exceptions**: `hairlineWidth` on an AppKit code-zoom
-  surface, drawn unscaled, and the terminal, a host that stores concrete colours and is
-  therefore handed concrete colours resolved by appearance. A **reader**: no writer gate either way, and it writes nothing.
-  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-seven, by set
-  equality) and its fifty-two rules, inventoried in that suite's own header and
-  `core-theme.md`'s canonical list; **four files are exempt because they are not chrome**. The macOS colour sweep
+  colour. The theme has **three stated exceptions**: `hairlineWidth` on an AppKit code-zoom
+  surface, drawn unscaled; the terminal, a host that stores concrete colours and is
+  therefore handed concrete colours resolved by appearance; and the file-type icons, whose
+  colour is their identity, drawn original and never tinted (on iOS too). A **reader**: no writer gate either way, and it writes nothing.
+  `ChromeThemeSourceGatingTests` pins which files obey the rule (sixty-eight, by set
+  equality) and its fifty-three rules, inventoried in that suite's own header and
+  `core-theme.md`'s canonical list; **three files are exempt because they are not chrome**. The macOS colour sweep
   is closed in one bounded sense — every macOS chrome surface draws from the roles — and the
   theme is **not thereby finished**: the open questions, the swept surfaces,
   the follow-up procedure and its one refusal all stay named in `core-theme.md`.
@@ -455,7 +457,7 @@ silently, which is what keeps `swift test` dependency-free.
 `GitHubSourceGatingTests`, `GitCLIArgumentSourceGatingTests`, `FoldingSourceGatingTests`,
 `ProjectTreeSourceGatingTests`,
 `MarkdownPreviewSourceGatingTests`, `MarkdownPreviewAssetPinTests`,
-`DesignGlyphAssetTests`, `WelcomeShortcutPinTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
+`DesignGlyphAssetTests`, `FileTypeIconAssetTests`, `WelcomeShortcutPinTests`, `ChromeThemeSourceGatingTests`, `DrawDirtyRectSourceGatingTests` and `LintConfigurationTests`. **Each suite's own doc
 comment is its inventory** — read it there, and update it there. Follow this pattern for
 anything that ships in the bundle with no Swift code behind it, and for any architectural
 rule `swift test` cannot otherwise see.
@@ -499,7 +501,7 @@ and assertions poll for a sink's record instead of assuming any particular hop c
 `QueryScanner`, `ScriptedLSPTransport`, `ScriptedInstallSeams`,
 `ScriptedLeetCodeTransport`, `InMemoryLeetCodeCredentialStore`, `ScriptedDatabaseService`,
 `ScriptedGitHubCLI`, `ScriptedMarkdownSeams`, `MarkdownPreviewVendoredDoc`,
-`DesignGlyphRecord`, `XcodePin`, `RunnerPin` and `RepositorySources` — the once-per-process
+`DesignGlyphRecord`, `FileIconRecord`, `XcodePin`, `RunnerPin` and `RepositorySources` — the once-per-process
 walk and raw/stripped text of repository Swift files the source-gating suites
 read through (non-Swift files are still read directly). A fake
 standing in for a `nonisolated async` seam runs on the cooperative pool, so anything it
@@ -621,6 +623,10 @@ owed are documented in `docs/RELEASING.md`.
   to the export's manifest by `DesignGlyphAssetTests`, and their provenance is
   `Resources/DesignGlyphs/VENDORED.md` — a record that is **not bundled** and **not under
   `Vendor/`**, which holds the five grammar packages and nothing else (`core-theme.md`).
+  The vendored file-icon set is the second such class: original-intent SVG imagesets under
+  `Assets.xcassets/FileIcons/`, named only by `FileTypeIcon`, drawn only through
+  `FileTypeIconImage`, licensed and pinned like the glyphs (`FileTypeIconAssetTests`), with
+  its record in `Resources/FileIcons/VENDORED.md`.
 - **Five tree-sitter grammars are vendored** under `Vendor/` as local path dependencies (the
   directory content is the pin), for five different reasons, each recorded in full in its
   package's `VENDORED.md` — Make's because upstream ships no SwiftPM manifest and the pin is a

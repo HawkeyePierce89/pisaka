@@ -30,21 +30,16 @@ final class CrossPlatformAuditTests: XCTestCase {
         XCTAssertNil(SyntaxLanguage(fileExtension: "unknownext"))
     }
 
-    /// `FileIcon` resolution (directory/special-name/extension/fallback) and its
-    /// semantic, color-free `FileIconColor` must be platform-independent.
-    func testFileIconResolutionIsStable() {
-        let dir = DirectoryEntry(url: URL(fileURLWithPath: "/tmp/src"), isDirectory: true)
-        XCTAssertEqual(FileIcon(for: dir).color, .accent)
-
-        let unknown = DirectoryEntry(url: URL(fileURLWithPath: "/tmp/file.zzz"), isDirectory: false)
-        XCTAssertEqual(FileIcon(for: unknown).color, .gray)
-
-        // A special-cased file name resolves to something other than the unknown
-        // fallback, so the special-name table is actually exercised (a regression
-        // dropping `Package.swift` from it would collapse to the `.gray` doc icon).
-        let pkg = DirectoryEntry(url: URL(fileURLWithPath: "/tmp/Package.swift"), isDirectory: false)
-        XCTAssertNotEqual(FileIcon(for: pkg).symbolName, FileIcon(for: unknown).symbolName)
-        XCTAssertNotEqual(FileIcon(for: pkg).color, FileIcon(for: unknown).color)
+    /// `FileTypeIcon`'s name table (special names, compound suffixes,
+    /// extensions, the language phase and the fallback) is pure Foundation data,
+    /// so it must answer identically on every platform — both draw the same
+    /// assets through it.
+    func testFileTypeIconResolutionIsStable() {
+        XCTAssertEqual(FileTypeIcon.forFile(named: "package.json"), .nodejs)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "Sources/App/main.swift"), .swift)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "app.test.ts"), .testTS)
+        XCTAssertEqual(FileTypeIcon.forFile(named: "file.zzz"), .document)
+        XCTAssertEqual(FileTypeIcon.typescript.catalogName, "FileIcons/typescript")
     }
 
     /// `MinimapGeometry` and `TreeDraftDismissRule` are the two Core types backed

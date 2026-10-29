@@ -25,7 +25,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     Lives in Core (not the
     `Process`-backed `GitCLIService`) so `LocalChangesModel`'s
     `errorMessage = error.localizedDescription` is meaningful and unit-testable —
-    the `FileIconColor`/`FileStatus` move-semantics-into-Core precedent.
+    the `SyntaxTokenKind`/`FileStatus` move-semantics-into-Core precedent.
   - `GitServicing.swift` — git access for the Local Changes view, abstracted
     behind a protocol whose four methods are all `async throws`
     (`repositoryRoot(for:)`, `changedFiles(root:)`, `headContents(of:root:)`, and
@@ -165,7 +165,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     refresh, which builds the tree's `TreeGitStatus` from it
     (`core-git-models.md`).
   - `ChangedFile.swift` — `FileStatus` (`modified, added, deleted, renamed,
-    untracked, conflicted` — a color-free semantic enum like `FileIconColor`;
+    untracked, conflicted` — a color-free semantic enum like `SyntaxTokenKind` or `ChromeColorRole`;
     `.conflicted` is a file left in a merge-conflict state, surfaced with a "C"
     badge and routed to the 3-pane merge editor instead of the diff viewer). Since
     part four (b) of the chrome theme it also answers **`letter`** — M/A/D/R/U/C

@@ -6,7 +6,7 @@ import Foundation
 /// A row is the visual cell for a single commit. `column` is the lane (0-based
 /// column) the node is drawn in and `colorIndex` is that lane's stable color
 /// index (the view layer maps it to a concrete color, so Core stays color-free,
-/// like `FileIconColor`/`SyntaxTokenKind`). `edges` are the segments in the gap
+/// like `ChromeColorRole`/`SyntaxTokenKind`). `edges` are the segments in the gap
 /// *below* this row — each runs from a column at this row's vertical center down
 /// to a column at the next row's vertical center. The last row has no outgoing
 /// edges (its lanes simply end, or run off the bottom when history is truncated).

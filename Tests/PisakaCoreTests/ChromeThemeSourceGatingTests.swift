@@ -9,7 +9,7 @@ import XCTest
 /// `Sources/` through `#filePath` with Foundation only, and it matches against
 /// `LSPSourceGatingTests.strippingCommentsAndStringLiterals(_:)` output, so
 /// **comments and string literals are stripped before almost every match** —
-/// the four rules named below are the stated exceptions.
+/// the five rules named below are the stated exceptions.
 /// That is load-bearing rather than tidy here: the gated files document their own
 /// rules at length — `ChromePalette.swift` explains what a hex literal outside it
 /// would cost, `TabStripView.swift` names the accent colour it no longer uses in
@@ -17,7 +17,7 @@ import XCTest
 /// `ChromeColorRole.textSecondary` in prose — so a raw `contains` would pass on
 /// all three while the code they name was deleted.
 ///
-/// **The stated exceptions.** Four rules match against
+/// **The stated exceptions.** Five rules match against
 /// `GitHubSourceGatingTests.strippingComments(_:)` instead — comments removed,
 /// **string literals kept** — because each rule's subject *is* a literal, and the
 /// ordinary scanner would delete exactly the text it checks: the query-toggle name
@@ -29,7 +29,9 @@ import XCTest
 /// (`testDesignGlyphsAreDrawnOnlyThroughTheHelper`), because an image loaded by
 /// name is loaded by a literal — a reading that covers every load spelling the
 /// rule matches, the `.init(` forms and the resource loaders included, since a
-/// resource's name is the same literal. Every other rule that reads
+/// resource's name is the same literal; and the file-type icon rule
+/// (`testFileTypeIconsAreDrawnOnlyThroughTheirHelper`), for the same reason, a
+/// `FileIcons/` name being a literal too. Every other rule that reads
 /// `Sources/` reads the ordinary scanner, and a self-check holds this paragraph
 /// to the code.
 ///
@@ -48,10 +50,9 @@ import XCTest
 ///   is a colour nothing can re-theme; the table is the one place a value may
 ///   live, and `ChromePalette.swift` is checked by its own app-layer suite
 ///   instead.
-/// - **The four exemptions stay exemptions.** A token-kind colour table, an
-///   ANSI-16 palette, a Core icon token and the branch graph's lane palette are
-///   four things that are *not* chrome; the sweep that follows must not quietly
-///   fold them in.
+/// - **The three exemptions stay exemptions.** A token-kind colour table, an
+///   ANSI-16 palette and the branch graph's lane palette are three things that
+///   are *not* chrome; the sweep that follows must not quietly fold them in.
 /// - **The theme is injected wherever the interface scale is.** A root that
 ///   gains one modifier and forgets the other draws its whole window in the
 ///   resting appearance: no error, no warning, and it looks right until the
@@ -68,8 +69,8 @@ import XCTest
 ///   really a coupling: nothing misrenders, and nothing names the relationship
 ///   either, so the day the other token moves this one moves with it.
 /// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
-///   pasted into both orientations; two spellings of one rule drift, and each
-///   copy also buys itself a line exempt from the first rule above.
+///   pasted into both orientations; two spellings of one rule drift the moment
+///   either is touched.
 /// - **The window's chrome is configured in one file.** A transparent title bar
 ///   is a property of the *window*, so two markers setting it would compete for
 ///   it silently — the ground decided by whichever reached the window first.
@@ -302,6 +303,16 @@ import XCTest
 ///   read by the tree alone and only inside `TreeRowBackground`, the site all
 ///   three tree rows paint through; a second reader compiles, washes one row
 ///   kind and leaves the other — or the pinned copy — plain.
+/// - **File-type icons are drawn only through their helper, never as a template.**
+///   No source under `Sources/Pisaka/`, the iOS directory included, but
+///   `FileTypeIconImage.swift` loads an image naming a file-type icon — any of
+///   rule forty-six's loads, or `UIImage(named:` (also through `.init(`), whose
+///   argument spells `catalogName` or `catalogNamespace` or a literal opening on
+///   `FileIcons/`. The helper loads through `catalogName`, draws
+///   `.renderingMode(.original)`, and spells no template, `isTemplate`,
+///   `foregroundStyle`, `foregroundColor` or `tint`. An icon's colour is its
+///   identity, which no role names: one loaded inline, or tinted, compiles and
+///   draws a file's kind in the wrong colours or in a flat one.
 ///
 /// What a rule here may do, and nothing more: pin a set by equality, assert the
 /// presence or absence of a token through `containsToken`, or take a
@@ -452,6 +463,10 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // The shared tag: a word inside a hairline capsule, drawn by the pull
         // request rows and the project tree's dependency root.
         "ChromeTag.swift",
+        // The file-type icons' one helper: it spells no colour at all, so what
+        // being here enforces is every colour rule holding for it (rule
+        // fifty-three is its own subject).
+        "FileTypeIconImage.swift",
     ]
 
     func testEveryGatedFileExists() throws {
@@ -534,7 +549,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let forbidden = name == "ChromePalette.swift"
                 ? Self.forbiddenSemanticColors
                 : Self.forbiddenSemanticColors + Self.forbiddenHues
-            for line in Self.iconFreeLines(of: code) {
+            for line in code.components(separatedBy: .newlines) {
                 for token in forbidden where LSPSourceGatingTests.containsToken(token, in: line) {
                     offenders.append("\(name): \(token)")
                 }
@@ -544,32 +559,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             offenders.sorted(), [],
             "a gated view must ask the palette for a role, never the system for a colour"
         )
-    }
-
-    /// The stripped source's lines, minus the ones that construct a `FileIcon`.
-    ///
-    /// The hue names above collide with `FileIconColor`'s cases, and a
-    /// `FileIconColor` is the third exemption read from the other side: a Core
-    /// semantic token that names a meaning, not a system colour. The one gated
-    /// site that spells one — the draft field's placeholder icon — does so as an
-    /// argument to `FileIcon(`, on that line and nowhere else, so dropping those
-    /// lines costs the rule nothing it was meant to catch.
-    private static func iconFreeLines(of code: String) -> [String] {
-        code
-            .components(separatedBy: .newlines)
-            .filter { !constructsFileIcon($0) }
-    }
-
-    /// Whether this line constructs a `FileIcon` — the boundary-aware form, so
-    /// `TabFileIcon(`, a view *named* after the icon it draws, buys no exemption
-    /// from rule one. One definition, read by the exemption above and by the
-    /// rule that counts what it exempts, so the two cannot drift apart.
-    static func constructsFileIcon(_ line: String) -> Bool {
-        guard let pattern = try? NSRegularExpression(
-            pattern: "(^|[^A-Za-z0-9_])FileIcon\\("
-        ) else { return false }
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        return pattern.firstMatch(in: line, range: range) != nil
     }
 
     // MARK: - Rule two: no gated view spells a hex literal
@@ -616,7 +605,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule three: the four exemptions stay exemptions
+    // MARK: - Rule three: the three exemptions stay exemptions
 
     /// Files that spell colours and are deliberately **not** chrome.
     ///
@@ -627,8 +616,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   cannot stand in for one. The exemption covers the two sixteen-entry
     ///   arrays and nothing else: the file's four chrome colours — ground, text,
     ///   caret, selection — are roles, pinned by rule forty-four.
-    /// - `FileIcon.swift` — a Core semantic token that iOS still paints, so it
-    ///   cannot move behind a macOS-only palette.
     /// - `CommitGraphPalette.swift` — a lane colour is an identity token, not a
     ///   chrome meaning: it says "this line is the same branch as that one", and
     ///   no role names that. The eight hues are today's system values carried
@@ -636,21 +623,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     static let colorExemptions: Set<String> = [
         "SyntaxTheme.swift",
         "TerminalTheme.swift",
-        "FileIcon.swift",
         "CommitGraphPalette.swift",
     ]
 
     func testTheExemptionsAreNotGated() throws {
         XCTAssertTrue(
             Self.colorExemptions.isDisjoint(with: Self.gatedFiles),
-            "one of the four exemptions is also gated — decide which it is, in the doc comment above"
+            "one of the three exemptions is also gated — decide which it is, in the doc comment above"
         )
         // They must still be there: an exemption naming a file that is gone is a
         // reason nobody will re-read.
         let present = Set(try Self.swiftSources().map(\.lastPathComponent))
         XCTAssertTrue(
             Self.colorExemptions.isSubset(of: present),
-            "one of the four exempted files is gone — update colorExemptions with the reason it no longer applies"
+            "one of the three exempted files is gone — update colorExemptions with the reason it no longer applies"
         )
     }
 
@@ -932,22 +918,18 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     // MARK: - Rule eight: the tab icon rule is spelled once
 
     /// The untitled-buffer icon fallback — an `OpenFile` with no url asked about
-    /// under its `displayName`, so the glyph is `FileGlyph`'s own plain-text
-    /// answer rather than a second guess — is one rule, and `TabFileIcon` is its
-    /// one spelling.
+    /// under its `displayName`, so the icon is `FileTypeIcon`'s own
+    /// plain-document answer rather than a second guess — is one rule, and
+    /// `TabFileIcon` is its one spelling.
     ///
     /// It was pasted into both orientations once already, which is the failure
     /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
     /// moment either is touched, and nothing in the compiler can see that they
-    /// have. The paste had a second cost this suite can see from the other side
-    /// — `iconFreeLines` drops every line naming `FileIcon(` from rule one's
-    /// scan, so each copy bought itself a line exempt from the no-system-colour
-    /// check. Both halves are pinned here by set equality: one declaration, and
-    /// a counted set of gated files carrying an exempted line.
+    /// have. Both halves are pinned here by set equality: one declaration, and
+    /// one spelling of the fallback.
     func testTheTabIconRuleIsSpelledOnce() throws {
         var declarers: Set<String> = []
         var fallbackSpellers: Set<String> = []
-        var iconNamers: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
             let code = try RepositorySources.stripped(url)
@@ -955,12 +937,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             // Whitespace-free, so a re-wrapped spelling is the same spelling.
             if code.filter({ !$0.isWhitespace }).contains("file.url?.lastPathComponent??file.displayName") {
                 fallbackSpellers.insert(name)
-            }
-            let constructsIcon = code
-                .components(separatedBy: .newlines)
-                .contains(where: Self.constructsFileIcon)
-            if Self.gatedFiles.contains(name) && constructsIcon {
-                iconNamers.insert(name)
             }
         }
         XCTAssertEqual(
@@ -973,29 +949,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             the untitled-buffer icon fallback is one rule — a second spelling of it is the drift \
             TabFileIcon exists to refuse
             """
-        )
-        // Three, and named. The tree's rows, the inline draft field and the
-        // shared tab icon left the set in part eight, when they moved to
-        // `FileGlyph`'s design glyphs. What stays: since part four (a), the
-        // Problems and Usages panels' file-group headers, each of whose
-        // exempted line is a `let icon = FileIcon(…)` binding read for its
-        // symbol alone (the glyph is drawn in `textSecondary`, a role, on a line
-        // rule one still scans).
-        // Part four (b) adds the Log's changed-file row, whose exempted line is
-        // the same binding. (Local Changes' rows and folder headers named it
-        // too until the design pass: its file rows draw no file glyph and its
-        // folder rows draw `FileGlyph`'s, so it left the set.)
-        // (The commit dialog's file row named it from part five (b) until the
-        // design pass: the row now reads checkbox, status letter, name and
-        // draws no file glyph, so it left the set too.)
-        // A fourth is a line that has quietly bought itself out of rule one.
-        XCTAssertEqual(
-            iconNamers,
-            [
-                "ProblemsPanelView.swift", "UsagesPanelView.swift",
-                "CommitLogView.swift",
-            ],
-            "a gated file naming FileIcon( carries a line exempt from rule one — keep the set small"
         )
     }
 
@@ -4174,14 +4127,13 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         // Container fonts, one per row or label (the bottom-bar widgets' own
         // glyphs and both switcher popovers' rows are design glyphs, sized by
         // the helper, and the indicator's fallback checks symbol carries its
-        // own metrics font): the dock panels' group headers, badges and rows,
-        ("ProblemsPanelView.swift", "private func fileGroup(", 1, .containerFont),
+        // own metrics font): the Problems panel's badges and rows,
         ("ProblemsPanelView.swift", "private func severityBadge(", 1, .containerFont),
         ("ProblemsPanelView.swift", "struct ProblemRow", 1, .containerFont),
-        ("UsagesPanelView.swift", "private func fileGroup(", 1, .containerFont),
-        ("CommitLogView.swift", "struct CommitFileRow", 1, .containerFont),
-        // (The tree's rows, their inline draft and both tab orientations draw
-        // design glyphs since part eight, sized by the helper.)
+        // (The tree's rows, their inline draft and both tab orientations, the
+        // Problems and Usages file-group headers and the Log's changed-file
+        // row draw no symbol for a file: each draws `FileTypeIconImage`, whose
+        // side is a parameter scaled inside the helper.)
         // The one checkbox shape's check (or dash) is framed by the glyph side
         // its entry passes: the chrome entry through the interface metrics, the
         // code-zone entry through `CodeZoneCheckboxRule` — the unified diff's
@@ -5276,8 +5228,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// named one goes stale the moment its comment is rewritten, and a comment
     /// naming none has nothing to pin.)
     /// A colour named only inside a string literal is not a colour either. The
-    /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
-    /// is a Core token, not a hue. The documents are read raw: a claim is prose.
+    /// documents are read raw: a claim is prose.
     func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
         let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         let label = try NSRegularExpression(pattern: Self.channelLabel)
@@ -5292,7 +5243,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let name = url.lastPathComponent
             if Self.gatedFiles.contains(name) || Self.colorExemptions.contains(name) { continue }
             let code = try RepositorySources.stripped(url)
-            let paints = Self.iconFreeLines(of: code).contains { line in
+            let paints = code.components(separatedBy: .newlines).contains { line in
                 let unlabelled = label.stringByReplacingMatches(
                     in: line, range: NSRange(line.startIndex..., in: line), withTemplate: ""
                 )
@@ -6146,12 +6097,158 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         }
     }
 
+    // MARK: - Rule fifty-three: file-type icons are drawn only through their helper, never as a template
+
+    /// The one file allowed to load a file-type icon.
+    static let fileTypeIconHelperFile = "FileTypeIconImage.swift"
+
+    /// Rule fifty-three's loads: rule forty-six's, plus UIKit's named load —
+    /// this rule reads the iOS directory too, where a `UIImage` is the AppKit
+    /// `NSImage`'s counterpart.
+    static let fileTypeIconLoadNeedles = glyphLoadNeedles + ["UIImage(named:", "UIImage.init(named:"]
+
+    /// Rule fifty-three's matcher: the argument lists of every load in `code`
+    /// that names a file-type icon — the token `catalogName` or
+    /// `catalogNamespace`, or a string literal opening on the namespace. The
+    /// namespace is what keeps the two families apart: the design glyph
+    /// `database` and the file-type icon `FileIcons/database` share a stem, and
+    /// only the second is this rule's. `code` is expected to be literal-keeping
+    /// text, since an icon named by a literal is only visible with the literal
+    /// in place.
+    static func fileTypeIconLoads(in code: String) -> [Substring] {
+        let namespacedLiteral = "\"\(FileTypeIcon.catalogNamespace)/"
+        var arguments: [Substring] = []
+        for needle in fileTypeIconLoadNeedles {
+            for found in callRanges(needle, in: code) {
+                guard let open = code[found].lastIndex(of: "("),
+                      let end = balancedEnd(from: open, in: code) else { continue }
+                let argument = code[code.index(after: open)..<code.index(before: end)]
+                if needle.hasPrefix("Image"),
+                   argument.drop(while: \.isWhitespace).hasPrefix("systemName") { continue }
+                let text = String(argument)
+                if LSPSourceGatingTests.containsToken("catalogName", in: text)
+                    || LSPSourceGatingTests.containsToken("catalogNamespace", in: text)
+                    || argument.contains(namespacedLiteral) {
+                    arguments.append(argument)
+                }
+            }
+        }
+        return arguments
+    }
+
+    /// The tokens the helper may not spell: each would draw a file-type icon
+    /// as a template or in a colour of the caller's, where its own colours are
+    /// the point.
+    static let fileTypeIconTintTokens = ["template", "isTemplate", "foregroundStyle", "foregroundColor", "tint"]
+
+    /// Rule fifty-three. Every source under `Sources/Pisaka/`, the iOS
+    /// directory included, is read through the **literal-keeping** scanner — an
+    /// image loaded by name is loaded by a literal — and the files holding a
+    /// load that names a file-type icon (`fileTypeIconLoads(in:)`) must equal
+    /// `{FileTypeIconImage.swift}` exactly.
+    ///
+    /// The helper itself must load through `catalogName` in every load it
+    /// holds, and at least once, so a renamed property cannot empty the rule
+    /// into a vacuous pass; it must spell `.renderingMode(.original)` and none
+    /// of `fileTypeIconTintTokens`; and rule forty-six's matcher must find no
+    /// design glyph in it, so the two families stay apart.
+    ///
+    /// The rule relies on asset symbols staying off (`DesignGlyphAssetTests`
+    /// pins that in `project.yml`): a generated accessor loads an icon with no
+    /// call this matcher reads. **Known gap, named rather than fixed**, as for
+    /// rule forty-six: an icon name bound to a local and passed on, or
+    /// interpolated into a string, passes.
+    func testFileTypeIconsAreDrawnOnlyThroughTheirHelper() throws {
+        var loaders: Set<String> = []
+        var helper: String?
+        for url in try Self.swiftSources() where url.path.contains("/Sources/Pisaka/") {
+            let code = GitHubSourceGatingTests.strippingComments(try RepositorySources.raw(url))
+            if url.lastPathComponent == Self.fileTypeIconHelperFile { helper = code }
+            if !Self.fileTypeIconLoads(in: code).isEmpty { loaders.insert(url.lastPathComponent) }
+        }
+        XCTAssertEqual(
+            loaders, [Self.fileTypeIconHelperFile],
+            "a file-type icon is drawn through FileTypeIconImage, never loaded by name inline"
+        )
+        let code = try XCTUnwrap(helper, "\(Self.fileTypeIconHelperFile) is gone or renamed — re-point this rule")
+        let loads = Self.fileTypeIconLoads(in: code)
+        XCTAssertFalse(loads.isEmpty, "\(Self.fileTypeIconHelperFile) loads no file-type icon — this rule reads nothing")
+        for load in loads {
+            XCTAssertTrue(
+                LSPSourceGatingTests.containsToken("catalogName", in: String(load)),
+                "\(Self.fileTypeIconHelperFile) must load through catalogName, not \(load)"
+            )
+        }
+        XCTAssertTrue(
+            Self.spellsCall(".renderingMode(.original)", in: code),
+            "\(Self.fileTypeIconHelperFile) must draw the icon with its original rendering intent"
+        )
+        for token in Self.fileTypeIconTintTokens {
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken(token, in: code),
+                "\(Self.fileTypeIconHelperFile) spells \(token) — a file-type icon is drawn in its own colours, never tinted"
+            )
+        }
+        XCTAssertEqual(
+            Self.glyphLoadsNamingAGlyph(in: code), [],
+            "rule forty-six flags \(Self.fileTypeIconHelperFile) — the two image families must stay apart"
+        )
+    }
+
+    /// Rule fifty-three's matcher, fed every bypass it closes: each must be
+    /// flagged, while the symbol loads, `AppIcon` and a design glyph — the
+    /// un-namespaced `database` included — must pass, so a matcher narrowed or
+    /// widened past its subject fails here rather than in a review.
+    func testTheFileTypeIconRuleFlagsEveryLoadSpelling() throws {
+        let icon = try XCTUnwrap(FileTypeIcon.allCases.first)
+        let name = icon.catalogName
+        let flagged = [
+            "Image(icon.catalogName)",
+            "Image(FileTypeIcon.\(icon).catalogName)",
+            "Image(\"\(name)\")",
+            "Image.init(\"\(name)\")",
+            "Image . init ( icon.catalogName )",
+            "Image(FileTypeIcon.catalogNamespace + \"/\(icon.rawValue)\")",
+            "NSImage(named: icon.catalogName)",
+            "NSImage(named: \"\(name)\")",
+            "NSImage.init(named: \"\(name)\")",
+            "UIImage(named: icon.catalogName)",
+            "UIImage(named: \"\(name)\")",
+            "UIImage.init(named: \"\(name)\")",
+            "ImageResource(name: \"\(name)\", bundle: .main)",
+            "NSImage(resource: ImageResource(name: \"\(name)\", bundle: .main))",
+            "Bundle.main.image(forResource: \"\(name)\")",
+            "Bundle.main.image(forResource: icon.catalogName)",
+        ]
+        for snippet in flagged {
+            XCTAssertFalse(
+                Self.fileTypeIconLoads(in: "let x = \(snippet)\n").isEmpty,
+                "rule fifty-three's matcher lets \(snippet) through"
+            )
+        }
+        let passing = [
+            "Image(systemName: \"folder\")",
+            "Image.init(systemName: \"folder\")",
+            "UIImage(systemName: \"folder\")",
+            "Image(\"AppIcon\")",
+            "Image(\"database\")",
+            "Image(DesignGlyph.database.assetName)",
+            "NSImage(named: glyph.assetName)",
+        ]
+        for snippet in passing {
+            XCTAssertEqual(
+                Self.fileTypeIconLoads(in: "let x = \(snippet)\n"), [],
+                "rule fifty-three's matcher flags \(snippet), which loads no file-type icon"
+            )
+        }
+    }
+
     // MARK: - Self-check
 
     /// Every gated file draws with roles and must therefore name one — with two
     /// exceptions: `ChromeThemeEnvironment.swift` carries the *appearance* down
     /// the tree and paints nothing, and `CommitGraphView.swift` draws only lanes,
-    /// whose colours are `CommitGraphPalette`'s (the fourth exemption) rather
+    /// whose colours are `CommitGraphPalette`'s (the third exemption) rather
     /// than roles — so each names no role by construction. Both stay gated for
     /// rules one and two, which is what they can break.
     ///
@@ -6176,8 +6273,14 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// *caller* names: it takes a `ChromeColorRole` and spells no case of one,
     /// so it names none by construction. It is gated for rules one and two and
     /// for rule forty-six, whose subject it is.
+    ///
+    /// `FileTypeIconImage.swift` is exempt because a file-type icon is drawn in
+    /// its own colours, the theme's third stated exception: it takes no role and
+    /// paints none, by construction. It is gated for rules one and two and for
+    /// rule fifty-three, whose subject it is.
     private static let roleNamingExemptions: Set<String> = [
         "DesignGlyphImage.swift",
+        "FileTypeIconImage.swift",
         "ChromeThemeEnvironment.swift",
         "LSPInstalledLicenses.swift",
         "CommitGraphView.swift",
@@ -6248,8 +6351,8 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
         40: "forty", 41: "forty-one", 42: "forty-two", 43: "forty-three", 44: "forty-four",
         45: "forty-five", 46: "forty-six", 47: "forty-seven", 48: "forty-eight",
-        49: "forty-nine", 50: "fifty", 51: "fifty-one", 52: "fifty-two", 65: "sixty-five", 66: "sixty-six",
-        67: "sixty-seven",
+        49: "forty-nine", 50: "fifty", 51: "fifty-one", 52: "fifty-two", 53: "fifty-three",
+        65: "sixty-five", 66: "sixty-six", 67: "sixty-seven", 68: "sixty-eight",
     ]
 
     func testBothSummariesSpellTheSuitesOwnRuleCount() throws {

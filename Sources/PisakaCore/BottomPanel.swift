@@ -5,7 +5,7 @@
 /// means the panel is hidden. The view layer owns the bar and the panels; this
 /// enum plus the pure `toggled(_:selecting:)` helper are the only stateful
 /// logic, so they live in Core and are unit-tested (the color-free / pure-logic
-/// precedent of `FileIconColor`/`LogFilter`).
+/// precedent of `ChromeColorRole`/`LogFilter`).
 ///
 /// **The declaration order is the order on screen**, read through `allCases`:
 /// the bottom bar's toggles and the dock's tab row both list the panels in it,

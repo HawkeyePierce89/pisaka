@@ -26,8 +26,9 @@ import SwiftUI
 /// fields are the shared `ChromeThemedTextField` (`bgEditor` ground, `hairline`
 /// border, `accent` on focus), toggles `accent` on `accentTint` while on and
 /// `textPrimary` with no ground while off, the scope line and counters in `callout`
-/// `textSecondary`, the group header monochrome `textSecondary` (the file's
-/// design glyph, its path and `N matches`), the match row
+/// `textSecondary`, the group header's path and `N matches` in `textSecondary`,
+/// led by the file's full-colour `FileTypeIcon`, which no role tints (the
+/// theme's third stated exception), the match row
 /// on the code font with the line number in `textSecondary`, the highlight kept
 /// on the editor's current-match background, and the validation error in
 /// `statusRed`.
@@ -358,11 +359,9 @@ struct ProjectSearchView: View {
 
     private func groupHeader(for result: FileSearchResult) -> some View {
         HStack(spacing: metrics.scaled(6)) {
-            DesignGlyphImage(
-                FileGlyph.forFile(named: result.relativePath),
-                size: SearchLayout.headerGlyphSlot,
-                slot: SearchLayout.headerGlyphSlot,
-                role: .textSecondary
+            FileTypeIconImage(
+                FileTypeIcon.forFile(named: result.relativePath),
+                side: SearchLayout.headerGlyphSlot
             )
             Text(result.relativePath)
                 .font(metrics.scaledFont(.callout))
@@ -716,7 +715,7 @@ enum SearchLayout {
     /// and the 6-point gap — starts at 36, two points past the 34-point match
     /// indent.
     static let headerPadding: Double = 16
-    /// The group header glyph's slot: the design draws the file glyph there at 14.
+    /// The group header icon's slot: the design draws the file icon there at 14.
     static let headerGlyphSlot: Double = 14
     /// Match row trailing padding.
     static let rowPaddingTrailing: Double = 8

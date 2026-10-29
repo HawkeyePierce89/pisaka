@@ -159,7 +159,9 @@ do — is in [`docs/FEATURES.md`](docs/FEATURES.md).
   a read-only viewer window (macOS), or switch between recent projects from the bottom bar; external
   changes show up on their own via FSEvents. If you attempt to switch to a
   recent project folder that has been deleted or moved, Pisaka will display a
-  warning alert and leave your current workspace unchanged.
+  warning alert and leave your current workspace unchanged. Every file in the
+  tree — and in tabs, Find in Files, Problems, Usages and the Log — carries a
+  per-kind, full-colour icon (TypeScript, React, JSON, Dockerfile, tests…).
 - **Automatic updates** via Sparkle — consent asked once, every download
   verified; **Check for Updates…** is always in the app menu.
 - **Preferences** — appearance, tab placement, editor font family and size,
@@ -290,7 +292,8 @@ entitlements.
 Pisaka is MIT-licensed — see [`LICENSE`](LICENSE).
 
 The app links third-party dependencies (and bundles two page assets for the
-Markdown preview) and ships each one's verbatim license
+Markdown preview, the design's glyphs and a vendored file-icon set) and ships
+each one's verbatim license
 text in `Resources/Licenses/`, shown in-app under **Preferences →
 Acknowledgements**. libgit2 is used under GPL-2.0 with its linking exception
 (its bundled `xdiff` code is LGPL-2.1). Adding a dependency means adding its

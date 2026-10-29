@@ -100,9 +100,10 @@ struct ProblemsPanelView: View {
     private func fileGroup(_ group: DiagnosticStore.FileRows) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: metrics.scaled(ProblemsPanelLayout.groupGap)) {
-                let icon = FileIcon(for: DirectoryEntry(url: group.url, isDirectory: false))
-                Image(systemName: icon.symbolName)
-                    .foregroundStyle(theme.color(.textSecondary))
+                FileTypeIconImage(
+                    FileTypeIcon.forFile(named: group.url.lastPathComponent),
+                    side: ProblemsPanelLayout.groupIconSide
+                )
                 Text(group.pathComponents.joined(separator: " / "))
                     .foregroundStyle(theme.color(.textPrimary))
                     .lineLimit(1)
@@ -213,6 +214,9 @@ private struct ProblemRow: View {
 private enum ProblemsPanelLayout {
     /// Between a file group's icon and its path.
     static let groupGap: Double = 4
+    /// A file group's icon square: inside the body font's line height, so the
+    /// header's height is the path's (`FileTypeIconImageTests`' layout gate).
+    static let groupIconSide: Double = 14
     /// Around the empty-state sentence: the default `.padding()` inset, stated
     /// so it scales with the rest of the panel instead of staying a fixed 16pt.
     static let placeholderPadding: Double = 16

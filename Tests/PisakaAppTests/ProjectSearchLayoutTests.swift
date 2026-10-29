@@ -18,9 +18,11 @@ import PisakaCore
 /// model — with the replace row open, and every sample is read out of that one
 /// bitmap. Ink is any pixel off the `bgPanel` ground. The toggles are checked
 /// slot by slot: every inked column at the query row's trailing end lies inside
-/// one of the three glyph slots, and each slot holds ink. The match indent is
-/// the leftmost `textSecondary` pixel of the rows whose ink does not start at
-/// the header's glyph — the line number, drawn leading in its column. The
+/// one of the three glyph slots, and each slot holds ink. A header row is one
+/// whose ink starts left of the match indent — its file-type icon, drawn in the
+/// icon's own colours, so it is found as ink rather than by a role. The match
+/// indent is the leftmost `textSecondary` pixel of the highlighted rows — the
+/// line number, drawn leading in its column. The
 /// query toggle's on state is rendered once on its own: the glyph in `accent`
 /// inside its slot, on the `accentTint` ground.
 @MainActor
@@ -178,7 +180,8 @@ final class ProjectSearchLayoutTests: XCTestCase {
         )
 
         // The results. A match row is told from a header by the hit's highlight
-        // — the only warm, saturated pixels in the window — so a header whose
+        // — the only warm, saturated pixels right of the match indent (a
+        // header's icon, which may be warm, sits left of it) — so a header whose
         // path starts at 36, just past the 34, cannot stand in for a match line.
         let resultsTop = padding + 3 * fieldHeight + 3 * gap + metrics.scaled(24)
         let indent = metrics.scaled(34)
@@ -190,22 +193,23 @@ final class ProjectSearchLayoutTests: XCTestCase {
                 guard let c = render.color(atX: x, y: y) else { return false }
                 return c.redComponent > 0.45 && c.blueComponent < 0.25 && c.redComponent - c.blueComponent > 0.3
             }
-            let start = stride(from: 0, to: indent + metrics.scaled(20), by: step).first {
-                render.matches(.textSecondary, atX: $0, y: y, ground: panel)
-            }
-            guard let start else { continue }
             if highlighted {
-                matchStarts.append(start)
-            } else if start < indent - metrics.scaled(4) {
+                let start = stride(from: 0, to: indent + metrics.scaled(20), by: step).first {
+                    render.matches(.textSecondary, atX: $0, y: y, ground: panel)
+                }
+                if let start { matchStarts.append(start) }
+            } else if let start = stride(from: 0, to: indent + metrics.scaled(20), by: step).first(where: {
+                inked($0, y)
+            }), start < indent - metrics.scaled(4) {
                 headerStarts.append(start)
             }
         }
-        let headerStart = try XCTUnwrap(headerStarts.min(), "no group header glyph at scale \(scale)", file: file, line: line)
-        // The glyph's ink starts inside its slot by the drawing's own margin,
+        let headerStart = try XCTUnwrap(headerStarts.min(), "no group header icon at scale \(scale)", file: file, line: line)
+        // The icon's ink starts inside its slot by the drawing's own margin,
         // so the slot is what is checked: its leading edge at the content padding.
         let glyphSlot = padding...(padding + metrics.scaled(SearchLayout.headerGlyphSlot) / 2)
         XCTAssertTrue(glyphSlot.contains(headerStart),
-                      "the header glyph \(headerStart) is not in its slot at the content padding at scale \(scale)",
+                      "the header icon \(headerStart) is not in its slot at the content padding at scale \(scale)",
                       file: file, line: line)
         let matchStart = try XCTUnwrap(matchStarts.min(), "no match line ink at scale \(scale)", file: file, line: line)
         XCTAssertEqual(matchStart, indent, accuracy: 2,

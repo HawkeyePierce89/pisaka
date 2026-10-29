@@ -5,13 +5,13 @@ import XCTest
 import PisakaCore
 @testable import Pisaka
 
-/// The project tree's design glyphs, hosted in a real window and measured off a
+/// The project tree's glyph slots, hosted in a real window and measured off a
 /// rendered bitmap.
 ///
 /// **The design.** A folder row leads with its disclosure chevron in a
 /// 12-point slot, a 4-point gap, then its folder glyph in a 14-point slot; a
-/// file row leaves the chevron column blank and draws its file glyph in the
-/// same 14-point slot, one indent step in.
+/// file row leaves the chevron column blank and draws its file-type icon, in
+/// the icon's own colours, in the same 14-point slot, one indent step in.
 ///
 /// **How it is measured.** One tree is rendered per scale — a root folder
 /// holding one Swift file, the root expanded as it always opens — and every

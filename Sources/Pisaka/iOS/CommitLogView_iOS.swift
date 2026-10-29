@@ -371,20 +371,15 @@ private struct CommitDetailView_iOS: View {
     }
 }
 
-/// One changed-file row in the commit detail: a status-tinted icon, the path, and a
-/// one-letter status badge. Tapping opens its diff.
+/// One changed-file row in the commit detail: the file-type icon in its own
+/// colours, the path, and a status-tinted one-letter badge. Tapping opens its diff.
 private struct CommitFileRow_iOS: View {
     let file: ChangedFile
     let onOpen: () -> Void
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(
-            url: URL(fileURLWithPath: file.path),
-            isDirectory: false
-        ))
         HStack(spacing: 6) {
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(commitStatusColor(file.status))
+            FileTypeIconImage(FileTypeIcon.forFile(named: file.path), side: FileRowLayout_iOS.iconSide)
             Text(file.path)
             Spacer(minLength: 4)
             Text(commitStatusLetter(file.status))

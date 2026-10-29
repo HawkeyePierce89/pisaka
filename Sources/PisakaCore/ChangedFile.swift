@@ -3,7 +3,7 @@ import Foundation
 /// How a file differs from `HEAD`, as surfaced in the Local Changes view.
 ///
 /// A deliberately small, semantic enum (no git plumbing detail) mirroring the
-/// pure-enum precedent of `FileStatus`'s siblings (`FileIconColor`,
+/// pure-enum precedent of `FileStatus`'s siblings (`ChromeColorRole`,
 /// `SyntaxTokenKind`). The view layer maps each case to an icon/color; Core
 /// stays UI-free.
 public enum FileStatus: Equatable, CaseIterable, Sendable {

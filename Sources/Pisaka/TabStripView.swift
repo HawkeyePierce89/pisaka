@@ -201,17 +201,16 @@ struct TabStatusMark: View {
     }
 }
 
-/// The file glyph both tab orientations draw at the leading edge of a tab.
+/// The file-type icon both tab orientations draw at the leading edge of a tab.
 ///
 /// It answers one rule, and answers it once: an `OpenFile` that has never been
-/// written has no url, and is asked about under its `displayName`, so the glyph
-/// for a name nothing recognises is `FileGlyph`'s own plain-text answer rather
-/// than a second guess spelled at the call site.
+/// written has no url, and is asked about under its `displayName`, so the icon
+/// for a name nothing recognises is `FileTypeIcon`'s own plain-document answer
+/// rather than a second guess spelled at the call site.
 ///
-/// It is drawn in `textSecondary` at the design's 13 points: a run of tinted
-/// glyphs would compete with the accent statement — the strip's underline, the
-/// column's leading bar — which is the one thing either has to say (the
-/// monochrome-icon decision in `core-theme.md`).
+/// It is drawn at the design's 13 points in the vendored icon's own colours,
+/// through `FileTypeIconImage`: a file-type icon's colour is its identity, the
+/// one icon in the strip no role tints (`core-theme.md`).
 ///
 /// One view rather than one rule restated in each orientation, for
 /// `TabStatusMark`'s own reason: the two show the same fact about the same file,
@@ -220,9 +219,9 @@ struct TabFileIcon: View {
     let file: OpenFile
 
     var body: some View {
-        DesignGlyphImage(
-            FileGlyph.forFile(named: file.url?.lastPathComponent ?? file.displayName),
-            size: 13, slot: 13, role: .textSecondary
+        FileTypeIconImage(
+            FileTypeIcon.forFile(named: file.url?.lastPathComponent ?? file.displayName),
+            side: 13
         )
     }
 }

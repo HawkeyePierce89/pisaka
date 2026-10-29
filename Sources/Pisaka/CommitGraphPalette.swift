@@ -1,8 +1,8 @@
 #if os(macOS)
 import AppKit
 
-/// The branch graph's lane colours — the chrome's **fourth** stated colour
-/// exemption, beside `SyntaxTheme`, `TerminalTheme` and `FileIcon`.
+/// The branch graph's lane colours — the chrome's **third** stated colour
+/// exemption, beside `SyntaxTheme` and `TerminalTheme`.
 ///
 /// A lane colour is an **identity token, not a chrome meaning**: it says "this
 /// line is the same branch as that one", the way an ANSI-16 colour is a
@@ -24,7 +24,7 @@ import AppKit
 /// The hues stay at least 20° apart per appearance (closest: orange–red light,
 /// orange–yellow dark), and no value equals `statusRed`, `statusGreen`,
 /// `statusYellow` or `accent` in either appearance — so the table stays the
-/// fourth exemption and no lane becomes a `ChromeColorRole`.
+/// third exemption and no lane becomes a `ChromeColorRole`.
 ///
 /// Like `ChromePalette`, the table is an exhaustive `switch` with no `default`,
 /// and the colour it answers is **dynamic** — resolved per appearance at draw

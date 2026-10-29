@@ -20,7 +20,7 @@ import PisakaCore
 /// (`FileStatus.letter`, `ChromeColorRole.changedFileRole(for:)`,
 /// `FileStatus.spokenName`). The branch-graph gutter's lane hues are the one
 /// colour table this panel does not read from the roles — `CommitGraphPalette`,
-/// the fourth stated exemption.
+/// the third stated exemption.
 struct CommitLogView: View {
     @ObservedObject var model: CommitLogModel
     /// The current project root, used as the repository root for refresh. `nil`
@@ -426,6 +426,9 @@ struct CommitLogRefreshControls: View {
 private enum CommitLogLayout {
     /// The column header row's height.
     static let headerRowHeight: Double = 24
+    /// A changed-file row's icon square: inside the body font's line height,
+    /// so the row's height is the path's (`FileTypeIconImageTests`' layout gate).
+    static let fileIconSide: Double = 14
     /// A commit row's and the header row's horizontal inset.
     static let rowPaddingX: Double = 12
     /// Between a commit row's columns (and the header's labels).
@@ -750,8 +753,9 @@ private struct CommitDetailPane: View {
     }
 }
 
-/// One changed-file row in the commit detail: a status-tinted icon, the path, and
-/// a one-letter status badge. Single-click selects the row; double-click opens its
+/// One changed-file row in the commit detail: the file's kind icon in its own
+/// colours, the path, and a one-letter status badge — the status is drawn on the
+/// letter alone. Single-click selects the row; double-click opens its
 /// diff in a separate window.
 ///
 /// The letter, its colour and its spoken name are Core's one answer
@@ -772,12 +776,11 @@ private struct CommitFileRow: View {
     @Environment(\.chromeTheme) private var theme
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(url: URL(fileURLWithPath: file.path), isDirectory: false))
         let statusColor = theme.color(ChromeColorRole.changedFileRole(for: file.status))
         HStack(spacing: metrics.scaled(4)) {
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(statusColor)
-                .accessibilityHidden(true)
+            // The file's kind in its own colours; the status lives on the
+            // trailing letter alone, which carries the status role.
+            FileTypeIconImage(FileTypeIcon.forFile(named: file.path), side: CommitLogLayout.fileIconSide)
             Text(file.path)
                 .foregroundStyle(theme.color(.textPrimary))
             Spacer(minLength: metrics.scaled(4))

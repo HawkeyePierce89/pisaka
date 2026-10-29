@@ -89,7 +89,6 @@ struct LocalChangesView_iOS: View {
                         ForEach(model.changedFiles) { file in
                             ChangedFileRow_iOS(
                                 name: (file.path as NSString).lastPathComponent,
-                                url: url(for: file.path),
                                 status: file.status,
                                 isChecked: model.revertSelection.contains(file.id),
                                 onTap: { open(file) },
@@ -207,11 +206,6 @@ struct LocalChangesView_iOS: View {
         revertCandidates = files
     }
 
-    /// Absolute url for a repo-relative path, for the row's icon resolution.
-    private func url(for path: String) -> URL {
-        (projectRoot ?? URL(fileURLWithPath: "/")).appendingPathComponent(path)
-    }
-
     private func refreshIfPossible() {
         guard let projectRoot else { return }
         // Pin the current request generation synchronously before the `Task` hop, so
@@ -251,7 +245,6 @@ private struct ChangeNodeView_iOS: View {
         if let file = node.file {
             ChangedFileRow_iOS(
                 name: node.name,
-                url: node.url,
                 status: file.status,
                 isChecked: model.revertSelection.contains(file.id),
                 onTap: { onOpenDiff(file) },
@@ -272,10 +265,8 @@ private struct ChangeNodeView_iOS: View {
                     .padding(.leading, 12)
                 }
             } label: {
-                let icon = FileIcon(for: DirectoryEntry(url: node.url, isDirectory: true))
                 HStack(spacing: 6) {
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(iconColor(for: icon.color))
+                    FolderSymbol_iOS()
                     Text(node.name)
                 }
                 .lineLimit(1)
@@ -286,11 +277,11 @@ private struct ChangeNodeView_iOS: View {
 }
 
 /// One changed-file row: a leading checkbox (multi-file revert), the file-type icon
-/// tinted by its git status, the name, and a one-letter status badge. Tapping the
-/// row opens its diff; a long-press context menu reverts.
+/// in its own colours, the name, and a one-letter status badge — the one place the
+/// git status is tinted. Tapping the row opens its diff; a long-press context menu
+/// reverts.
 private struct ChangedFileRow_iOS: View {
     let name: String
-    let url: URL
     let status: FileStatus
     let isChecked: Bool
     let onTap: () -> Void
@@ -301,15 +292,13 @@ private struct ChangedFileRow_iOS: View {
     var onResolve: (() -> Void)?
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))
         HStack(spacing: 8) {
             Button(action: onToggleCheck) {
                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
                     .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(statusColor(status))
+            FileTypeIconImage(FileTypeIcon.forFile(named: name), side: FileRowLayout_iOS.iconSide)
             Text(name)
             Spacer(minLength: 4)
             Text(statusLetter(status))
@@ -355,22 +344,6 @@ private func statusLetter(_ status: FileStatus) -> String {
     case .renamed: return "R"
     case .untracked: return "U"
     case .conflicted: return "C"
-    }
-}
-
-/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color` (directory
-/// icons in the by-folder tree).
-private func iconColor(for token: FileIconColor) -> Color {
-    switch token {
-    case .orange: return .orange
-    case .yellow: return .yellow
-    case .blue: return .blue
-    case .green: return .green
-    case .purple: return .purple
-    case .red: return .red
-    case .pink: return .pink
-    case .gray: return .gray
-    case .accent: return .accentColor
     }
 }
 #endif

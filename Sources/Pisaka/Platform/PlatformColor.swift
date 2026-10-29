@@ -5,7 +5,7 @@ import AppKit
 /// `UIColor`. The view layer's color tables (syntax theme, diff backgrounds, the
 /// minimap/graph palettes) build appearance-aware colors through this typealias so
 /// the same construction code compiles on both platforms — `PisakaCore` stays
-/// color-free (the `FileIconColor` precedent), and only this thin bridge knows the
+/// color-free (the `ChromeColorRole` precedent), and only this thin bridge knows the
 /// concrete UIKit/AppKit type.
 typealias PlatformColor = NSColor
 #elseif os(iOS)
