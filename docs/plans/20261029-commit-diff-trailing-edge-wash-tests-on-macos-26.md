@@ -246,10 +246,10 @@ admit exactly this, not loosened.
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 - Modify: `docs/RELEASING.md`, `CLAUDE.md` (one clause each)
 
-- [ ] Change the folded command of the "Test the AppKit overlay (PisakaAppTests)" step to
+- [x] Change the folded command of the "Test the AppKit overlay (PisakaAppTests)" step to
   pass `-resultBundlePath build.noindex/PisakaAppTests.xcresult`. `build.noindex/` is already
   git-ignored, excluded from lint, and accepted by the bare-root rule.
-- [ ] Add a step after it in `test-macos`:
+- [x] Add a step after it in `test-macos`:
   - name: `Upload the test result bundle (failure only)`
   - `if: failure()`
   - `uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2`
@@ -262,16 +262,16 @@ admit exactly this, not loosened.
   - A comment saying why the step exists: the class "fails only on the runner's OS" has now
     hit twice, and the log carries only the assertion text. The comment also says why it runs
     on failure only: cost, and the gates stay quiet when green.
-- [ ] In `testEveryActionIsPinnedToOneFullCommitInBothWorkflows`, add
+- [x] In `testEveryActionIsPinnedToOneFullCommitInBothWorkflows`, add
   `actions/upload-artifact` to the set, keeping set equality. Extend the doc comment to say
   why it is the fourth action.
-- [ ] Rework `testTheCISmokeLaunchIsNotSkippable` from "no `if:` at all" to: the set of
+- [x] Rework `testTheCISmokeLaunchIsNotSkippable` from "no `if:` at all" to: the set of
   `(job, step name, condition)` triples in ci.yml equals exactly
   `{("test-macos", "Upload the test result bundle (failure only)", "if: failure()")}`.
   - `continue-on-error:` stays forbidden.
   - Update the doc comment: the one admitted condition widens nothing, because it only adds a
     step after a failure, and every gate step stays unconditional.
-- [ ] Add a new test pinning the bundle's shape in `test-macos`:
+- [x] Add a new test pinning the bundle's shape in `test-macos`:
   - the test step's `-resultBundlePath` value equals the upload step's `path:`;
   - the path sits under `build.noindex/`;
   - the upload step comes after the test step;
@@ -279,19 +279,19 @@ admit exactly this, not loosened.
   - no other job in ci.yml or release.yml uses `actions/upload-artifact`.
 
   Read over comment-stripped `activeYAMLLines`, using the suite's `jobSteps` helper.
-- [ ] Mutation-check each new or changed rule locally, and revert each mutation afterwards.
+- [x] Mutation-check each new or changed rule locally, and revert each mutation afterwards.
   Each of these must turn the suite red:
   - dropping `if: failure()`;
   - changing the condition to `always()`;
   - mismatching the path;
   - adding a second `if:` elsewhere.
-- [ ] In `docs/RELEASING.md`'s pinned-runner paragraph, add one sentence on reading a
+- [x] In `docs/RELEASING.md`'s pinned-runner paragraph, add one sentence on reading a
   CI-only failure: the failed `test-macos` run's `PisakaAppTests-xcresult` artifact,
   `gh run download`, and `xcresulttool export attachments`.
-- [ ] In `CLAUDE.md`'s CI paragraph, add one clause saying the app-layer job uploads its
+- [x] In `CLAUDE.md`'s CI paragraph, add one clause saying the app-layer job uploads its
   result bundle on failure only. Confirm `LintConfigurationTests` still holds `CLAUDE.md`
   under 60,000 characters.
-- [ ] Run the local gates (`swift test`, the raw `make test-app` equivalent,
+- [x] Run the local gates (`swift test`, the raw `make test-app` equivalent,
   `swiftlint lint --strict`). All must be green.
 
 ### Task 3: Diagnostic push and the evidence (CI push 1)
@@ -505,6 +505,24 @@ the local and CI mutation results.)
   `(0.0, 0.0, 125.0, 300.0)`, and both column scans `0.0–300.0: ground`. The result bundle
   held the attachment `trailing-edge-testShortChangedLinesAreWashedToThePanesTrailingEdge`
   (XCTest appends `_0_<UUID>.png` to the name).
+
+### Task 2 (local, macOS 27, Xcode 26.3)
+
+- `actions/upload-artifact` v7.0.2 checked with `git ls-remote`: the tag resolves to
+  `cf430e030ddbb5b0abf93d22962f4752f3646cd9`.
+- Mutations of ci.yml, each reverted (the file was restored byte-identical), each turning
+  `ReleaseWorkflowTests` red:
+  - `if: failure()` dropped: 2 failures (`testTheAppLayerResultBundleIsKeptOnFailureOnly`,
+    `testTheCISmokeLaunchIsNotSkippable`).
+  - condition changed to `if: always()`: the same 2 failures.
+  - upload `path:` mismatched: 1 failure (`testTheAppLayerResultBundleIsKeptOnFailureOnly`).
+  - a second `if: success()` on the "Generate Xcode project" steps: 1 failure
+    (`testTheCISmokeLaunchIsNotSkippable`, the set grew).
+  - a job-level `if:` on `test-macos`: 1 failure (`testTheCISmokeLaunchIsNotSkippable`, 2
+    `if:` lines against the 1 the steps account for).
+- `CLAUDE.md` at 56,808 characters after its clause; `LintConfigurationTests` green.
+- Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
+  equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean.
 
 ## Post-Completion
 

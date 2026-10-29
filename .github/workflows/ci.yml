@@ -357,7 +357,25 @@ jobs:
           -destination 'platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData.noindex
+          -resultBundlePath build.noindex/PisakaAppTests.xcresult
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+      # A test that fails only on the runner's OS has now happened twice, and the
+      # log carries nothing but the assertion's text. The result bundle holds the
+      # attachments a failing render test writes (the bitmap it read), so a
+      # CI-only failure can be diagnosed without another round trip. It is kept
+      # on failure only: an upload costs time and storage on every run, and a
+      # green gate stays quiet. `ignore` keeps a failure before the test step,
+      # which leaves no bundle, from being reported as a missing artifact instead
+      # of as itself. The one `if:` ci.yml carries; every gate step stays
+      # unconditional (ReleaseWorkflowTests).
+      - name: Upload the test result bundle (failure only)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PisakaAppTests-xcresult
+          path: build.noindex/PisakaAppTests.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
 
   build-ios:
     runs-on: macos-26

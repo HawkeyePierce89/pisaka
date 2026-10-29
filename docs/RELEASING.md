@@ -492,7 +492,11 @@ fixed: no gate runs on a macOS older than the image while the app supports
 macOS 14 and later, so behaviour that differs by OS below it — SwiftUI layout,
 AppKit's frame versus inset ruler tiling (`core-zoom.md`), the commit dialog's
 scroll anchor (`app-git-views.md`) — is held by those design notes and by hand,
-not by CI.
+not by CI. A failure that shows only on the runner's OS is read from the failed
+`test-macos` run's `PisakaAppTests-xcresult` artifact, uploaded on failure only:
+`gh run download <run-id> -n PisakaAppTests-xcresult -D <new empty directory>`,
+then `xcrun xcresulttool export attachments --path <bundle> --output-path <another
+new empty directory>` for the bitmaps the failing render tests attached.
 
 The workflow then, in order:
 
