@@ -609,22 +609,22 @@ Steps:
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `swift test`: all green, including `FileTypeIconTests`, `FileTypeIconAssetTests`,
+- [x] Run `swift test`: all green, including `FileTypeIconTests`, `FileTypeIconAssetTests`,
   `LicenseCoverageTests` and `ChromeThemeSourceGatingTests`.
-- [ ] Run `xcodegen generate`, then the app-layer bundle under Xcode 26.3 with the pinned
+- [x] Run `xcodegen generate`, then the app-layer bundle under Xcode 26.3 with the pinned
   DerivedData path. Report the result naming Xcode 26.3.
-- [ ] Run the macOS Release build and the iOS device build, both unsigned, under Xcode 26.3.
-- [ ] Run `swiftlint --strict` from the repository root: clean.
-- [ ] Confirm `wc -c CLAUDE.md` is under 60,000.
-- [ ] Grep the tree, excluding `.git` and `docs/plans/`, case-insensitively for the editor brand
+- [x] Run the macOS Release build and the iOS device build, both unsigned, under Xcode 26.3.
+- [x] Run `swiftlint --strict` from the repository root: clean.
+- [x] Confirm `wc -c CLAUDE.md` is under 60,000.
+- [x] Grep the tree, excluding `.git` and `docs/plans/`, case-insensitively for the editor brand
   name that prefixes the repository slug (read it from the Source row of
   `Resources/FileIcons/VENDORED.md`; this plan does not spell it). It may occur only in
   `Resources/FileIcons/VENDORED.md` and `Resources/Licenses/file-icons.txt`. Also grep every file
   this branch changed for other editor brand names.
-- [ ] Grep the tree, excluding `.git` and `docs/plans/`, for the set's display name: it occurs
+- [x] Grep the tree, excluding `.git` and `docs/plans/`, for the set's display name: it occurs
   only in `Resources/Licenses/licenses.json`, `Resources/Licenses/file-icons.txt` and
   `Resources/FileIcons/VENDORED.md`.
-- [ ] Confirm `grep -rnw 'FileIcon\|FileIconColor' Sources Tests docs/architecture CLAUDE.md` is
+- [x] Confirm `grep -rnw 'FileIcon\|FileIconColor' Sources Tests docs/architecture CLAUDE.md` is
   empty.
 
 ## Post-Completion
