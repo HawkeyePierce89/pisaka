@@ -447,17 +447,17 @@ Intent: produce the branch's final tree, so that in outcome A the next push can 
 Intent: show that the fixed read still turns red on macOS 26 when the product's wash is
 absent.
 
-- [ ] Outcome A only: this task does not apply. The fix is in the product and the tests are
+- [x] Outcome A only (skipped - not applicable, the outcome is B): this task does not apply. The fix is in the product and the tests are
   unchanged, so Task 4's local mutation is the stated evidence. Write that in `## Notes` and
   tick the remaining items.
-- [ ] Outcome B or C: commit the "`minWidth:` removed" mutation on its own, with the message
+- [x] Outcome B or C: commit the "`minWidth:` removed" mutation on its own, with the message
   `test: product mutation for the CI read, reverted next`. Push, and wait in bounded calls
   until the run's `status` is `completed`.
   - Expected: `test-macos` red, with the trailing-edge read failing ("the removed line is not
     washed at the trailing edge") in the pane-width and overflowing cases, and an artifact
     present.
   - Quote the failures and record the run ID in `## Notes`.
-- [ ] Outcome B or C: `git revert` the mutation commit, run the local gates, push, and wait
+- [x] Outcome B or C: `git revert` the mutation commit, run the local gates, push, and wait
   in bounded calls until the run's `status` is `completed`.
   - Expected: all five jobs green and an artifact count of 0. Its tree equals Task 6's.
   - Record the run ID and the image version as the final run.
@@ -702,6 +702,46 @@ the local and CI mutation results.)
   `testSwitchingFilesMeasuresTheNewDiffsWidestRow`).
 - Artifacts: 0. The success half of the artifact rule holds.
 - `test-macos` was green, so the red-run branch of this task did not apply.
+
+### Task 7: CI pushes 3 and 4, the product mutation and its revert
+
+- Push 3: the "`minWidth:` removed" mutation as its own commit 2a4e8c52 (`test: product
+  mutation for the CI read, reverted next`), pushed together with the notes-only commit
+  854c90dd. The previous run 40856343998 was already completed. No local gates before this
+  push: it is meant to be red, and Task 4 recorded the same mutation locally.
+- Run 40857786580, head SHA 2a4e8c52aa4d1a4e5538ad3c92f26c320664ed69. `test-macos` ran on
+  runner image `macos-26-arm64` 20261013.0424.1, macOS 26.6.2 (25G83), Xcode 26.3. That is an
+  older image version than push 2's 20261021.0445.8, on the same OS build. Jobs: `test`,
+  `build-ios`, `build-macos` and `lint` green; `test-macos` red; conclusion `failure`.
+- `test-macos`: 509 tests, 18 failures (2 unexpected). There were 12 failures in 8 of the 11
+  `CommitUnifiedDiffWashTests` cases, 1 in `CommitDiffCheckboxLayoutTests` and 5 in
+  `DiffWordEmphasisTests`. Those two other suites also read the wash, which the mutation
+  takes away. The trailing-edge read failed with the expected message in four cases,
+  verbatim from `--log-failed` (path prefix and timestamps stripped):
+
+  ```
+  CommitUnifiedDiffWashTests.swift:183: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testShortChangedLinesAreWashedToThePanesTrailingEdge] : XCTAssertEqualWithAccuracy failed: ("125.0") is not equal to ("600.0") +/- ("0.5") - the content is not the pane's width, dark
+  CommitUnifiedDiffWashTests.swift:184: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testShortChangedLinesAreWashedToThePanesTrailingEdge] : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the removed line is not washed at the trailing edge
+  CommitUnifiedDiffWashTests.swift:191: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff] : XCTAssertGreaterThan failed: ("0.0") is not greater than ("0.0") - the overflowing diff did not scroll horizontally
+  CommitUnifiedDiffWashTests.swift:192: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testShortChangedLinesAreWashedAtTheVisibleTrailingEdgeAfterScrollingAnOverflowingDiff] : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the removed line is not washed at the trailing edge
+  CommitUnifiedDiffWashTests.swift:259: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testSwitchingFilesMeasuresTheNewDiffsWidestRow] : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the removed line is not washed at the trailing edge
+  CommitUnifiedDiffWashTests.swift:274: error: -[PisakaAppTests.CommitUnifiedDiffWashTests testADiffAfterAPlaceholderForgetsTheEarlierWidestRow] : XCTUnwrap failed: expected non-nil value of type "(minY: CGFloat, maxY: CGFloat)" - the removed line is not washed at the trailing edge
+  ```
+
+  So the fixed read (overlay held, scrollers hidden per capture, column still at
+  `width - 4`) turns red on macOS 26 in both the pane-width and the overflowing case when
+  the product's wash is absent. It is not vacuous there.
+- Artifacts: 1, `PisakaAppTests-xcresult` (104,387,260 bytes, expires 2026-11-05).
+- Push 4: `git revert` of the mutation, commit df1c86c5. Its tree equals Task 6's (2ee80d79)
+  except for this plan file (`git diff 2ee80d79 HEAD --stat` names only the plan). Local
+  gates on it under Xcode 26.3, macOS 27: `swift test` 7225 tests, 0 failures; `xcodegen
+  generate` + the raw `make test-app` equivalent 509 tests, 0 failures (`** TEST SUCCEEDED
+  **`); `swiftlint lint --strict` (0.65.1) clean, exit 0.
+- **Final run** 40859814945, head SHA df1c86c59a52fcba93da752a4f3644d61f28bb40. Runner image
+  `macos-26-arm64` 20261021.0445.8 on all five jobs, macOS 26.6.2 (25G83), Xcode 26.3. Jobs:
+  `test`, `test-macos`, `build-ios`, `build-macos` and `lint` all green; conclusion
+  `success`. `test-macos`: 509 tests, 0 failures, `CommitUnifiedDiffWashTests` 11 tests and
+  0 failures. Artifacts: 0.
 
 ## Post-Completion
 
