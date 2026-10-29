@@ -738,7 +738,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds a
     diff overflowed by the scroller's width and scrolled horizontally. A case in
     the same suite forces `.legacy` onto the hosted scroll view itself — no
     preference is read or written, so it holds on any machine — and holds the
-    content to the clip view's width.
+    content to the clip view's width. **Every other case holds `.overlay`**, the
+    same way and re-applied after every settle, because the trailing-edge read
+    samples a column 4 points inside the pane: left to the machine, macOS 26's
+    hosted image resolved the style to legacy, tiled a 17-point vertical scroller
+    beside the overflowing diff, and the clip view ended at 583 points, so the
+    column at 596 read the scroller's strip — empty in the cached bitmap — while
+    the wash itself reached the clip view's last column. The view was right and
+    the read was wrong; held at overlay the clip view is the whole pane on every
+    OS. Each capture also hides the scrollers for its own duration (chrome over
+    the content, not its wash; hiding triggers no retile). A failed read carries
+    the render's scroller and clip geometry in its message and attaches the
+    bitmap it read, so a failure seen only on CI's OS needs no round trip.
     **A diff shorter than the pane starts at its top.** A two-axis `ScrollView`
     centres content shorter than its viewport, so a one-line diff sat in the
     middle of the pane. The content's minimum height is the clip view's height —

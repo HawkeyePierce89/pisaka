@@ -33,19 +33,29 @@ import PisakaCore
 /// palette's raw values do not). The context row directly below them must carry
 /// neither. The pane-width case runs in both appearances, one render each, the
 /// light one on a white ground against light swatches. The overflow case scrolls the hosted `NSScrollView` to its far right
-/// before rendering, and the legacy-scroller case sets that scroll view's
-/// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
-/// setting or touches a preference.
+/// before rendering. Every render holds that scroll view's `scrollerStyle` —
+/// `.overlay`, or `.legacy` once the legacy-scroller case asks for it — and
+/// re-applies it after every settle, so no case depends on the machine's
+/// scroll-bar setting or touches a preference. Left to the machine, macOS 26
+/// (measured on its hosted image) resolved the style to legacy: beside the
+/// overflowing diff it tiled a 17-point vertical scroller, the clip view ended
+/// at 583 points, and the column at 596 read the scroller's strip — which
+/// draws nothing into the cached bitmap — instead of the content, whose wash
+/// did reach the clip view's last column. Held at overlay, the clip view is
+/// the whole pane on every OS, so the column stays 4 points inside the edge.
+/// Every capture also hides the scrollers for its own duration: a scroller is
+/// chrome over the content, not its wash, and hiding triggers no retile.
 ///
 /// **A failed read explains itself.** When the trailing-edge read finds no
 /// wash, its message carries the render's geometry — the scrollers' style,
 /// frames and visibility, the clip view's bounds right after the scroll and
 /// after settle, the document frame, the bitmap's scale — and the bitmap it
-/// read is attached to the result as `trailing-edge-<test>.png`, so a failure
-/// seen only on a CI runner is diagnosable from that run alone. Nothing of it
-/// is built while the read passes, and
-/// `testTheTrailingEdgeDiagnosisReportsTheScrollerAndTheInnerColumnsWashes`
-/// keeps it from printing nothing.
+/// read is attached to the result as `trailing-edge-<test>.png`. Both stay
+/// permanently, so a failure seen only on CI's OS is diagnosable from that
+/// run's log and `PisakaAppTests-xcresult` artifact alone, with no round trip.
+/// Nothing of it is built while the read passes, and
+/// `testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry` keeps
+/// it from printing nothing.
 ///
 /// **Header rows and the text tint.** Every diff is hosted as the panel draws
 /// it, under its `---`/`+++` file headers and an `@@` hunk header, which must
@@ -68,7 +78,7 @@ import PisakaCore
 /// paint its wash from the pane's top edge (within the 2-point padding); before
 /// the content's minimum height was the visible height it began 141 points
 /// down, centred — and `.defaultScrollAnchor(.topLeading)` cured that on macOS
-/// 26 only, leaving CI's macOS 15 at the same 141. The placeholder must stay
+/// 26 only, and left macOS 15 at the same 141. The placeholder must stay
 /// centred about the pane's middle.
 @MainActor
 final class CommitUnifiedDiffWashTests: XCTestCase {
@@ -286,10 +296,10 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
     // MARK: - Failure diagnosis
 
     /// The diagnosis a failed trailing-edge read prints is not vacuous: on an
-    /// unscrolled render whose washes are known to be drawn, it reports the
-    /// vertical scroller either way, and its inner column scan names both
-    /// washes.
-    func testTheTrailingEdgeDiagnosisReportsTheScrollerAndTheInnerColumnsWashes() throws {
+    /// unscrolled render it finds the hosted scroll view, reports the vertical
+    /// scroller either way, and carries the clip view's bounds and the
+    /// document's frame.
+    func testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry() throws {
         let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
         addTeardownBlock { @MainActor in render.window.close() }
         let diagnosis = render.diagnosis(atX: render.width - 4)
@@ -297,18 +307,12 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
             diagnosis.contains("vertical scroller: frame in host ") || diagnosis.contains("no vertical scroller"),
             "the diagnosis does not report the vertical scroller:\n\(diagnosis)"
         )
-        // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
-        let lines = diagnosis.components(separatedBy: "\n")
-        let header = try XCTUnwrap(
-            lines.firstIndex(of: DiffRender.columnScanHeader(atX: render.width - 40)),
-            "the diagnosis has no inner column scan:\n\(diagnosis)"
-        )
-        let bands = lines[(header + 1)...].prefix { $0.hasPrefix("  ") }
-        for role: ChromeColorRole in [.diffRemovedBackground, .diffAddedBackground] {
-            XCTAssertTrue(
-                bands.contains { $0.hasSuffix(": \(role.rawValue)") },
-                "the inner column scan does not name \(role.rawValue):\n\(diagnosis)"
-            )
+        for expected in [
+            "scroll view: scrollerStyle ",
+            "clip bounds right after the scroll: none (not scrolled), after settle: ",
+            "document frame ",
+        ] {
+            XCTAssertTrue(diagnosis.contains(expected), "the diagnosis lacks \"\(expected)\":\n\(diagnosis)")
         }
     }
 
@@ -541,11 +545,6 @@ private final class DiffRender {
         } else {
             lines.append("no hosted scroll view")
         }
-        // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
-        for column in [x, width - 40] {
-            lines.append(Self.columnScanHeader(atX: column))
-            lines += bands(atX: column).map { "  " + $0 }
-        }
         return lines.joined(separator: "\n")
     }
 
@@ -562,57 +561,6 @@ private final class DiffRender {
         view.subviews.flatMap { subview in
             (subview as? NSScroller).map { [$0] + scrollers(in: $0) } ?? scrollers(in: subview)
         }
-    }
-
-    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
-    /// The line that opens column `x`'s band scan in `diagnosis`.
-    static func columnScanHeader(atX x: CGFloat) -> String { "column x = \(x), top to bottom:" }
-
-    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
-    /// Column `x` walked one pixel row at a time down the captured bitmap,
-    /// consecutive pixels of one classification merged into a band, each band
-    /// printed as `y0–y1: <class>` in points — an `other` band with its first
-    /// pixel's sRGB triple.
-    private func bands(atX x: CGFloat) -> [String] {
-        struct Band {
-            let minY: CGFloat
-            var maxY: CGFloat
-            let name: String
-            let color: NSColor?
-        }
-        let step = 1 / render.pixelScale
-        var bands: [Band] = []
-        for y in stride(from: 0, to: render.bounds.height, by: step) {
-            let color = render.color(atX: x, y: y)
-            let name = classify(color, atX: x, y: y)
-            if let last = bands.last, last.name == name {
-                bands[bands.count - 1].maxY = y + step
-            } else {
-                bands.append(Band(minY: y, maxY: y + step, name: name, color: color))
-            }
-        }
-        return bands.map { band in
-            let range = String(format: "%.1f–%.1f", band.minY, band.maxY)
-            guard band.name == "other" else { return "\(range): \(band.name)" }
-            let triple = band.color.map {
-                String(format: " (%.3f, %.3f, %.3f)", $0.redComponent, $0.greenComponent, $0.blueComponent)
-            } ?? " (no pixel)"
-            return "\(range): other\(triple)"
-        }
-    }
-
-    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
-    /// One pixel's class: either wash role, the ground, or `other`.
-    private func classify(_ color: NSColor?, atX x: CGFloat, y: CGFloat) -> String {
-        for role: ChromeColorRole in [.diffRemovedBackground, .diffAddedBackground] where matches(role, atX: x, y: y) {
-            return role.rawValue
-        }
-        guard let color else { return "other" }
-        let groundValue: CGFloat = appearance == .dark ? 0 : 1
-        let isGround = [color.redComponent, color.greenComponent, color.blueComponent].allSatisfy {
-            abs($0 - groundValue) < 0.02
-        }
-        return isGround ? "ground" : "other"
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {

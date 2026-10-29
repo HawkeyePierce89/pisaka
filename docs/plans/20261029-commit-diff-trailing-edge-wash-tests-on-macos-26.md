@@ -400,16 +400,16 @@ Intent: produce the branch's final tree, so that in outcome A the next push can 
 - Modify: `docs/architecture/app-git-views.md`
 - Modify: `docs/RELEASING.md` (only if the rule below applies)
 
-- [ ] Remove the question-specific band scans and their marker comments. Keep the geometry
+- [x] Remove the question-specific band scans and their marker comments. Keep the geometry
   line and the bitmap attachment. Keep Task 1's non-vacuity test, trimmed to what stays.
-- [ ] Update the suite's "How it is measured" doc comment:
+- [x] Update the suite's "How it is measured" doc comment:
   - what macOS 26 does;
   - how the read accounts for it;
   - that the geometry line and the attachment stay, so a CI-only failure needs no round
     trip.
 
   Keep the mutation statement true.
-- [ ] Rewrite the stale comments as statements about the OS that was measured, in the past
+- [x] Rewrite the stale comments as statements about the OS that was measured, in the past
   tense, with no claim about where CI runs today:
   - `CommitUnifiedDiffWashTests.swift` line 61: "leaving CI's macOS 15 at the same 141"
     becomes a statement like "and left macOS 15 at the same 141".
@@ -419,17 +419,17 @@ Intent: produce the branch's final tree, so that in outcome A the next push can 
     tiling (measured on macOS 15)".
   - `LocalChangesLayoutTests.swift` line 51: "on the macOS 15 CI runner" becomes "measured
     on macOS 15".
-- [ ] Update the `CommitUnifiedDiffView.swift` entry in `app-git-views.md`, in the
+- [x] Update the `CommitUnifiedDiffView.swift` entry in `app-git-views.md`, in the
   `CommitUnifiedDiffWashTests` paragraph: what macOS 26 does, and how the read (B) or the
   view (A) accounts for it.
-- [ ] Update `RELEASING.md`'s runner paragraph according to the outcome:
+- [x] Update `RELEASING.md`'s runner paragraph according to the outcome:
   - Outcome A: add the new macOS 26 behaviour to its hand-kept list of OS-dependent
     behaviours.
   - Outcome B: add it only if the harness fix depends on behaviour that differs below
     macOS 26. Say in `## Notes` which case applied.
-- [ ] Check that `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
+- [x] Check that `grep -rn "CI runner\|CI's macOS 15\|where CI runs" Tests Sources docs/architecture`
   prints nothing.
-- [ ] Run the local gates (`swift test`, the raw `make test-app` equivalent,
+- [x] Run the local gates (`swift test`, the raw `make test-app` equivalent,
   `swiftlint lint --strict`). All must be green.
 
 ### Task 6: Fix push (CI push 2)
@@ -663,6 +663,27 @@ the local and CI mutation results.)
     - `testSwitchingFilesMeasuresTheNewDiffsWidestRow` with the same message at line 249;
     - the content width 125 against 600 / 583 in the width cases;
     - the non-vacuity test, whose inner column scan no longer names either wash.
+- Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
+  equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean, exit 0.
+
+### Task 5 (local, macOS 27, Xcode 26.3): docs, stale comments, clean-up
+
+- The band scans (`columnScanHeader`, `bands(atX:)`, `classify`) and their marker comments are
+  gone; the geometry line and the bitmap attachment stay. The non-vacuity test is trimmed to
+  what stays and renamed `testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry`:
+  it asserts the scroll-view line, the vertical scroller (frame or "no vertical scroller"),
+  the unscrolled clip-bounds line and the document frame.
+- The suite's "How it is measured" comment and the `app-git-views.md` paragraph now say what
+  macOS 26 did (legacy style resolved, a tiled 17-point vertical scroller, clip ending at 583,
+  the column at 596 in the scroller's empty strip) and how the read accounts for it (overlay
+  held and re-applied after every settle, scrollers hidden per capture). The mutation
+  statement is unchanged and still true (Task 4's local mutations).
+- `RELEASING.md`: not changed. Outcome B, and the harness fix does not depend on behaviour
+  that differs below macOS 26: forcing `.overlay` onto the hosted scroll view works the same
+  on every OS. What differed was the machine's preferred scroller style, not an OS-versioned
+  behaviour the hand-kept list tracks.
+- The stale-comment grep (`CI runner|CI's macOS 15|where CI runs` over Tests, Sources,
+  docs/architecture) prints nothing.
 - Gates under Xcode 26.3: `swift test` 7225 tests, 0 failures; the raw `make test-app`
   equivalent 509 tests, 0 failures; `swiftlint lint --strict` (0.65.1) clean, exit 0.
 

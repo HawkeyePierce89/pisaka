@@ -48,7 +48,7 @@ import PisakaCore
 /// failing loudly when no column is whole. The split rounds the left pane to the
 /// backing pixel grid, so the one-point divider covers whole columns. This read
 /// replaced a blend of the straddled column against the share the divider
-/// covered: on the macOS 15 CI runner that column read darker than the ground
+/// covered: measured on macOS 15, that column read darker than the ground
 /// itself at 1.8, which the developer machine never reproduced with either
 /// scroller style — the reading of a half-covered column is the machine's, not
 /// the product's. Negative: no pixel
