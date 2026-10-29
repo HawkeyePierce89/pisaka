@@ -6,10 +6,10 @@ import Foundation
 /// The PTY/session lifecycle lives in the `Pisaka` view layer (a macOS-only
 /// concern, like `TerminalLaunch`/`TerminalSession`); only this branch-free
 /// command/quoting/directory resolution lives in Core so it stays
-/// Foundation-only and unit-tested (the `TerminalLaunch`/`FileIcon` precedent).
+/// Foundation-only and unit-tested (the `TerminalLaunch`/`FileTypeIcon` precedent).
 public enum RunCommand {
     /// Lowercased file extension → the runner tokens that precede the quoted
-    /// path. Mirrors `FileIcon`/`SyntaxLanguage`'s extension-map pattern.
+    /// path. Mirrors `FileTypeIcon`/`SyntaxLanguage`'s extension-map pattern.
     private static let runners: [String: [String]] = [
         "ts": ["npx", "tsx"],
         "tsx": ["npx", "tsx"],

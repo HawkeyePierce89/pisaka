@@ -3,7 +3,7 @@ import Foundation
 /// A source language the editor can syntax-highlight.
 ///
 /// Pure, UI-free semantic type (no Neon/SwiftTreeSitter/AppKit), mirroring the
-/// extension-map pattern in `FileIcon`. The view layer maps each case to a
+/// extension-map pattern in `FileTypeIcon`. The view layer maps each case to a
 /// concrete tree-sitter grammar (`SyntaxLanguageConfiguration`).
 ///
 /// Resolution is by *file name*, not by extension alone: `Dockerfile`, `.env`

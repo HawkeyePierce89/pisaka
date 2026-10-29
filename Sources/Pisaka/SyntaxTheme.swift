@@ -12,7 +12,7 @@ import PisakaCore
 /// (distinct light/dark variants), so highlighting stays legible in both modes
 /// without a user-configurable theme system (out of scope for the MVP). Color
 /// lives here in the view layer; `PisakaCore` stays color-free (mirroring the
-/// `FileIconColor` precedent).
+/// `ChromeColorRole` precedent).
 ///
 /// The color table is built through the cross-platform `PlatformColor` bridge
 /// (`NSColor` on macOS, `UIColor` on iOS), so the same theme drives both the

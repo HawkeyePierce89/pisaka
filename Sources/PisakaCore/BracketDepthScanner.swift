@@ -6,7 +6,7 @@ import Foundation
 /// `depth` is *semantic*, not a palette index: the scanner reports the honest
 /// nesting level (7 stays 7) and the view resolves a color with `depth % N` over
 /// its own cycling palette — the same "semantics in Core, color in the view"
-/// split as `FileIconColor`/`SyntaxTokenKind`. A `depth` reported alongside
+/// split as `ChromeColorRole`/`SyntaxTokenKind`. A `depth` reported alongside
 /// `isUnmatched` is not meaningful and must not be looked up: a stray/wrong-kind
 /// closer carries `depth: 0` (it never sat on the stack), while an opener the
 /// document never closes keeps the depth it was pushed at, because it is patched

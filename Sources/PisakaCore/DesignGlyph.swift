@@ -5,7 +5,7 @@
 /// (`Sources/Pisaka/Assets.xcassets/Glyphs/<rawValue>.imageset`), and the **raw
 /// value is that asset's name** — so the name is spelled once, here, and the
 /// app layer's single drawing helper loads it by string (the catalog does not
-/// generate asset symbols). A name is a string, as `FileIcon`'s symbol name is,
+/// generate asset symbols). A name is a string, as `FileTypeIcon`'s catalog name is,
 /// so this stays Foundation-only and colour-free.
 ///
 /// `DesignGlyphAssetTests` holds the case set equal to the catalog's imagesets

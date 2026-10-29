@@ -272,10 +272,8 @@ private struct ChangeNodeView_iOS: View {
                     .padding(.leading, 12)
                 }
             } label: {
-                let icon = FileIcon(for: DirectoryEntry(url: node.url, isDirectory: true))
                 HStack(spacing: 6) {
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(iconColor(for: icon.color))
+                    FolderSymbol_iOS()
                     Text(node.name)
                 }
                 .lineLimit(1)
@@ -286,8 +284,9 @@ private struct ChangeNodeView_iOS: View {
 }
 
 /// One changed-file row: a leading checkbox (multi-file revert), the file-type icon
-/// tinted by its git status, the name, and a one-letter status badge. Tapping the
-/// row opens its diff; a long-press context menu reverts.
+/// in its own colours, the name, and a one-letter status badge — the one place the
+/// git status is tinted. Tapping the row opens its diff; a long-press context menu
+/// reverts.
 private struct ChangedFileRow_iOS: View {
     let name: String
     let url: URL
@@ -301,15 +300,13 @@ private struct ChangedFileRow_iOS: View {
     var onResolve: (() -> Void)?
 
     var body: some View {
-        let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))
         HStack(spacing: 8) {
             Button(action: onToggleCheck) {
                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
                     .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(statusColor(status))
+            FileTypeIconImage(FileTypeIcon.forFile(named: url.lastPathComponent), side: FileRowLayout_iOS.iconSide)
             Text(name)
             Spacer(minLength: 4)
             Text(statusLetter(status))
@@ -355,22 +352,6 @@ private func statusLetter(_ status: FileStatus) -> String {
     case .renamed: return "R"
     case .untracked: return "U"
     case .conflicted: return "C"
-    }
-}
-
-/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color` (directory
-/// icons in the by-folder tree).
-private func iconColor(for token: FileIconColor) -> Color {
-    switch token {
-    case .orange: return .orange
-    case .yellow: return .yellow
-    case .blue: return .blue
-    case .green: return .green
-    case .purple: return .purple
-    case .red: return .red
-    case .pink: return .pink
-    case .gray: return .gray
-    case .accent: return .accentColor
     }
 }
 #endif

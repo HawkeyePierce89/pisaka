@@ -1,6 +1,6 @@
 /// The user's appearance preference: follow the system, or force light/dark.
 ///
-/// A color/SwiftUI-free semantic enum (the `FileIconColor`/`BottomPanel`
+/// A color/SwiftUI-free semantic enum (the `ChromeColorRole`/`BottomPanel`
 /// precedent); the view layer maps it to a SwiftUI `ColorScheme?`
 /// (`.system → nil`, `.light → .light`, `.dark → .dark`). Its `String` raw value
 /// is the stable persisted form, so the cases must not be renamed.

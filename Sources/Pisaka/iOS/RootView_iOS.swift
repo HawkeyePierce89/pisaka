@@ -1425,10 +1425,8 @@ private struct DirectoryNodeView_iOS: View {
                 }
             }
         } label: {
-            let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: true))
             HStack(spacing: 6) {
-                Image(systemName: icon.symbolName)
-                    .foregroundStyle(swiftUIColor(for: icon.color))
+                FolderSymbol_iOS()
                 Text(name)
             }
             .lineLimit(1)
@@ -1463,10 +1461,8 @@ private struct FileRow_iOS: View {
     let onOpen: () -> Void
 
     var body: some View {
-        let icon = FileIcon(for: entry)
         HStack(spacing: 6) {
-            Image(systemName: icon.symbolName)
-                .foregroundStyle(swiftUIColor(for: icon.color))
+            FileTypeIconImage(FileTypeIcon.forFile(named: entry.name), side: FileRowLayout_iOS.iconSide)
             Text(entry.name)
         }
         .lineLimit(1)
@@ -1479,24 +1475,20 @@ private struct FileRow_iOS: View {
     }
 }
 
-/// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
-///
-/// iOS's own, with no macOS counterpart: the macOS tree draws its icons
-/// monochrome in the chrome's `textSecondary` role and reads only `FileIcon`'s
-/// symbol, so the mapping it used to keep is gone (`core-theme.md`, the
-/// monochrome-icon decision). `FileIconColor` stays Core vocabulary, and this is
-/// the one place it is painted.
-private func swiftUIColor(for token: FileIconColor) -> Color {
-    switch token {
-    case .orange: return .orange
-    case .yellow: return .yellow
-    case .blue: return .blue
-    case .green: return .green
-    case .purple: return .purple
-    case .red: return .red
-    case .pink: return .pink
-    case .gray: return .gray
-    case .accent: return .accentColor
+/// The icon side shared by the iOS file rows — the tree, Local Changes and
+/// the Log — in points at the default Dynamic Type size: the slot the
+/// body-sized SF Symbol used to fill, so no row height moves.
+enum FileRowLayout_iOS {
+    static let iconSide: Double = 18
+}
+
+/// A directory row's icon on iOS, in the tree and in Local Changes' by-folder
+/// tree: the `folder` symbol in the accent colour. Folders are not file kinds,
+/// so they draw no `FileTypeIcon`; one view keeps the two rows from drifting.
+struct FolderSymbol_iOS: View {
+    var body: some View {
+        Image(systemName: "folder")
+            .foregroundStyle(Color.accentColor)
     }
 }
 

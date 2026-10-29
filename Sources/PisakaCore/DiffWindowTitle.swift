@@ -9,7 +9,7 @@ import Foundation
 /// detail header shows — relative to the project folder when the file lies under
 /// it, repository-relative otherwise (`ChangedFileGroups.displayPath`) — plus
 /// "Local Changes"; a commit diff carries the path plus the commit's short hash
-/// and subject. Foundation-only and color/UI-free (the `FileIcon`/`LogFilter`
+/// and subject. Foundation-only and color/UI-free (the `FileTypeIcon`/`LogFilter`
 /// move-logic-into-Core precedent), so the off-by-one-prone short-hash truncation
 /// is unit-tested rather than living in the view layer.
 public enum DiffWindowTitle {

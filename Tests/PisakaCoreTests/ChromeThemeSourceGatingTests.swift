@@ -50,10 +50,9 @@ import XCTest
 ///   is a colour nothing can re-theme; the table is the one place a value may
 ///   live, and `ChromePalette.swift` is checked by its own app-layer suite
 ///   instead.
-/// - **The four exemptions stay exemptions.** A token-kind colour table, an
-///   ANSI-16 palette, a Core icon token and the branch graph's lane palette are
-///   four things that are *not* chrome; the sweep that follows must not quietly
-///   fold them in.
+/// - **The three exemptions stay exemptions.** A token-kind colour table, an
+///   ANSI-16 palette and the branch graph's lane palette are three things that
+///   are *not* chrome; the sweep that follows must not quietly fold them in.
 /// - **The theme is injected wherever the interface scale is.** A root that
 ///   gains one modifier and forgets the other draws its whole window in the
 ///   resting appearance: no error, no warning, and it looks right until the
@@ -70,8 +69,8 @@ import XCTest
 ///   really a coupling: nothing misrenders, and nothing names the relationship
 ///   either, so the day the other token moves this one moves with it.
 /// - **The tab icon rule is spelled once.** The untitled-buffer fallback was
-///   pasted into both orientations; two spellings of one rule drift, and each
-///   copy also buys itself a line exempt from the first rule above.
+///   pasted into both orientations; two spellings of one rule drift the moment
+///   either is touched.
 /// - **The window's chrome is configured in one file.** A transparent title bar
 ///   is a property of the *window*, so two markers setting it would compete for
 ///   it silently — the ground decided by whichever reached the window first.
@@ -550,7 +549,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let forbidden = name == "ChromePalette.swift"
                 ? Self.forbiddenSemanticColors
                 : Self.forbiddenSemanticColors + Self.forbiddenHues
-            for line in Self.iconFreeLines(of: code) {
+            for line in code.components(separatedBy: .newlines) {
                 for token in forbidden where LSPSourceGatingTests.containsToken(token, in: line) {
                     offenders.append("\(name): \(token)")
                 }
@@ -560,32 +559,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             offenders.sorted(), [],
             "a gated view must ask the palette for a role, never the system for a colour"
         )
-    }
-
-    /// The stripped source's lines, minus the ones that construct a `FileIcon`.
-    ///
-    /// The hue names above collide with `FileIconColor`'s cases, and a
-    /// `FileIconColor` is the third exemption read from the other side: a Core
-    /// semantic token that names a meaning, not a system colour. The one gated
-    /// site that spells one — the draft field's placeholder icon — does so as an
-    /// argument to `FileIcon(`, on that line and nowhere else, so dropping those
-    /// lines costs the rule nothing it was meant to catch.
-    private static func iconFreeLines(of code: String) -> [String] {
-        code
-            .components(separatedBy: .newlines)
-            .filter { !constructsFileIcon($0) }
-    }
-
-    /// Whether this line constructs a `FileIcon` — the boundary-aware form, so
-    /// `TabFileIcon(`, a view *named* after the icon it draws, buys no exemption
-    /// from rule one. One definition, read by the exemption above and by the
-    /// rule that counts what it exempts, so the two cannot drift apart.
-    static func constructsFileIcon(_ line: String) -> Bool {
-        guard let pattern = try? NSRegularExpression(
-            pattern: "(^|[^A-Za-z0-9_])FileIcon\\("
-        ) else { return false }
-        let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        return pattern.firstMatch(in: line, range: range) != nil
     }
 
     // MARK: - Rule two: no gated view spells a hex literal
@@ -632,7 +605,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
         )
     }
 
-    // MARK: - Rule three: the four exemptions stay exemptions
+    // MARK: - Rule three: the three exemptions stay exemptions
 
     /// Files that spell colours and are deliberately **not** chrome.
     ///
@@ -643,8 +616,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     ///   cannot stand in for one. The exemption covers the two sixteen-entry
     ///   arrays and nothing else: the file's four chrome colours — ground, text,
     ///   caret, selection — are roles, pinned by rule forty-four.
-    /// - `FileIcon.swift` — a Core semantic token that iOS still paints, so it
-    ///   cannot move behind a macOS-only palette.
     /// - `CommitGraphPalette.swift` — a lane colour is an identity token, not a
     ///   chrome meaning: it says "this line is the same branch as that one", and
     ///   no role names that. The eight hues are today's system values carried
@@ -652,21 +623,20 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     static let colorExemptions: Set<String> = [
         "SyntaxTheme.swift",
         "TerminalTheme.swift",
-        "FileIcon.swift",
         "CommitGraphPalette.swift",
     ]
 
     func testTheExemptionsAreNotGated() throws {
         XCTAssertTrue(
             Self.colorExemptions.isDisjoint(with: Self.gatedFiles),
-            "one of the four exemptions is also gated — decide which it is, in the doc comment above"
+            "one of the three exemptions is also gated — decide which it is, in the doc comment above"
         )
         // They must still be there: an exemption naming a file that is gone is a
         // reason nobody will re-read.
         let present = Set(try Self.swiftSources().map(\.lastPathComponent))
         XCTAssertTrue(
             Self.colorExemptions.isSubset(of: present),
-            "one of the four exempted files is gone — update colorExemptions with the reason it no longer applies"
+            "one of the three exempted files is gone — update colorExemptions with the reason it no longer applies"
         )
     }
 
@@ -955,15 +925,11 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// It was pasted into both orientations once already, which is the failure
     /// `TabStatusMark` exists to refuse: two spellings of one rule drift the
     /// moment either is touched, and nothing in the compiler can see that they
-    /// have. The paste had a second cost this suite can see from the other side
-    /// — `iconFreeLines` drops every line naming `FileIcon(` from rule one's
-    /// scan, so each copy bought itself a line exempt from the no-system-colour
-    /// check. Both halves are pinned here by set equality: one declaration, and
-    /// a counted set of gated files carrying an exempted line.
+    /// have. Both halves are pinned here by set equality: one declaration, and
+    /// one spelling of the fallback.
     func testTheTabIconRuleIsSpelledOnce() throws {
         var declarers: Set<String> = []
         var fallbackSpellers: Set<String> = []
-        var iconNamers: Set<String> = []
         for url in try Self.swiftSources() {
             let name = url.lastPathComponent
             let code = try RepositorySources.stripped(url)
@@ -971,12 +937,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             // Whitespace-free, so a re-wrapped spelling is the same spelling.
             if code.filter({ !$0.isWhitespace }).contains("file.url?.lastPathComponent??file.displayName") {
                 fallbackSpellers.insert(name)
-            }
-            let constructsIcon = code
-                .components(separatedBy: .newlines)
-                .contains(where: Self.constructsFileIcon)
-            if Self.gatedFiles.contains(name) && constructsIcon {
-                iconNamers.insert(name)
             }
         }
         XCTAssertEqual(
@@ -989,18 +949,6 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             the untitled-buffer icon fallback is one rule — a second spelling of it is the drift \
             TabFileIcon exists to refuse
             """
-        )
-        // Empty. The tree's rows, the inline draft field and the shared tab
-        // icon left the set in part eight, when they moved to design glyphs;
-        // the Problems and Usages panels' file-group headers and the Log's
-        // changed-file row — the last three, each exempted for a
-        // `let icon = FileIcon(…)` binding read for its symbol alone — left it
-        // when every file surface moved to `FileTypeIconImage`. (Local Changes'
-        // rows and the commit dialog's file row had left it in the design pass.)
-        // Any member is a line that has quietly bought itself out of rule one.
-        XCTAssertEqual(
-            iconNamers, [],
-            "a gated file naming FileIcon( carries a line exempt from rule one — draw files through FileTypeIconImage"
         )
     }
 
@@ -5280,8 +5228,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// named one goes stale the moment its comment is rewritten, and a comment
     /// naming none has nothing to pin.)
     /// A colour named only inside a string literal is not a colour either. The
-    /// `FileIcon(` lines are dropped as in rule one, since a `FileIconColor` case
-    /// is a Core token, not a hue. The documents are read raw: a claim is prose.
+    /// documents are read raw: a claim is prose.
     func testNoDocumentCallsTheSweepClosedWhileASurfaceRemains() throws {
         let hex = try NSRegularExpression(pattern: Self.hexColorLiteralPattern)
         let label = try NSRegularExpression(pattern: Self.channelLabel)
@@ -5296,7 +5243,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
             let name = url.lastPathComponent
             if Self.gatedFiles.contains(name) || Self.colorExemptions.contains(name) { continue }
             let code = try RepositorySources.stripped(url)
-            let paints = Self.iconFreeLines(of: code).contains { line in
+            let paints = code.components(separatedBy: .newlines).contains { line in
                 let unlabelled = label.stringByReplacingMatches(
                     in: line, range: NSRange(line.startIndex..., in: line), withTemplate: ""
                 )
@@ -6301,7 +6248,7 @@ final class ChromeThemeSourceGatingTests: XCTestCase {
     /// Every gated file draws with roles and must therefore name one — with two
     /// exceptions: `ChromeThemeEnvironment.swift` carries the *appearance* down
     /// the tree and paints nothing, and `CommitGraphView.swift` draws only lanes,
-    /// whose colours are `CommitGraphPalette`'s (the fourth exemption) rather
+    /// whose colours are `CommitGraphPalette`'s (the third exemption) rather
     /// than roles — so each names no role by construction. Both stay gated for
     /// rules one and two, which is what they can break.
     ///

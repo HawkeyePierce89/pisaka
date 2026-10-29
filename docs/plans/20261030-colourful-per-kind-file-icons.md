@@ -539,7 +539,7 @@ disappears without leaving references to a type that no longer exists.
 
 Steps:
 
-- [ ] Write the tests first:
+- [x] Write the tests first:
   - Replace `CrossPlatformAuditTests.testFileIconResolutionIsStable` with a `FileTypeIcon`
     equivalent: the table is platform-independent, a known name answers its icon, and an unknown
     one answers `document`.
@@ -549,14 +549,14 @@ Steps:
     - Delete rule one's `FileIcon(` line exemption (`iconFreeLines` / `constructsFileIcon`) and
       rule eight's third half, keeping its declaration and fallback halves.
     - Rule fifty-three's iOS coverage now sees the iOS sites go through the helper.
-- [ ] Switch the three iOS files, add `FolderSymbol_iOS`, and delete `FileIcon.swift` and
+- [x] Switch the three iOS files, add `FolderSymbol_iOS`, and delete `FileIcon.swift` and
   `FileIconTests.swift`.
-- [ ] Sweep the comments that cite `FileIcon` or `FileIconColor` as a precedent so that each names
+- [x] Sweep the comments that cite `FileIcon` or `FileIconColor` as a precedent so that each names
   a surviving one: `SyntaxTokenKind` / `ChromeColorRole` for "a colour-free semantic enum in
   Core", `FileTypeIcon` for "a name-table mapping in Core". The `ChangeTree.swift` comment names
   `FileTypeIcon.forFile(named:)`. `grep -rnw 'FileIcon\|FileIconColor' Sources Tests` must return
   nothing; `TabFileIcon` is a different word.
-- [ ] Run `swift test`, the app-layer bundle under Xcode 26.3, and the iOS build. All must pass
+- [x] Run `swift test`, the app-layer bundle under Xcode 26.3, and the iOS build. All must pass
   before Task 5.
 
 ### Task 5: Documentation and `CLAUDE.md`

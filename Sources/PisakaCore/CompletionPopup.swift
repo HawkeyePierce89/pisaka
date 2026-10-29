@@ -47,7 +47,7 @@ public enum CompletionPopup {
     public struct Badge: Equatable, Sendable {
         public let symbolName: String
 
-        /// One badge per `SymbolKind`, in the `FileIcon` mould: the mapping is
+        /// One badge per `SymbolKind`, in the `FileTypeIcon` mould: the mapping is
         /// data, not control flow. Totality over the closed enum is pinned by
         /// `CompletionPopupTests.testBadgesForEverySymbolKind`, which iterates
         /// `allCases` — a new kind without an entry fails there first.

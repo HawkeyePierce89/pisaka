@@ -3,7 +3,7 @@ import Foundation
 /// A semantic colour role of the application chrome — everything drawn *around*
 /// the code, never the code itself.
 ///
-/// `PisakaCore` stays colour-free (the `FileIconColor` precedent): a role names
+/// `PisakaCore` stays colour-free (the `SyntaxTokenKind` precedent): a role names
 /// a *meaning*, and the view layer's `ChromePalette` is the one place that turns
 /// a meaning into a concrete colour. A chrome view therefore never spells a
 /// colour; it spells a role.

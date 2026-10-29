@@ -25,7 +25,7 @@ public struct FolderBookmark: Codable, Equatable {
 /// unit-tested — because both are off-by-one/edge-prone (dedup + cap ordering,
 /// trailing-slash/ancestor path matching) while the actual bookmark creation,
 /// `startAccessingSecurityScopedResource`, and `UIDocumentPicker` wiring stay in
-/// the iOS view layer. The `FileIcon`/`LineDiff` "move the testable math into
+/// the iOS view layer. The `FileTypeIcon`/`LineDiff` "move the testable math into
 /// Core" precedent.
 public enum ScopedFileAccess {
     /// How many recently-opened folders to retain (oldest beyond this are dropped).

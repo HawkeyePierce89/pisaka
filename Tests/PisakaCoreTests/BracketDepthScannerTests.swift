@@ -59,7 +59,7 @@ final class BracketDepthScannerTests: XCTestCase {
 
     func testDepthBeyondThePaletteIsReportedHonestly() {
         // Seven levels: the scanner reports 0…6 as plain Ints. Cycling a
-        // five-color palette is the view's job (the `FileIconColor` precedent).
+        // five-color palette is the view's job (the `ChromeColorRole` precedent).
         let tokens = scan("(((((((")
         XCTAssertEqual(tokens.map(\.depth), [0, 1, 2, 3, 4, 5, 6])
         XCTAssertTrue(tokens.allSatisfy(\.isUnmatched))

@@ -7,7 +7,7 @@ import Foundation
 /// layer and does nothing but deliver paths; this pure, Foundation-only decision
 /// lives in Core so its off-by-one-prone path matching (trailing slashes,
 /// same-or-descendant vs. raw string prefix) is unit-tested — the
-/// `ScopedFileAccess`/`FileIcon`/`LineDiff` "testable math in Core, IO in the view
+/// `ScopedFileAccess`/`FileTypeIcon`/`LineDiff` "testable math in Core, IO in the view
 /// layer" precedent. It performs **string comparison only, no disk access**: an
 /// FSEvents callback has no business touching the filesystem.
 ///

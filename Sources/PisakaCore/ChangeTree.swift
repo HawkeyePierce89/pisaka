@@ -7,8 +7,8 @@ import Foundation
 /// has `nil` children plus a non-`nil` `file`) so the SwiftUI tree can recurse
 /// over `children` the way `DirectoryNodeView` does over the project tree. `path`
 /// is repo-relative and serves as the stable identity; `url` is `root` joined
-/// with `path` so the view can reuse `FileIcon(for:)` (which takes a
-/// `DirectoryEntry`'s `url`).
+/// with `path` so a view holding the node has the file's own URL beside the
+/// name `FileTypeIcon.forFile(named:)` reads.
 public struct ChangeNode: Identifiable, Equatable {
     /// Display name (the last path component).
     public let name: String
