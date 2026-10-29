@@ -37,6 +37,16 @@ import PisakaCore
 /// `scrollerStyle` directly, so no case depends on the machine's scroll-bar
 /// setting or touches a preference.
 ///
+/// **A failed read explains itself.** When the trailing-edge read finds no
+/// wash, its message carries the render's geometry — the scrollers' style,
+/// frames and visibility, the clip view's bounds right after the scroll and
+/// after settle, the document frame, the bitmap's scale — and the bitmap it
+/// read is attached to the result as `trailing-edge-<test>.png`, so a failure
+/// seen only on a CI runner is diagnosable from that run alone. Nothing of it
+/// is built while the read passes, and
+/// `testTheTrailingEdgeDiagnosisReportsTheScrollerAndTheInnerColumnsWashes`
+/// keeps it from printing nothing.
+///
 /// **Header rows and the text tint.** Every diff is hosted as the panel draws
 /// it, under its `---`/`+++` file headers and an `@@` hunk header, which must
 /// carry no wash. An added line's text draws in `statusGreen` and a removed
@@ -273,19 +283,58 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
         return try XCTUnwrap(render.contentWidth, "no hosted scroll view")
     }
 
+    // MARK: - Failure diagnosis
+
+    /// The diagnosis a failed trailing-edge read prints is not vacuous: on an
+    /// unscrolled render whose washes are known to be drawn, it reports the
+    /// vertical scroller either way, and its inner column scan names both
+    /// washes.
+    func testTheTrailingEdgeDiagnosisReportsTheScrollerAndTheInnerColumnsWashes() throws {
+        let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
+        addTeardownBlock { @MainActor in render.window.close() }
+        let diagnosis = render.diagnosis(atX: render.width - 4)
+        XCTAssertTrue(
+            diagnosis.contains("vertical scroller: frame in host ") || diagnosis.contains("no vertical scroller"),
+            "the diagnosis does not report the vertical scroller:\n\(diagnosis)"
+        )
+        // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
+        let lines = diagnosis.components(separatedBy: "\n")
+        let header = try XCTUnwrap(
+            lines.firstIndex(of: DiffRender.columnScanHeader(atX: render.width - 40)),
+            "the diagnosis has no inner column scan:\n\(diagnosis)"
+        )
+        let bands = lines[(header + 1)...].prefix { $0.hasPrefix("  ") }
+        for role: ChromeColorRole in [.diffRemovedBackground, .diffAddedBackground] {
+            XCTAssertTrue(
+                bands.contains { $0.hasSuffix(": \(role.rawValue)") },
+                "the inner column scan does not name \(role.rawValue):\n\(diagnosis)"
+            )
+        }
+    }
+
     /// The removed and added rows are washed in a column just inside the
     /// trailing edge, in that order, and the context row under them is not.
+    /// Should either wash be missing, the bitmap read is attached to the result
+    /// and the message carries the render's geometry (`DiffRender.diagnosis`).
     private func assertWashedAtTrailingEdge(
         _ render: DiffRender, file: StaticString = #filePath, line: UInt = #line
     ) throws {
         let x = render.width - 4
+        let removedExtent = render.extent(of: .diffRemovedBackground, atX: x)
+        let addedExtent = render.extent(of: .diffAddedBackground, atX: x)
+        if removedExtent == nil || addedExtent == nil, let png = render.pngData() {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "trailing-edge-\(testMethodName).png"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         let removed = try XCTUnwrap(
-            render.extent(of: .diffRemovedBackground, atX: x),
-            "the removed line is not washed at the trailing edge", file: file, line: line
+            removedExtent,
+            "the removed line is not washed at the trailing edge\n\(render.diagnosis(atX: x))", file: file, line: line
         )
         let added = try XCTUnwrap(
-            render.extent(of: .diffAddedBackground, atX: x),
-            "the added line is not washed at the trailing edge", file: file, line: line
+            addedExtent,
+            "the added line is not washed at the trailing edge\n\(render.diagnosis(atX: x))", file: file, line: line
         )
         XCTAssertLessThan(removed.maxY, added.minY + 1, "the removed row is not above the added one", file: file, line: line)
 
@@ -300,6 +349,11 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
                 "the context line is washed \(role.rawValue) near its leading edge", file: file, line: line
             )
         }
+    }
+
+    /// The running test's method name, out of XCTest's `-[Class method]`.
+    private var testMethodName: String {
+        String(name.split(separator: " ").last?.dropLast() ?? Substring(name))
     }
 }
 
@@ -345,6 +399,9 @@ private final class DiffRender {
     private let render: HostedRender
     var window: NSWindow { render.window }
     private(set) var scrolledBy: CGFloat = 0
+    /// The clip view's bounds right after the last programmatic scroll, before
+    /// the layout settled; `nil` if the render was never scrolled.
+    private var clipBoundsAfterScroll: CGRect?
 
     init(
         lines: [UnifiedDiffLine], fontSize: Double = 13, appearance: ChromeAppearance = .dark,
@@ -398,8 +455,124 @@ private final class DiffRender {
         clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
         scroll.reflectScrolledClipView(clip)
         scrolledBy = clip.bounds.origin.x
+        clipBoundsAfterScroll = clip.bounds
         render.settle()
         try render.capture()
+    }
+
+    /// The bitmap last captured, as PNG.
+    func pngData() -> Data? { render.pngData() }
+
+    // MARK: Failure diagnosis
+
+    /// The render's geometry, for the message of a failed read in column `x`:
+    /// the hosted scroll view's scroller configuration, each scroller's frame
+    /// (in the host's coordinates) and visibility, the clip view's bounds right
+    /// after the last scroll and now, the document view's frame and the
+    /// bitmap's scale. Built only when a read fails — a passing test pays
+    /// nothing for it.
+    func diagnosis(atX x: CGFloat) -> String {
+        var lines = ["diagnosis of the read at x = \(x) in a \(width)-point pane, pixelScale \(render.pixelScale)"]
+        if let scroll = Self.scrollView(in: render.host) {
+            let style: String
+            switch scroll.scrollerStyle {
+            case .overlay: style = "overlay"
+            case .legacy: style = "legacy"
+            @unknown default: style = "unknown (\(scroll.scrollerStyle.rawValue))"
+            }
+            lines.append(
+                "scroll view: scrollerStyle \(style), hasVerticalScroller \(scroll.hasVerticalScroller), "
+                    + "hasHorizontalScroller \(scroll.hasHorizontalScroller), autohidesScrollers \(scroll.autohidesScrollers)"
+            )
+            for (axis, scroller) in [("vertical", scroll.verticalScroller), ("horizontal", scroll.horizontalScroller)] {
+                lines.append(scroller.map { "\(axis) scroller: " + describe($0) } ?? "no \(axis) scroller")
+            }
+            let subviewScrollers = Self.scrollers(in: scroll)
+            lines.append("NSScrollers among the scroll view's subviews: \(subviewScrollers.count)")
+            lines += subviewScrollers.map { "  \(type(of: $0)): " + describe($0) }
+            let clip = scroll.contentView
+            lines.append(
+                "clip bounds right after the scroll: "
+                    + (clipBoundsAfterScroll.map { "\($0)" } ?? "none (not scrolled)") + ", after settle: \(clip.bounds)"
+            )
+            lines.append(
+                scroll.documentView.map { "document frame \($0.frame), isFlipped \($0.isFlipped)" } ?? "no document view"
+            )
+        } else {
+            lines.append("no hosted scroll view")
+        }
+        // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
+        for column in [x, width - 40] {
+            lines.append(Self.columnScanHeader(atX: column))
+            lines += bands(atX: column).map { "  " + $0 }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// `scroller`'s frame in the host's coordinates, its visibility and its knob.
+    private func describe(_ scroller: NSScroller) -> String {
+        let frame = scroller.convert(scroller.bounds, to: render.host)
+        let opacity = scroller.layer.map { "\($0.opacity)" } ?? "no layer"
+        return "frame in host \(frame), isHidden \(scroller.isHidden), alphaValue \(scroller.alphaValue), "
+            + "layer opacity \(opacity), knobProportion \(scroller.knobProportion), doubleValue \(scroller.doubleValue)"
+    }
+
+    /// Every `NSScroller` in `view`'s subtree, `view` itself excluded.
+    private static func scrollers(in view: NSView) -> [NSScroller] {
+        view.subviews.flatMap { subview in
+            (subview as? NSScroller).map { [$0] + scrollers(in: $0) } ?? scrollers(in: subview)
+        }
+    }
+
+    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
+    /// The line that opens column `x`'s band scan in `diagnosis`.
+    static func columnScanHeader(atX x: CGFloat) -> String { "column x = \(x), top to bottom:" }
+
+    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
+    /// Column `x` walked one pixel row at a time down the captured bitmap,
+    /// consecutive pixels of one classification merged into a band, each band
+    /// printed as `y0–y1: <class>` in points — an `other` band with its first
+    /// pixel's sRGB triple.
+    private func bands(atX x: CGFloat) -> [String] {
+        struct Band {
+            let minY: CGFloat
+            var maxY: CGFloat
+            let name: String
+            let color: NSColor?
+        }
+        let step = 1 / render.pixelScale
+        var bands: [Band] = []
+        for y in stride(from: 0, to: render.bounds.height, by: step) {
+            let color = render.color(atX: x, y: y)
+            let name = classify(color, atX: x, y: y)
+            if let last = bands.last, last.name == name {
+                bands[bands.count - 1].maxY = y + step
+            } else {
+                bands.append(Band(minY: y, maxY: y + step, name: name, color: color))
+            }
+        }
+        return bands.map { band in
+            let range = String(format: "%.1f–%.1f", band.minY, band.maxY)
+            guard band.name == "other" else { return "\(range): \(band.name)" }
+            let triple = band.color.map {
+                String(format: " (%.3f, %.3f, %.3f)", $0.redComponent, $0.greenComponent, $0.blueComponent)
+            } ?? " (no pixel)"
+            return "\(range): other\(triple)"
+        }
+    }
+
+    // Diagnostic for the macOS 26 trailing-edge investigation; removed once answered.
+    /// One pixel's class: either wash role, the ground, or `other`.
+    private func classify(_ color: NSColor?, atX x: CGFloat, y: CGFloat) -> String {
+        for role: ChromeColorRole in [.diffRemovedBackground, .diffAddedBackground] where matches(role, atX: x, y: y) {
+            return role.rawValue
+        }
+        guard let color else { return "other" }
+        let groundValue: CGFloat = appearance == .dark ? 0 : 1
+        let isGround = [color.redComponent, color.greenComponent, color.blueComponent].allSatisfy {
+            abs($0 - groundValue) < 0.02
+        }
+        return isGround ? "ground" : "other"
     }
 
     private static func scrollView(in view: NSView) -> NSScrollView? {
