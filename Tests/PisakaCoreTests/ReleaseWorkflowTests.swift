@@ -3473,7 +3473,8 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///
     /// A test that fails only on the runner's OS cannot be reproduced locally,
     /// and the log carries the assertion's text and nothing else; the bundle
-    /// carries what a failing render test attached — the bitmap it read. Each
+    /// carries what a failing test attached — today the commit diff's
+    /// trailing-edge read, the bitmap it read. Each
     /// half of the shape is a way to lose it silently:
     ///
     ///  * the test step's `-resultBundlePath` and the upload's `path:` drifting
@@ -3521,6 +3522,11 @@ final class ReleaseWorkflowTests: XCTestCase {
         XCTAssertEqual(upload.filter { $0.hasPrefix("path:") }, ["path: \(bundlePath)"], """
             `\(Self.ciResultBundleStepName)` must upload exactly the bundle the test step writes, \
             \(bundlePath); with `if-no-files-found: ignore` a mismatch uploads nothing and says nothing.
+            """)
+        XCTAssertEqual(upload.filter { $0.hasPrefix("if-no-files-found:") }, ["if-no-files-found: ignore"], """
+            `\(Self.ciResultBundleStepName)` must carry exactly `if-no-files-found: ignore`: a failure \
+            before the test step leaves no bundle, and `warn` or `error` would report that as a missing \
+            artifact instead of as itself.
             """)
         XCTAssertEqual(upload.filter { $0.hasPrefix("name:") }, ["name: PisakaAppTests-xcresult"], """
             The artifact must be named PisakaAppTests-xcresult, the name docs/RELEASING.md tells a reader \
@@ -4008,7 +4014,9 @@ final class ReleaseWorkflowTests: XCTestCase {
         let conditions = lines.filter { $0.hasPrefix("if:") || $0.hasPrefix("- if:") }
         XCTAssertEqual(conditions.count, stepConditions.count, """
             ci.yml carries \(conditions.count) `if:` lines but its steps account for \(stepConditions.count): \
-            \(conditions). A condition outside a step — on a whole job — skips every guard that job runs.
+            \(conditions). Either a condition sits outside a step — on a whole job, skipping every guard \
+            that job runs — or two steps of one job share a name and a condition, which the set above \
+            counts once.
             """)
     }
 

@@ -53,9 +53,9 @@ import PisakaCore
 /// read is attached to the result as `trailing-edge-<test>.png`. Both stay
 /// permanently, so a failure seen only on CI's OS is diagnosable from that
 /// run's log and `PisakaAppTests-xcresult` artifact alone, with no round trip.
-/// Nothing of it is built while the read passes, and
-/// `testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry` keeps
-/// it from printing nothing.
+/// Nothing of it is built while the read passes, and the two
+/// `testTheTrailingEdgeDiagnosis…` cases keep it from printing nothing,
+/// unscrolled and scrolled, and the attachment from being empty.
 ///
 /// **Header rows and the text tint.** Every diff is hosted as the panel draws
 /// it, under its `---`/`+++` file headers and an `@@` hunk header, which must
@@ -298,7 +298,8 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
     /// The diagnosis a failed trailing-edge read prints is not vacuous: on an
     /// unscrolled render it finds the hosted scroll view, reports the vertical
     /// scroller either way, and carries the clip view's bounds and the
-    /// document's frame.
+    /// document's frame; and the bitmap a failure attaches is a PNG of the
+    /// whole capture.
     func testTheTrailingEdgeDiagnosisReportsTheScrollersAndTheClipGeometry() throws {
         let render = try DiffRender(lines: Self.short, scrollToTrailingEdge: false)
         addTeardownBlock { @MainActor in render.window.close() }
@@ -308,12 +309,36 @@ final class CommitUnifiedDiffWashTests: XCTestCase {
             "the diagnosis does not report the vertical scroller:\n\(diagnosis)"
         )
         for expected in [
+            "pixelScale ",
             "scroll view: scrollerStyle ",
+            "NSScrollers among the scroll view's subviews: ",
             "clip bounds right after the scroll: none (not scrolled), after settle: ",
             "document frame ",
         ] {
             XCTAssertTrue(diagnosis.contains(expected), "the diagnosis lacks \"\(expected)\":\n\(diagnosis)")
         }
+
+        let png = try XCTUnwrap(render.pngData(), "the capture encodes to no PNG — a failure would attach nothing")
+        let decoded = try XCTUnwrap(NSBitmapImageRep(data: png), "the attached PNG does not decode")
+        XCTAssertEqual(
+            CGFloat(decoded.pixelsWide), render.width * render.pixelScale, accuracy: 0.5,
+            "the attached PNG is not the whole capture"
+        )
+    }
+
+    /// On a scrolled render — the shape a real trailing-edge failure has — the
+    /// diagnosis carries the clip view's bounds right after the scroll, not the
+    /// unscrolled placeholder.
+    func testTheTrailingEdgeDiagnosisReportsTheClipBoundsRightAfterTheScroll() throws {
+        let render = try DiffRender(lines: Self.overflowing, scrollToTrailingEdge: true)
+        addTeardownBlock { @MainActor in render.window.close() }
+        XCTAssertGreaterThan(render.scrolledBy, 0, "the overflowing diff did not scroll — the case is not exercised")
+        let diagnosis = render.diagnosis(atX: render.width - 4)
+        XCTAssertTrue(
+            diagnosis.contains("clip bounds right after the scroll: ("),
+            "the diagnosis lacks the clip bounds right after the scroll:\n\(diagnosis)"
+        )
+        XCTAssertFalse(diagnosis.contains("none (not scrolled)"), "a scrolled render reads as unscrolled:\n\(diagnosis)")
     }
 
     /// The removed and added rows are washed in a column just inside the
@@ -506,6 +531,9 @@ private final class DiffRender {
 
     /// The bitmap last captured, as PNG.
     func pngData() -> Data? { render.pngData() }
+
+    /// Bitmap pixels per point of the last capture.
+    var pixelScale: CGFloat { render.pixelScale }
 
     // MARK: Failure diagnosis
 

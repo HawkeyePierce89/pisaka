@@ -495,8 +495,13 @@ scroll anchor (`app-git-views.md`) — is held by those design notes and by hand
 not by CI. A failure that shows only on the runner's OS is read from the failed
 `test-macos` run's `PisakaAppTests-xcresult` artifact, uploaded on failure only:
 `gh run download <run-id> -n PisakaAppTests-xcresult -D <new empty directory>`,
-then `xcrun xcresulttool export attachments --path <bundle> --output-path <another
-new empty directory>` for the bitmaps the failing render tests attached.
+then `xcrun xcresulttool export attachments --path <that directory> --output-path
+<another new empty directory>`. The download directory *is* the bundle: the
+artifact holds the bundle's contents, with no `.xcresult` folder around them. The
+exported files are named by UUID, and the `manifest.json` beside them maps each
+to its attachment's name. Only the commit diff's trailing-edge read attaches a
+bitmap (`trailing-edge-<test>_0_<UUID>.png`, `CommitUnifiedDiffWashTests`); every
+other suite's failure is its text alone.
 
 The workflow then, in order:
 

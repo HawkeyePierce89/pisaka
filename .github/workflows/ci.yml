@@ -360,11 +360,11 @@ jobs:
           -resultBundlePath build.noindex/PisakaAppTests.xcresult
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
       # A test that fails only on the runner's OS has now happened twice, and the
-      # log carries nothing but the assertion's text. The result bundle holds the
-      # attachments a failing render test writes (the bitmap it read), so a
-      # CI-only failure can be diagnosed without another round trip. It is kept
-      # on failure only: an upload costs time and storage on every run, and a
-      # green gate stays quiet. `ignore` keeps a failure before the test step,
+      # log carries nothing but the assertion's text. The result bundle holds what
+      # a failing test attached (today the commit diff's trailing-edge read, the
+      # bitmap it read), so a CI-only failure can be diagnosed without another
+      # round trip. It is kept on failure only: an upload costs time and storage
+      # on every run, and a green gate stays quiet. `ignore` keeps a failure before the test step,
       # which leaves no bundle, from being reported as a missing artifact instead
       # of as itself. The one `if:` ci.yml carries; every gate step stays
       # unconditional (ReleaseWorkflowTests).
